@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, staging, prod, prod-fastlane]
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Django checks and tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --locked
+
+      - name: Check lockfile
+        working-directory: backend
+        run: uv lock --check
+
+      - name: Run Django checks
+        working-directory: backend
+        run: uv run python manage.py check
+
+      - name: Check migrations
+        working-directory: backend
+        run: uv run python manage.py migrate --check
+
+      - name: Run tests
+        working-directory: backend
+        run: uv run python manage.py test
