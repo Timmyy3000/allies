@@ -1,0 +1,36 @@
+name: Promote Dev → Staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: dev
+
+  promote:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PROMOTION_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.email "ci@allies.dev"
+          git config user.name "Allies CI Bot"
+
+      - name: Merge dev into staging
+        run: |
+          set -euo pipefail
+          git fetch origin
+          git checkout -B staging origin/staging
+          git merge origin/dev --no-ff -m "chore: promote dev → staging"
+          git push origin staging
