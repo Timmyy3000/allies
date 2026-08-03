@@ -43,6 +43,10 @@ jobs:
         working-directory: backend
         run: uv run python manage.py check
 
+      - name: Apply migrations
+        working-directory: backend
+        run: uv run python manage.py migrate --noinput
+
       - name: Check migrations
         working-directory: backend
         run: uv run python manage.py migrate --check
