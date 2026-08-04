@@ -1,0 +1,79 @@
+name: Promote Prod Fastlane → Prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, for example v1.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate release version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^v[0-9]+(\.[0-9]+)*([.-][A-Za-z0-9]+(\.[A-Za-z0-9]+)*)?$ ]] || { echo "Invalid version: $VERSION" >&2; exit 1; }
+  validate:
+    needs: validate-version
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: prod-fastlane
+  promote:
+    needs: validate
+    runs-on: ubuntu-latest
+    outputs:
+      fastlane_sha: ${{ needs.validate.outputs.source_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.PROMOTION_TOKEN }}
+      - name: Configure Git
+        run: |
+          git config user.email "ci@allies.dev"
+          git config user.name "Allies CI Bot"
+      - name: Merge Fastlane into prod and tag release
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^v[0-9]+(\.[0-9]+)*([.-][A-Za-z0-9]+(\.[A-Za-z0-9]+)*)?$ ]] || { echo "Invalid version: $VERSION" >&2; exit 1; }
+          git fetch origin --tags
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then echo "Tag already exists: $VERSION" >&2; exit 1; fi
+          git checkout -B prod origin/prod
+          git merge "$SOURCE_SHA" --no-ff -m "chore: promote prod-fastlane → prod"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push --atomic origin prod "$VERSION"
+  backmerge:
+    needs: promote
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.promote.outputs.fastlane_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.PROMOTION_TOKEN }}
+      - name: Open back-merge PR into dev
+        env:
+          GH_TOKEN: ${{ secrets.PROMOTION_TOKEN }}
+          VERSION: ${{ inputs.version }}
+          FASTLANE_SHA: ${{ needs.promote.outputs.fastlane_sha }}
+        run: |
+          set -euo pipefail
+          branch="chore/backmerge-${VERSION}-to-dev"
+          git fetch origin
+          git push origin "${FASTLANE_SHA}:refs/heads/${branch}"
+          if [ "$(gh pr list --head "$branch" --base dev --json number --jq 'length')" = "0" ]; then
+            gh pr create --base dev --head "$branch" --title "chore: back-merge ${VERSION} → dev" --body "Automated back-merge after prod-fastlane promotion ${VERSION}."
+          fi
