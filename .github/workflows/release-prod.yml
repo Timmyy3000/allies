@@ -1,0 +1,60 @@
+name: Release Prod
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Existing prod tag, for example v1.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_MODEL: openai/gpt-oss-120b
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve release tag
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = "push" ]; then VERSION="$GITHUB_REF_NAME"; else VERSION="$INPUT_VERSION"; fi
+          git fetch origin --tags
+          git show-ref --verify --quiet "refs/tags/$VERSION" || { echo "Tag does not exist: $VERSION" >&2; exit 1; }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Summarize release notes with OpenRouter
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: |
+          set -euo pipefail
+          : "${OPENROUTER_API_KEY:?OPENROUTER_API_KEY secret is required}"
+          current_sha=$(git rev-list -n 1 "$VERSION")
+          previous_tag=$(git describe --tags --abbrev=0 "${current_sha}^" 2>/dev/null || true)
+          if [ -n "$previous_tag" ]; then commits=$(git log "$previous_tag..$current_sha" --pretty=format:"- %s" --no-merges); else commits=$(git show -s --format:"- %s" "$current_sha"); fi
+          [ -n "$commits" ] || commits="- No user-facing commits found."
+          payload=$(jq -n --arg model "$RELEASE_MODEL" --arg commits "$commits" '{model:$model,messages:[{role:"system",content:"Write concise professional release notes from these commit subjects. Use sections titled New Features, Improvements, and Bug Fixes. Omit empty sections. Keep bullets short and do not invent details."},{role:"user",content:("Commit subjects:\n"+$commits)}],temperature:0.2,max_tokens:600}')
+          response=$(curl -fsS https://openrouter.ai/api/v1/chat/completions -H "Authorization: Bearer $OPENROUTER_API_KEY" -H "Content-Type: application/json" -H "X-Title: Allies release notes" -d "$payload")
+          notes=$(jq -er '.choices[0].message.content' <<< "$response")
+          delimiter="RELEASE_NOTES_$(openssl rand -hex 8)"
+          {
+            echo "RELEASE_NOTES<<$delimiter"
+            echo "$notes"
+            echo "$delimiter"
+          } >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$VERSION" --title "Release $VERSION" --notes "$RELEASE_NOTES" --verify-tag
