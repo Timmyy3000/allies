@@ -8,6 +8,10 @@ on:
       ref:
         required: false
         type: string
+    outputs:
+      source_sha:
+        description: "The exact source commit checked by this workflow"
+        value: ${{ jobs.check.outputs.source_sha }}
 
 permissions:
   contents: read
@@ -16,12 +20,18 @@ jobs:
   check:
     name: Django checks and tests
     runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.record_source.outputs.sha }}
     steps:
       - name: Check out source
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 0
+
+      - name: Record validated source SHA
+        id: record_source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -43,11 +53,15 @@ jobs:
         working-directory: backend
         run: uv run python manage.py check
 
+      - name: Check for missing migrations
+        working-directory: backend
+        run: uv run python manage.py makemigrations --check --dry-run
+
       - name: Apply migrations
         working-directory: backend
         run: uv run python manage.py migrate --noinput
 
-      - name: Check migrations
+      - name: Verify migrations are applied
         working-directory: backend
         run: uv run python manage.py migrate --check
 
