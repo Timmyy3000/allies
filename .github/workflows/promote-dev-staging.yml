@@ -19,6 +19,7 @@ jobs:
       - name: Check out source
         uses: actions/checkout@v4
         with:
+          ref: ${{ needs.validate.outputs.source_sha }}
           fetch-depth: 0
           token: ${{ secrets.PROMOTION_TOKEN }}
 
@@ -28,9 +29,11 @@ jobs:
           git config user.name "Allies CI Bot"
 
       - name: Merge dev into staging
+        env:
+          SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
         run: |
           set -euo pipefail
           git fetch origin
           git checkout -B staging origin/staging
-          git merge origin/dev --no-ff -m "chore: promote dev → staging"
+          git merge "$SOURCE_SHA" --no-ff -m "chore: promote dev → staging"
           git push origin staging
