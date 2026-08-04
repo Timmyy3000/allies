@@ -1,0 +1,54 @@
+name: Promote Staging → Prod
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version, for example v1.2.0"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  validate-version:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate release version
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^v[0-9]+(\.[0-9]+)*([.-][A-Za-z0-9]+(\.[A-Za-z0-9]+)*)?$ ]] || { echo "Invalid version: $VERSION" >&2; exit 1; }
+  validate:
+    needs: validate-version
+    uses: ./.github/workflows/ci.yml
+    with:
+      ref: staging
+  promote:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.validate.outputs.source_sha }}
+          fetch-depth: 0
+          token: ${{ secrets.PROMOTION_TOKEN }}
+      - name: Configure Git
+        run: |
+          git config user.email "ci@allies.dev"
+          git config user.name "Allies CI Bot"
+      - name: Merge staging into prod and tag release
+        env:
+          VERSION: ${{ inputs.version }}
+          SOURCE_SHA: ${{ needs.validate.outputs.source_sha }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^v[0-9]+(\.[0-9]+)*([.-][A-Za-z0-9]+(\.[A-Za-z0-9]+)*)?$ ]] || { echo "Invalid version: $VERSION" >&2; exit 1; }
+          git fetch origin --tags
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" >/dev/null 2>&1; then echo "Tag already exists: $VERSION" >&2; exit 1; fi
+          git checkout -B prod origin/prod
+          git merge "$SOURCE_SHA" --no-ff -m "chore: promote staging → prod"
+          git tag -a "$VERSION" -m "Release $VERSION"
+          git push --atomic origin prod "$VERSION"

@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, staging, prod, prod-fastlane]
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
+    outputs:
+      source_sha:
+        description: "The exact source commit checked by this workflow"
+        value: ${{ jobs.check.outputs.source_sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Django checks and tests
+    runs-on: ubuntu-latest
+    outputs:
+      source_sha: ${{ steps.record_source.outputs.sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+      - name: Record validated source SHA
+        id: record_source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: backend/.python-version
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --locked
+      - name: Check lockfile
+        working-directory: backend
+        run: uv lock --check
+      - name: Run Django checks
+        working-directory: backend
+        run: uv run python manage.py check
+
+      - name: Check for missing migrations
+        working-directory: backend
+        run: uv run python manage.py makemigrations --check --dry-run
+
+      - name: Apply migrations
+        working-directory: backend
+        run: uv run python manage.py migrate --noinput
+
+      - name: Verify migrations are applied
+        working-directory: backend
+        run: uv run python manage.py migrate --check
+      - name: Run tests
+        working-directory: backend
+        run: uv run python manage.py test
