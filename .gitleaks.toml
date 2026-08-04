@@ -1,0 +1,4 @@
+title = "Allies Interface Gitleaks configuration"
+
+[extend]
+useDefault = true
