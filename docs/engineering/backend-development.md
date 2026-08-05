@@ -500,6 +500,7 @@ The repository root provides the current convenience commands:
 ```powershell
 make sync
 make check
+make validate
 make migrate
 make server
 ```
@@ -520,6 +521,10 @@ make shell
 generates the agreed Allies app shape, but it does not silently modify
 `INSTALLED_APPS` or top-level API registration. Those changes remain explicit
 so they are visible in review.
+
+`make check` runs the quick Django configuration and missing-migration checks.
+`make validate` runs the full repository validation command, including the
+lockfile check and tests. CI uses the same Python validation runner.
 
 Worker and scheduler commands will be added when the repository introduces
 Celery and background processing. The underlying `uv run ...` commands remain
