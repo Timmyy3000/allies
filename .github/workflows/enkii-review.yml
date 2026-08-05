@@ -37,3 +37,5 @@ jobs:
         uses: Timmyy3000/enkii@v0.2
         with:
           openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
+          # A non-empty path enables Enkii v0.2's policy-review lane.
+          policy_review_skill_path: ".enkii/policy-review.md"
