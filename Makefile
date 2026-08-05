@@ -4,13 +4,14 @@ NAME ?=
 MIGRATION_NAME ?=
 PORT ?= 8000
 
-.PHONY: help sync app check test format lint migrate migrations server shell
+.PHONY: help sync app check validate test format lint migrate migrations server shell
 
 help:
 	@echo Allies Foundry commands:
 	@echo   make sync
 	@echo   make app NAME=domain
 	@echo   make check
+	@echo   make validate
 	@echo   make test APP=path
 	@echo   make format
 	@echo   make lint
@@ -28,6 +29,9 @@ app:
 check:
 	cd $(BACKEND_DIR) && uv run python manage.py check
 	cd $(BACKEND_DIR) && uv run python manage.py makemigrations --check --dry-run
+
+validate:
+	uv run --locked --project $(BACKEND_DIR) python scripts/validate.py
 
 test:
 	cd $(BACKEND_DIR) && uv run pytest $(APP)

@@ -14,6 +14,18 @@ make migrate
 make server
 ```
 
+Run the full cross-platform validation command from the repository root:
+
+```powershell
+uv run --locked --project backend python scripts/validate.py
+```
+
+The Make convenience target is equivalent:
+
+```powershell
+make validate
+```
+
 Create Foundry domain apps from the repository root as they become necessary:
 
 ```powershell

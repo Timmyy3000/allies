@@ -40,16 +40,8 @@ jobs:
       - name: Install dependencies
         working-directory: backend
         run: uv sync --locked
-      - name: Check lockfile
-        working-directory: backend
-        run: uv lock --check
-      - name: Run Django checks
-        working-directory: backend
-        run: uv run python manage.py check
-
-      - name: Check for missing migrations
-        working-directory: backend
-        run: uv run python manage.py makemigrations --check --dry-run
+      - name: Run repository validation
+        run: uv run --locked --project backend python scripts/validate.py
 
       - name: Apply migrations
         working-directory: backend
@@ -58,6 +50,3 @@ jobs:
       - name: Verify migrations are applied
         working-directory: backend
         run: uv run python manage.py migrate --check
-      - name: Run tests
-        working-directory: backend
-        run: uv run python manage.py test
