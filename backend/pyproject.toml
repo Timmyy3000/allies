@@ -7,3 +7,14 @@ dependencies = [
     "django>=6.0.7,<6.1",
     "django-ninja-extra>=0.31.6",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3,<9",
+    "pytest-django>=4.11,<5",
+    "ruff>=0.12,<1",
+]
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
