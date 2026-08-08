@@ -36,10 +36,23 @@ The Django project lives under `backend/`. Run Django and uv commands from that 
 
 The repositories have different ownership boundaries:
 
-- **Cloud** owns customer-facing product truth, including users, tenants, Allies, conversations, responsibilities, approvals, credentials, billing, and the visible view of work.
-- **Foundry** owns durable runtime and execution truth, including runtime profiles, workspaces, executions, attempts, leases, events, provider bindings, and runtime adapters.
+- **Cloud** owns customer-facing product truth, including users, Workspaces, Allies, conversations, responsibilities, approvals, credentials, billing, and the visible view of work.
+- **Foundry** owns durable runtime and execution truth, including runtime profiles, runtime Workspaces, executions, attempts, leases, events, provider bindings, and runtime adapters.
 
 Cloud and Foundry do not share Django models, databases, migrations, or queues. Cloud speaks to Foundry through a versioned API. Vendor concepts should not leak through every domain module.
+
+### Cloud Workspace vocabulary
+
+`Workspace` is the canonical Cloud product and API noun for the customer-facing
+account, membership, and capability boundary. Older `organization` or generic
+`tenant` wording in planning material refers to this Cloud Workspace and must
+not create a parallel domain model. Foundry's runtime Workspace remains a
+separate private binding for execution, Machine generation, and leases; Cloud
+stores only the opaque binding reference exposed by the gateway contract.
+
+Use `tenant` without qualification only for generic isolation policy or a
+deployment/volume context. Use `Cloud Workspace` and `Foundry runtime
+Workspace` when the ownership boundary matters.
 
 ## First principles
 
@@ -73,7 +86,7 @@ The code should make it possible to answer:
 
 - which use case is running;
 - which transaction owns it;
-- which tenant is in scope;
+- which Cloud Workspace is in scope;
 - which permission was checked;
 - which external system was called;
 - what can be retried.
@@ -154,7 +167,7 @@ Controllers are HTTP adapters.
 A controller should:
 
 1. authenticate the request;
-2. resolve the actor and tenant context;
+2. resolve the actor and Cloud Workspace context;
 3. validate the request schema;
 4. call a service or read function;
 5. translate the result into a response schema and HTTP status.
@@ -216,11 +229,13 @@ Services should not return HTTP responses. Raise named domain exceptions and tra
 
 Access code answers permission and authorization questions.
 
-Central tenancy authorization should define roles, memberships, and generic tenant-level capabilities. A domain may define resource-specific access rules in `access.py` or an `access/` package.
+Central Workspace authorization should define roles, memberships, and generic
+Cloud Workspace-level capabilities. A domain may define resource-specific
+access rules in `access.py` or an `access/` package.
 
 For example:
 
-- tenancy authorization: can this actor edit anything in this tenant?
+- Workspace authorization: can this actor edit anything in this Cloud Workspace?
 - Ally access: can this actor edit this Ally?
 - service: perform the edit.
 
@@ -233,7 +248,7 @@ A query is a read-only data access function. A `queries/` package is optional.
 Simple read use cases may use Django ORM directly from a read-oriented service module. Extract a query boundary when the read is:
 
 - reused by multiple callers;
-- tenant or permission scoped in a non-trivial way;
+- Cloud Workspace or permission scoped in a non-trivial way;
 - expensive or performance-sensitive;
 - a product-specific projection;
 - difficult to test without a named query.
@@ -385,21 +400,25 @@ path("api/v1/", api.urls)
 
 Do not use automatic controller discovery. Explicit registration makes API composition, imports, and review predictable.
 
-## Authorization and tenant scope
+## Authorization and Workspace scope
 
-Every request that reaches tenant-owned data must resolve a tenant explicitly.
+Every request that reaches Cloud Workspace-owned data must resolve a Cloud
+Workspace explicitly.
 
 For each use case, identify:
 
 - actor;
-- tenant;
+- Cloud Workspace;
 - resource;
 - required capability or role;
 - ownership and lifecycle checks.
 
-Controllers may resolve authentication and basic tenant context. Services must still enforce the relevant access rule because services can also be called by tasks, admin flows, or other internal code.
+Controllers may resolve authentication and basic Cloud Workspace context.
+Services must still enforce the relevant access rule because services can also
+be called by tasks, admin flows, or other internal code.
 
-Tenant filtering should be visible in queries and services. Do not rely on callers to remember an implicit filter.
+Cloud Workspace filtering should be visible in queries and services. Do not
+rely on callers to remember an implicit filter.
 
 ## Cross-app dependencies
 
@@ -491,7 +510,7 @@ Minimum expectations for a feature:
 
 Prefer targeted tests while building, then run the repository suite before handoff.
 
-Tests should prove tenant isolation and failure behavior, not only the successful path.
+Tests should prove Cloud Workspace isolation and failure behavior, not only the successful path.
 
 ## Local development commands
 
@@ -546,7 +565,7 @@ Before calling a domain slice ready for review, confirm:
 
 These remain intentionally open until implementation gives us evidence:
 
-- the exact tenant role and capability model;
+- the exact Cloud Workspace role and capability model;
 - whether the API uses an envelope or resource-first responses;
 - whether `startdomain` should gain an explicit registration option;
 - which worker and scheduler targets should be added with background processing;
