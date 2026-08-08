@@ -96,6 +96,26 @@ Replacement retires the old generation as its first atomic transition. All old
 claims, renewals, events, session updates, and terminal mutations fail from
 that point onward.
 
+Every lease/generation-authorized attempt mutation keeps its authorization and
+write in the same database transaction. The exported runtime service accepts
+only declarative status and claim-time fields; it performs those bounded writes
+inside the transaction, so automatic retries contain database work only and do
+not re-run arbitrary caller code. Event append uses the same lock-only
+authorization seam inside its own transaction; that internal seam rejects
+calls made outside an atomic caller.
+
+Attempt status follows `queued → leased → running → succeeded | failed |
+cancelled | unknown`; a queued attempt may move directly to `running` when the
+claim path does not expose the intermediate lease state. Terminal statuses are
+idempotent but immutable, so a stale writer cannot regress or replace a terminal
+receipt. `claimed_at` is write-once: it may be set while an attempt is leased or
+running, then cannot be cleared or changed. Ordinary attempt mutations and event
+appends require an `active` lease. `stopping` is reserved for the FND-005
+stop-acknowledgement path and cannot authorize normal runtime writes. New events
+are accepted only for nonterminal attempts (`queued`, `leased`, or `running`);
+an exact event replay remains idempotent after a terminal receipt. Lease state
+choices are also enforced by a database check constraint.
+
 ## Hermes contract
 
 Hermes is reachable only inside the Machine at

@@ -38,6 +38,7 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "devtools",
+    "runtime",
 ]
 
 MIDDLEWARE = [
@@ -77,6 +78,11 @@ DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
+        # Make short write transactions contend before reading rows. This
+        # avoids SQLite's deferred-write upgrade race in concurrent runtime
+        # event/lease operations; production PostgreSQL settings do not use
+        # this SQLite-only option.
+        "OPTIONS": {"transaction_mode": "IMMEDIATE"},
     }
 }
 
