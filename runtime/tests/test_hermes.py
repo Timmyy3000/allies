@@ -13,7 +13,11 @@ from allies_runtime.errors import (
     HermesMalformedResponse,
     HermesTimeout,
 )
-from allies_runtime.hermes import HermesClient, UnixSocketCredentialResolver
+from allies_runtime.hermes import (
+    HermesClient,
+    UnixSocketCredentialResolver,
+    _IncrementalHTTPStream,
+)
 from allies_runtime.hermes import (
     test_credential_for_reference as derive_test_credential,
 )
@@ -165,6 +169,113 @@ async def test_stream_is_profile_scoped_and_parses_events(monkeypatch):
     assert [event.sequence for event in result.events] == [1, 2]
     assert "/p/ally-a/api/sessions/s1/chat/stream" in calls[0][0]
     assert json.loads(calls[0][3]) == {"message": "hello"}
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_yields_before_done_and_closes_response(monkeypatch):
+    lines = iter(
+        [
+            b"event: run.started\n",
+            b'data: {"session_id":"s1","run_id":"r1","seq":1}\n',
+            b"\n",
+            b"event: run.completed\n",
+            b'data: {"session_id":"s1","run_id":"r1","seq":2}\n',
+            b"\n",
+            b"data: [DONE]\n\n",
+        ]
+    )
+
+    class IncrementalResponse(FakeResponse):
+        def readline(self, _limit):
+            return next(lines, b"")
+
+    response = IncrementalResponse()
+    client, _ = _client(monkeypatch, response)
+    stream = await client.stream_profile_incremental("ally-a", "s1", "hello")
+    first = await stream.__anext__()
+    assert first.sequence == 1
+    await stream.aclose()
+    assert response.closed
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_consumes_done_and_ignores_comments(monkeypatch):
+    class Response(FakeResponse):
+        def __init__(self):
+            super().__init__()
+            self.rows = iter(
+                [
+                    b": keepalive\n",
+                    b"event:\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                    b"data: [DONE]\n\n",
+                ]
+            )
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+    response = Response()
+    monkeypatch.setattr(
+        "allies_runtime.hermes.urlopen", lambda *_args, **_kwargs: response
+    )
+    client = HermesClient(
+        load_settings({"HERMES_CREDENTIAL_REF": "ref://test"}), lambda ref: "key"
+    )
+    stream = await client.stream_profile_incremental("ally-a", "s1", "hello")
+    event = await stream.__anext__()
+    assert event.sequence == 1
+    with pytest.raises(StopAsyncIteration):
+        await stream.__anext__()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "line",
+    [
+        b"data: nope\n\n",
+        b'data: {"session_id":"wrong","run_id":"r","seq":1}\n\n',
+        b'data: {"session_id":"s1","seq":1}\n\n',
+        b'data: {"session_id":"s1","run_id":"r","seq":0}\n\n',
+        b"data: []\n\n",
+        b"\xff\n",
+    ],
+)
+async def test_incremental_stream_rejects_malformed_events(line):
+    class Response:
+        def __init__(self):
+            self.rows = iter([line])
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+        def close(self):
+            return None
+
+    stream = _IncrementalHTTPStream(Response(), "ally-a", "s1")
+    with pytest.raises(HermesMalformedResponse):
+        await stream.__anext__()
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_enforces_bounds_and_closed_state(monkeypatch):
+    import allies_runtime.hermes as module
+
+    class Response:
+        def readline(self, _limit):
+            return b"x" * 9
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(module, "MAX_EVENT_BYTES", 8)
+    stream = _IncrementalHTTPStream(Response(), "ally-a", "s1")
+    with pytest.raises(HermesMalformedResponse):
+        await stream.__anext__()
+    stream.closed = True
+    with pytest.raises(StopAsyncIteration):
+        await stream.__anext__()
 
 
 @pytest.mark.asyncio

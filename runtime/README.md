@@ -32,3 +32,20 @@ exceptions, or evidence. The socket/bootstrap is an explicit live-proof
 dependency; a proof-only `test://fnd004/…` reference may instead use the
 deterministic fixture resolver and needs no socket producer. Production secret
 delivery and isolation remain later work.
+
+## Foundry worker boundary
+
+`allies_runtime.foundry.FoundryClient` calls the internal
+`/api/v1/runtime/` contract with `Authorization: Bearer <runtime-token>` and,
+for Attempt mutations, `X-Foundry-Lease-Token: <lease-token>`. Tokens remain in
+process memory and are never included in errors or evidence. `FoundryWorker`
+keeps a bounded pool (the proof uses two slots), serializes work through
+Foundry's per-profile lease, and forwards Hermes events as they arrive. Event
+IDs are deterministic from Attempt, stream, and sequence so response loss is
+safe to replay with the same claim or mutation identity.
+
+Renewal runs every 20 seconds against the 60-second lease contract. A renewal
+failure cancels the incremental Hermes stream immediately, sends `stopped`,
+and suppresses later event/terminal writes. The client maps `401`, `409`,
+`422`, `429`, and `503` responses to typed errors; a lost claim response keeps
+the same `claim_id` reserved until the replay succeeds.

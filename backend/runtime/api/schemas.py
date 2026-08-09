@@ -1,0 +1,39 @@
+from __future__ import annotations
+
+from typing import Any
+from uuid import UUID
+
+from ninja import Schema
+
+
+class ClaimRequest(Schema):
+    claim_id: UUID
+    available_slots: int
+
+
+class EventRequest(Schema):
+    event_id: UUID
+    stream_id: str
+    sequence: int
+    type: str
+    payload: dict[str, Any]
+
+
+class SessionBindingRequest(Schema):
+    cloud_conversation_ref: str
+    expected_session_id: str | None = None
+    effective_session_id: str
+
+
+class StoppedRequest(Schema):
+    reason: str
+
+
+class CompleteRequest(Schema):
+    receipt: dict[str, Any]
+
+
+class FailRequest(Schema):
+    code: str
+    retryable: bool
+    receipt: dict[str, Any] | None = None

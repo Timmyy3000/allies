@@ -202,12 +202,14 @@ class WorkspaceLifecycle:
         sleep=time.sleep,
         jitter: bool = True,
         phase_deadline_seconds: float = PHASE_DEADLINE_SECONDS,
+        fence_callback: Callable[[UUID, int, int, str | None], Any] | None = None,
     ) -> None:
         self.provider = provider
         self.clock = clock
         self.sleep = sleep
         self.jitter = jitter
         self.phase_deadline_seconds = phase_deadline_seconds
+        self.fence_callback = fence_callback
         self._phase_attempts: dict[str, int] = {}
 
     def ensure_workspace(
@@ -540,6 +542,22 @@ class WorkspaceLifecycle:
                         claim,
                         deadline,
                     )
+            # The provider has now authoritatively reported STOPPED or 404.
+            # Retire old-generation leases before destroying/replacing the
+            # Machine; this callback is intentionally after the wait and also
+            # runs for an already-absent recorded Machine.
+            if claim.target_generation > 1:
+                callback = self.fence_callback
+                if callback is None:
+                    from .leases import confirm_machine_stopped_and_fence
+
+                    callback = confirm_machine_stopped_and_fence
+                callback(
+                    workspace_id,
+                    claim.target_generation - 1,
+                    claim.target_generation,
+                    previous,
+                )
             self._cas_phase(
                 workspace_id,
                 claim,

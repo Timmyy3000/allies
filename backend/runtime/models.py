@@ -148,6 +148,39 @@ class Workspace(models.Model):
         return self.tenant_ref
 
 
+class RuntimeCredential(models.Model):
+    """A hashed, generation-scoped bearer capability for a runtime worker."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="runtime_credentials",
+    )
+    token_digest = models.CharField(max_length=64, unique=True)
+    machine_generation = models.PositiveIntegerField()
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes: ClassVar = [
+            models.Index(
+                fields=["workspace", "machine_generation", "revoked_at"],
+                name="rt_cred_ws_generation_idx",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if not re.fullmatch(r"[0-9a-f]{64}", self.token_digest):
+            raise RuntimeValidationError(
+                "token_digest must be a lowercase SHA-256 hex digest"
+            )
+        if self.machine_generation < 0:
+            raise RuntimeValidationError("machine_generation cannot be negative")
+        return super().save(*args, **kwargs)
+
+
 class RuntimeProfileQuerySet(models.QuerySet):
     def bulk_create(
         self,
@@ -307,7 +340,18 @@ class Attempt(models.Model):
         default=AttemptStatus.QUEUED,
     )
     machine_generation = models.PositiveIntegerField()
+    claim_id = models.UUIDField(null=True, blank=True, unique=True)
     claimed_at = models.DateTimeField(null=True, blank=True)
+    terminal_request_digest = models.CharField(max_length=64, null=True, blank=True)
+    terminal_lease_digest = models.CharField(max_length=64, null=True, blank=True)
+    terminal_receipt = models.JSONField(null=True, blank=True)
+    terminal_receipt_id = models.UUIDField(null=True, blank=True)
+    stopped_request_digest = models.CharField(max_length=64, null=True, blank=True)
+    stopped_lease_digest = models.CharField(max_length=64, null=True, blank=True)
+    stopped_receipt = models.JSONField(null=True, blank=True)
+    session_request_digest = models.CharField(max_length=64, null=True, blank=True)
+    session_lease_digest = models.CharField(max_length=64, null=True, blank=True)
+    session_receipt = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -343,6 +387,7 @@ class Lease(models.Model):
         related_name="leases",
     )
     token_digest = models.CharField(max_length=64, unique=True)
+    claim_id = models.UUIDField(null=True, blank=True)
     expires_at = models.DateTimeField()
     machine_generation = models.PositiveIntegerField()
     state = models.CharField(
@@ -388,8 +433,9 @@ class ExecutionEvent(models.Model):
         related_name="events",
     )
     event_id = models.UUIDField()
+    stream_id = models.CharField(max_length=255, default="")
     sequence = models.PositiveIntegerField()
-    event_type = models.CharField(max_length=128)
+    event_type = models.CharField(max_length=64)
     payload = models.JSONField(default=dict)
     payload_digest = models.CharField(max_length=64, default="", editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -405,7 +451,7 @@ class ExecutionEvent(models.Model):
                 name="runtime_event_attempt_sequence_unique",
             ),
             models.CheckConstraint(
-                condition=Q(sequence__gt=0),
+                condition=Q(sequence__gt=0) & Q(sequence__lte=100000),
                 name="runtime_event_sequence_positive",
             ),
         ]
