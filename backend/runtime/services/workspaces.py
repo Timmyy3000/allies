@@ -11,6 +11,7 @@ from __future__ import annotations
 import random
 import time
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
@@ -210,7 +211,11 @@ class WorkspaceLifecycle:
         self._phase_attempts: dict[str, int] = {}
 
     def ensure_workspace(
-        self, workspace_id: UUID | str, spec: WorkspaceSpec
+        self,
+        workspace_id: UUID | str,
+        spec: WorkspaceSpec,
+        *,
+        before_bind: Callable[[UUID, WorkspaceSpec, _Claim, float], None] | None = None,
     ) -> WorkspaceBinding:
         workspace_id = _uuid(workspace_id)
         deadline = self._deadline()
@@ -228,7 +233,9 @@ class WorkspaceLifecycle:
                 continue
             self._begin_attempt(operation.phase)
             try:
-                result = self._run_ensure_phase(workspace_id, spec, operation, deadline)
+                result = self._run_ensure_phase(
+                    workspace_id, spec, operation, deadline, before_bind
+                )
                 if result is not None:
                     return result
                 self._phase_attempts.pop(operation.phase, None)
@@ -428,6 +435,7 @@ class WorkspaceLifecycle:
         spec: WorkspaceSpec,
         claim: _Claim,
         deadline: float,
+        before_bind: Callable[[UUID, WorkspaceSpec, _Claim, float], None] | None = None,
     ) -> WorkspaceBinding | None:
         workspace = Workspace.objects.get(pk=workspace_id)
         app_spec = spec.app_spec(workspace_id)
@@ -479,6 +487,12 @@ class WorkspaceLifecycle:
             if not workspace.machine_ref or not workspace.volume_ref:
                 raise ProviderTerminalError("workspace binding is incomplete")
             self._wait_healthy(app_spec.name, workspace.machine_ref, spec, deadline)
+            if before_bind is not None:
+                # The callback is the final activation gate. It runs after
+                # provider liveness but before the durable idle binding, so a
+                # failed authenticated bootstrap cannot leave a usable-looking
+                # Workspace row behind.
+                before_bind(workspace_id, spec, claim, deadline)
             return self._bind_idle(workspace_id, claim, workspace.machine_ref)
         raise ProviderTerminalError(f"unsupported ensure phase: {claim.phase}")
 

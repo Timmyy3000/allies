@@ -96,6 +96,44 @@ Replacement retires the old generation as its first atomic transition. All old
 claims, renewals, events, session updates, and terminal mutations fail from
 that point onward.
 
+## FND-004 runtime deployment proof
+
+FND-004 adds the independently packaged `runtime/` process beside the pinned
+Hermes image. The image entrypoint is baked into the runtime image and uses
+`--serve`, so the runtime remains PID 1 instead of depending on a Fly command
+override. It accepts only an opaque `HERMES_CREDENTIAL_REF`; a secure resolver
+must be supplied by the live composition boundary. The process performs an
+authenticated Hermes `/health/detailed` probe before it waits as PID 1, and
+exits without reporting readiness when the reference, resolver, or probe is
+missing.
+
+The provider sends the same opaque reference under `HERMES_CREDENTIAL_REF` to
+the `allies-runtime` container. It never sends a plaintext key. For normal
+references, the image resolves that reference through a secure workload-local
+Unix socket before performing its authenticated readiness probe; the default
+socket is `/run/allies-runtime/hermes-credential.sock`. For the proof-only
+`test://fnd004/…` scheme, PID 1 remains alive but unready during a bounded
+bootstrap grace while the live bootstrap installs the temporary Hermes
+profiles/keys. It becomes ready only after the authenticated probe succeeds.
+The runtime does not write the Hermes Volume. The local proof uses a fake
+Hermes client to show two different profiles overlap, a second turn for one
+profile waits, and session/event identities remain isolated. The backend smoke
+adapter reuses `FlyProvider` and `WorkspaceLifecycle`, records only its own
+deterministic resource IDs, and cleans them through a bounded, idempotent
+ledger.
+
+The live proof is opt-in. `compose_live_smoke` fails closed unless Fly
+multi-container capability, an immutable runtime image, an opaque reference,
+an authenticated resolver, and the temporary profile bootstrap are supplied.
+For proof-only runs, the explicit `test://fnd004/…` reference scheme derives a
+non-secret fixture credential; other schemes use the workload-local socket.
+The live bootstrap must still install the matching temporary profiles/keys
+after the Machine starts and confirm authenticated readiness before the
+lifecycle writes the durable Workspace binding. The smoke client runs its
+health/stream checks only after that gate. Temporary profiles are proof
+fixtures only; production profile seeding and secret delivery remain later
+tickets.
+
 Every lease/generation-authorized attempt mutation keeps its authorization and
 write in the same database transaction. The exported runtime service accepts
 only declarative status and claim-time fields; it performs those bounded writes

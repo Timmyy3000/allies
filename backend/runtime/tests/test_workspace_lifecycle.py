@@ -4,7 +4,7 @@ from uuid import UUID
 
 import pytest
 
-from runtime.models import Workspace
+from runtime.models import Workspace, WorkspaceProvisioningPhase
 from runtime.providers import (
     AppRecord,
     ContainerState,
@@ -14,9 +14,11 @@ from runtime.providers import (
     OwnershipMetadata,
     ProviderNotFoundError,
     ProviderOwnershipError,
+    ProviderTerminalError,
     VolumeRecord,
     deterministic_resource_names,
 )
+from runtime.services.hermes_smoke import ProviderLifecycleSmokeIntegration
 from runtime.services.workspaces import (
     WorkspaceLifecycle,
     WorkspaceReplacementRequiredError,
@@ -207,6 +209,72 @@ def test_ensure_is_idempotent_and_binds_one_machine():
     assert len(provider.machines) == 1
     assert provider.calls.count("ensure_app") == 1
     assert provider.calls.count("ensure_volume") == 1
+
+
+@pytest.mark.django_db(transaction=True)
+def test_before_bind_activation_gate_runs_before_idle_binding():
+    provider = FakeProvider()
+    lifecycle = WorkspaceLifecycle(provider, sleep=lambda _: None, jitter=False)
+    workspace = Workspace.objects.create(
+        id=WORKSPACE_ID, tenant_ref="tenant-before-bind"
+    )
+    gate_calls = []
+
+    def gate(workspace_id, workspace_spec, claim, deadline):
+        current = Workspace.objects.get(pk=workspace_id)
+        gate_calls.append((current.provisioning_phase, claim.phase, deadline > 0))
+
+    binding = lifecycle.ensure_workspace(workspace.id, spec(), before_bind=gate)
+    workspace.refresh_from_db()
+
+    assert binding.machine_ref
+    assert gate_calls == [
+        (WorkspaceProvisioningPhase.HEALTHY, WorkspaceProvisioningPhase.HEALTHY, True)
+    ]
+    assert workspace.provisioning_phase == WorkspaceProvisioningPhase.IDLE
+
+
+@pytest.mark.django_db(transaction=True)
+def test_before_bind_failure_prevents_idle_binding():
+    provider = FakeProvider()
+    lifecycle = WorkspaceLifecycle(provider, sleep=lambda _: None, jitter=False)
+    workspace = Workspace.objects.create(
+        id=WORKSPACE_ID, tenant_ref="tenant-before-bind-failure"
+    )
+
+    def gate(*_args):
+        raise ProviderTerminalError("authenticated runtime is not ready")
+
+    with pytest.raises(ProviderTerminalError):
+        lifecycle.ensure_workspace(workspace.id, spec(), before_bind=gate)
+
+    workspace.refresh_from_db()
+    assert workspace.provisioning_phase == WorkspaceProvisioningPhase.FAILED
+    assert workspace.provisioning_claim_token is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_smoke_activation_failure_is_recorded_as_failed_lifecycle_operation():
+    provider = FakeProvider()
+    lifecycle = WorkspaceLifecycle(provider, sleep=lambda _: None, jitter=False)
+    workspace = Workspace.objects.create(
+        id=WORKSPACE_ID, tenant_ref="tenant-smoke-activation-failure"
+    )
+    adapter = ProviderLifecycleSmokeIntegration(
+        provider, lifecycle, workspace.id, spec()
+    )
+
+    def failed_install():
+        raise RuntimeError("bootstrap install failed")
+
+    adapter.configure_before_bind(failed_install)
+
+    with pytest.raises(ProviderTerminalError):
+        adapter.provision("activation-failure")
+
+    workspace.refresh_from_db()
+    assert workspace.provisioning_phase == WorkspaceProvisioningPhase.FAILED
+    assert workspace.provisioning_claim_token is None
 
 
 @pytest.mark.django_db(transaction=True)
