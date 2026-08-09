@@ -43,6 +43,12 @@ jobs:
       - name: Run repository validation
         run: uv run --locked --project backend python scripts/validate.py
 
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: backend/coverage.xml
+
       - name: Apply migrations
         working-directory: backend
         run: uv run python manage.py migrate --noinput

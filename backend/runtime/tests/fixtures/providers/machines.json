@@ -1,0 +1,30 @@
+[
+  {
+    "id": "machine-01",
+    "name": "allies-machine-0123456789abcdef0123456789abcdef-1",
+    "state": "started",
+    "region": "ams",
+    "config": {
+      "metadata": {
+        "allies_owner": "foundry",
+        "allies_workspace_id": "01234567-89ab-cdef-0123-456789abcdef",
+        "allies_operation_id": "11111111-2222-3333-4444-555555555555",
+        "allies_machine_generation": "1"
+      },
+      "mounts": [
+        {
+          "volume": "vol-01",
+          "guest_path": "/opt/data"
+        }
+      ],
+      "containers": [
+        {"name": "hermes", "image": "registry.example/hermes@sha256:hermes"},
+        {"name": "allies-runtime", "image": "registry.example/runtime@sha256:runtime"}
+      ]
+    },
+    "checks": [
+      {"name": "hermes", "status": "passing"},
+      {"name": "allies-runtime", "status": "passing"}
+    ]
+  }
+]

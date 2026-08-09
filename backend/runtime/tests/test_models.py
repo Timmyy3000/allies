@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 
 import pytest
@@ -7,7 +8,15 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from runtime.exceptions import RuntimeConflictError, RuntimeValidationError
-from runtime.models import Attempt, Lease, LeaseState, RuntimeProfile, Workspace
+from runtime.models import (
+    Attempt,
+    Lease,
+    LeaseState,
+    RuntimeProfile,
+    Workspace,
+    WorkspaceProvisioningKind,
+    WorkspaceProvisioningPhase,
+)
 from runtime.profile_keys import RESERVED_PROFILE_KEYS
 from runtime.services.executions import create_execution
 from runtime.services.leases import create_lease, digest_lease_token
@@ -21,6 +30,75 @@ def make_workspace(suffix="1"):
         machine_ref=f"machine-{suffix}",
         machine_generation=1,
     )
+
+
+@pytest.mark.django_db
+def test_workspace_can_start_unprovisioned_with_null_provider_refs():
+    workspace = Workspace.objects.create(tenant_ref="tenant-unprovisioned")
+
+    assert workspace.machine_generation == 0
+    assert workspace.fly_app_ref is None
+    assert workspace.volume_ref is None
+    assert workspace.machine_ref is None
+    assert workspace.provisioning_phase == WorkspaceProvisioningPhase.IDLE
+
+
+@pytest.mark.django_db
+def test_workspace_idle_state_requires_all_refs_or_no_refs():
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Workspace.objects.create(
+            tenant_ref="tenant-partial-idle",
+            fly_app_ref="app-partial",
+            machine_generation=0,
+        )
+
+    with pytest.raises(IntegrityError), transaction.atomic():
+        Workspace.objects.create(
+            tenant_ref="tenant-bound-missing-machine",
+            fly_app_ref="app-bound",
+            volume_ref="volume-bound",
+            machine_generation=2,
+        )
+
+
+@pytest.mark.django_db
+def test_workspace_allows_partial_provider_refs_during_non_idle_operation():
+    workspace = Workspace.objects.create(
+        tenant_ref="tenant-provisioning",
+        fly_app_ref="app-provisioning",
+        provisioning_id=uuid.uuid4(),
+        provisioning_kind=WorkspaceProvisioningKind.ENSURE,
+        provisioning_phase=WorkspaceProvisioningPhase.APP_READY,
+        provisioning_target_generation=1,
+        provisioning_machine_name="machine-1",
+    )
+
+    assert workspace.fly_app_ref == "app-provisioning"
+    assert workspace.volume_ref is None
+    assert workspace.machine_ref is None
+
+
+@pytest.mark.django_db
+def test_workspace_retains_failed_operation_state_for_explicit_repair():
+    operation_id = uuid.uuid4()
+    workspace = Workspace.objects.create(
+        tenant_ref="tenant-stale-operation",
+        fly_app_ref="app-stale",
+        volume_ref="volume-stale",
+        machine_generation=1,
+        provisioning_id=operation_id,
+        provisioning_kind=WorkspaceProvisioningKind.REPLACE,
+        provisioning_phase=WorkspaceProvisioningPhase.FAILED,
+        provisioning_source_generation=1,
+        provisioning_target_generation=2,
+        provisioning_previous_machine_ref="machine-old",
+        provisioning_machine_name="machine-2",
+    )
+
+    workspace.refresh_from_db()
+    assert workspace.provisioning_id == operation_id
+    assert workspace.provisioning_phase == WorkspaceProvisioningPhase.FAILED
+    assert workspace.machine_ref is None
 
 
 @pytest.mark.django_db

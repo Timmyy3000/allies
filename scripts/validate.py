@@ -46,7 +46,18 @@ def main() -> int:
                 "--dry-run",
             ],
         ),
-        ("tests", ["run", "--locked", "pytest"]),
+        (
+            "tests",
+            [
+                "run",
+                "--locked",
+                "pytest",
+                "--cov=runtime",
+                "--cov=devtools",
+                "--cov=config",
+                "--cov-report=xml:coverage.xml",
+            ],
+        ),
     ]
 
     for label, args in checks:

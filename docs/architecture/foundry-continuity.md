@@ -154,6 +154,37 @@ Foundry's Fly reconciler owns this sequence:
 The sequence is safe to retry after provider timeouts. A Volume attachment
 conflict blocks execution rather than starting a second writer.
 
+### Workspace lifecycle service
+
+Foundry implements this sequence through the internal
+`runtime.services.workspaces` service. Its only public service operations are
+`ensure_workspace(workspace_id, spec)` and
+`replace_machine(workspace_id, spec, expected_source_generation)`. A Workspace
+row records the operation ID, phase, source/target generations, previous
+Machine, deterministic target name, and a short claim token. The service locks
+that row only while claiming a phase or recording a compare-and-set result;
+Fly requests run after the transaction commits. Each claim lasts 60 seconds,
+covering the longest bounded provider reconciliation sequence, and stale
+callers lose at the compare-and-set boundary.
+
+Ensure creates or reconciles the deterministic App and the single Volume,
+checks `attached_machine_id` before creating a Machine, then waits for the
+started Machine and both required, named container health checks before binding
+all three provider references atomically. The adapter sends those checks in
+the Machine config; FND-004 will replace the minimal process-liveness checks
+with the Hermes/runtime readiness checks. A bound Workspace whose recorded
+Machine is missing returns `replacement_required`; ensure never creates an
+implicit second writer.
+
+Replacement first advances the generation and clears `machine_ref` in one
+short transaction. Only the recorded previous Machine may then be stopped and
+destroyed, and the service waits for the Volume to detach before creating the
+next deterministic Machine. Same-source retries replay the completed target;
+stale source generations conflict. Retryable provider failures clear the claim
+and retain the phase for bounded reconciliation (five attempts with
+0.5/1/2/4-second jittered backoff), while terminal errors preserve a failed
+phase for explicit repair. Unknown provider Machines are never deleted.
+
 ## Test doubles and proof matrix
 
 The fake Hermes service must cover profile selection, new and resumed sessions,
