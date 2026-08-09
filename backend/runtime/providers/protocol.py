@@ -49,6 +49,10 @@ class WorkspaceProvider(Protocol):
 
     def destroy_machine(self, app_name: str, machine_id: str) -> None: ...
 
+    def delete_volume(self, app_name: str, volume_id: str) -> None: ...
+
+    def delete_app(self, app_name: str) -> None: ...
+
     def acquire_machine_lease(
         self,
         app_name: str,

@@ -130,13 +130,13 @@ def test_machine_payload_has_two_containers_private_mount_and_opaque_ref_only():
         "hermes",
         "allies-runtime",
     ]
-    assert config["mounts"] == [{"volume": "vol-01", "guest_path": "/opt/data"}]
+    assert config["mounts"] == [{"volume": "vol-01", "path": "/opt/data"}]
     assert config["services"] == []
     assert config["containers"][0]["healthchecks"][0]["name"] == "hermes"
     assert config["containers"][1]["healthchecks"][0]["name"] == "allies-runtime"
     assert config["metadata"]["allies_machine_generation"] == "1"
     assert config["containers"][1]["env"] == {
-        "ALLIES_RUNTIME_CREDENTIAL_REF": "vault://runtime/opaque-ref"
+        "HERMES_CREDENTIAL_REF": "vault://runtime/opaque-ref"
     }
     assert result.health is not None
     assert result.health.containers == {

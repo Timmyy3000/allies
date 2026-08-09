@@ -18,7 +18,7 @@ permissions:
 
 jobs:
   check:
-    name: Django checks and tests
+    name: Backend and runtime checks
     runs-on: ubuntu-latest
     outputs:
       source_sha: ${{ steps.record_source.outputs.sha }}
@@ -40,6 +40,8 @@ jobs:
       - name: Install dependencies
         working-directory: backend
         run: uv sync --locked
+      - name: Install runtime dependencies
+        run: uv sync --locked --project runtime
       - name: Run repository validation
         run: uv run --locked --project backend python scripts/validate.py
 
@@ -47,12 +49,14 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: backend/coverage.xml
+          files: |
+            backend/coverage.xml
+            runtime/coverage.xml
 
       - name: Apply migrations
         working-directory: backend
-        run: uv run python manage.py migrate --noinput
+        run: uv run --locked python manage.py migrate --noinput
 
       - name: Verify migrations are applied
         working-directory: backend
-        run: uv run python manage.py migrate --check
+        run: uv run --locked python manage.py migrate --check

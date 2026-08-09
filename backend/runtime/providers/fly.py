@@ -394,7 +394,7 @@ class FlyProvider:
                 # Only the reference is sent.  Secret resolution is owned by a
                 # later deployment boundary; Fly app secrets are global.
                 item["env"] = {
-                    "ALLIES_RUNTIME_CREDENTIAL_REF": spec.runtime_credential_ref.reference
+                    "HERMES_CREDENTIAL_REF": spec.runtime_credential_ref.reference
                 }
             containers.append(item)
         return {
@@ -407,7 +407,11 @@ class FlyProvider:
                 "mounts": [
                     {
                         "volume": spec.mount.volume_id,
-                        "guest_path": spec.mount.path,
+                        # Fly's multi-container Machines contract uses
+                        # ``path`` for the guest mount.  Keep this translation
+                        # at the provider boundary; lifecycle remains unaware
+                        # of the wire spelling.
+                        "path": spec.mount.path,
                     }
                 ],
                 # An explicit empty list makes the no-public-service
@@ -480,6 +484,22 @@ class FlyProvider:
         self.http.delete(
             f"/apps/{_path_segment(app_name)}/machines/{_path_segment(machine_id)}",
             operation="destroy_machine",
+        )
+
+    def delete_volume(self, app_name: str, volume_id: str) -> None:
+        """Delete a smoke-owned Volume; callers classify a 404 as idempotent."""
+
+        self.http.delete(
+            f"/apps/{_path_segment(app_name)}/volumes/{_path_segment(volume_id)}",
+            operation="delete_volume",
+        )
+
+    def delete_app(self, app_name: str) -> None:
+        """Delete a smoke-owned App after its Machine and Volume are gone."""
+
+        self.http.delete(
+            f"/apps/{_path_segment(app_name)}",
+            operation="delete_app",
         )
 
     def acquire_machine_lease(
