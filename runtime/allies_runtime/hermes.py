@@ -67,6 +67,169 @@ class HermesStreamResult:
     events: tuple[HermesEvent, ...]
 
 
+class CancellableHermesStream:
+    """A small async-iterator adapter with an explicit cancellation seam.
+
+    ``HermesClient`` uses this type for incremental consumers.  Test/fake
+    clients can implement the same ``__aiter__`` plus ``aclose`` contract;
+    the worker never needs to know whether events came from HTTP or a fake.
+    """
+
+    def __init__(self, iterator: Any, closer: Callable[[], Any] | None = None):
+        self._iterator = (
+            iterator.__aiter__() if hasattr(iterator, "__aiter__") else iterator
+        )
+        self._closer = closer
+        self._closed = False
+        self._pending: asyncio.Task[Any] | None = None
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if self._closed:
+            raise StopAsyncIteration
+        pending = asyncio.ensure_future(self._iterator.__anext__())
+        self._pending = pending
+        try:
+            return await pending
+        finally:
+            if self._pending is pending:
+                self._pending = None
+
+    async def aclose(self) -> None:
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            if self._pending is not None and not self._pending.done():
+                self._pending.cancel()
+                await asyncio.gather(self._pending, return_exceptions=True)
+            close = getattr(self._iterator, "aclose", None)
+            if callable(close):
+                value = close()
+                if inspect.isawaitable(value):
+                    await value
+        except RuntimeError:
+            # An async generator can be awaiting ``__anext__`` on another
+            # task.  The explicit closer still wakes/cancels the transport;
+            # avoid turning cancellation into a worker failure.
+            pass
+        finally:
+            if self._closer is not None:
+                value = self._closer()
+                if inspect.isawaitable(value):
+                    await value
+
+    cancel = aclose
+
+
+class _IncrementalHTTPStream:
+    """Read one bounded SSE event at a time from an open HTTP response."""
+
+    def __init__(self, response: Any, profile_id: str, session_id: str):
+        self.response = response
+        self.profile_id = profile_id
+        self.session_id = session_id
+        self.current_name = "message"
+        self.data_lines: list[str] = []
+        self.total_bytes = 0
+        self.event_bytes = 0
+        self.event_count = 0
+        self.done = False
+        self.closed = False
+
+    async def __anext__(self) -> HermesEvent:
+        if self.closed or self.done:
+            raise StopAsyncIteration
+        while True:
+            line = await asyncio.to_thread(self.response.readline, MAX_EVENT_BYTES + 1)
+            if not line:
+                if self.data_lines:
+                    event = self._finish_event()
+                    if event is not None:
+                        return event
+                raise StopAsyncIteration
+            line_size = len(line)
+            self.total_bytes += line_size
+            self.event_bytes += line_size
+            if self.total_bytes > MAX_STREAM_BYTES:
+                raise HermesMalformedResponse("Hermes stream exceeded the byte limit")
+            if self.event_bytes > MAX_EVENT_BYTES:
+                raise HermesMalformedResponse(
+                    "Hermes stream event exceeded the byte limit"
+                )
+            try:
+                text = line.decode("utf-8").rstrip("\r\n")
+            except UnicodeDecodeError as exc:
+                raise HermesMalformedResponse("Hermes stream was not UTF-8") from exc
+            if not text:
+                event = self._finish_event()
+                self.event_bytes = 0
+                if event is not None:
+                    return event
+                if self.done:
+                    raise StopAsyncIteration
+                continue
+            if text.startswith(":"):
+                continue
+            field, separator, value = text.partition(":")
+            if not separator:
+                continue
+            value = value.removeprefix(" ")
+            if field == "event":
+                self.current_name = value[:64] or "message"
+            elif field == "data":
+                self.data_lines.append(value)
+
+    def _finish_event(self) -> HermesEvent | None:
+        raw = "\n".join(self.data_lines)
+        name = self.current_name
+        self.current_name = "message"
+        self.data_lines = []
+        if not raw:
+            return None
+        if raw == "[DONE]":
+            self.done = True
+            return None
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise HermesMalformedResponse(
+                "Hermes stream contained malformed JSON"
+            ) from exc
+        if not isinstance(payload, dict):
+            raise HermesMalformedResponse("Hermes stream event was not an object")
+        payload_session = payload.get("session_id", self.session_id)
+        payload_run = payload.get("run_id", "")
+        sequence = payload.get("seq", self.event_count + 1)
+        if not isinstance(payload_session, str) or payload_session != self.session_id:
+            raise HermesMalformedResponse(
+                "Hermes event session identity did not match request"
+            )
+        if not isinstance(payload_run, str) or not payload_run:
+            raise HermesMalformedResponse("Hermes event omitted run identity")
+        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
+            raise HermesMalformedResponse("Hermes event sequence was invalid")
+        self.event_count += 1
+        if self.event_count > MAX_EVENTS:
+            raise HermesMalformedResponse("Hermes stream exceeded the event limit")
+        return HermesEvent(
+            name=name,
+            profile_id=self.profile_id,
+            session_id=self.session_id,
+            run_id=payload_run,
+            sequence=sequence,
+            payload=payload,
+        )
+
+    async def aclose(self) -> None:
+        self.closed = True
+        close = getattr(self.response, "close", None)
+        if callable(close):
+            close()
+
+
 CredentialResolver = Callable[[CredentialReference], str]
 
 
@@ -411,7 +574,11 @@ class HermesClient:
                         raise HermesMalformedResponse(
                             "Hermes event omitted run identity"
                         )
-                    if not isinstance(sequence, int) or sequence < 1:
+                    if (
+                        isinstance(sequence, bool)
+                        or not isinstance(sequence, int)
+                        or sequence < 1
+                    ):
                         raise HermesMalformedResponse(
                             "Hermes event sequence was invalid"
                         )
@@ -457,10 +624,49 @@ class HermesClient:
     ) -> HermesStreamResult:
         return await self.stream(profile_id, session_id, message)
 
+    async def stream_profile_incremental(
+        self, profile_id: str, session_id: str, message: str
+    ) -> CancellableHermesStream:
+        """Open an SSE response and yield events without buffering the body."""
+
+        profile_id = _profile_path(profile_id)
+        session_id = _session_path(session_id)
+        if not isinstance(message, str) or not message or len(message) > 16_384:
+            raise ValueError("Hermes stream message must be a bounded non-empty string")
+        try:
+            token = await asyncio.wait_for(
+                self._credential(), self.settings.stream_timeout
+            )
+            path = f"/p/{profile_id}/api/sessions/{session_id}/chat/stream"
+            body = json.dumps({"message": message}, separators=(",", ":")).encode(
+                "utf-8"
+            )
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._request, method="POST", path=path, token=token, body=body
+                ),
+                self.settings.stream_timeout,
+            )
+        except TimeoutError as exc:
+            raise HermesTimeout("Hermes stream timed out") from exc
+        except HermesError:
+            raise
+        except (URLError, OSError, ConnectionError) as exc:
+            raise HermesDisconnected("Hermes stream disconnected") from exc
+        if not callable(getattr(response, "readline", None)):
+            response.close()
+            raise HermesMalformedResponse(
+                "Hermes stream did not expose incremental reads"
+            )
+        return CancellableHermesStream(
+            _IncrementalHTTPStream(response, profile_id, session_id)
+        )
+
 
 __all__ = [
     "DEFAULT_CREDENTIAL_SOCKET",
     "TEST_CREDENTIAL_PREFIX",
+    "CancellableHermesStream",
     "CredentialResolver",
     "HermesClient",
     "HermesEvent",

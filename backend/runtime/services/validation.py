@@ -9,6 +9,9 @@ from runtime.exceptions import RuntimeValidationError
 
 MAX_EXECUTION_PAYLOAD_BYTES = 64 * 1024
 MAX_EVENT_PAYLOAD_BYTES = 16 * 1024
+MAX_RECEIPT_BYTES = 8 * 1024
+MAX_FAILURE_CODE_LENGTH = 64
+MAX_STREAM_ID_LENGTH = 255
 MAX_JSON_NESTING_DEPTH = 64
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
@@ -84,4 +87,20 @@ def validate_token_digest(token_digest: str) -> str:
 def validate_nonempty(value: str, name: str, *, max_length: int) -> str:
     if not isinstance(value, str) or not value or len(value) > max_length:
         raise RuntimeValidationError(f"{name} must be a non-empty string of at most {max_length} characters")
+    return value
+
+
+def validate_bounded_receipt(receipt: Any) -> dict[str, Any]:
+    """Validate the small, canonical receipt persisted for response replay."""
+
+    value = validate_object_payload(receipt, max_bytes=MAX_RECEIPT_BYTES)
+    code = value.get("code")
+    validate_nonempty(code, "receipt.code", max_length=MAX_FAILURE_CODE_LENGTH)
+    summary_ref = value.get("summary_ref")
+    if summary_ref is not None:
+        validate_nonempty(
+            summary_ref,
+            "receipt.summary_ref",
+            max_length=255,
+        )
     return value
