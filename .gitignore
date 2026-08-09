@@ -21,6 +21,7 @@ staticfiles/
 !.env.example
 .coverage
 .coverage.*
+coverage.xml
 htmlcov/
 .pytest_cache/
 .ruff_cache/

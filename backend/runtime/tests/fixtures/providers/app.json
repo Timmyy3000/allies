@@ -1,0 +1,8 @@
+{
+  "id": "app-01",
+  "name": "allies-ws-0123456789abcdef0123456789abcdef",
+  "status": "running",
+  "organization": {
+    "slug": "allies-pilot"
+  }
+}

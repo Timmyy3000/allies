@@ -1,0 +1,11 @@
+[
+  {
+    "id": "vol-01",
+    "name": "allies-vol-0123456789abcdef0123456789abcdef",
+    "state": "created",
+    "size_gb": 1,
+    "region": "ams",
+    "fstype": "ext4",
+    "attached_machine_id": null
+  }
+]

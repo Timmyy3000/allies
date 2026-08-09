@@ -41,18 +41,108 @@ class LeaseState(models.TextChoices):
     FENCED = "fenced", "Fenced"
 
 
+class WorkspaceProvisioningKind(models.TextChoices):
+    ENSURE = "ensure", "Ensure"
+    REPLACE = "replace", "Replace"
+
+
+class WorkspaceProvisioningPhase(models.TextChoices):
+    IDLE = "idle", "Idle"
+    APP_READY = "app_ready", "App ready"
+    VOLUME_READY = "volume_ready", "Volume ready"
+    OLD_MACHINE_STOPPED = "old_machine_stopped", "Old Machine stopped"
+    OLD_MACHINE_DESTROYED = "old_machine_destroyed", "Old Machine destroyed"
+    MACHINE_CREATED = "machine_created", "Machine created"
+    MACHINE_STARTED = "machine_started", "Machine started"
+    HEALTHY = "healthy", "Healthy"
+    FAILED = "failed", "Failed"
+
+
 class Workspace(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant_ref = models.CharField(max_length=255, unique=True)
-    fly_app_ref = models.CharField(max_length=255)
-    volume_ref = models.CharField(max_length=255)
-    machine_ref = models.CharField(max_length=255)
+    fly_app_ref = models.CharField(max_length=255, null=True, blank=True)
+    volume_ref = models.CharField(max_length=255, null=True, blank=True)
+    machine_ref = models.CharField(max_length=255, null=True, blank=True)
     machine_generation = models.PositiveIntegerField(default=0)
+    # The operation ID is retained after a successful operation as a small
+    # audit/idempotency anchor.  The remaining fields describe the operation
+    # while a phase is in flight and are cleared by the lifecycle service.
+    provisioning_id = models.UUIDField(null=True, blank=True)
+    provisioning_kind = models.CharField(
+        max_length=16,
+        choices=WorkspaceProvisioningKind,
+        null=True,
+        blank=True,
+    )
+    provisioning_phase = models.CharField(
+        max_length=32,
+        choices=WorkspaceProvisioningPhase,
+        default=WorkspaceProvisioningPhase.IDLE,
+    )
+    provisioning_source_generation = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+    )
+    provisioning_target_generation = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+    )
+    provisioning_previous_machine_ref = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+    )
+    provisioning_machine_name = models.CharField(
+        max_length=255,
+        null=True,
+        blank=True,
+    )
+    provisioning_claim_token = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+    )
+    provisioning_claim_expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering: ClassVar = ["tenant_ref"]
+        constraints: ClassVar = [
+            models.CheckConstraint(
+                condition=(
+                    (Q(fly_app_ref__isnull=True) | ~Q(fly_app_ref=""))
+                    & (Q(volume_ref__isnull=True) | ~Q(volume_ref=""))
+                    & (Q(machine_ref__isnull=True) | ~Q(machine_ref=""))
+                ),
+                name="runtime_workspace_fly_refs_nonempty",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    provisioning_phase__in=WorkspaceProvisioningPhase.values
+                ),
+                name="runtime_workspace_provisioning_phase_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(provisioning_phase=WorkspaceProvisioningPhase.IDLE)
+                    | (
+                        Q(machine_generation=0)
+                        & Q(fly_app_ref__isnull=True)
+                        & Q(volume_ref__isnull=True)
+                        & Q(machine_ref__isnull=True)
+                    )
+                    | (
+                        Q(machine_generation__gt=0)
+                        & Q(fly_app_ref__isnull=False)
+                        & Q(volume_ref__isnull=False)
+                        & Q(machine_ref__isnull=False)
+                    )
+                ),
+                name="runtime_workspace_idle_binding_contract",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.tenant_ref
