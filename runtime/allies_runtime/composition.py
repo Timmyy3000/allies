@@ -51,10 +51,6 @@ def compose_runtime(
     if not callable(credential_resolver):
         raise TypeError("credential resolver must be callable")
 
-    hermes_client = (
-        hermes if hermes is not None else HermesClient(settings, credential_resolver)
-    )
-
     def resolve_profile_credential(reference: str) -> str:
         return credential_resolver(CredentialReference(reference))
 
@@ -62,6 +58,15 @@ def compose_runtime(
         settings.volume_root,
         api_key_factory=api_key_factory,
         credential_resolver=resolve_profile_credential,
+    )
+    hermes_client = (
+        hermes
+        if hermes is not None
+        else HermesClient(
+            settings,
+            credential_resolver,
+            profile_credential_resolver=profile_store.read_api_key,
+        )
     )
     profile_reconciler = ProfileReconciler(foundry, profile_store)
     worker = FoundryWorker(

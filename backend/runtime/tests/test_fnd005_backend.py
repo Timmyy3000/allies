@@ -355,7 +355,7 @@ def test_internal_api_claim_and_event(runtime_setup):
         "event_id": str(uuid4()),
         "stream_id": claim["stream_id"],
         "sequence": 1,
-        "type": "delta",
+        "type": "message.delta",
         "payload": {"text": "hello"},
     }
     event = client.post(
@@ -370,7 +370,13 @@ def test_internal_api_claim_and_event(runtime_setup):
     assert event.status_code == 202, event.content
     complete = client.post(
         f"/api/v1/runtime/attempts/{claim['attempt_id']}/complete",
-        data={"receipt": {"code": "ok"}},
+        data={
+            "event_id": str(uuid4()),
+            "stream_id": claim["stream_id"],
+            "sequence": 2,
+            "payload": {"run_id": "run-1", "status": "completed"},
+            "receipt": {"code": "ok"},
+        },
         content_type="application/json",
         headers={
             "Authorization": f"Bearer {issued.raw_token}",

@@ -30,8 +30,16 @@ the image's default resolver asks the secure workload-local Unix socket at
 `HERMES_CREDENTIAL_SOCKET`). The value is never placed in settings, payloads,
 exceptions, or evidence. The socket/bootstrap is an explicit live-proof
 dependency; a proof-only `test://fnd004/…` reference may instead use the
-deterministic fixture resolver and needs no socket producer. Production secret
-delivery and isolation remain later work.
+deterministic fixture resolver and needs no socket producer. This bootstrap
+credential is separate from the profile-local chat credentials materialized by
+the FND-006 profile lifecycle.
+
+Production profile turns do not use the bootstrap credential. Runtime
+composition reads `API_SERVER_KEY` only from the claimed materialized profile's
+mode-0600 `.env`, then uses that key for session create, exact conflict
+inspection, and streaming. The first turn derives separate stable opaque values
+for the Hermes session candidate and `X-Hermes-Session-Key`; later turns resume
+the session ID supplied by Foundry.
 
 ## Foundry worker boundary
 
@@ -40,9 +48,19 @@ delivery and isolation remain later work.
 for Attempt mutations, `X-Foundry-Lease-Token: <lease-token>`. Tokens remain in
 process memory and are never included in errors or evidence. `FoundryWorker`
 keeps a bounded pool (the proof uses two slots), serializes work through
-Foundry's per-profile lease, and forwards Hermes events as they arrive. Event
+Foundry's per-profile lease, and forwards normalized Hermes events as they
+arrive. Event
 IDs are deterministic from Attempt, stream, and sequence so response loss is
 safe to replay with the same claim or mutation identity.
+
+Before contacting Hermes, the worker confirms `execution.dispatched`. It then
+stores only bounded `message.delta`, `activity.started`, and
+`activity.completed` payloads. A valid `run.completed` followed by `done`
+provides the effective session ID. The worker compare-and-sets that ID before
+asking Foundry to append `execution.completed` and complete the attempt in one
+transaction. Failure uses the matching atomic `execution.failed` transition.
+After dispatch, cancellation, fencing, lease loss, or an ambiguous response is
+unknown-safe and is never automatically requeued.
 
 Renewal runs every 20 seconds against the 60-second lease contract. A renewal
 failure cancels the incremental Hermes stream immediately, sends `stopped`,

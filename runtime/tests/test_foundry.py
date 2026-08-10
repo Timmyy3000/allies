@@ -140,13 +140,21 @@ async def test_client_mutation_shapes_and_deterministic_event_ids():
     )
     stopped = await foundry.stopped("attempt-1", "lease-secret", reason="lease_lost")
     complete = await foundry.complete(
-        "attempt-1", "lease-secret", receipt={"code": "ok"}
+        "attempt-1",
+        "lease-secret",
+        stream_id="stream-1",
+        sequence=2,
+        payload={"run_id": "run-1", "status": "completed"},
+        receipt={"code": "ok"},
     )
     failed = await foundry.fail(
         "attempt-1",
         "lease-secret",
+        stream_id="stream-1",
+        sequence=2,
+        payload={"code": "timeout", "retryable": False},
         code="timeout",
-        retryable=True,
+        retryable=False,
         receipt={"code": "timeout"},
     )
     assert stopped.requeued and complete.status == "succeeded" and failed.requeued
@@ -223,8 +231,9 @@ async def test_worker_overlaps_profiles_and_completes_incremental_events():
     ]
     # The worker's event/terminal calls can be answered by a generic mapping.
     responses.extend(
-        [{"status": 202, "body": {"event_id": "event", "sequence": 1}}] * 6
+        [{"status": 202, "body": {"event_id": "event", "sequence": 1}}] * 4
     )
+    responses.extend([{"session_id": "session-1"}] * 2)
     responses.extend(
         [
             {
@@ -262,6 +271,7 @@ async def test_worker_renewal_loss_closes_stream_and_stops_before_completion():
     claim = {**CLAIM, "hermes_profile_key": "ally-a"}
     foundry, transport = client(
         claim,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
         {"status": 409, "body": {"code": "LEASE_CONFLICT"}},
         {"attempt_id": "attempt-1", "state": "released", "requeued": True},
     )
@@ -278,18 +288,21 @@ async def test_worker_failure_is_reported_and_bad_identity_does_not_write_late_e
     claim = {**CLAIM, "hermes_profile_key": "ally-a"}
     foundry, transport = client(
         claim,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
         {
             "attempt_id": "attempt-1",
             "status": "failed",
             "receipt_id": "receipt-1",
-            "requeued": True,
+            "requeued": False,
         },
     )
     hermes = FakeHermesClient({"ally-a": FakeProfilePlan(failure="disconnect")})
     worker = FoundryWorker(foundry, hermes, slots=2, renew_interval=0.1)
     result = await worker.run(max_turns=1)
     assert result[0].status == "failed"
-    assert not any("/events" in call[1] for call in transport.calls)
+    assert [call[3]["type"] for call in transport.calls if "/events" in call[1]] == [
+        "execution.dispatched"
+    ]
 
 
 @pytest.mark.asyncio
@@ -340,6 +353,8 @@ async def test_ambiguous_claim_reservation_expires_and_allows_fresh_claim_id():
                     "status": "succeeded",
                     "receipt_id": "receipt-1",
                 }
+            if "/session-binding" in path:
+                return {"session_id": body["effective_session_id"]}
             return None
 
     transport = ExpiringTransport()
@@ -364,12 +379,8 @@ async def test_worker_replays_event_after_response_loss_with_same_event_id():
         ResponseLossError("event response lost"),
         {"status": 202, "body": {"event_id": "event-1", "sequence": 1}},
     ]
-    responses.extend(
-        [
-            {"status": 202, "body": {"event_id": f"event-{i}", "sequence": i}}
-            for i in (2, 3)
-        ]
-    )
+    responses.append({"status": 202, "body": {"event_id": "event-2", "sequence": 2}})
+    responses.append({"session_id": "session-1"})
     responses.append(
         {"attempt_id": "attempt-1", "status": "succeeded", "receipt_id": "receipt-1"}
     )
@@ -382,7 +393,7 @@ async def test_worker_replays_event_after_response_loss_with_same_event_id():
     result = await worker.run(max_turns=1)
     event_calls = [call for call in transport.calls if "/events" in call[1]]
     assert result[0].status == "succeeded"
-    assert len(event_calls) == 4
+    assert len(event_calls) == 3
     assert event_calls[0][3]["event_id"] == event_calls[1][3]["event_id"]
 
 
@@ -412,9 +423,10 @@ async def test_worker_replays_complete_after_response_loss_without_conflicting_f
     responses.extend(
         [
             {"status": 202, "body": {"event_id": f"event-{i}", "sequence": i}}
-            for i in (1, 2, 3)
+            for i in (1, 2)
         ]
     )
+    responses.append({"session_id": "session-1"})
     responses.extend(
         [
             ResponseLossError("complete response lost"),
@@ -444,9 +456,10 @@ async def test_worker_second_complete_response_loss_stops_without_fail():
     responses.extend(
         [
             {"status": 202, "body": {"event_id": f"event-{i}", "sequence": i}}
-            for i in (1, 2, 3)
+            for i in (1, 2)
         ]
     )
+    responses.append({"session_id": "session-1"})
     responses.extend(
         [
             ResponseLossError("complete response lost"),
@@ -470,6 +483,7 @@ async def test_worker_second_fail_response_loss_stops_without_conflicting_retry(
     claim = {**CLAIM, "hermes_profile_key": "ally-a"}
     foundry, transport = client(
         claim,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
         ResponseLossError("fail response lost"),
         ResponseLossError("fail response lost"),
         {"attempt_id": "attempt-1", "state": "released", "requeued": True},
@@ -488,7 +502,9 @@ async def test_worker_second_fail_response_loss_stops_without_conflicting_retry(
 async def test_worker_cancelled_stream_acknowledges_stopped():
     claim = {**CLAIM, "hermes_profile_key": "ally-a"}
     foundry, _ = client(
-        claim, {"attempt_id": "attempt-1", "state": "released", "requeued": True}
+        claim,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"attempt_id": "attempt-1", "state": "released", "requeued": False},
     )
     worker = FoundryWorker(
         foundry,
@@ -508,7 +524,8 @@ async def test_worker_stop_cancels_stalled_stream_and_acknowledges_stopped():
     claim = {**CLAIM, "hermes_profile_key": "ally-a"}
     foundry, transport = client(
         claim,
-        {"attempt_id": "attempt-1", "state": "released", "requeued": True},
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"attempt_id": "attempt-1", "state": "released", "requeued": False},
     )
     hermes = FakeHermesClient({"ally-a": FakeProfilePlan(event_delay=1)})
     worker = FoundryWorker(foundry, hermes, renew_interval=0.1)
@@ -534,11 +551,12 @@ async def test_worker_closes_hermes_before_retryable_fail():
 
     transport = CheckingTransport(
         claim,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
         {
             "attempt_id": "attempt-1",
             "status": "failed",
             "receipt_id": "receipt-1",
-            "requeued": True,
+            "requeued": False,
         },
     )
     foundry = FoundryClient(runtime_token="runtime-secret", transport=transport)
@@ -550,7 +568,7 @@ async def test_worker_closes_hermes_before_retryable_fail():
 @pytest.mark.asyncio
 async def test_worker_empty_hermes_stream_fails_as_malformed():
     class EmptyHermes:
-        async def stream_profile_incremental(self, *_args):
+        async def stream_profile_incremental(self, *_args, **_kwargs):
             async def empty():
                 if False:
                     yield None
@@ -562,11 +580,12 @@ async def test_worker_empty_hermes_stream_fails_as_malformed():
     claim = {**CLAIM, "hermes_profile_key": "ally-a"}
     foundry, transport = client(
         claim,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
         {
             "attempt_id": "attempt-1",
             "status": "failed",
             "receipt_id": "receipt-1",
-            "requeued": True,
+            "requeued": False,
         },
     )
     worker = FoundryWorker(foundry, EmptyHermes(), renew_interval=0.1)
@@ -580,7 +599,9 @@ async def test_worker_empty_hermes_stream_fails_as_malformed():
 
 def test_fake_stream_type_is_an_async_iterator():
     stream = asyncio.run(
-        FakeHermesClient().stream_profile_incremental("ally-a", "s", "m")
+        FakeHermesClient().stream_profile_incremental(
+            "ally-a", "s", "m", session_key="stable"
+        )
     )
     assert hasattr(stream, "__aiter__") and hasattr(stream, "aclose")
 
@@ -697,7 +718,14 @@ async def test_client_rejects_malformed_success_responses():
             elif method == "stopped":
                 await foundry.stopped("attempt", "lease", reason="x")
             else:
-                await foundry.complete("attempt", "lease", receipt={})
+                await foundry.complete(
+                    "attempt",
+                    "lease",
+                    stream_id="stream",
+                    sequence=1,
+                    payload={"run_id": "run", "status": "completed"},
+                    receipt={},
+                )
 
 
 @pytest.mark.asyncio
@@ -752,7 +780,8 @@ async def test_worker_uses_non_incremental_hermes_fallback_and_handles_cancelled
 
     foundry, _ = client(
         CLAIM,
-        *([{"status": 202, "body": {"event_id": "event", "sequence": 1}}] * 3),
+        *([{"status": 202, "body": {"event_id": "event", "sequence": 1}}] * 2),
+        {"session_id": "session-1"},
         {"attempt_id": "attempt-1", "status": "succeeded", "receipt_id": "receipt"},
     )
     worker = FoundryWorker(foundry, LegacyHermes(), slots=2, renew_interval=0.1)
@@ -764,11 +793,12 @@ async def test_worker_identity_and_fenced_event_paths_stop_or_fail_safely():
     claim = {**CLAIM, "hermes_profile_key": "ally-a"}
     foundry, _ = client(
         claim,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
         {
             "attempt_id": "attempt-1",
             "status": "failed",
             "receipt_id": "receipt",
-            "requeued": True,
+            "requeued": False,
         },
     )
     worker = FoundryWorker(

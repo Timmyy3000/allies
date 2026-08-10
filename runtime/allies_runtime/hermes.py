@@ -27,6 +27,7 @@ from .errors import (
     HermesDisconnected,
     HermesError,
     HermesMalformedResponse,
+    HermesSessionExists,
     HermesTimeout,
     HermesUnavailable,
 )
@@ -37,6 +38,8 @@ MAX_RESPONSE_BYTES = 1_048_576
 MAX_EVENTS = 512
 MAX_STREAM_BYTES = 4 * 1_048_576
 MAX_EVENT_BYTES = 256 * 1_024
+MAX_SAFE_TEXT_BYTES = 16 * 1024
+MAX_MESSAGE_BYTES = 16 * 1024
 DEFAULT_CREDENTIAL_SOCKET = "/run/allies-runtime/hermes-credential.sock"
 MAX_CREDENTIAL_SOCKET_PATH = 100
 TEST_CREDENTIAL_PREFIX = "test://fnd004/"
@@ -65,6 +68,50 @@ class HermesStreamResult:
     profile_id: str
     session_id: str
     events: tuple[HermesEvent, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class HermesSession:
+    profile_id: str
+    session_id: str
+
+
+@dataclass(frozen=True, slots=True)
+class StableSessionIdentifiers:
+    candidate_id: str
+    session_key: str
+
+
+def validate_stream_message(message: str) -> str:
+    """Validate the one bounded UTF-8 message accepted by Hermes."""
+
+    try:
+        encoded = message.encode("utf-8")
+    except (AttributeError, UnicodeError):
+        raise ValueError("Hermes stream message must be bounded UTF-8 text") from None
+    if not message or len(encoded) > MAX_MESSAGE_BYTES:
+        raise ValueError("Hermes stream message must be bounded UTF-8 text")
+    return message
+
+
+def stable_session_identifiers(
+    profile_id: str, cloud_conversation_ref: str
+) -> StableSessionIdentifiers:
+    """Derive opaque, operation-stable Hermes identifiers without secrets."""
+
+    for name, value in (
+        ("profile_id", profile_id),
+        ("cloud_conversation_ref", cloud_conversation_ref),
+    ):
+        if not isinstance(value, str) or not value or len(value) > 255:
+            raise ValueError(f"{name} must be a bounded non-empty string")
+    source = f"{profile_id}\0{cloud_conversation_ref}".encode()
+    candidate = hashlib.sha256(b"allies:hermes-session:v1\0" + source).hexdigest()
+    memory = hashlib.sha256(b"allies:hermes-memory:v1\0" + source).hexdigest()
+    return StableSessionIdentifiers(
+        candidate_id=f"allies-s-{candidate}",
+        session_key=f"allies-k-{memory}",
+    )
 
 
 class CancellableHermesStream:
@@ -125,7 +172,7 @@ class CancellableHermesStream:
 
 
 class _IncrementalHTTPStream:
-    """Read one bounded SSE event at a time from an open HTTP response."""
+    """Validate and normalize one bounded Hermes session stream."""
 
     def __init__(self, response: Any, profile_id: str, session_id: str):
         self.response = response
@@ -136,20 +183,39 @@ class _IncrementalHTTPStream:
         self.total_bytes = 0
         self.event_bytes = 0
         self.event_count = 0
+        self.normalized_count = 0
+        self.run_id: str | None = None
+        self.state = "awaiting_run"
+        self.active_activities: list[tuple[str, str]] = []
+        self.terminal_event: HermesEvent | None = None
         self.done = False
         self.closed = False
+
+    def __aiter__(self):
+        return self
 
     async def __anext__(self) -> HermesEvent:
         if self.closed or self.done:
             raise StopAsyncIteration
         while True:
-            line = await asyncio.to_thread(self.response.readline, MAX_EVENT_BYTES + 1)
+            try:
+                line = await asyncio.to_thread(
+                    self.response.readline, MAX_EVENT_BYTES + 1
+                )
+            except TimeoutError as exc:
+                await self.aclose()
+                raise HermesTimeout("Hermes stream read timed out") from exc
+            except (OSError, ConnectionError) as exc:
+                await self.aclose()
+                raise HermesDisconnected("Hermes stream disconnected") from exc
             if not line:
                 if self.data_lines:
                     event = self._finish_event()
                     if event is not None:
                         return event
-                raise StopAsyncIteration
+                if self.done:
+                    raise StopAsyncIteration
+                raise HermesMalformedResponse("Hermes stream ended before done")
             line_size = len(line)
             self.total_bytes += line_size
             self.event_bytes += line_size
@@ -178,7 +244,11 @@ class _IncrementalHTTPStream:
                 continue
             value = value.removeprefix(" ")
             if field == "event":
-                self.current_name = value[:64] or "message"
+                if not value or len(value) > 64:
+                    raise HermesMalformedResponse(
+                        "Hermes stream event name was invalid"
+                    )
+                self.current_name = value
             elif field == "data":
                 self.data_lines.append(value)
 
@@ -190,8 +260,10 @@ class _IncrementalHTTPStream:
         if not raw:
             return None
         if raw == "[DONE]":
-            self.done = True
-            return None
+            return self._normalize_event(
+                "done",
+                {"session_id": self.session_id, "run_id": self.run_id},
+            )
         try:
             payload = json.loads(raw)
         except json.JSONDecodeError as exc:
@@ -200,27 +272,154 @@ class _IncrementalHTTPStream:
             ) from exc
         if not isinstance(payload, dict):
             raise HermesMalformedResponse("Hermes stream event was not an object")
-        payload_session = payload.get("session_id", self.session_id)
-        payload_run = payload.get("run_id", "")
-        sequence = payload.get("seq", self.event_count + 1)
-        if not isinstance(payload_session, str) or payload_session != self.session_id:
-            raise HermesMalformedResponse(
-                "Hermes event session identity did not match request"
-            )
-        if not isinstance(payload_run, str) or not payload_run:
-            raise HermesMalformedResponse("Hermes event omitted run identity")
-        if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence < 1:
-            raise HermesMalformedResponse("Hermes event sequence was invalid")
         self.event_count += 1
         if self.event_count > MAX_EVENTS:
             raise HermesMalformedResponse("Hermes stream exceeded the event limit")
+        return self._normalize_event(name, payload)
+
+    def _normalize_event(
+        self, name: str, payload: Mapping[str, Any]
+    ) -> HermesEvent | None:
+        known = {
+            "run.started",
+            "message.started",
+            "assistant.delta",
+            "tool.started",
+            "tool.completed",
+            "assistant.completed",
+            "run.completed",
+            "error",
+            "done",
+        }
+        if name not in known:
+            raise HermesMalformedResponse("Hermes stream event type was not allowed")
+
+        payload_run = payload.get("run_id")
+        payload_session = payload.get("session_id")
+        if name == "run.started":
+            if self.state != "awaiting_run":
+                raise HermesMalformedResponse("Hermes run started out of order")
+            if not isinstance(payload_run, str) or not payload_run:
+                raise HermesMalformedResponse("Hermes event omitted run identity")
+            if payload_session != self.session_id:
+                raise HermesMalformedResponse(
+                    "Hermes event session identity did not match request"
+                )
+            self.run_id = payload_run
+            self.state = "running"
+            return None
+
+        if self.state == "awaiting_run" or self.run_id is None:
+            raise HermesMalformedResponse("Hermes event arrived before run start")
+        if not isinstance(payload_run, str) or payload_run != self.run_id:
+            raise HermesMalformedResponse("Hermes run identity changed")
+
+        if name == "done":
+            if self.state != "run_completed" or self.terminal_event is None:
+                raise HermesMalformedResponse(
+                    "Hermes stream ended before run completion"
+                )
+            if payload_session not in {
+                self.session_id,
+                self.terminal_event.session_id,
+            }:
+                raise HermesMalformedResponse("Hermes done identity did not match")
+            self.done = True
+            event = self.terminal_event
+            self.terminal_event = None
+            return event
+
+        if self.state != "running":
+            raise HermesMalformedResponse("Hermes event arrived after run completion")
+        if name not in {"assistant.completed", "run.completed"} and (
+            payload_session != self.session_id
+        ):
+            raise HermesMalformedResponse(
+                "Hermes event session identity did not match request"
+            )
+
+        if name in {"message.started", "assistant.completed"}:
+            if name == "assistant.completed" and (
+                not isinstance(payload_session, str)
+                or not _SESSION_ID.fullmatch(payload_session)
+            ):
+                raise HermesMalformedResponse(
+                    "Hermes assistant completion session was invalid"
+                )
+            return None
+        if name == "error":
+            raise HermesError("Hermes reported a turn failure")
+        if name == "assistant.delta":
+            delta = payload.get("delta")
+            if (
+                not isinstance(delta, str)
+                or not delta
+                or len(delta.encode("utf-8")) > MAX_SAFE_TEXT_BYTES
+            ):
+                raise HermesMalformedResponse("Hermes assistant delta was invalid")
+            return self._event("message.delta", self.session_id, {"text": delta})
+        if name == "tool.started":
+            tool_name = payload.get("tool_name")
+            if not isinstance(tool_name, str) or not tool_name or len(tool_name) > 128:
+                raise HermesMalformedResponse("Hermes tool start was invalid")
+            digest = hashlib.sha256(
+                f"allies:activity:v1:{self.run_id}:{self.event_count}:{tool_name}".encode()
+            ).hexdigest()[:32]
+            activity_id = f"activity-{digest}"
+            self.active_activities.append((tool_name, activity_id))
+            return self._event(
+                "activity.started",
+                self.session_id,
+                {"activity_id": activity_id, "kind": "tool"},
+            )
+        if name == "tool.completed":
+            tool_name = payload.get("tool_name")
+            match = next(
+                (
+                    (index, activity_id)
+                    for index, (active_name, activity_id) in enumerate(
+                        self.active_activities
+                    )
+                    if active_name == tool_name
+                ),
+                None,
+            )
+            if match is None:
+                raise HermesMalformedResponse("Hermes tool completion was out of order")
+            index, activity_id = match
+            self.active_activities.pop(index)
+            return self._event(
+                "activity.completed",
+                self.session_id,
+                {"activity_id": activity_id, "status": "completed"},
+            )
+        if name == "run.completed":
+            if self.active_activities or payload.get("completed") is not True:
+                raise HermesMalformedResponse("Hermes run completion was invalid")
+            if not isinstance(payload_session, str) or not _SESSION_ID.fullmatch(
+                payload_session
+            ):
+                raise HermesMalformedResponse("Hermes terminal session was invalid")
+            self.state = "run_completed"
+            self.terminal_event = self._event(
+                "execution.completed",
+                payload_session,
+                {"run_id": self.run_id, "status": "completed"},
+            )
+            return None
+        raise HermesMalformedResponse("Hermes stream event type was not allowed")
+
+    def _event(
+        self, name: str, session_id: str, payload: Mapping[str, Any]
+    ) -> HermesEvent:
+        self.normalized_count += 1
         return HermesEvent(
             name=name,
             profile_id=self.profile_id,
-            session_id=self.session_id,
-            run_id=payload_run,
-            sequence=sequence,
-            payload=payload,
+            session_id=session_id,
+            run_id=self.run_id or "",
+            sequence=self.normalized_count,
+            payload=dict(payload),
         )
 
     async def aclose(self) -> None:
@@ -231,6 +430,7 @@ class _IncrementalHTTPStream:
 
 
 CredentialResolver = Callable[[CredentialReference], str]
+ProfileCredentialResolver = Callable[[str], str]
 
 
 class UnixSocketCredentialResolver:
@@ -345,6 +545,28 @@ def _decode_json(body: bytes) -> Mapping[str, Any]:
     return value
 
 
+def _session_from_payload(
+    payload: Mapping[str, Any], profile_id: str, expected_session_id: str
+) -> HermesSession:
+    session = payload.get("session")
+    if not isinstance(session, dict) or session.get("id") != expected_session_id:
+        raise HermesMalformedResponse("Hermes session response identity did not match")
+    return HermesSession(profile_id=profile_id, session_id=expected_session_id)
+
+
+def _session_key_header(session_key: str | None) -> Mapping[str, str]:
+    if session_key is None:
+        return {}
+    if (
+        not isinstance(session_key, str)
+        or not session_key
+        or len(session_key) > 128
+        or any(character in session_key for character in "\r\n")
+    ):
+        raise ValueError("Hermes session key must be a bounded non-empty string")
+    return {"X-Hermes-Session-Key": session_key}
+
+
 def _sse_events(lines: Iterable[bytes]) -> list[tuple[str, Mapping[str, Any]]]:
     """Parse a bounded SSE body without retaining raw response text."""
 
@@ -439,10 +661,15 @@ class HermesClient:
     """Authenticated loopback client for Hermes health and session streams."""
 
     def __init__(
-        self, settings: RuntimeSettings, credential_resolver: CredentialResolver
+        self,
+        settings: RuntimeSettings,
+        credential_resolver: CredentialResolver,
+        *,
+        profile_credential_resolver: ProfileCredentialResolver | None = None,
     ) -> None:
         self.settings = settings
         self._credential_resolver = credential_resolver
+        self._profile_credential_resolver = profile_credential_resolver
 
     async def _credential(self) -> str:
         try:
@@ -466,25 +693,62 @@ class HermesClient:
             )
         return value
 
+    async def _profile_credential(self, profile_id: str) -> str:
+        resolver = self._profile_credential_resolver
+        if resolver is None:
+            return await self._credential()
+        try:
+            value = await asyncio.to_thread(resolver, profile_id)
+            if inspect.isawaitable(value):
+                value = await value
+        except HermesError:
+            raise
+        except Exception as exc:
+            raise HermesAuthenticationError(
+                "Hermes profile credential resolution failed"
+            ) from exc
+        if (
+            not isinstance(value, str)
+            or not value
+            or len(value) > 4096
+            or any(character in value for character in "\r\n")
+        ):
+            raise HermesAuthenticationError(
+                "Hermes profile credential resolution returned no credential"
+            )
+        return value
+
     def _url(self, path: str) -> str:
         return f"{self.settings.hermes_origin}{path}"
 
     def _request(
-        self, *, method: str, path: str, token: str, body: bytes | None = None
+        self,
+        *,
+        method: str,
+        path: str,
+        token: str,
+        body: bytes | None = None,
+        headers: Mapping[str, str] | None = None,
+        accepted_statuses: tuple[int, ...] = (),
     ) -> Any:
+        request_headers = {
+            "Accept": "application/json, text/event-stream",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json" if body is not None else "",
+        }
+        if headers:
+            request_headers.update(headers)
         request = Request(
             self._url(path),
             data=body,
             method=method,
-            headers={
-                "Accept": "application/json, text/event-stream",
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json" if body is not None else "",
-            },
+            headers=request_headers,
         )
         try:
             return urlopen(request, timeout=self.settings.request_timeout)
         except HTTPError as exc:
+            if exc.code in accepted_statuses:
+                return exc
             raise _classify_http_error(exc) from None
         except TimeoutError as exc:
             raise HermesTimeout("Hermes request timed out") from exc
@@ -530,21 +794,84 @@ class HermesClient:
         except TimeoutError as exc:
             raise HermesTimeout("Hermes health timed out") from exc
 
+    async def create_profile_session(
+        self, profile_id: str, session_id: str
+    ) -> HermesSession:
+        profile_id = _profile_path(profile_id)
+        session_id = _session_path(session_id)
+        token = await self._profile_credential(profile_id)
+        path = f"/p/{profile_id}/api/sessions"
+        body = json.dumps({"id": session_id}, separators=(",", ":")).encode("utf-8")
+
+        def create() -> HermesSession:
+            response = None
+            try:
+                response = self._request(
+                    method="POST",
+                    path=path,
+                    token=token,
+                    body=body,
+                    accepted_statuses=(409,),
+                )
+                status = getattr(response, "status", getattr(response, "code", 200))
+                if status == 409:
+                    raise HermesSessionExists("Hermes session already exists")
+                payload = _decode_json(_read_bounded(response))
+                return _session_from_payload(payload, profile_id, session_id)
+            finally:
+                if response is not None:
+                    response.close()
+
+        return await asyncio.wait_for(
+            asyncio.to_thread(create), self.settings.request_timeout
+        )
+
+    async def inspect_profile_session(
+        self, profile_id: str, session_id: str
+    ) -> HermesSession:
+        profile_id = _profile_path(profile_id)
+        session_id = _session_path(session_id)
+        token = await self._profile_credential(profile_id)
+        path = f"/p/{profile_id}/api/sessions/{session_id}"
+
+        def inspect_session() -> HermesSession:
+            response = None
+            try:
+                response = self._request(method="GET", path=path, token=token)
+                payload = _decode_json(_read_bounded(response))
+                return _session_from_payload(payload, profile_id, session_id)
+            finally:
+                if response is not None:
+                    response.close()
+
+        return await asyncio.wait_for(
+            asyncio.to_thread(inspect_session), self.settings.request_timeout
+        )
+
+    async def ensure_profile_session(
+        self, profile_id: str, session_id: str
+    ) -> HermesSession:
+        try:
+            return await self.create_profile_session(profile_id, session_id)
+        except HermesSessionExists:
+            return await self.inspect_profile_session(profile_id, session_id)
+
     async def stream(
         self,
         profile_id: str,
         session_id: str,
         message: str,
+        *,
+        session_key: str | None = None,
     ) -> HermesStreamResult:
         """Run one profile-scoped SSE turn with bounded response handling."""
 
         profile_id = _profile_path(profile_id)
         session_id = _session_path(session_id)
-        if not isinstance(message, str) or not message or len(message) > 16_384:
-            raise ValueError("Hermes stream message must be a bounded non-empty string")
+        message = validate_stream_message(message)
         try:
             token = await asyncio.wait_for(
-                self._credential(), self.settings.stream_timeout
+                self._profile_credential(profile_id), self.settings.stream_timeout
             )
         except TimeoutError as exc:
             raise HermesTimeout("Hermes credential resolution timed out") from exc
@@ -555,7 +882,11 @@ class HermesClient:
             response = None
             try:
                 response = self._request(
-                    method="POST", path=path, token=token, body=body
+                    method="POST",
+                    path=path,
+                    token=token,
+                    body=body,
+                    headers=_session_key_header(session_key),
                 )
                 event_rows = _sse_events(_bounded_lines(response))
                 events: list[HermesEvent] = []
@@ -620,22 +951,33 @@ class HermesClient:
         return await self.health()
 
     async def stream_profile(
-        self, profile_id: str, session_id: str, message: str
+        self,
+        profile_id: str,
+        session_id: str,
+        message: str,
+        *,
+        session_key: str | None = None,
     ) -> HermesStreamResult:
-        return await self.stream(profile_id, session_id, message)
+        return await self.stream(
+            profile_id, session_id, message, session_key=session_key
+        )
 
     async def stream_profile_incremental(
-        self, profile_id: str, session_id: str, message: str
+        self,
+        profile_id: str,
+        session_id: str,
+        message: str,
+        *,
+        session_key: str | None = None,
     ) -> CancellableHermesStream:
         """Open an SSE response and yield events without buffering the body."""
 
         profile_id = _profile_path(profile_id)
         session_id = _session_path(session_id)
-        if not isinstance(message, str) or not message or len(message) > 16_384:
-            raise ValueError("Hermes stream message must be a bounded non-empty string")
+        message = validate_stream_message(message)
         try:
             token = await asyncio.wait_for(
-                self._credential(), self.settings.stream_timeout
+                self._profile_credential(profile_id), self.settings.stream_timeout
             )
             path = f"/p/{profile_id}/api/sessions/{session_id}/chat/stream"
             body = json.dumps({"message": message}, separators=(",", ":")).encode(
@@ -643,7 +985,12 @@ class HermesClient:
             )
             response = await asyncio.wait_for(
                 asyncio.to_thread(
-                    self._request, method="POST", path=path, token=token, body=body
+                    self._request,
+                    method="POST",
+                    path=path,
+                    token=token,
+                    body=body,
+                    headers=_session_key_header(session_key),
                 ),
                 self.settings.stream_timeout,
             )
@@ -665,13 +1012,18 @@ class HermesClient:
 
 __all__ = [
     "DEFAULT_CREDENTIAL_SOCKET",
+    "MAX_MESSAGE_BYTES",
     "TEST_CREDENTIAL_PREFIX",
     "CancellableHermesStream",
     "CredentialResolver",
     "HermesClient",
     "HermesEvent",
     "HermesHealth",
+    "HermesSession",
     "HermesStreamResult",
+    "StableSessionIdentifiers",
     "UnixSocketCredentialResolver",
+    "stable_session_identifiers",
     "test_credential_for_reference",
+    "validate_stream_message",
 ]

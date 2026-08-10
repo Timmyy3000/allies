@@ -199,7 +199,16 @@ def register(api: NinjaExtraAPI) -> None:
         try:
             context = authenticate_runtime_token(_bearer(request))
             receipt = complete_attempt(
-                context, attempt_id, _lease_token(request), payload.receipt
+                context,
+                attempt_id,
+                _lease_token(request),
+                payload.receipt,
+                terminal_event={
+                    "event_id": payload.event_id,
+                    "stream_id": payload.stream_id,
+                    "sequence": payload.sequence,
+                    "payload": payload.payload,
+                },
             )
             return JsonResponse(_terminal_json(receipt), status=200)
         except RuntimeDomainError as exc:
@@ -217,6 +226,12 @@ def register(api: NinjaExtraAPI) -> None:
                     "code": payload.code,
                     "retryable": payload.retryable,
                     "receipt": payload.receipt,
+                },
+                terminal_event={
+                    "event_id": payload.event_id,
+                    "stream_id": payload.stream_id,
+                    "sequence": payload.sequence,
+                    "payload": payload.payload,
                 },
             )
             return JsonResponse(_terminal_json(receipt), status=200)

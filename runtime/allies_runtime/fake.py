@@ -64,6 +64,8 @@ class FakeHermesClient:
         self.plans = dict(plans or {})
         self.health_status = health_status
         self.calls: list[tuple[str, str, str]] = []
+        self.session_keys: list[str] = []
+        self.ensured_sessions: list[tuple[str, str]] = []
         self._run_numbers: dict[str, int] = {}
         self.active_streams = 0
         self.max_active_streams = 0
@@ -81,11 +83,21 @@ class FakeHermesClient:
     async def health_detailed(self) -> HermesHealth:
         return await self.health()
 
+    async def ensure_profile_session(self, profile_id: str, session_id: str) -> None:
+        self.ensured_sessions.append((profile_id, session_id))
+
     async def stream_profile(
-        self, profile_id: str, session_id: str, message: str
+        self,
+        profile_id: str,
+        session_id: str,
+        message: str,
+        *,
+        session_key: str | None = None,
     ) -> HermesStreamResult:
         plan = self.plans.get(profile_id, FakeProfilePlan())
         self.calls.append((profile_id, session_id, message))
+        if session_key is not None:
+            self.session_keys.append(session_key)
         await asyncio.sleep(plan.delay)
         if plan.failure == "auth":
             raise HermesAuthenticationError("Hermes authentication was rejected")
@@ -101,44 +113,20 @@ class FakeHermesClient:
         event_profile = plan.cross_profile or profile_id
         events = [
             HermesEvent(
-                name="run.started",
+                name="message.delta",
                 profile_id=event_profile,
                 session_id=session_id,
                 run_id=run_id,
                 sequence=1,
-                payload={
-                    "profile_id": event_profile,
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "seq": 1,
-                },
+                payload={"text": f"proof:{profile_id}:{message}"},
             ),
             HermesEvent(
-                name="assistant.delta",
+                name="execution.completed",
                 profile_id=event_profile,
                 session_id=session_id,
                 run_id=run_id,
                 sequence=2,
-                payload={
-                    "profile_id": event_profile,
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "seq": 2,
-                    "content": f"proof:{profile_id}:{message}",
-                },
-            ),
-            HermesEvent(
-                name="run.completed",
-                profile_id=event_profile,
-                session_id=session_id,
-                run_id=run_id,
-                sequence=3,
-                payload={
-                    "profile_id": event_profile,
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "seq": 3,
-                },
+                payload={"run_id": run_id, "status": "completed"},
             ),
         ]
         if plan.duplicate_event:
@@ -148,12 +136,19 @@ class FakeHermesClient:
         )
 
     async def stream_profile_incremental(
-        self, profile_id: str, session_id: str, message: str
+        self,
+        profile_id: str,
+        session_id: str,
+        message: str,
+        *,
+        session_key: str | None = None,
     ) -> CancellableHermesStream:
         """Yield fixture events incrementally and record cancellation."""
 
         plan = self.plans.get(profile_id, FakeProfilePlan())
         self.calls.append((profile_id, session_id, message))
+        if session_key is not None:
+            self.session_keys.append(session_key)
         if plan.failure == "auth":
             raise HermesAuthenticationError("Hermes authentication was rejected")
         if plan.failure == "malformed":
@@ -168,44 +163,20 @@ class FakeHermesClient:
         event_profile = plan.cross_profile or profile_id
         events = (
             HermesEvent(
-                name="run.started",
+                name="message.delta",
                 profile_id=event_profile,
                 session_id=session_id,
                 run_id=run_id,
                 sequence=1,
-                payload={
-                    "profile_id": event_profile,
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "seq": 1,
-                },
+                payload={"text": f"proof:{profile_id}:{message}"},
             ),
             HermesEvent(
-                name="assistant.delta",
+                name="execution.completed",
                 profile_id=event_profile,
                 session_id=session_id,
                 run_id=run_id,
                 sequence=2,
-                payload={
-                    "profile_id": event_profile,
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "seq": 2,
-                    "content": f"proof:{profile_id}:{message}",
-                },
-            ),
-            HermesEvent(
-                name="run.completed",
-                profile_id=event_profile,
-                session_id=session_id,
-                run_id=run_id,
-                sequence=3,
-                payload={
-                    "profile_id": event_profile,
-                    "session_id": session_id,
-                    "run_id": run_id,
-                    "seq": 3,
-                },
+                payload={"run_id": run_id, "status": "completed"},
             ),
         )
         if plan.duplicate_event:

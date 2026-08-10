@@ -28,7 +28,7 @@ async def test_different_profiles_overlap_and_same_profile_waits():
 async def test_duplicate_replay_is_deduplicated():
     client = FakeHermesClient({"a": FakeProfilePlan(duplicate_event=True)})
     result = await ProfileProofCoordinator(client).run_turn("a", "hello")
-    assert [event.sequence for event in result.events] == [1, 2, 3]
+    assert [event.sequence for event in result.events] == [1, 2]
 
 
 @pytest.mark.asyncio

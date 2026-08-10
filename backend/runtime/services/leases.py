@@ -18,6 +18,7 @@ from runtime.exceptions import (
 from runtime.models import (
     Attempt,
     AttemptStatus,
+    ExecutionEvent,
     ExecutionStatus,
     Lease,
     LeaseState,
@@ -458,6 +459,13 @@ def acknowledge_stopped(
         if lease.state not in (LeaseState.ACTIVE, LeaseState.STOPPING):
             raise RuntimeLeaseConflictError("lease is already released")
         cleanup_pending = profile.lifecycle_state == "cleanup_pending"
+        checkpointed = attempt.session_request_digest is not None or (
+            ExecutionEvent.objects.filter(
+                attempt_id=attempt.id,
+                event_type="execution.dispatched",
+            ).exists()
+        )
+        requeue = not cleanup_pending and not checkpointed
         # ACTIVE is deliberately moved through STOPPING in the same transaction
         # so a concurrent stop/reclaim sees one serialized transition.
         if lease.state == LeaseState.ACTIVE:
@@ -468,7 +476,7 @@ def acknowledge_stopped(
         attempt.stopped_lease_digest = token_digest
         receipt = {
             "state": LeaseState.RELEASED,
-            "requeued": not cleanup_pending,
+            "requeued": requeue,
             "reason": "profile_deprovisioned" if cleanup_pending else reason,
         }
         attempt.stopped_receipt = receipt
@@ -482,13 +490,11 @@ def acknowledge_stopped(
             ]
         )
         execution = attempt.execution
-        execution.status = (
-            ExecutionStatus.FAILED if cleanup_pending else ExecutionStatus.QUEUED
-        )
+        execution.status = ExecutionStatus.QUEUED if requeue else ExecutionStatus.FAILED
         execution.save(update_fields=["status", "updated_at"])
         lease.state = LeaseState.RELEASED
         lease.save(update_fields=["state", "updated_at"])
-        return StopReceipt(attempt.id, LeaseState.RELEASED, not cleanup_pending)
+        return StopReceipt(attempt.id, LeaseState.RELEASED, requeue)
 
     return run_with_sqlite_lock_retry(stop_once)
 
@@ -546,6 +552,12 @@ def confirm_machine_stopped_and_fence(
                     state__in=(LeaseState.ACTIVE, LeaseState.STOPPING),
                 ).values_list("id", flat=True)
             )
+            checkpointed_attempt_ids = set(
+                ExecutionEvent.objects.filter(
+                    attempt__lease__id__in=lease_ids,
+                    event_type="execution.dispatched",
+                ).values_list("attempt_id", flat=True)
+            )
             for lease_id in lease_ids:
                 lease = (
                     Lease.objects.select_for_update()
@@ -556,6 +568,10 @@ def confirm_machine_stopped_and_fence(
                     continue
                 attempt = lease.attempt
                 execution = attempt.execution
+                checkpointed = (
+                    attempt.id in checkpointed_attempt_ids
+                    or attempt.session_request_digest is not None
+                )
                 lease.state = LeaseState.FENCED
                 lease.save(update_fields=["state", "updated_at"])
                 fenced += 1
@@ -567,9 +583,14 @@ def confirm_machine_stopped_and_fence(
                     attempt.status = AttemptStatus.UNKNOWN
                     attempt.save(update_fields=["status", "updated_at"])
                     if execution.status == ExecutionStatus.RUNNING:
-                        execution.status = ExecutionStatus.QUEUED
+                        execution.status = (
+                            ExecutionStatus.FAILED
+                            if checkpointed
+                            else ExecutionStatus.QUEUED
+                        )
                         execution.save(update_fields=["status", "updated_at"])
-                        requeued += 1
+                        if not checkpointed:
+                            requeued += 1
         return FenceReceipt(
             workspace_id,
             source_generation,
