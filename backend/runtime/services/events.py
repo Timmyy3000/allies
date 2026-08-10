@@ -45,6 +45,7 @@ def append_runtime_event(
 
     if not isinstance(context, RuntimeContext):
         raise RuntimeValidationError("runtime context is required")
+    payload = _runtime_event_payload(event_type, payload)
     token_digest = digest_lease_token(lease_token)
 
     @transaction.atomic
@@ -77,6 +78,45 @@ def append_runtime_event(
         )
 
     return run_with_sqlite_lock_retry(append_once)
+
+
+def _runtime_event_payload(event_type: str, payload: dict) -> dict:
+    if not isinstance(payload, dict):
+        raise RuntimeValidationError("event payload must be an object")
+    if event_type == "execution.dispatched":
+        if payload != {"status": "dispatched"}:
+            raise RuntimeValidationError("dispatch event payload is invalid")
+        return dict(payload)
+    if event_type == "message.delta":
+        text = payload.get("text")
+        if set(payload) != {"text"} or not isinstance(text, str) or not text:
+            raise RuntimeValidationError("message event payload is invalid")
+        if len(text.encode("utf-8")) > 16 * 1024:
+            raise RuntimeValidationError("message event payload is too large")
+        return {"text": text}
+    if event_type == "activity.started":
+        activity_id = payload.get("activity_id")
+        if (
+            set(payload) != {"activity_id", "kind"}
+            or not isinstance(activity_id, str)
+            or not activity_id
+            or len(activity_id) > 128
+            or payload.get("kind") != "tool"
+        ):
+            raise RuntimeValidationError("activity start payload is invalid")
+        return {"activity_id": activity_id, "kind": "tool"}
+    if event_type == "activity.completed":
+        activity_id = payload.get("activity_id")
+        if (
+            set(payload) != {"activity_id", "status"}
+            or not isinstance(activity_id, str)
+            or not activity_id
+            or len(activity_id) > 128
+            or payload.get("status") != "completed"
+        ):
+            raise RuntimeValidationError("activity completion payload is invalid")
+        return {"activity_id": activity_id, "status": "completed"}
+    raise RuntimeValidationError("event type is not allowed for append")
 
 
 def append_event(
@@ -124,9 +164,7 @@ def _append_event_once(
     """
 
     if token_digest is None or machine_generation is None:
-        raise RuntimeValidationError(
-            "token_digest and machine_generation are required"
-        )
+        raise RuntimeValidationError("token_digest and machine_generation are required")
     try:
         event_uuid = UUID(str(event_id))
     except (TypeError, ValueError) as exc:

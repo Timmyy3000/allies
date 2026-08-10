@@ -25,7 +25,14 @@ from runtime.models import (
 from .profiles import profile_allows_runtime_write
 from .retry import run_with_sqlite_lock_retry
 from .runtime_auth import RuntimeContext
-from .validation import digest_lease_token, digest_payload, validate_bounded_receipt
+from .validation import (
+    MAX_EVENT_PAYLOAD_BYTES,
+    digest_lease_token,
+    digest_payload,
+    validate_bounded_receipt,
+    validate_nonempty,
+    validate_object_payload,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +49,8 @@ def complete_attempt(
     attempt_id: UUID,
     lease_token: str,
     receipt: dict,
+    *,
+    terminal_event: dict | None = None,
 ) -> TerminalReceipt:
     return _finish_attempt(
         context,
@@ -50,6 +59,7 @@ def complete_attempt(
         receipt,
         retryable=False,
         terminal_status=AttemptStatus.SUCCEEDED,
+        terminal_event=_terminal_event(terminal_event, "execution.completed"),
     )
 
 
@@ -58,6 +68,8 @@ def fail_attempt(
     attempt_id: UUID,
     lease_token: str,
     failure: dict,
+    *,
+    terminal_event: dict | None = None,
 ) -> TerminalReceipt:
     if not isinstance(failure, dict):
         raise RuntimeValidationError("failure must be an object")
@@ -71,6 +83,11 @@ def fail_attempt(
     if receipt is None:
         receipt = {"code": code}
     receipt = validate_bounded_receipt(receipt)
+    normalized_terminal_event = _terminal_event(terminal_event, "execution.failed")
+    if retryable and normalized_terminal_event is not None:
+        raise RuntimeValidationError(
+            "terminal failure events cannot request automatic replay"
+        )
     return _finish_attempt(
         context,
         attempt_id,
@@ -78,6 +95,7 @@ def fail_attempt(
         {"code": code, "retryable": retryable, "receipt": receipt},
         retryable=retryable,
         terminal_status=AttemptStatus.FAILED,
+        terminal_event=normalized_terminal_event,
     )
 
 
@@ -89,6 +107,7 @@ def _finish_attempt(
     *,
     retryable: bool,
     terminal_status: str,
+    terminal_event: dict | None,
 ) -> TerminalReceipt:
     if not isinstance(context, RuntimeContext):
         raise RuntimeValidationError("runtime context is required")
@@ -101,7 +120,12 @@ def _finish_attempt(
         canonical = {"code": value["code"], "retryable": True, "receipt": bounded}
     else:
         canonical = validate_bounded_receipt(value)
-    request_digest = digest_payload(canonical)
+    request_value = (
+        canonical
+        if terminal_event is None
+        else {"terminal": canonical, "terminal_event": terminal_event}
+    )
+    request_digest = digest_payload(request_value)
     lease_digest = digest_lease_token(lease_token)
 
     @transaction.atomic
@@ -147,6 +171,20 @@ def _finish_attempt(
             AttemptStatus.UNKNOWN,
         }:
             raise RuntimeLeaseConflictError("attempt is already terminal")
+        if terminal_event is not None:
+            from .events import _append_event_once
+
+            _append_event_once(
+                attempt.id,
+                lease.id,
+                terminal_event["event_id"],
+                terminal_event["sequence"],
+                terminal_event["type"],
+                terminal_event["payload"],
+                token_digest=lease_digest,
+                machine_generation=context.machine_generation,
+                stream_id=terminal_event["stream_id"],
+            )
         receipt_id = uuid4()
         status = terminal_status
         execution_status = (
@@ -187,6 +225,50 @@ def _finish_attempt(
         )
 
     return run_with_sqlite_lock_retry(finish_once)
+
+
+def _terminal_event(value: dict | None, event_type: str) -> dict | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise RuntimeValidationError("terminal_event must be an object")
+    try:
+        event_id = UUID(str(value.get("event_id")))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeValidationError("terminal event_id must be a UUID") from exc
+    stream_id = validate_nonempty(
+        value.get("stream_id"), "terminal stream_id", max_length=255
+    )
+    sequence = value.get("sequence")
+    if (
+        isinstance(sequence, bool)
+        or not isinstance(sequence, int)
+        or not 1 <= sequence <= 100000
+    ):
+        raise RuntimeValidationError(
+            "terminal sequence must be an integer from 1 to 100000"
+        )
+    payload = validate_object_payload(
+        value.get("payload"), max_bytes=MAX_EVENT_PAYLOAD_BYTES
+    )
+    if event_type == "execution.completed":
+        if set(payload) != {"run_id", "status"} or payload.get("status") != "completed":
+            raise RuntimeValidationError("completion event payload is invalid")
+        validate_nonempty(payload.get("run_id"), "terminal run_id", max_length=128)
+    elif event_type == "execution.failed":
+        if (
+            set(payload) != {"code", "retryable"}
+            or type(payload.get("retryable")) is not bool
+        ):
+            raise RuntimeValidationError("failure event payload is invalid")
+        validate_nonempty(payload.get("code"), "terminal code", max_length=64)
+    return {
+        "event_id": str(event_id),
+        "stream_id": stream_id,
+        "sequence": sequence,
+        "type": event_type,
+        "payload": payload,
+    }
 
 
 def _terminal_from_attempt(attempt: Attempt) -> TerminalReceipt:

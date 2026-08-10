@@ -69,8 +69,8 @@ the current Machine generation.
 | `POST /attempts/{id}/events` | Lease token, attempt-local sequence, stable event ID, type, payload | `202`; duplicate event IDs are harmless | Retry only transport, `429`, and `5xx` with the same identifiers |
 | `PUT /attempts/{id}/session-binding` | Lease token, expected current session ID, effective session ID | Idempotent compare-and-set update | `409` for conflicting conversation/session, token, or generation |
 | `POST /attempts/{id}/stopped` | Lease token and stop reason | Confirms the Hermes stream ended | Required before same-profile reclaim unless the old Machine was fenced and stopped |
-| `POST /attempts/{id}/complete` | Lease token and terminal receipt | Idempotent completion | `409` for stale writers |
-| `POST /attempts/{id}/fail` | Lease token, typed failure, retryability | Idempotent failure | Same fencing rules as completion |
+| `POST /attempts/{id}/complete` | Lease token, terminal event identity/sequence/payload, and receipt | Atomically appends `execution.completed` and completes the attempt | `409` for stale or conflicting writers |
+| `POST /attempts/{id}/fail` | Lease token, terminal event identity/sequence/payload, typed failure, and receipt | Atomically appends `execution.failed` and fails the attempt | Same fencing and idempotency rules as completion |
 
 Foundry derives profile, conversation, runtime, and generation scope from its
 own attempt and lease records. Clients cannot replace that scope by repeating
@@ -91,6 +91,12 @@ Foundry does not immediately reclaim an expired attempt for the same Ally. It
 waits for the matching `stopped` receipt, or retires the old Machine generation
 and confirms that the old Machine stopped. This prevents two Hermes streams for
 one Ally during a network partition.
+
+The runtime confirms a durable `execution.dispatched` event before its first
+Hermes session or stream request. Work stopped before that checkpoint may be
+requeued. Once the checkpoint or a session receipt exists, stopped
+acknowledgement and Machine fencing mark the execution failed and unknown-safe;
+they never replay the message automatically.
 
 Replacement retires the old generation as its first atomic transition. All old
 claims, renewals, events, session updates, and terminal mutations fail from
@@ -178,6 +184,15 @@ A successful stream ends with `run.completed` followed by `done`. An explicit
 error, malformed or out-of-order event, early disconnect, connection timeout,
 or total-turn timeout fails the attempt with a typed reason. A fenced runtime
 closes the stream and sends no further events.
+
+The runtime recognizes only `run.started`, `message.started`,
+`assistant.delta`, `tool.started`, `tool.completed`, `assistant.completed`,
+`run.completed`, `error`, and `done`. It ignores the three non-durable
+lifecycle signals and fails closed on every unknown event. Foundry stores only
+`execution.dispatched`, `message.delta`, `activity.started`,
+`activity.completed`, `execution.completed`, and `execution.failed`, with
+bounded per-type payloads that exclude raw tool arguments, results, previews,
+URLs, headers, exceptions, and credentials.
 
 ## Machine replacement
 

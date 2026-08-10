@@ -35,6 +35,10 @@ class HermesUnavailable(HermesError):
     code = "unavailable"
 
 
+class HermesSessionExists(HermesError):
+    code = "session_exists"
+
+
 class IdentityIsolationError(HermesError):
     code = "identity_isolation_failed"
 
@@ -44,6 +48,7 @@ __all__ = [
     "HermesDisconnected",
     "HermesError",
     "HermesMalformedResponse",
+    "HermesSessionExists",
     "HermesTimeout",
     "HermesUnavailable",
     "IdentityIsolationError",

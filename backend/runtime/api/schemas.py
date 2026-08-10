@@ -29,11 +29,18 @@ class StoppedRequest(Schema):
     reason: str
 
 
-class CompleteRequest(Schema):
+class TerminalEventRequest(Schema):
+    event_id: UUID
+    stream_id: str
+    sequence: int
+    payload: dict[str, Any]
+
+
+class CompleteRequest(TerminalEventRequest):
     receipt: dict[str, Any]
 
 
-class FailRequest(Schema):
+class FailRequest(TerminalEventRequest):
     code: str
     retryable: bool
     receipt: dict[str, Any] | None = None

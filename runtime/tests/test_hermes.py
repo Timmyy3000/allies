@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from threading import Event
 from urllib.error import HTTPError
 
 import pytest
@@ -10,6 +11,7 @@ from allies_runtime.config import load_settings
 from allies_runtime.errors import (
     HermesAuthenticationError,
     HermesDisconnected,
+    HermesError,
     HermesMalformedResponse,
     HermesTimeout,
 )
@@ -17,6 +19,7 @@ from allies_runtime.hermes import (
     HermesClient,
     UnixSocketCredentialResolver,
     _IncrementalHTTPStream,
+    stable_session_identifiers,
 )
 from allies_runtime.hermes import (
     test_credential_for_reference as derive_test_credential,
@@ -24,9 +27,10 @@ from allies_runtime.hermes import (
 
 
 class FakeResponse:
-    def __init__(self, body=b"", lines=()):
+    def __init__(self, body=b"", lines=(), status=200):
         self.body = body
         self.lines = tuple(lines)
+        self.status = status
         self.closed = False
 
     def read(self, limit=-1):
@@ -138,6 +142,18 @@ def test_test_credential_scheme_is_explicit_and_deterministic():
         derive_test_credential(CredentialReference("vault://proof/key"))
 
 
+def test_stable_session_identifiers_are_deterministic_and_domain_separated():
+    first = stable_session_identifiers("profile-1", "cloud-1")
+    repeated = stable_session_identifiers("profile-1", "cloud-1")
+    other = stable_session_identifiers("profile-1", "cloud-2")
+
+    assert first == repeated
+    assert first != other
+    assert first.candidate_id != first.session_key
+    assert "profile-1" not in first.candidate_id
+    assert "cloud-1" not in first.session_key
+
+
 @pytest.mark.asyncio
 async def test_health_sends_bearer_and_decodes_json(monkeypatch):
     response = FakeResponse(
@@ -149,6 +165,342 @@ async def test_health_sends_bearer_and_decodes_json(monkeypatch):
     assert calls[0][0].endswith("/health/detailed")
     assert calls[0][1] == "Bearer test-only-key"
     assert response.closed
+
+
+@pytest.mark.asyncio
+async def test_profile_session_create_uses_selected_profile_credential(monkeypatch):
+    response = FakeResponse(
+        json.dumps(
+            {"object": "hermes.session", "session": {"id": "candidate-1"}}
+        ).encode(),
+        status=201,
+    )
+    settings = load_settings({"HERMES_CREDENTIAL_REF": "ref://bootstrap"})
+    resolved = []
+    calls = []
+
+    def open_url(request, timeout):
+        calls.append(request)
+        return response
+
+    monkeypatch.setattr("allies_runtime.hermes.urlopen", open_url)
+    client = HermesClient(
+        settings,
+        lambda ref: "bootstrap-key",
+        profile_credential_resolver=lambda key: resolved.append(key) or "profile-a-key",
+    )
+
+    session = await client.create_profile_session("ally-a", "candidate-1")
+
+    assert session.session_id == "candidate-1"
+    assert resolved == ["ally-a"]
+    assert calls[0].get_header("Authorization") == "Bearer profile-a-key"
+    assert json.loads(calls[0].data) == {"id": "candidate-1"}
+
+
+@pytest.mark.asyncio
+async def test_profile_credential_resolution_does_not_block_the_event_loop():
+    started = Event()
+    release = Event()
+
+    def resolver(_profile_id):
+        started.set()
+        assert release.wait(1)
+        return "profile-a-key"
+
+    client = HermesClient(
+        load_settings({"HERMES_CREDENTIAL_REF": "ref://bootstrap"}),
+        lambda ref: "bootstrap-key",
+        profile_credential_resolver=resolver,
+    )
+    task = asyncio.create_task(client._profile_credential("ally-a"))
+
+    assert await asyncio.to_thread(started.wait, 0.5)
+    release.set()
+
+    assert await task == "profile-a-key"
+
+
+@pytest.mark.asyncio
+async def test_profile_session_conflict_requires_exact_inspection(monkeypatch):
+    existing = FakeResponse(
+        json.dumps(
+            {"object": "hermes.session", "session": {"id": "candidate-1"}}
+        ).encode()
+    )
+    conflict = HTTPError("private-url", 409, "exists", {}, None)
+    responses = iter([conflict, existing])
+    calls = []
+
+    def open_url(request, timeout):
+        calls.append(request)
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    monkeypatch.setattr("allies_runtime.hermes.urlopen", open_url)
+    client = HermesClient(
+        load_settings({"HERMES_CREDENTIAL_REF": "ref://bootstrap"}),
+        lambda ref: "bootstrap-key",
+        profile_credential_resolver=lambda key: "profile-a-key",
+    )
+
+    session = await client.ensure_profile_session("ally-a", "candidate-1")
+
+    assert session.session_id == "candidate-1"
+    assert [request.method for request in calls] == ["POST", "GET"]
+    assert calls[1].full_url.endswith("/p/ally-a/api/sessions/candidate-1")
+
+
+@pytest.mark.asyncio
+async def test_incremental_profile_stream_sends_stable_session_key(monkeypatch):
+    class Response(FakeResponse):
+        def __init__(self):
+            super().__init__()
+            self.rows = iter(
+                [
+                    b"event: run.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1","seq":1}\n',
+                    b"\n",
+                ]
+            )
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+    calls = []
+
+    def open_url(request, timeout):
+        calls.append(request)
+        return Response()
+
+    monkeypatch.setattr("allies_runtime.hermes.urlopen", open_url)
+    client = HermesClient(
+        load_settings({"HERMES_CREDENTIAL_REF": "ref://bootstrap"}),
+        lambda ref: "bootstrap-key",
+        profile_credential_resolver=lambda key: "profile-a-key",
+    )
+
+    stream = await client.stream_profile_incremental(
+        "ally-a", "s1", "hello", session_key="stable-key-1"
+    )
+    await stream.aclose()
+
+    assert calls[0].get_header("Authorization") == "Bearer profile-a-key"
+    assert calls[0].get_header("X-hermes-session-key") == "stable-key-1"
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_normalizes_safe_events_and_terminal_rotation():
+    class Response:
+        def __init__(self):
+            self.rows = iter(
+                [
+                    b"event: run.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1","seq":80}\n',
+                    b"\n",
+                    b"event: message.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1","message":{"id":"m1"}}\n',
+                    b"\n",
+                    b"event: assistant.delta\n",
+                    b'data: {"session_id":"s1","run_id":"r1","delta":"hello","private":"drop"}\n',
+                    b"\n",
+                    b"event: tool.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"terminal","args":{"secret":"drop"}}\n',
+                    b"\n",
+                    b"event: tool.completed\n",
+                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"terminal","preview":"drop"}\n',
+                    b"\n",
+                    b"event: assistant.completed\n",
+                    b'data: {"session_id":"s2","run_id":"r1","content":"drop"}\n',
+                    b"\n",
+                    b"event: run.completed\n",
+                    b'data: {"session_id":"s2","run_id":"r1","completed":true,"messages":["drop"]}\n',
+                    b"\n",
+                    b"event: done\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                ]
+            )
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+        def close(self):
+            return None
+
+    stream = _IncrementalHTTPStream(Response(), "ally-a", "s1")
+    events = [event async for event in stream]
+
+    assert [event.name for event in events] == [
+        "message.delta",
+        "activity.started",
+        "activity.completed",
+        "execution.completed",
+    ]
+    assert [event.sequence for event in events] == [1, 2, 3, 4]
+    assert events[0].payload == {"text": "hello"}
+    assert events[1].payload == {
+        "activity_id": events[2].payload["activity_id"],
+        "kind": "tool",
+    }
+    assert events[2].payload["status"] == "completed"
+    assert events[3].session_id == "s2"
+    assert events[3].payload == {"run_id": "r1", "status": "completed"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [
+            b"event: run.started\n",
+            b'data: {"session_id":"s1","run_id":"r1"}\n',
+            b"\n",
+        ],
+        [
+            b"event: run.started\n",
+            b'data: {"session_id":"s1","run_id":"r1"}\n',
+            b"\n",
+            b"event: mystery.event\n",
+            b'data: {"session_id":"s1","run_id":"r1"}\n',
+            b"\n",
+        ],
+        [
+            b"event: run.started\n",
+            b'data: {"session_id":"s1","run_id":"r1"}\n\n',
+            b"event: run.completed\n",
+            b'data: {"session_id":"s1","run_id":"other","completed":true}\n',
+            b"\n",
+        ],
+    ],
+)
+async def test_incremental_stream_fails_closed_on_incomplete_unknown_or_changed_run(
+    rows,
+):
+    class Response:
+        def __init__(self):
+            self.rows = iter(rows)
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+        def close(self):
+            return None
+
+    stream = _IncrementalHTTPStream(Response(), "ally-a", "s1")
+    with pytest.raises(HermesMalformedResponse):
+        [event async for event in stream]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("failure", "expected"),
+    [
+        (TimeoutError("private"), HermesTimeout),
+        (OSError("private"), HermesDisconnected),
+    ],
+    ids=["timeout", "disconnect"],
+)
+async def test_incremental_stream_classifies_and_closes_read_failures(
+    failure, expected
+):
+    class Response:
+        def __init__(self):
+            self.rows = iter(
+                [
+                    b"event: run.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                ]
+            )
+            self.closed = False
+
+        def readline(self, _limit):
+            try:
+                return next(self.rows)
+            except StopIteration:
+                raise failure from None
+
+        def close(self):
+            self.closed = True
+
+    response = Response()
+    stream = _IncrementalHTTPStream(response, "ally-a", "s1")
+
+    with pytest.raises(expected):
+        await stream.__anext__()
+
+    assert response.closed is True
+
+
+def test_incremental_state_machine_rejects_each_invalid_transition():
+    def stream():
+        return _IncrementalHTTPStream(object(), "ally-a", "s1")
+
+    current = stream()
+    with pytest.raises(HermesMalformedResponse, match="before run start"):
+        current._normalize_event(
+            "message.started", {"session_id": "s1", "run_id": "r1"}
+        )
+    with pytest.raises(HermesMalformedResponse, match="omitted run"):
+        stream()._normalize_event("run.started", {"session_id": "s1"})
+    with pytest.raises(HermesMalformedResponse, match="session identity"):
+        stream()._normalize_event(
+            "run.started", {"session_id": "other", "run_id": "r1"}
+        )
+
+    current = stream()
+    current._normalize_event("run.started", {"session_id": "s1", "run_id": "r1"})
+    with pytest.raises(HermesMalformedResponse, match="started out of order"):
+        current._normalize_event("run.started", {"session_id": "s1", "run_id": "r1"})
+    with pytest.raises(HermesMalformedResponse, match="completion session"):
+        current._normalize_event(
+            "assistant.completed",
+            {"session_id": "bad/session", "run_id": "r1"},
+        )
+    with pytest.raises(HermesError, match="turn failure"):
+        current._normalize_event("error", {"session_id": "s1", "run_id": "r1"})
+    with pytest.raises(HermesMalformedResponse, match="delta"):
+        current._normalize_event(
+            "assistant.delta", {"session_id": "s1", "run_id": "r1", "delta": ""}
+        )
+    with pytest.raises(HermesMalformedResponse, match="tool start"):
+        current._normalize_event("tool.started", {"session_id": "s1", "run_id": "r1"})
+    with pytest.raises(HermesMalformedResponse, match="out of order"):
+        current._normalize_event(
+            "tool.completed",
+            {"session_id": "s1", "run_id": "r1", "tool_name": "terminal"},
+        )
+    current.active_activities.append(("terminal", "activity-1"))
+    with pytest.raises(HermesMalformedResponse, match="run completion"):
+        current._normalize_event(
+            "run.completed",
+            {"session_id": "s1", "run_id": "r1", "completed": True},
+        )
+    current.active_activities.clear()
+    with pytest.raises(HermesMalformedResponse, match="terminal session"):
+        current._normalize_event(
+            "run.completed",
+            {"session_id": "bad/session", "run_id": "r1", "completed": True},
+        )
+    current._normalize_event(
+        "run.completed",
+        {"session_id": "s2", "run_id": "r1", "completed": True},
+    )
+    with pytest.raises(HermesMalformedResponse, match="after run completion"):
+        current._normalize_event(
+            "assistant.delta",
+            {"session_id": "s1", "run_id": "r1", "delta": "late"},
+        )
+    with pytest.raises(HermesMalformedResponse, match="done identity"):
+        current._normalize_event("done", {"session_id": "other", "run_id": "r1"})
+
+    current = stream()
+    current._normalize_event("run.started", {"session_id": "s1", "run_id": "r1"})
+    with pytest.raises(HermesMalformedResponse, match="before run completion"):
+        current._normalize_event("done", {"session_id": "s1", "run_id": "r1"})
 
 
 @pytest.mark.asyncio
@@ -178,10 +530,15 @@ async def test_incremental_stream_yields_before_done_and_closes_response(monkeyp
             b"event: run.started\n",
             b'data: {"session_id":"s1","run_id":"r1","seq":1}\n',
             b"\n",
-            b"event: run.completed\n",
-            b'data: {"session_id":"s1","run_id":"r1","seq":2}\n',
+            b"event: assistant.delta\n",
+            b'data: {"session_id":"s1","run_id":"r1","delta":"hello"}\n',
             b"\n",
-            b"data: [DONE]\n\n",
+            b"event: run.completed\n",
+            b'data: {"session_id":"s1","run_id":"r1","completed":true}\n',
+            b"\n",
+            b"event: done\n",
+            b'data: {"session_id":"s1","run_id":"r1"}\n',
+            b"\n",
         ]
     )
 
@@ -193,6 +550,7 @@ async def test_incremental_stream_yields_before_done_and_closes_response(monkeyp
     client, _ = _client(monkeypatch, response)
     stream = await client.stream_profile_incremental("ally-a", "s1", "hello")
     first = await stream.__anext__()
+    assert first.name == "message.delta"
     assert first.sequence == 1
     await stream.aclose()
     assert response.closed
@@ -206,10 +564,15 @@ async def test_incremental_stream_consumes_done_and_ignores_comments(monkeypatch
             self.rows = iter(
                 [
                     b": keepalive\n",
-                    b"event:\n",
+                    b"event: run.started\n",
                     b'data: {"session_id":"s1","run_id":"r1"}\n',
                     b"\n",
-                    b"data: [DONE]\n\n",
+                    b"event: run.completed\n",
+                    b'data: {"session_id":"s1","run_id":"r1","completed":true}\n',
+                    b"\n",
+                    b"event: done\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
                 ]
             )
 
@@ -225,6 +588,7 @@ async def test_incremental_stream_consumes_done_and_ignores_comments(monkeypatch
     )
     stream = await client.stream_profile_incremental("ally-a", "s1", "hello")
     event = await stream.__anext__()
+    assert event.name == "execution.completed"
     assert event.sequence == 1
     with pytest.raises(StopAsyncIteration):
         await stream.__anext__()

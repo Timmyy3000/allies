@@ -22,7 +22,7 @@ from typing import Any, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from .errors import HermesError, HermesMalformedResponse
-from .hermes import HermesEvent
+from .hermes import HermesEvent, stable_session_identifiers, validate_stream_message
 
 MAX_CLAIM_SLOTS = 8
 LEASE_SECONDS = 60.0
@@ -800,13 +800,27 @@ class FoundryClient:
     acknowledge_stopped = stopped
 
     async def complete(
-        self, attempt_id: str | UUID, lease_token: str, *, receipt: Mapping[str, Any]
+        self,
+        attempt_id: str | UUID,
+        lease_token: str,
+        *,
+        stream_id: str,
+        sequence: int,
+        payload: Mapping[str, Any],
+        receipt: Mapping[str, Any],
     ) -> TerminalReceipt:
+        event_id = deterministic_event_id(attempt_id, stream_id, sequence)
         result = await self._request(
             "POST",
             f"/api/v1/runtime/attempts/{attempt_id}/complete",
             lease_token=lease_token,
-            body={"receipt": dict(receipt)},
+            body={
+                "event_id": event_id,
+                "stream_id": stream_id,
+                "sequence": sequence,
+                "payload": dict(payload),
+                "receipt": dict(receipt),
+            },
         )
         return self._terminal(result)
 
@@ -817,11 +831,18 @@ class FoundryClient:
         attempt_id: str | UUID,
         lease_token: str,
         *,
+        stream_id: str,
+        sequence: int,
+        payload: Mapping[str, Any],
         code: str,
         retryable: bool,
         receipt: Mapping[str, Any] | None = None,
     ) -> TerminalReceipt:
         body = {
+            "event_id": deterministic_event_id(attempt_id, stream_id, sequence),
+            "stream_id": stream_id,
+            "sequence": sequence,
+            "payload": dict(payload),
             "code": code,
             "retryable": retryable,
             "receipt": dict(receipt) if receipt is not None else None,
@@ -888,13 +909,20 @@ async def _retry_response_loss(operation: Callable[[], Any]) -> Any:
 
 
 async def _stream_events(
-    hermes: Any, profile_id: str, session_id: str, message: str
+    hermes: Any,
+    profile_id: str,
+    session_id: str,
+    message: str,
+    *,
+    session_key: str,
 ) -> Any:
     method = getattr(hermes, "stream_profile_incremental", None)
     if callable(method):
-        result = method(profile_id, session_id, message)
+        result = method(profile_id, session_id, message, session_key=session_key)
     else:
-        result = hermes.stream_profile(profile_id, session_id, message)
+        result = hermes.stream_profile(
+            profile_id, session_id, message, session_key=session_key
+        )
     if inspect.isawaitable(result):
         result = await result
     if hasattr(result, "__aiter__"):
@@ -983,47 +1011,120 @@ class FoundryWorker:
                 return
 
     async def _run_claim(self, claim: FoundryClaim) -> Any:
-        session_id = claim.session_id or f"runtime-{claim.profile_id}"
         stream = None
         lost = asyncio.Event()
         renewal: asyncio.Task[Any] | None = None
-        stopped = False
-        event_count = 0
+        sequence = 0
         try:
+            try:
+                message = validate_stream_message(claim.payload.get("message"))
+            except ValueError:
+                raise InvalidRequestError("Execution message was invalid")
+            input_conversation = claim.payload.get("cloud_conversation_ref")
+            if claim.conversation_id is None:
+                if (
+                    not isinstance(input_conversation, str)
+                    or not input_conversation
+                    or len(input_conversation) > 255
+                    or claim.session_id is not None
+                ):
+                    raise InvalidRequestError("Execution conversation was invalid")
+                conversation_id = input_conversation
+            else:
+                conversation_id = claim.conversation_id
+                if (
+                    not conversation_id
+                    or len(conversation_id) > 255
+                    or claim.session_id is None
+                    or (
+                        input_conversation is not None
+                        and input_conversation != conversation_id
+                    )
+                ):
+                    raise InvalidRequestError("Execution conversation was invalid")
+
+            identifiers = stable_session_identifiers(claim.profile_id, conversation_id)
+            session_id = claim.session_id or identifiers.candidate_id
+
+            sequence = 1
+            dispatch_payload = {"status": "dispatched"}
+            try:
+                await _retry_response_loss(
+                    lambda: self.foundry.event(
+                        claim.attempt_id,
+                        claim.lease_token,
+                        stream_id=claim.stream_id,
+                        sequence=sequence,
+                        event_type="execution.dispatched",
+                        payload=dispatch_payload,
+                        event_id=deterministic_event_id(
+                            claim.attempt_id, claim.stream_id, sequence
+                        ),
+                    )
+                )
+            except ResponseLossError:
+                return await self.foundry.stopped(
+                    claim.attempt_id,
+                    claim.lease_token,
+                    reason="dispatch_response_lost",
+                )
+            if claim.session_id is None:
+                ensure_session = getattr(self.hermes, "ensure_profile_session", None)
+                if not callable(ensure_session):
+                    raise HermesError("Hermes session operations were unavailable")
+                ensured = ensure_session(claim.hermes_profile_key, session_id)
+                if inspect.isawaitable(ensured):
+                    await ensured
+
             stream = await _stream_events(
-                self.hermes, claim.hermes_profile_key, session_id, claim.message
+                self.hermes,
+                claim.hermes_profile_key,
+                session_id,
+                message,
+                session_key=identifiers.session_key,
             )
             renewal = asyncio.create_task(self._renew_loop(claim, stream, lost))
+            terminal: HermesEvent | None = None
             async for event in stream:
-                if lost.is_set() or stopped:
+                if lost.is_set():
                     break
                 if not isinstance(event, HermesEvent):
                     raise HermesError("Hermes returned a malformed event")
-                if (
-                    event.profile_id != claim.hermes_profile_key
-                    or event.session_id != session_id
-                ):
+                if event.profile_id != claim.hermes_profile_key:
+                    raise HermesError("Hermes event identity did not match claim")
+                if terminal is not None:
+                    raise HermesError("Hermes returned an event after completion")
+                if event.name == "execution.completed":
+                    terminal = event
+                    continue
+                if event.session_id != session_id or event.name not in {
+                    "message.delta",
+                    "activity.started",
+                    "activity.completed",
+                }:
                     raise HermesError("Hermes event identity did not match claim")
                 if lost.is_set():
                     break
-                event_count += 1
+                sequence += 1
                 try:
                     await _retry_response_loss(
-                        lambda current_event=event: self.foundry.event(
-                            claim.attempt_id,
-                            claim.lease_token,
-                            stream_id=claim.stream_id,
-                            sequence=current_event.sequence,
-                            event_type=current_event.name,
-                            payload=current_event.payload,
+                        lambda current_event=event, current_sequence=sequence: (
+                            self.foundry.event(
+                                claim.attempt_id,
+                                claim.lease_token,
+                                stream_id=claim.stream_id,
+                                sequence=current_sequence,
+                                event_type=current_event.name,
+                                payload=current_event.payload,
+                                event_id=deterministic_event_id(
+                                    claim.attempt_id, claim.stream_id, current_sequence
+                                ),
+                            )
                         )
                     )
                 except ResponseLossError:
-                    # The event may have committed.  Do not issue a new
-                    # terminal write; close Hermes and use stopped/requeue.
                     lost.set()
                     await _close_stream(stream)
-                    stopped = True
                     try:
                         return await self.foundry.stopped(
                             claim.attempt_id,
@@ -1033,17 +1134,40 @@ class FoundryWorker:
                     except FoundryError:
                         return None
             if lost.is_set():
-                stopped = True
                 return await self.foundry.stopped(
                     claim.attempt_id, claim.lease_token, reason="lease_lost"
                 )
-            if event_count == 0:
-                raise HermesMalformedResponse("Hermes stream returned no events")
+            if terminal is None:
+                raise HermesMalformedResponse(
+                    "Hermes stream had no valid terminal event"
+                )
+            await _close_stream(stream)
+            stream = None
+            try:
+                await _retry_response_loss(
+                    lambda: self.foundry.bind(
+                        claim.attempt_id,
+                        claim.lease_token,
+                        cloud_conversation_ref=conversation_id,
+                        expected_session_id=claim.session_id,
+                        effective_session_id=terminal.session_id,
+                    )
+                )
+            except ResponseLossError:
+                return await self.foundry.stopped(
+                    claim.attempt_id,
+                    claim.lease_token,
+                    reason="session_response_lost",
+                )
+            sequence += 1
             try:
                 return await _retry_response_loss(
                     lambda: self.foundry.complete(
                         claim.attempt_id,
                         claim.lease_token,
+                        stream_id=claim.stream_id,
+                        sequence=sequence,
+                        payload=terminal.payload,
                         receipt={"code": "ok"},
                     )
                 )
@@ -1052,7 +1176,6 @@ class FoundryWorker:
                 # attempt after the bounded replay also loses its response.
                 lost.set()
                 await _close_stream(stream)
-                stopped = True
                 try:
                     return await self.foundry.stopped(
                         claim.attempt_id,
@@ -1062,7 +1185,6 @@ class FoundryWorker:
                 except FoundryError:
                     return None
         except asyncio.CancelledError:
-            stopped = True
             await _close_stream(stream)
             try:
                 return await self.foundry.stopped(
@@ -1072,7 +1194,6 @@ class FoundryWorker:
                 return None
         except (FoundryError, HermesError) as exc:
             if lost.is_set() or isinstance(exc, (FencedError, LeaseConflictError)):
-                stopped = True
                 try:
                     return await self.foundry.stopped(
                         claim.attempt_id, claim.lease_token, reason="lease_lost"
@@ -1084,13 +1205,22 @@ class FoundryWorker:
             # stopped.  Close it before issuing the durable fail/requeue.
             if stream is not None:
                 await _close_stream(stream)
+                stream = None
+            sequence = max(sequence + 1, 1)
+            failure_payload = {
+                "code": failure_code,
+                "retryable": False,
+            }
             try:
                 return await _retry_response_loss(
                     lambda: self.foundry.fail(
                         claim.attempt_id,
                         claim.lease_token,
+                        stream_id=claim.stream_id,
+                        sequence=sequence,
+                        payload=failure_payload,
                         code=failure_code,
-                        retryable=True,
+                        retryable=False,
                         receipt={"code": failure_code},
                     )
                 )

@@ -10,14 +10,18 @@ from threading import Event, Lock
 
 import pytest
 
+import allies_runtime.profile_store as profile_store_module
 from allies_runtime.profile_store import (
     HERMES_PROFILE_DIRECTORIES,
     MANIFEST_NAME,
     ProfileCleanupStatus,
+    ProfileInputError,
     ProfileProvisionStatus,
     ProfileSeed,
     ProfileStore,
     ProfileStoreError,
+    _process_is_alive,
+    _read_lock_metadata,
     derive_profile_key,
     inspect_profile,
     validate_profile_key,
@@ -115,6 +119,186 @@ def test_first_publish_exact_layout_manifest_and_secret_permissions(tmp_path):
     assert manifest["completion_state"] == "complete"
     assert PROFILE_SECRET not in json.dumps(manifest)
     assert PROFILE_SECRET not in json.dumps(receipt.to_dict())
+
+
+def test_read_api_key_returns_only_the_selected_materialized_profile(tmp_path):
+    store = make_store(tmp_path, key_factory=lambda: "profile-a-secret")
+    first = make_seed()
+    second = make_seed(OTHER_PROFILE_ID, operation_id="provision-2")
+
+    store.materialize(first)
+    store.api_key_factory = lambda: "profile-b-secret"
+    store.materialize(second)
+
+    assert store.read_api_key(first.hermes_profile_key or "") == "profile-a-secret"
+    assert store.read_api_key(second.hermes_profile_key or "") == "profile-b-secret"
+
+
+def test_read_api_key_rejects_unsafe_or_incomplete_secret_files(tmp_path):
+    store = make_store(tmp_path)
+    seed = make_seed()
+    store.materialize(seed)
+    env_path = profile_path(store, seed) / ".env"
+
+    env_path.write_text("OPENAI_API_KEY=provider-only\n", encoding="utf-8")
+
+    with pytest.raises(
+        ProfileStoreError, match="profile API key is unavailable"
+    ) as error:
+        store.read_api_key(seed.hermes_profile_key or "")
+
+    assert PROFILE_SECRET not in str(error.value)
+
+
+def test_read_api_key_rejects_symlinked_secret_file(tmp_path):
+    store = make_store(tmp_path)
+    seed = make_seed()
+    store.materialize(seed)
+    env_path = profile_path(store, seed) / ".env"
+    target = tmp_path / "outside.env"
+    target.write_text("API_SERVER_KEY=outside-secret\n", encoding="utf-8")
+    env_path.unlink()
+    try:
+        env_path.symlink_to(target)
+    except (NotImplementedError, OSError):
+        pytest.skip("symlinks are unavailable")
+
+    with pytest.raises(ProfileStoreError, match="profile API key is unavailable"):
+        store.read_api_key(seed.hermes_profile_key or "")
+
+
+def test_read_api_key_rejects_file_replaced_between_inspection_and_open(
+    tmp_path, monkeypatch
+):
+    store = make_store(tmp_path)
+    seed = make_seed()
+    store.materialize(seed)
+    profile = profile_path(store, seed)
+    env_path = profile / ".env"
+    replacement = profile / ".env-replacement"
+    original = profile / ".env-original"
+    replacement.write_text(
+        "API_SERVER_KEY=attacker-controlled-key-0123456789\n", encoding="utf-8"
+    )
+    replacement.chmod(0o600)
+    original_open = profile_store_module.os.open
+    replaced = False
+
+    def replace_before_open(path, flags, *args, **kwargs):
+        nonlocal replaced
+        opens_profile_env = Path(path) == env_path or (
+            Path(path) == Path(".env") and kwargs.get("dir_fd") is not None
+        )
+        if opens_profile_env and not replaced:
+            replaced = True
+            env_path.replace(original)
+            replacement.replace(env_path)
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(profile_store_module.os, "open", replace_before_open)
+
+    with pytest.raises(ProfileStoreError, match="API key is unavailable"):
+        store.read_api_key(seed.hermes_profile_key or "")
+
+    env_path.write_text("API_SERVER_KEY=short\n", encoding="utf-8")
+    env_path.chmod(0o600)
+    with pytest.raises(ProfileStoreError, match="API key is unavailable"):
+        store.read_api_key(seed.hermes_profile_key or "")
+
+    with pytest.raises(ProfileInputError):
+        store.read_api_key("bad/key")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows handle-path regression")
+def test_read_api_key_rejects_opened_file_outside_profile(tmp_path, monkeypatch):
+    store = make_store(tmp_path)
+    seed = make_seed()
+    store.materialize(seed)
+    monkeypatch.setattr(
+        profile_store_module,
+        "_windows_final_path",
+        lambda _descriptor: os.path.normcase(str(tmp_path / "outside.env")),
+    )
+
+    with pytest.raises(ProfileStoreError, match="API key is unavailable"):
+        store.read_api_key(seed.hermes_profile_key or "")
+
+
+def test_read_api_key_rejects_profile_directory_replaced_before_file_open(
+    tmp_path, monkeypatch
+):
+    store = make_store(tmp_path)
+    seed = make_seed()
+    store.materialize(seed)
+    profile = profile_path(store, seed)
+    original = profile.with_name(f"{profile.name}-original")
+    outside = tmp_path / "outside-profile"
+    outside.mkdir()
+    (outside / ".env").write_text(
+        "API_SERVER_KEY=attacker-controlled-key-0123456789\n", encoding="utf-8"
+    )
+    (outside / ".env").chmod(0o600)
+    original_open = profile_store_module.os.open
+    replaced = False
+
+    def replace_parent_before_open(path, flags, *args, **kwargs):
+        nonlocal replaced
+        opens_profile_env = Path(path) == profile / ".env" or (
+            Path(path) == Path(".env") and kwargs.get("dir_fd") is not None
+        )
+        if opens_profile_env and not replaced:
+            replaced = True
+            profile.replace(original)
+            outside.replace(profile)
+        return original_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(profile_store_module.os, "open", replace_parent_before_open)
+
+    if os.name == "nt":
+        with pytest.raises(ProfileStoreError, match="API key is unavailable"):
+            store.read_api_key(seed.hermes_profile_key or "")
+    else:
+        assert (
+            store.read_api_key(seed.hermes_profile_key or "")
+            == "profile-local-key-0123456789"
+        )
+
+
+def test_read_api_key_rejects_non_directory_profile_and_oversized_secret(tmp_path):
+    store = make_store(tmp_path)
+    seed = make_seed()
+    store.materialize(seed)
+    profile = profile_path(store, seed)
+    original = profile.with_name(f"{profile.name}-original")
+    profile.replace(original)
+    profile.write_text("not a directory", encoding="utf-8")
+
+    with pytest.raises(ProfileStoreError, match="API key is unavailable"):
+        store.read_api_key(seed.hermes_profile_key or "")
+
+    profile.unlink()
+    original.replace(profile)
+    env_path = profile / ".env"
+    env_path.write_bytes(
+        b"API_SERVER_KEY=" + b"x" * profile_store_module.MAX_PROFILE_TEXT_BYTES + b"\n"
+    )
+    env_path.chmod(0o600)
+
+    with pytest.raises(ProfileStoreError, match="API key is unavailable"):
+        store.read_api_key(seed.hermes_profile_key or "")
+
+
+def test_read_api_key_sanitizes_profile_lock_timeout(tmp_path):
+    store = make_store(tmp_path, lock_timeout_seconds=0.01)
+    seed = make_seed()
+    store.materialize(seed)
+    local_lock = store._local_lock(seed.hermes_profile_key or "")
+    assert local_lock.acquire(timeout=0.01)
+    try:
+        with pytest.raises(ProfileStoreError, match="API key is unavailable"):
+            store.read_api_key(seed.hermes_profile_key or "")
+    finally:
+        local_lock.release()
 
 
 def test_repeat_and_machine_replacement_are_existing_and_stable(tmp_path):
@@ -794,6 +978,34 @@ def test_profile_store_does_not_steal_live_lock_after_stale_threshold(tmp_path):
     assert second_receipt.status is ProfileProvisionStatus.REPAIR_REQUIRED
     assert second_receipt.repair_code == "lock_timeout"
     assert first_receipt.status is ProfileProvisionStatus.CREATED
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-query regression")
+def test_live_lock_check_does_not_signal_the_process_on_windows(monkeypatch):
+    def unexpected_kill(_pid, _signal):
+        pytest.fail("Windows liveness checks must not call os.kill")
+
+    monkeypatch.setattr("allies_runtime.profile_store.os.kill", unexpected_kill)
+
+    assert _process_is_alive(os.getpid()) is True
+    assert _process_is_alive(0) is False
+    assert _process_is_alive(0x1_0000_0000) is True
+
+
+def test_lock_metadata_rejects_missing_and_invalid_shapes(tmp_path):
+    lock = tmp_path / "profile.lock"
+    assert _read_lock_metadata(lock) is None
+
+    lock.write_text("[]", encoding="ascii")
+    assert _read_lock_metadata(lock) is None
+
+    lock.write_text('{"pid":true,"nonce":"invalid"}', encoding="ascii")
+    assert _read_lock_metadata(lock) is None
+
+    lock.write_text(
+        '{"pid":4294967296,"nonce":"0123456789abcdef01234567"}', encoding="ascii"
+    )
+    assert _read_lock_metadata(lock) is None
 
 
 def test_profile_store_reports_lock_timeout(tmp_path):

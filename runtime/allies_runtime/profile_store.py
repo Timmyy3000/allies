@@ -590,6 +590,11 @@ def _reject_symlinked_components(path: Path) -> None:
 def _process_is_alive(pid: int) -> bool:
     """Return false only when the operating system confirms that ``pid`` is gone."""
 
+    if os.name == "nt":
+        if pid > 0xFFFFFFFF:
+            return True
+        return _windows_process_is_alive(pid)
+
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
@@ -600,6 +605,150 @@ def _process_is_alive(pid: int) -> bool:
         # An indeterminate liveness result must not permit lock stealing.
         return True
     return True
+
+
+def _read_bounded_descriptor(descriptor: int) -> bytes:
+    content = bytearray()
+    while len(content) <= MAX_PROFILE_TEXT_BYTES:
+        chunk = os.read(
+            descriptor,
+            min(64 * 1024, MAX_PROFILE_TEXT_BYTES + 1 - len(content)),
+        )
+        if not chunk:
+            break
+        content.extend(chunk)
+    return bytes(content)
+
+
+def _windows_final_path(
+    descriptor: int,
+) -> str:  # pragma: no cover - Windows-specific implementation
+    """Return the normalized final path of an already-open Windows file."""
+
+    import ctypes
+    import msvcrt
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetFinalPathNameByHandleW.argtypes = [
+        wintypes.HANDLE,
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
+    ]
+    kernel32.GetFinalPathNameByHandleW.restype = wintypes.DWORD
+    buffer = ctypes.create_unicode_buffer(32_768)
+    length = kernel32.GetFinalPathNameByHandleW(
+        msvcrt.get_osfhandle(descriptor), buffer, len(buffer), 0
+    )
+    if length == 0 or length >= len(buffer):
+        raise OSError("opened profile path could not be verified")
+    path = buffer.value
+    if path.startswith("\\\\?\\UNC\\"):
+        path = f"\\\\{path[8:]}"
+    elif path.startswith("\\\\?\\"):
+        path = path[4:]
+    return os.path.normcase(os.path.abspath(path))
+
+
+def _read_profile_env(profile: Path) -> bytes:
+    """Read ``.env`` through the current platform's anchored file API."""
+
+    unavailable = "profile API key is unavailable"
+    file_flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+    file_flags |= getattr(os, "O_NOFOLLOW", 0)
+    if os.name == "nt":
+        return _read_profile_env_windows(profile, file_flags, unavailable)
+    return _read_profile_env_posix(profile, file_flags, unavailable)
+
+
+def _read_profile_env_windows(
+    profile: Path, file_flags: int, unavailable: str
+) -> bytes:  # pragma: no cover - Windows-specific implementation
+    profile_info = profile.lstat()
+    if not stat.S_ISDIR(profile_info.st_mode) or profile.resolve() != profile:
+        raise ProfileStoreError(unavailable)
+    env_path = profile / ".env"
+    info = env_path.lstat()
+    descriptor = os.open(env_path, file_flags)
+    try:
+        current_profile = profile.lstat()
+        if (
+            not os.path.samestat(profile_info, current_profile)
+            or profile.resolve() != profile
+        ):
+            raise ProfileStoreError(unavailable)
+        opened = os.fstat(descriptor)
+        expected_path = os.path.normcase(os.path.abspath(profile / ".env"))
+        if (
+            not stat.S_ISREG(info.st_mode)
+            or not os.path.samestat(info, opened)
+            or _windows_final_path(descriptor) != expected_path
+        ):
+            raise ProfileStoreError(unavailable)
+        return _read_bounded_descriptor(descriptor)
+    finally:
+        os.close(descriptor)
+
+
+def _read_profile_env_posix(
+    profile: Path, file_flags: int, unavailable: str
+) -> bytes:  # pragma: no cover - POSIX-specific implementation
+    directory_flags = os.O_RDONLY | getattr(os, "O_DIRECTORY", 0)
+    directory_flags |= getattr(os, "O_NOFOLLOW", 0)
+    directory = os.open(profile, directory_flags)
+    try:
+        if not stat.S_ISDIR(os.fstat(directory).st_mode):
+            raise ProfileStoreError(unavailable)
+        info = os.stat(".env", dir_fd=directory, follow_symlinks=False)
+        descriptor = os.open(".env", file_flags, dir_fd=directory)
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or not os.path.samestat(info, opened)
+                or opened.st_mode & 0o077
+            ):
+                raise ProfileStoreError(unavailable)
+            return _read_bounded_descriptor(descriptor)
+        finally:
+            os.close(descriptor)
+    finally:
+        os.close(directory)
+
+
+def _windows_process_is_alive(
+    pid: int,
+) -> bool:  # pragma: no cover - Windows-specific implementation
+    """Query process state without using Windows ``os.kill`` semantics."""
+
+    import ctypes
+    from ctypes import wintypes
+
+    process_query_limited_information = 0x1000
+    still_active = 259
+    invalid_parameter = 87
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, wintypes.LPDWORD]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    try:
+        handle = kernel32.OpenProcess(process_query_limited_information, False, pid)
+    except (OverflowError, TypeError, ValueError):
+        return True
+    if not handle:
+        return ctypes.get_last_error() != invalid_parameter
+    try:
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return True
+        return exit_code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
 
 
 def _read_lock_metadata(path: Path) -> tuple[int, str] | None:
@@ -616,7 +765,7 @@ def _read_lock_metadata(path: Path) -> tuple[int, str] | None:
     if (
         isinstance(pid, bool)
         or not isinstance(pid, int)
-        or pid <= 0
+        or not 0 < pid <= 0xFFFFFFFF
         or not isinstance(nonce, str)
         or not re.fullmatch(r"[0-9a-f]{24}", nonce)
     ):
@@ -783,6 +932,37 @@ class ProfileStore:
         except OSError:
             raise ProfileStoreError("profile path could not be verified") from None
         return path
+
+    def read_api_key(self, profile_key: str) -> str:
+        """Read one materialized profile's local Hermes API key."""
+
+        key = validate_profile_key(profile_key)
+        try:
+            with self._lock(key):
+                profile = self._profile_path(key)
+                encoded = _read_profile_env(profile)
+                if len(encoded) > MAX_PROFILE_TEXT_BYTES:
+                    raise ProfileStoreError("profile API key is unavailable")
+                content = encoded.decode("utf-8")
+                values = []
+                for line in content.splitlines():
+                    name, separator, value = line.partition("=")
+                    if separator and name == "API_SERVER_KEY":
+                        values.append(value)
+                if len(values) != 1:
+                    raise ProfileStoreError("profile API key is unavailable")
+                try:
+                    return _validate_generated_key(values[0])
+                except ProfileStoreError:
+                    raise ProfileStoreError("profile API key is unavailable") from None
+        except ProfileInputError:
+            raise
+        except ProfileStoreError as exc:
+            if str(exc) == "profile API key is unavailable":
+                raise
+            raise ProfileStoreError("profile API key is unavailable") from None
+        except (OSError, UnicodeError):
+            raise ProfileStoreError("profile API key is unavailable") from None
 
     def _local_lock(self, key: str) -> threading.Lock:
         identity = (str(self.volume_root), key)
