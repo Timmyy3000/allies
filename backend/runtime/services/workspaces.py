@@ -22,6 +22,8 @@ from django.utils import timezone
 
 from runtime.exceptions import RuntimeConflictError, RuntimeValidationError
 from runtime.models import (
+    RuntimeProfile,
+    RuntimeProfileLifecycleState,
     Workspace,
     WorkspaceProvisioningKind,
     WorkspaceProvisioningPhase,
@@ -372,6 +374,20 @@ class WorkspaceLifecycle:
                 workspace.provisioning_machine_name = machine_name
                 workspace.provisioning_claim_token = None
                 workspace.provisioning_claim_expires_at = None
+                # A new Machine generation must reconcile every active profile
+                # before claims resume.  Clear only generation-scoped receipt
+                # state; identity, seed, and cleanup tombstones remain durable.
+                RuntimeProfile.objects.filter(
+                    workspace_id=workspace.id,
+                    lifecycle_state=RuntimeProfileLifecycleState.ACTIVE,
+                ).update(
+                    materialized_generation=0,
+                    materialization_operation_id=None,
+                    materialization_request_digest="",
+                    materialization_receipt_id=None,
+                    materialization_result_code="",
+                    updated_at=now,
+                )
                 workspace.save(
                     update_fields=[
                         "machine_generation",

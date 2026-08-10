@@ -22,6 +22,7 @@ from runtime.models import (
     Workspace,
 )
 
+from .profiles import profile_allows_runtime_write
 from .retry import run_with_sqlite_lock_retry
 from .runtime_auth import RuntimeContext
 from .validation import digest_lease_token, digest_payload, validate_bounded_receipt
@@ -116,7 +117,11 @@ def _finish_attempt(
         )
         if attempt is None:
             raise RuntimeLeaseConflictError("attempt is not in this workspace")
-        RuntimeProfile.objects.select_for_update().get(pk=attempt.execution.profile_id)
+        profile = RuntimeProfile.objects.select_for_update().get(
+            pk=attempt.execution.profile_id
+        )
+        if not profile_allows_runtime_write(profile):
+            raise RuntimeLeaseConflictError("profile lifecycle is not active")
         if attempt.terminal_request_digest is not None:
             if (
                 attempt.terminal_request_digest != request_digest
@@ -192,10 +197,7 @@ def _terminal_from_attempt(attempt: Attempt) -> TerminalReceipt:
         attempt_id=attempt.id,
         status=attempt.status,
         receipt_id=attempt.terminal_receipt_id,
-        requeued=bool(
-            isinstance(value, dict)
-            and value.get("retryable") is True
-        ),
+        requeued=bool(isinstance(value, dict) and value.get("retryable") is True),
         receipt=value,
     )
 

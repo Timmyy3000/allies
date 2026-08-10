@@ -526,9 +526,27 @@ so they are visible in review.
 `make validate` runs the full repository validation command, including the
 lockfile check and tests. CI uses the same Python validation runner.
 
-Worker and scheduler commands will be added when the repository introduces
-Celery and background processing. The underlying `uv run ...` commands remain
-available from `backend/`.
+The runtime cleanup expiry entrypoint does not require a third-party scheduler.
+Run one bounded pass with:
+
+```powershell
+cd backend
+uv run --locked python manage.py expire_profile_cleanups
+```
+
+For a supervised periodic process, use the bounded watch mode and let the
+deployment process restart it after the requested number of passes:
+
+```powershell
+cd backend
+uv run --locked python manage.py expire_profile_cleanups --watch --interval 60 --max-runs 60
+```
+
+The example performs at most 60 passes, one minute apart, and then exits.
+`--watch` requires `--max-runs`; supported bounds are 1-3600 seconds for
+`--interval` and 1-1440 passes for `--max-runs`. The one-shot command remains
+the default and is idempotent, so cron or a platform job may invoke it
+directly when a periodic process is not needed.
 
 ## Definition of done for a new domain slice
 

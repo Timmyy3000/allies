@@ -26,6 +26,7 @@ from runtime.models import (
 )
 from runtime.services.claims import LeaseReceipt
 
+from .profiles import profile_allows_runtime_write, profile_allows_stop
 from .retry import run_with_sqlite_lock_retry
 from .validation import digest_lease_token, validate_token_digest
 
@@ -69,9 +70,7 @@ _ATTEMPT_STATUS_TRANSITIONS = {
 _ATTEMPT_STATUS_TRANSITIONS.update(
     {status: frozenset({status}) for status in _TERMINAL_ATTEMPT_STATUSES}
 )
-_CLAIMABLE_ATTEMPT_STATUSES = frozenset(
-    {AttemptStatus.LEASED, AttemptStatus.RUNNING}
-)
+_CLAIMABLE_ATTEMPT_STATUSES = frozenset({AttemptStatus.LEASED, AttemptStatus.RUNNING})
 
 
 __all__ = [
@@ -184,6 +183,8 @@ def _create_lease_from_digest(
         or execution.workspace.machine_generation != machine_generation
     ):
         raise RuntimeAuthorizationError("lease generation is stale")
+    if not profile_allows_runtime_write(profile):
+        raise RuntimeAuthorizationError("profile lifecycle is not active")
     try:
         with transaction.atomic():
             return Lease.objects.create(
@@ -291,9 +292,7 @@ def _validate_authorized_attempt_mutation(
     if next_claimed_at is None:
         return
     if next_status not in _CLAIMABLE_ATTEMPT_STATUSES:
-        raise RuntimeConflictError(
-            "claimed_at requires a leased or running attempt"
-        )
+        raise RuntimeConflictError("claimed_at requires a leased or running attempt")
 
 
 def _authorize_attempt_mutation(
@@ -338,6 +337,8 @@ def _authorize_attempt_mutation(
         or lease.state != LeaseState.ACTIVE
     ):
         raise RuntimeAuthorizationError("lease or machine generation is stale")
+    if not profile_allows_runtime_write(profile):
+        raise RuntimeAuthorizationError("profile lifecycle is not active")
     if lease.expires_at <= timezone.now():
         raise RuntimeAuthorizationError("lease has expired")
     return _AttemptAuthorization(
@@ -374,7 +375,11 @@ def renew_lease(context, attempt_id: UUID, lease_token: str) -> LeaseReceipt:
         )
         if attempt is None:
             raise RuntimeLeaseConflictError("attempt is not in this workspace")
-        RuntimeProfile.objects.select_for_update().get(pk=attempt.execution.profile_id)
+        profile = RuntimeProfile.objects.select_for_update().get(
+            pk=attempt.execution.profile_id
+        )
+        if not profile_allows_runtime_write(profile):
+            raise RuntimeLeaseConflictError("profile lifecycle is not active")
         lease = Lease.objects.select_for_update().filter(attempt=attempt).first()
         if lease is None or lease.token_digest != token_digest:
             raise RuntimeLeaseConflictError("lease token does not authorize attempt")
@@ -427,7 +432,9 @@ def acknowledge_stopped(
         )
         if attempt is None:
             raise RuntimeLeaseConflictError("attempt is not in this workspace")
-        RuntimeProfile.objects.select_for_update().get(pk=attempt.execution.profile_id)
+        profile = RuntimeProfile.objects.select_for_update().get(
+            pk=attempt.execution.profile_id
+        )
         lease = Lease.objects.select_for_update().filter(attempt=attempt).first()
         if attempt.stopped_request_digest is not None:
             if (
@@ -442,12 +449,15 @@ def acknowledge_stopped(
                 (attempt.stopped_receipt or {}).get("state", LeaseState.RELEASED),
                 bool((attempt.stopped_receipt or {}).get("requeued", False)),
             )
+        if not profile_allows_stop(profile):
+            raise RuntimeLeaseConflictError("profile lifecycle does not accept stop")
         if lease is None or lease.token_digest != token_digest:
             raise RuntimeLeaseConflictError("lease token does not authorize attempt")
         if lease.machine_generation != workspace.machine_generation:
             raise RuntimeFencedError("lease belongs to a retired generation")
         if lease.state not in (LeaseState.ACTIVE, LeaseState.STOPPING):
             raise RuntimeLeaseConflictError("lease is already released")
+        cleanup_pending = profile.lifecycle_state == "cleanup_pending"
         # ACTIVE is deliberately moved through STOPPING in the same transaction
         # so a concurrent stop/reclaim sees one serialized transition.
         if lease.state == LeaseState.ACTIVE:
@@ -456,7 +466,11 @@ def acknowledge_stopped(
         attempt.status = AttemptStatus.UNKNOWN
         attempt.stopped_request_digest = canonical_digest
         attempt.stopped_lease_digest = token_digest
-        receipt = {"state": LeaseState.RELEASED, "requeued": True}
+        receipt = {
+            "state": LeaseState.RELEASED,
+            "requeued": not cleanup_pending,
+            "reason": "profile_deprovisioned" if cleanup_pending else reason,
+        }
         attempt.stopped_receipt = receipt
         attempt.save(
             update_fields=[
@@ -468,11 +482,13 @@ def acknowledge_stopped(
             ]
         )
         execution = attempt.execution
-        execution.status = ExecutionStatus.QUEUED
+        execution.status = (
+            ExecutionStatus.FAILED if cleanup_pending else ExecutionStatus.QUEUED
+        )
         execution.save(update_fields=["status", "updated_at"])
         lease.state = LeaseState.RELEASED
         lease.save(update_fields=["state", "updated_at"])
-        return StopReceipt(attempt.id, LeaseState.RELEASED, True)
+        return StopReceipt(attempt.id, LeaseState.RELEASED, not cleanup_pending)
 
     return run_with_sqlite_lock_retry(stop_once)
 
@@ -492,7 +508,9 @@ def confirm_machine_stopped_and_fence(
     def fence_once() -> FenceReceipt:
         workspace = Workspace.objects.select_for_update().get(pk=workspace_id)
         if workspace.machine_generation < target_generation:
-            raise RuntimeConflictError("workspace has not advanced to target generation")
+            raise RuntimeConflictError(
+                "workspace has not advanced to target generation"
+            )
         # A callback replay after a later replacement is not safe to apply.
         if workspace.machine_generation > target_generation:
             raise RuntimeConflictError("fence generation is stale")
@@ -529,9 +547,11 @@ def confirm_machine_stopped_and_fence(
                 ).values_list("id", flat=True)
             )
             for lease_id in lease_ids:
-                lease = Lease.objects.select_for_update().select_related(
-                    "attempt__execution"
-                ).get(pk=lease_id)
+                lease = (
+                    Lease.objects.select_for_update()
+                    .select_related("attempt__execution")
+                    .get(pk=lease_id)
+                )
                 if lease.state in (LeaseState.RELEASED, LeaseState.FENCED):
                     continue
                 attempt = lease.attempt

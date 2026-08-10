@@ -10,7 +10,9 @@ import time
 from collections.abc import Callable
 from typing import Any
 
+from .composition import RuntimeComposition, compose_runtime, run_worker
 from .config import CredentialReference, SettingsError, load_settings
+from .foundry import FoundryClient
 from .hermes import (
     DEFAULT_CREDENTIAL_SOCKET,
     HermesClient,
@@ -20,6 +22,40 @@ from .hermes import (
 from .smoke import run_smoke_sync
 
 _TEST_BOOTSTRAP_GRACE_SECONDS = 60.0
+
+
+def worker_entrypoint(
+    *,
+    settings: Any,
+    foundry: FoundryClient,
+    credential_resolver: Callable[..., Any],
+    hermes: Any | None = None,
+    api_key_factory: Callable[[], str] | None = None,
+    max_turns: int | None = None,
+    idle_cycles: int = 1,
+    idle_delay: float = 0.0,
+) -> int:
+    """Run the production worker through the explicit composition boundary."""
+
+    composition: RuntimeComposition = compose_runtime(
+        settings,
+        foundry,
+        credential_resolver,
+        hermes=hermes,
+        api_key_factory=api_key_factory,
+    )
+    try:
+        asyncio.run(
+            run_worker(
+                composition,
+                max_turns=max_turns,
+                idle_cycles=idle_cycles,
+                idle_delay=idle_delay,
+            )
+        )
+    except KeyboardInterrupt:
+        return 0
+    return 0
 
 
 async def probe_readiness(client: Any) -> bool:

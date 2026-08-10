@@ -41,6 +41,14 @@ class LeaseState(models.TextChoices):
     FENCED = "fenced", "Fenced"
 
 
+class RuntimeProfileLifecycleState(models.TextChoices):
+    PENDING = "pending", "Pending"
+    ACTIVE = "active", "Active"
+    CLEANUP_PENDING = "cleanup_pending", "Cleanup pending"
+    DEPROVISIONED = "deprovisioned", "Deprovisioned"
+    REPAIR_REQUIRED = "repair_required", "Repair required"
+
+
 class WorkspaceProvisioningKind(models.TextChoices):
     ENSURE = "ensure", "Ensure"
     REPLACE = "replace", "Replace"
@@ -119,9 +127,7 @@ class Workspace(models.Model):
                 name="runtime_workspace_fly_refs_nonempty",
             ),
             models.CheckConstraint(
-                condition=Q(
-                    provisioning_phase__in=WorkspaceProvisioningPhase.values
-                ),
+                condition=Q(provisioning_phase__in=WorkspaceProvisioningPhase.values),
                 name="runtime_workspace_provisioning_phase_valid",
             ),
             models.CheckConstraint(
@@ -222,6 +228,40 @@ class RuntimeProfile(models.Model):
     )
     ally_ref = models.CharField(max_length=255)
     hermes_profile_key = models.CharField(max_length=64)
+    hermes_profile_key_version = models.PositiveSmallIntegerField(default=1)
+    lifecycle_state = models.CharField(
+        max_length=24,
+        choices=RuntimeProfileLifecycleState,
+        default=RuntimeProfileLifecycleState.PENDING,
+    )
+    lifecycle_epoch = models.PositiveIntegerField(default=0)
+    seed_version = models.PositiveSmallIntegerField(default=1)
+    # Desired state is deliberately limited to non-secret profile inputs.  In
+    # particular, credential_refs contains opaque resolver references, never
+    # resolved provider values.
+    seed_payload = models.JSONField(default=dict, blank=True)
+    seed_fingerprint = models.CharField(max_length=64, default="", blank=True)
+    materialized_generation = models.PositiveIntegerField(default=0)
+    materialization_operation_id = models.UUIDField(null=True, blank=True)
+    materialization_request_digest = models.CharField(
+        max_length=64,
+        default="",
+        blank=True,
+    )
+    materialization_receipt_id = models.UUIDField(null=True, blank=True)
+    materialization_result_code = models.CharField(
+        max_length=64,
+        default="",
+        blank=True,
+    )
+    cleanup_operation_id = models.UUIDField(null=True, blank=True)
+    cleanup_context_digest = models.CharField(max_length=64, default="", blank=True)
+    cleanup_request_digest = models.CharField(max_length=64, default="", blank=True)
+    cleanup_expires_at = models.DateTimeField(null=True, blank=True)
+    cleanup_receipt_id = models.UUIDField(null=True, blank=True)
+    cleanup_result_code = models.CharField(max_length=64, default="", blank=True)
+    cleanup_retry_after = models.DateTimeField(null=True, blank=True)
+    cleanup_completed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     objects = RuntimeProfileQuerySet.as_manager()
@@ -246,6 +286,46 @@ class RuntimeProfile(models.Model):
                 ),
                 name="runtime_profile_hermes_key_contract",
             ),
+            models.CheckConstraint(
+                condition=Q(lifecycle_state__in=RuntimeProfileLifecycleState.values),
+                name="runtime_profile_lifecycle_state_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(hermes_profile_key_version__in=[0, 1]),
+                name="runtime_profile_key_version_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(seed_version__gt=0),
+                name="runtime_profile_seed_version_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(seed_fingerprint="")
+                    | Q(seed_fingerprint__regex=r"^[0-9a-f]{64}$")
+                ),
+                name="runtime_profile_seed_fingerprint_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(cleanup_context_digest="")
+                    | Q(cleanup_context_digest__regex=r"^[0-9a-f]{64}$")
+                ),
+                name="runtime_profile_cleanup_context_digest_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(cleanup_request_digest="")
+                    | Q(cleanup_request_digest__regex=r"^[0-9a-f]{64}$")
+                ),
+                name="runtime_profile_cleanup_request_digest_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(materialization_request_digest="")
+                    | Q(materialization_request_digest__regex=r"^[0-9a-f]{64}$")
+                ),
+                name="runtime_profile_materialization_digest_valid",
+            ),
         ]
         ordering: ClassVar = ["workspace_id", "ally_ref"]
 
@@ -254,6 +334,25 @@ class RuntimeProfile(models.Model):
 
     def save(self, *args, **kwargs):
         validate_hermes_profile_key(self.hermes_profile_key)
+        if self.hermes_profile_key_version not in (0, 1):
+            raise RuntimeValidationError("unsupported Hermes profile key version")
+        if self.seed_version <= 0:
+            raise RuntimeValidationError("seed_version must be positive")
+        if self.lifecycle_epoch < 0 or self.materialized_generation < 0:
+            raise RuntimeValidationError(
+                "profile lifecycle counters cannot be negative"
+            )
+        for field_name in (
+            "seed_fingerprint",
+            "cleanup_context_digest",
+            "cleanup_request_digest",
+            "materialization_request_digest",
+        ):
+            value = getattr(self, field_name)
+            if value and not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise RuntimeValidationError(
+                    f"{field_name} must be a SHA-256 hex digest"
+                )
         if not self._state.adding:
             with transaction.atomic():
                 try:

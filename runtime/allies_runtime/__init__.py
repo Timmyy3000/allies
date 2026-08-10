@@ -1,5 +1,12 @@
 """The independently packaged Allies tenant runtime proof boundary."""
 
+from .composition import (
+    RuntimeComposition,
+    build_runtime,
+    build_worker,
+    compose_runtime,
+    run_worker,
+)
 from .config import (
     CredentialReference,
     RuntimeSettings,
@@ -17,6 +24,9 @@ from .foundry import (
     FoundryError,
     FoundryWorker,
     LeaseReceipt,
+    ProfileDesiredState,
+    ProfileReceipt,
+    RepairRequiredError,
     SessionReceipt,
     StoppedReceipt,
     TerminalReceipt,
@@ -42,6 +52,11 @@ from .integration import (
     SmokeIntegrationError,
     validate_run_id,
 )
+from .reconciliation import (
+    ProfileReconciler,
+    ProfileReconciliationBlocked,
+    ReconciliationReport,
+)
 from .smoke import SmokeResult, run_smoke, run_smoke_sync
 
 __all__ = [
@@ -65,8 +80,15 @@ __all__ = [
     "IntegrationSnapshot",
     "LeaseReceipt",
     "OwnedResourceLedger",
+    "ProfileDesiredState",
     "ProfileProofCoordinator",
     "ProfileProofResult",
+    "ProfileReceipt",
+    "ProfileReconciler",
+    "ProfileReconciliationBlocked",
+    "ReconciliationReport",
+    "RepairRequiredError",
+    "RuntimeComposition",
     "RuntimeSettings",
     "SessionReceipt",
     "SettingsError",
@@ -77,10 +99,14 @@ __all__ = [
     "TerminalReceipt",
     "UnixSocketCredentialResolver",
     "VolumeVisibility",
+    "build_runtime",
+    "build_worker",
+    "compose_runtime",
     "deterministic_event_id",
     "load_settings",
     "run_smoke",
     "run_smoke_sync",
+    "run_worker",
     "sanitize_value",
     "test_credential_for_reference",
     "validate_image_reference",

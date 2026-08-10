@@ -37,3 +37,22 @@ class FailRequest(Schema):
     code: str
     retryable: bool
     receipt: dict[str, Any] | None = None
+
+
+class MaterializationReceiptRequest(Schema):
+    profile_id: UUID
+    operation_id: UUID
+    lifecycle_epoch: int
+    materialized_generation: int
+    seed_fingerprint: str
+    result_code: str
+
+
+class CleanupReceiptRequest(Schema):
+    profile_id: UUID
+    operation_id: UUID
+    lifecycle_epoch: int
+    request_digest: str
+    result_code: str
+    deleted: bool
+    active_lease_count: int

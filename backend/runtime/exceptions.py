@@ -34,6 +34,12 @@ class RuntimeNotReadyError(RuntimeConflictError):
     code = "NOT_READY"
 
 
+class RuntimeRepairRequiredError(RuntimeConflictError):
+    """Durable state needs explicit repair before it can be used again."""
+
+    code = "REPAIR_REQUIRED"
+
+
 class RuntimeLeaseConflictError(RuntimeConflictError):
     """The lease or attempt does not authorize this operation."""
 

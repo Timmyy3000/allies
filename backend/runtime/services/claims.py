@@ -30,6 +30,7 @@ from runtime.models import (
     WorkspaceProvisioningPhase,
 )
 
+from .profiles import profile_is_claim_ready
 from .retry import run_with_sqlite_lock_retry
 from .runtime_auth import RuntimeContext
 
@@ -122,6 +123,10 @@ def _claim_next_execution_once(
             raise RuntimeIdempotencyConflictError(
                 "claim_id belongs to a retired machine generation"
             )
+        if not profile_is_claim_ready(
+            replay.execution.profile, workspace.machine_generation
+        ):
+            raise RuntimeFencedError("profile lifecycle has fenced this claim")
         # Once the original lease has expired, returning its deterministic
         # token only hands the worker a claim that every mutation will reject.
         # Let the caller drop the ambiguous reservation and request a fresh
@@ -141,10 +146,13 @@ def _claim_next_execution_once(
         .order_by("created_at", "id")
         .values_list("id", flat=True)
     )
+    saw_unready_profile = False
     for execution_id in candidate_ids:
-        execution_hint = Execution.objects.filter(pk=execution_id).values_list(
-            "profile_id", flat=True
-        ).first()
+        execution_hint = (
+            Execution.objects.filter(pk=execution_id)
+            .values_list("profile_id", flat=True)
+            .first()
+        )
         if execution_hint is None:
             continue
         profile = (
@@ -162,10 +170,17 @@ def _claim_next_execution_once(
         )
         if execution is None or execution.status != ExecutionStatus.QUEUED:
             continue
-        if Lease.objects.select_for_update().filter(
-            profile_id=profile.id,
-            state__in=(LeaseState.ACTIVE, LeaseState.STOPPING),
-        ).exists():
+        if not profile_is_claim_ready(profile, workspace.machine_generation):
+            saw_unready_profile = True
+            continue
+        if (
+            Lease.objects.select_for_update()
+            .filter(
+                profile_id=profile.id,
+                state__in=(LeaseState.ACTIVE, LeaseState.STOPPING),
+            )
+            .exists()
+        ):
             continue
         number = (
             Attempt.objects.select_for_update()
@@ -200,6 +215,8 @@ def _claim_next_execution_once(
             state=LeaseState.ACTIVE,
         )
         return _claim_from_records(attempt, lease, raw_token=raw_token)
+    if saw_unready_profile:
+        raise RuntimeNotReadyError("profile is not ready for runtime claims")
     return None
 
 

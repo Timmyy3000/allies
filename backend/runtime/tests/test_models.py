@@ -13,6 +13,7 @@ from runtime.models import (
     Lease,
     LeaseState,
     RuntimeProfile,
+    RuntimeProfileLifecycleState,
     Workspace,
     WorkspaceProvisioningKind,
     WorkspaceProvisioningPhase,
@@ -307,6 +308,8 @@ def test_attempt_number_and_unresolved_lease_constraints():
         workspace=workspace,
         ally_ref="ally",
         hermes_profile_key="ally_key",
+        lifecycle_state=RuntimeProfileLifecycleState.ACTIVE,
+        materialized_generation=workspace.machine_generation,
     )
     execution = create_execution(workspace.id, profile.id, "request", {})
     attempt = Attempt.objects.create(
