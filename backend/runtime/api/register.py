@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from ninja.errors import ValidationError as NinjaValidationError
 from ninja_extra import NinjaExtraAPI
@@ -11,14 +13,21 @@ from runtime.services.attempts import complete_attempt, fail_attempt
 from runtime.services.claims import claim_next_execution
 from runtime.services.events import append_runtime_event
 from runtime.services.leases import acknowledge_stopped, renew_lease
+from runtime.services.profiles import (
+    accept_cleanup_receipt,
+    accept_materialization_receipt,
+    list_profile_reconciliation,
+)
 from runtime.services.runtime_auth import authenticate_runtime_token
 from runtime.services.sessions import update_session_binding
 
 from .schemas import (
     ClaimRequest,
+    CleanupReceiptRequest,
     CompleteRequest,
     EventRequest,
     FailRequest,
+    MaterializationReceiptRequest,
     SessionBindingRequest,
     StoppedRequest,
 )
@@ -40,13 +49,84 @@ def register(api: NinjaExtraAPI) -> None:
         except RuntimeDomainError as exc:
             return _error(exc)
 
+    @api.get("/runtime/profiles/reconciliation", auth=None)
+    def profile_reconciliation(request: HttpRequest):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            profiles = list_profile_reconciliation(context)
+            return JsonResponse(
+                {
+                    "version": 1,
+                    "workspace_id": str(context.workspace_id),
+                    "machine_generation": context.machine_generation,
+                    "profiles": [_profile_json(profile) for profile in profiles],
+                },
+                status=200,
+            )
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post("/runtime/profiles/{profile_id}/materialization-receipt", auth=None)
+    def materialization_receipt(
+        request: HttpRequest,
+        profile_id: UUID,
+        payload: MaterializationReceiptRequest,
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            if payload.profile_id != profile_id:
+                raise RuntimeValidationError(
+                    "profile receipt identity does not match path"
+                )
+            receipt = accept_materialization_receipt(
+                context,
+                profile_id,
+                payload.operation_id,
+                payload.lifecycle_epoch,
+                payload.materialized_generation,
+                payload.seed_fingerprint,
+                payload.result_code,
+            )
+            return JsonResponse(_profile_receipt_json(receipt), status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post("/runtime/profiles/{profile_id}/cleanup-receipt", auth=None)
+    def cleanup_receipt(
+        request: HttpRequest,
+        profile_id: UUID,
+        payload: CleanupReceiptRequest,
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            if payload.profile_id != profile_id:
+                raise RuntimeValidationError(
+                    "profile receipt identity does not match path"
+                )
+            receipt = accept_cleanup_receipt(
+                context,
+                profile_id,
+                payload.operation_id,
+                payload.lifecycle_epoch,
+                payload.request_digest,
+                result_code=payload.result_code,
+                deleted=payload.deleted,
+                active_lease_count=payload.active_lease_count,
+            )
+            return JsonResponse(_profile_receipt_json(receipt), status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
     @api.post("/runtime/attempts/{attempt_id}/lease/renew", auth=None)
     def renew(request: HttpRequest, attempt_id):
         try:
             context = authenticate_runtime_token(_bearer(request))
             receipt = renew_lease(context, attempt_id, _lease_token(request))
             return JsonResponse(
-                {"lease_id": str(receipt.lease_id), "expires_at": _timestamp(receipt.expires_at)},
+                {
+                    "lease_id": str(receipt.lease_id),
+                    "expires_at": _timestamp(receipt.expires_at),
+                },
                 status=200,
             )
         except RuntimeDomainError as exc:
@@ -209,4 +289,60 @@ def _terminal_json(receipt):
         "receipt_id": str(receipt.receipt_id),
         "requeued": receipt.requeued,
         "receipt": receipt.receipt,
+    }
+
+
+def _profile_json(profile):
+    return {
+        "profile_id": str(profile.profile_id),
+        "ally_ref": profile.ally_ref,
+        "hermes_profile_key": profile.hermes_profile_key,
+        "hermes_profile_key_version": profile.hermes_profile_key_version,
+        "lifecycle_state": profile.lifecycle_state,
+        "lifecycle_epoch": profile.lifecycle_epoch,
+        "seed_version": profile.seed_version,
+        "seed_fingerprint": profile.seed_fingerprint,
+        "materialized_generation": profile.materialized_generation,
+        "active_lease_count": profile.active_lease_count,
+        "seed": profile.seed_payload,
+        "materialization_operation_id": (
+            str(profile.materialization_operation_id)
+            if profile.materialization_operation_id
+            else None
+        ),
+        "materialization_request_digest": profile.materialization_request_digest,
+        "materialization_receipt_id": (
+            str(profile.materialization_receipt_id)
+            if profile.materialization_receipt_id
+            else None
+        ),
+        "materialization_result_code": profile.materialization_result_code,
+        "cleanup_operation_id": (
+            str(profile.cleanup_operation_id) if profile.cleanup_operation_id else None
+        ),
+        "cleanup_context_digest": profile.cleanup_context_digest,
+        "cleanup_request_digest": profile.cleanup_request_digest,
+        "cleanup_receipt_id": (
+            str(profile.cleanup_receipt_id) if profile.cleanup_receipt_id else None
+        ),
+        "cleanup_result_code": profile.cleanup_result_code,
+        "cleanup_expires_at": (
+            _timestamp(profile.cleanup_expires_at)
+            if profile.cleanup_expires_at
+            else None
+        ),
+    }
+
+
+def _profile_receipt_json(receipt):
+    return {
+        "profile_id": str(receipt.profile_id),
+        "lifecycle_state": receipt.lifecycle_state,
+        "lifecycle_epoch": receipt.lifecycle_epoch,
+        "materialized_generation": receipt.materialized_generation,
+        "seed_fingerprint": receipt.seed_fingerprint,
+        "receipt_id": str(receipt.receipt_id) if receipt.receipt_id else None,
+        "result_code": receipt.result_code,
+        "deleted": receipt.deleted,
+        "active_lease_count": receipt.active_lease_count,
     }

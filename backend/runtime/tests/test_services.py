@@ -26,6 +26,7 @@ from runtime.models import (
     Lease,
     LeaseState,
     RuntimeProfile,
+    RuntimeProfileLifecycleState,
     Workspace,
 )
 from runtime.services.events import append_event
@@ -57,11 +58,15 @@ def profiles(workspace):
             workspace=workspace,
             ally_ref="ally-a",
             hermes_profile_key="ally_a",
+            lifecycle_state=RuntimeProfileLifecycleState.ACTIVE,
+            materialized_generation=workspace.machine_generation,
         ),
         RuntimeProfile.objects.create(
             workspace=workspace,
             ally_ref="ally-b",
             hermes_profile_key="ally_b",
+            lifecycle_state=RuntimeProfileLifecycleState.ACTIVE,
+            materialized_generation=workspace.machine_generation,
         ),
     ]
 
@@ -162,10 +167,13 @@ def test_concurrent_execution_exact_retries_share_one_execution(workspace, profi
 
     assert outcomes[0] is not None
     assert outcomes[0] == outcomes[1]
-    assert Execution.objects.filter(
-        workspace=workspace,
-        idempotency_key="concurrent-execution",
-    ).count() == 1
+    assert (
+        Execution.objects.filter(
+            workspace=workspace,
+            idempotency_key="concurrent-execution",
+        ).count()
+        == 1
+    )
 
 
 @pytest.mark.parametrize("payload", [["not", "an", "object"], "text", None])
@@ -298,26 +306,38 @@ def test_session_binding_supports_first_bind_replay_rotation_and_stale_rejection
 ):
     first = bind_conversation(profiles[0].id, "conversation-a", "session-1")
     assert first.hermes_session_id == "session-1"
-    assert bind_conversation(
-        profiles[0].id,
-        "conversation-a",
-        "session-1",
-    ).pk == first.pk
-    assert compare_and_set_session(
-        profiles[0].id,
-        "session-1",
-        "session-1",
-    ).pk == first.pk
-    assert compare_and_set_session(
-        profiles[0].id,
-        "session-1",
-        "session-2",
-    ).hermes_session_id == "session-2"
-    assert compare_and_set_session(
-        profiles[0].id,
-        "session-1",
-        "session-2",
-    ).hermes_session_id == "session-2"
+    assert (
+        bind_conversation(
+            profiles[0].id,
+            "conversation-a",
+            "session-1",
+        ).pk
+        == first.pk
+    )
+    assert (
+        compare_and_set_session(
+            profiles[0].id,
+            "session-1",
+            "session-1",
+        ).pk
+        == first.pk
+    )
+    assert (
+        compare_and_set_session(
+            profiles[0].id,
+            "session-1",
+            "session-2",
+        ).hermes_session_id
+        == "session-2"
+    )
+    assert (
+        compare_and_set_session(
+            profiles[0].id,
+            "session-1",
+            "session-2",
+        ).hermes_session_id
+        == "session-2"
+    )
     with pytest.raises(RuntimeConflictError):
         compare_and_set_session(profiles[0].id, "session-1", "session-3")
     with pytest.raises(RuntimeConflictError):
@@ -387,16 +407,24 @@ def test_concurrent_identical_session_rotations_are_idempotent(profiles):
         thread.join(timeout=10)
 
     assert outcomes == ["success", "success"], outcomes
-    assert ConversationBinding.objects.get(pk=profiles[0].id).hermes_session_id == "session-2"
+    assert (
+        ConversationBinding.objects.get(pk=profiles[0].id).hermes_session_id
+        == "session-2"
+    )
 
 
 def test_unresolved_leases_are_profile_scoped_but_different_profiles_can_overlap(
     workspace,
     profiles,
 ):
-    executions = [make_execution(workspace, profile, key=f"request-{i}") for i, profile in enumerate(profiles)]
+    executions = [
+        make_execution(workspace, profile, key=f"request-{i}")
+        for i, profile in enumerate(profiles)
+    ]
     attempts = [make_attempt(execution) for execution in executions]
-    first, second = [make_lease(attempt, token=f"token-{i}") for i, attempt in enumerate(attempts)]
+    first, second = [
+        make_lease(attempt, token=f"token-{i}") for i, attempt in enumerate(attempts)
+    ]
 
     assert first.profile_id != second.profile_id
     same_profile_execution = make_execution(workspace, profiles[0], key="request-third")
@@ -440,10 +468,13 @@ def test_create_lease_hashes_hex_shaped_raw_tokens(workspace, profiles):
 
 def test_lease_creation_does_not_mask_unrelated_operational_error(workspace, profiles):
     attempt = make_attempt(make_execution(workspace, profiles[0]))
-    with patch(
-        "runtime.services.leases._create_lease_from_digest",
-        side_effect=OperationalError("disk I/O error"),
-    ), pytest.raises(OperationalError, match="disk I/O error"):
+    with (
+        patch(
+            "runtime.services.leases._create_lease_from_digest",
+            side_effect=OperationalError("disk I/O error"),
+        ),
+        pytest.raises(OperationalError, match="disk I/O error"),
+    ):
         create_lease(
             attempt.id,
             "unrelated-error-token",
@@ -670,10 +701,13 @@ def test_attempt_mutation_rejects_expired_or_exactly_expiring_leases(
     lease.expires_at = observed_now + expiry_delta
     lease.save(update_fields=["expires_at", "updated_at"])
 
-    with patch(
-        "runtime.services.leases.timezone.now",
-        return_value=observed_now,
-    ), pytest.raises(RuntimeAuthorizationError):
+    with (
+        patch(
+            "runtime.services.leases.timezone.now",
+            return_value=observed_now,
+        ),
+        pytest.raises(RuntimeAuthorizationError),
+    ):
         authorize_attempt_mutation(
             attempt.id,
             lease.id,
@@ -987,8 +1021,7 @@ def test_concurrent_event_appends_for_different_attempts_can_both_persist(
         for index, attempt in enumerate(attempts)
     ]
     token_digests = [
-        digest_lease_token(f"concurrent-event-token-{index}")
-        for index in range(2)
+        digest_lease_token(f"concurrent-event-token-{index}") for index in range(2)
     ]
     event_ids = [uuid4(), uuid4()]
     barrier = Barrier(2)
@@ -1128,6 +1161,9 @@ def test_runtime_records_reload_after_database_connection_reopens(workspace, pro
 
     reloaded = RuntimeProfile.objects.get(pk=profile.pk)
     assert reloaded.conversation_binding.hermes_session_id == binding.hermes_session_id
-    assert Execution.objects.get(pk=execution.pk).attempts.get(pk=attempt.pk).lease.pk == lease.pk
+    assert (
+        Execution.objects.get(pk=execution.pk).attempts.get(pk=attempt.pk).lease.pk
+        == lease.pk
+    )
     assert Lease.objects.get(pk=lease.pk).token_digest != "token"
     assert ConversationBinding.objects.filter(pk=profile.pk).exists()

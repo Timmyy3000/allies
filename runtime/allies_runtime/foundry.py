@@ -28,6 +28,7 @@ MAX_CLAIM_SLOTS = 8
 LEASE_SECONDS = 60.0
 DEFAULT_RENEW_INTERVAL = 20.0
 DEFAULT_STOP_SAFETY_MARGIN = 5.0
+DEFAULT_PROFILE_RECONCILE_INTERVAL = 5.0
 
 
 class FoundryTransport(Protocol):
@@ -86,6 +87,11 @@ class IdempotencyConflictError(FoundryError):
     code = "IDEMPOTENCY_CONFLICT"
 
 
+class RepairRequiredError(FoundryError):
+    status = 409
+    code = "REPAIR_REQUIRED"
+
+
 class InvalidRequestError(FoundryError):
     status = 422
     code = "INVALID_REQUEST"
@@ -120,6 +126,7 @@ FoundryFenced = FencedError
 FoundryNotReady = NotReadyError
 FoundryLeaseConflict = LeaseConflictError
 FoundryIdempotencyConflict = IdempotencyConflictError
+FoundryRepairRequired = RepairRequiredError
 FoundryInvalidRequest = InvalidRequestError
 FoundryRateLimited = RateLimitedError
 FoundryUnavailable = ServiceUnavailableError
@@ -153,6 +160,56 @@ class FoundryClaim:
     def message(self) -> str:
         value = self.payload.get("message", "")
         return value if isinstance(value, str) else str(value)
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileDesiredState:
+    """Sanitized Foundry desired state for one volume profile."""
+
+    machine_generation: int
+    profile_id: str
+    ally_ref: str
+    hermes_profile_key: str
+    hermes_profile_key_version: int
+    lifecycle_state: str
+    lifecycle_epoch: int
+    seed_version: int
+    seed_fingerprint: str
+    materialized_generation: int
+    seed: Mapping[str, Any]
+    materialization_operation_id: str | None
+    materialization_request_digest: str
+    materialization_receipt_id: str | None
+    materialization_result_code: str
+    cleanup_operation_id: str | None
+    cleanup_context_digest: str
+    cleanup_request_digest: str
+    cleanup_receipt_id: str | None
+    cleanup_result_code: str
+    cleanup_expires_at: datetime | str | None
+    active_lease_count: int = 0
+
+    def __repr__(self) -> str:  # pragma: no cover - defensive redaction
+        return (
+            "ProfileDesiredState("
+            f"profile_id={self.profile_id!r}, "
+            f"hermes_profile_key={self.hermes_profile_key!r}, "
+            f"lifecycle_state={self.lifecycle_state!r}, "
+            f"seed_fingerprint={self.seed_fingerprint!r}, seed=<redacted>)"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ProfileReceipt:
+    profile_id: str
+    lifecycle_state: str
+    lifecycle_epoch: int
+    materialized_generation: int
+    seed_fingerprint: str
+    receipt_id: str | None
+    result_code: str
+    deleted: bool = False
+    active_lease_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -295,6 +352,118 @@ def _parse_datetime(value: Any) -> datetime | str | None:
         return value
 
 
+def _profile_desired_state(value: Any, machine_generation: int) -> ProfileDesiredState:
+    if not isinstance(value, Mapping):
+        raise FoundryError(
+            "Foundry profile reconciliation response was malformed",
+            status=200,
+            code="MALFORMED_RESPONSE",
+        )
+    required = (
+        "profile_id",
+        "ally_ref",
+        "hermes_profile_key",
+        "lifecycle_state",
+        "lifecycle_epoch",
+        "seed_version",
+        "seed_fingerprint",
+        "materialized_generation",
+        "seed",
+    )
+    if any(key not in value for key in required) or not isinstance(
+        value.get("seed"), Mapping
+    ):
+        raise FoundryError(
+            "Foundry profile reconciliation response was malformed",
+            status=200,
+            code="MALFORMED_RESPONSE",
+        )
+    try:
+        return ProfileDesiredState(
+            machine_generation=machine_generation,
+            profile_id=str(value["profile_id"]),
+            ally_ref=str(value["ally_ref"]),
+            hermes_profile_key=str(value["hermes_profile_key"]),
+            hermes_profile_key_version=int(value.get("hermes_profile_key_version", 1)),
+            lifecycle_state=str(value["lifecycle_state"]),
+            lifecycle_epoch=int(value["lifecycle_epoch"]),
+            seed_version=int(value["seed_version"]),
+            seed_fingerprint=str(value["seed_fingerprint"]),
+            materialized_generation=int(value["materialized_generation"]),
+            seed=dict(value["seed"]),
+            materialization_operation_id=_optional_text(
+                value.get("materialization_operation_id")
+            ),
+            materialization_request_digest=str(
+                value.get("materialization_request_digest", "")
+            ),
+            materialization_receipt_id=_optional_text(
+                value.get("materialization_receipt_id")
+            ),
+            materialization_result_code=str(
+                value.get("materialization_result_code", "")
+            ),
+            cleanup_operation_id=_optional_text(value.get("cleanup_operation_id")),
+            cleanup_context_digest=str(value.get("cleanup_context_digest", "")),
+            cleanup_request_digest=str(value.get("cleanup_request_digest", "")),
+            cleanup_receipt_id=_optional_text(value.get("cleanup_receipt_id")),
+            cleanup_result_code=str(value.get("cleanup_result_code", "")),
+            cleanup_expires_at=_parse_datetime(value.get("cleanup_expires_at")),
+            active_lease_count=int(value.get("active_lease_count", 0)),
+        )
+    except (TypeError, ValueError):
+        raise FoundryError(
+            "Foundry profile reconciliation response was malformed",
+            status=200,
+            code="MALFORMED_RESPONSE",
+        ) from None
+
+
+def _profile_receipt(value: Mapping[str, Any] | None) -> ProfileReceipt:
+    if not value or any(
+        key not in value
+        for key in (
+            "profile_id",
+            "lifecycle_state",
+            "lifecycle_epoch",
+            "materialized_generation",
+            "seed_fingerprint",
+            "result_code",
+        )
+    ):
+        raise FoundryError(
+            "Foundry profile receipt response was malformed",
+            status=200,
+            code="MALFORMED_RESPONSE",
+        )
+    try:
+        return ProfileReceipt(
+            profile_id=str(value["profile_id"]),
+            lifecycle_state=str(value["lifecycle_state"]),
+            lifecycle_epoch=int(value["lifecycle_epoch"]),
+            materialized_generation=int(value["materialized_generation"]),
+            seed_fingerprint=str(value["seed_fingerprint"]),
+            receipt_id=_optional_text(value.get("receipt_id")),
+            result_code=str(value["result_code"]),
+            deleted=bool(value.get("deleted", False)),
+            active_lease_count=int(value.get("active_lease_count", 0)),
+        )
+    except (TypeError, ValueError):
+        raise FoundryError(
+            "Foundry profile receipt response was malformed",
+            status=200,
+            code="MALFORMED_RESPONSE",
+        ) from None
+
+
+def _optional_text(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value:
+        raise ValueError("optional value must be a non-empty string")
+    return value
+
+
 def _error_for(status: int, payload: Mapping[str, Any] | None) -> FoundryError:
     code = str(payload.get("code", "")) if payload else ""
     message = "Foundry rejected the runtime request"
@@ -314,6 +483,7 @@ def _error_for(status: int, payload: Mapping[str, Any] | None) -> FoundryError:
             "NOT_READY": NotReadyError,
             "LEASE_CONFLICT": LeaseConflictError,
             "IDEMPOTENCY_CONFLICT": IdempotencyConflictError,
+            "REPAIR_REQUIRED": RepairRequiredError,
         }
         cls = classes.get(code, FoundryError)
         return cls(
@@ -445,6 +615,81 @@ class FoundryClient:
             else {},
             claim_id=str(payload["claim_id"]),
         )
+
+    async def reconcile_profiles(self) -> tuple[ProfileDesiredState, ...]:
+        """Read the current-generation, workspace-scoped profile desired state."""
+
+        payload = await self._request("GET", "/api/v1/runtime/profiles/reconciliation")
+        if not payload or payload.get("version") != 1:
+            raise FoundryError(
+                "Foundry profile reconciliation response was malformed",
+                status=200,
+                code="MALFORMED_RESPONSE",
+            )
+        rows = payload.get("profiles")
+        generation = payload.get("machine_generation")
+        if (
+            not isinstance(rows, list)
+            or isinstance(generation, bool)
+            or not isinstance(generation, int)
+            or generation <= 0
+        ):
+            raise FoundryError(
+                "Foundry profile reconciliation response was malformed",
+                status=200,
+                code="MALFORMED_RESPONSE",
+            )
+        return tuple(_profile_desired_state(row, generation) for row in rows)
+
+    async def materialization_receipt(
+        self,
+        profile_id: str | UUID,
+        *,
+        operation_id: str | UUID,
+        lifecycle_epoch: int,
+        materialized_generation: int,
+        seed_fingerprint: str,
+        result_code: str,
+    ) -> ProfileReceipt:
+        result = await self._request(
+            "POST",
+            f"/api/v1/runtime/profiles/{profile_id}/materialization-receipt",
+            body={
+                "profile_id": str(profile_id),
+                "operation_id": str(operation_id),
+                "lifecycle_epoch": lifecycle_epoch,
+                "materialized_generation": materialized_generation,
+                "seed_fingerprint": seed_fingerprint,
+                "result_code": result_code,
+            },
+        )
+        return _profile_receipt(result)
+
+    async def cleanup_receipt(
+        self,
+        profile_id: str | UUID,
+        *,
+        operation_id: str | UUID,
+        lifecycle_epoch: int,
+        request_digest: str,
+        result_code: str,
+        deleted: bool,
+        active_lease_count: int,
+    ) -> ProfileReceipt:
+        result = await self._request(
+            "POST",
+            f"/api/v1/runtime/profiles/{profile_id}/cleanup-receipt",
+            body={
+                "profile_id": str(profile_id),
+                "operation_id": str(operation_id),
+                "lifecycle_epoch": lifecycle_epoch,
+                "request_digest": request_digest,
+                "result_code": result_code,
+                "deleted": deleted,
+                "active_lease_count": active_lease_count,
+            },
+        )
+        return _profile_receipt(result)
 
     async def renew(self, attempt_id: str | UUID, lease_token: str) -> LeaseReceipt:
         payload = await self._request(
@@ -676,6 +921,8 @@ class FoundryWorker:
         lease_seconds: float = LEASE_SECONDS,
         stop_safety_margin: float = DEFAULT_STOP_SAFETY_MARGIN,
         clock: Callable[[], float] = time.monotonic,
+        profile_reconciler: Any | None = None,
+        profile_reconcile_interval: float = DEFAULT_PROFILE_RECONCILE_INTERVAL,
     ):
         if (
             isinstance(slots, bool)
@@ -685,6 +932,8 @@ class FoundryWorker:
             raise ValueError("worker slots must be between 2 and 8")
         if not 0 < renew_interval < lease_seconds - stop_safety_margin:
             raise ValueError("renew interval must leave a stop safety margin")
+        if profile_reconcile_interval <= 0:
+            raise ValueError("profile reconcile interval must be positive")
         self.foundry = foundry
         self.hermes = hermes
         self.slots = slots
@@ -692,6 +941,10 @@ class FoundryWorker:
         self.lease_seconds = lease_seconds
         self.stop_safety_margin = stop_safety_margin
         self._clock = clock
+        self.profile_reconciler = profile_reconciler
+        self._profiles_reconciled = profile_reconciler is None
+        self._profile_reconcile_interval = profile_reconcile_interval
+        self._last_profile_reconciliation: float | None = None
         self._active: set[asyncio.Task[Any]] = set()
         self._ambiguous_claims: dict[str, float] = {}
         self._stopping = False
@@ -877,10 +1130,12 @@ class FoundryWorker:
             raise ValueError("max_turns must be positive")
         if idle_cycles < 1:
             raise ValueError("idle_cycles must be positive")
+        await self._reconcile_profiles(force=True)
         results: list[Any] = []
         empty = 0
         poll_delay = max(idle_delay, 0.01)
         while not self._stopping and (max_turns is None or len(results) < max_turns):
+            await self._reconcile_profiles()
             now = self._clock()
             expired = [
                 claim_id
@@ -906,7 +1161,11 @@ class FoundryWorker:
                 except (FencedError, InvalidCredentialError):
                     self._stopping = True
                     break
-                except (NotReadyError, RateLimitedError, ServiceUnavailableError):
+                except NotReadyError:
+                    self._profiles_reconciled = False
+                    await asyncio.sleep(poll_delay)
+                    break
+                except (RateLimitedError, ServiceUnavailableError):
                     await asyncio.sleep(poll_delay)
                     break
                 if claim_id in self._ambiguous_claims:
@@ -943,6 +1202,22 @@ class FoundryWorker:
                 results.append(task.result() if not task.cancelled() else None)
         return tuple(results)
 
+    async def _reconcile_profiles(self, *, force: bool = False) -> None:
+        if self.profile_reconciler is None:
+            return
+        now = self._clock()
+        if (
+            not force
+            and self._profiles_reconciled
+            and self._last_profile_reconciliation is not None
+            and now - self._last_profile_reconciliation
+            < self._profile_reconcile_interval
+        ):
+            return
+        await self.profile_reconciler.reconcile()
+        self._profiles_reconciled = True
+        self._last_profile_reconciliation = self._clock()
+
 
 RuntimeWorker = FoundryWorker
 FoundrySupervisor = FoundryWorker
@@ -962,6 +1237,7 @@ __all__ = [
     "FoundryLeaseConflict",
     "FoundryNotReady",
     "FoundryRateLimited",
+    "FoundryRepairRequired",
     "FoundryResponseLoss",
     "FoundrySupervisor",
     "FoundryTransport",
@@ -973,7 +1249,10 @@ __all__ = [
     "LeaseConflictError",
     "LeaseReceipt",
     "NotReadyError",
+    "ProfileDesiredState",
+    "ProfileReceipt",
     "RateLimitedError",
+    "RepairRequiredError",
     "ResponseLossError",
     "RuntimeWorker",
     "ServiceUnavailableError",

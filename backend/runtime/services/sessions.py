@@ -21,6 +21,7 @@ from runtime.models import (
     Workspace,
 )
 
+from .profiles import profile_allows_runtime_write
 from .retry import run_with_sqlite_lock_retry
 from .validation import digest_payload, validate_nonempty
 
@@ -73,6 +74,8 @@ def update_session_binding(
         profile = RuntimeProfile.objects.select_for_update().get(
             pk=attempt.execution.profile_id
         )
+        if not profile_allows_runtime_write(profile):
+            raise RuntimeLeaseConflictError("profile lifecycle is not active")
         lease = Lease.objects.select_for_update().filter(attempt=attempt).first()
         if lease is None or lease.token_digest != token_digest:
             raise RuntimeLeaseConflictError("lease token does not authorize attempt")
@@ -92,7 +95,9 @@ def update_session_binding(
             stored_receipt = attempt.session_receipt or {}
             stored_session_id = stored_receipt.get("session_id")
             if binding is None or not isinstance(stored_session_id, str):
-                raise RuntimeLeaseConflictError("session binding receipt is unavailable")
+                raise RuntimeLeaseConflictError(
+                    "session binding receipt is unavailable"
+                )
             # Return the value committed by this attempt, not the profile's
             # later current value.  A delayed response replay must be stable.
             return ConversationBinding(
@@ -204,9 +209,11 @@ def _compare_and_set_session_once(
 ) -> ConversationBinding:
 
     try:
-        RuntimeProfile.objects.select_for_update().get(pk=profile_id)
+        profile = RuntimeProfile.objects.select_for_update().get(pk=profile_id)
     except RuntimeProfile.DoesNotExist as exc:
         raise RuntimeValidationError("profile does not exist") from exc
+    if not profile_allows_runtime_write(profile):
+        raise RuntimeConflictError("profile lifecycle is not active")
 
     binding = (
         ConversationBinding.objects.select_for_update()

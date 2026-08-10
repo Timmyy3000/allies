@@ -20,6 +20,7 @@ from runtime.models import (
     Lease,
     LeaseState,
     RuntimeProfile,
+    RuntimeProfileLifecycleState,
     Workspace,
     WorkspaceProvisioningPhase,
 )
@@ -56,6 +57,8 @@ def runtime_setup(ready_workspace):
         workspace=ready_workspace,
         ally_ref="ally",
         hermes_profile_key="ally",
+        lifecycle_state=RuntimeProfileLifecycleState.ACTIVE,
+        materialized_generation=ready_workspace.machine_generation,
     )
     execution = Execution.objects.create(
         workspace=ready_workspace,
@@ -82,12 +85,15 @@ def test_claim_replay_and_terminal_receipt(runtime_setup):
         first.lease_token,
         {"code": "ok", "summary_ref": "local"},
     )
-    assert complete_attempt(
-        context,
-        first.attempt_id,
-        first.lease_token,
-        {"code": "ok", "summary_ref": "local"},
-    ) == terminal
+    assert (
+        complete_attempt(
+            context,
+            first.attempt_id,
+            first.lease_token,
+            {"code": "ok", "summary_ref": "local"},
+        )
+        == terminal
+    )
     with pytest.raises(RuntimeIdempotencyConflictError):
         complete_attempt(
             context,
@@ -107,7 +113,10 @@ def test_stop_accepts_stopping_and_requeues(runtime_setup):
     receipt = acknowledge_stopped(context, claim.attempt_id, claim.lease_token, "lost")
     assert receipt.requeued is True
     assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.QUEUED
-    assert acknowledge_stopped(context, claim.attempt_id, claim.lease_token, "lost") == receipt
+    assert (
+        acknowledge_stopped(context, claim.attempt_id, claim.lease_token, "lost")
+        == receipt
+    )
 
 
 def test_fence_rejects_old_context_and_requeues(runtime_setup):
@@ -189,14 +198,17 @@ def test_session_binding_replays_after_terminal_release(runtime_setup):
         "hermes-session-1",
     )
     complete_attempt(context, claim.attempt_id, claim.lease_token, {"code": "ok"})
-    assert update_session_binding(
-        context,
-        claim.attempt_id,
-        claim.lease_token,
-        "cloud-conversation",
-        None,
-        "hermes-session-1",
-    ) == first
+    assert (
+        update_session_binding(
+            context,
+            claim.attempt_id,
+            claim.lease_token,
+            "cloud-conversation",
+            None,
+            "hermes-session-1",
+        )
+        == first
+    )
     with pytest.raises(RuntimeIdempotencyConflictError):
         update_session_binding(
             context,
@@ -226,7 +238,9 @@ def test_old_session_replay_returns_attempt_value_after_later_rotation(runtime_s
         None,
         "hermes-session-1",
     )
-    complete_attempt(context, first_claim.attempt_id, first_claim.lease_token, {"code": "ok"})
+    complete_attempt(
+        context, first_claim.attempt_id, first_claim.lease_token, {"code": "ok"}
+    )
     second_claim = claim_next_execution(context, uuid4(), 1)
     update_session_binding(
         context,
