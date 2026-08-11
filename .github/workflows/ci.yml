@@ -67,4 +67,67 @@ jobs:
 
       - name: Run tests
         working-directory: backend
-        run: uv run python manage.py test
+        run: uv run pytest
+
+      - name: Enforce AUTH-001 domain coverage
+        working-directory: backend
+        run: uv run pytest --cov=auths --cov=workspaces --cov-fail-under=90
+
+      - name: Run Ruff lint
+        working-directory: backend
+        run: uv run ruff check .
+
+      - name: Check Ruff formatting
+        working-directory: backend
+        run: uv run ruff format --check .
+
+  postgresql-auth:
+    name: PostgreSQL auth migrations and concurrency
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: allies_cloud_test
+          POSTGRES_USER: allies
+          POSTGRES_PASSWORD: allies-ci-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U allies -d allies_cloud_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://allies:allies-ci-only@127.0.0.1:5432/allies_cloud_test
+      DJANGO_DEBUG: "true"
+      ALLIES_AUTH_FAKE_PROVIDER_ENABLED: "true"
+      ALLIES_AUTH_JWT_KEY: auth-ci-jwt-key-at-least-thirty-two-bytes
+      ALLIES_AUTH_DIGEST_KEY: auth-ci-digest-key-at-least-thirty-two-bytes
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --locked
+
+      - name: Apply fresh PostgreSQL migrations
+        working-directory: backend
+        run: uv run python manage.py migrate --noinput
+
+      - name: Verify PostgreSQL migration state
+        working-directory: backend
+        run: uv run python manage.py migrate --check
+
+      - name: Run PostgreSQL concurrency tests
+        working-directory: backend
+        run: uv run pytest -m postgresql
