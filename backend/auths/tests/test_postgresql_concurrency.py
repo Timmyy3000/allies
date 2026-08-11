@@ -40,8 +40,16 @@ def test_same_subject_converges_under_postgresql_race():
         pytest.skip("row-lock race requires PostgreSQL")
 
     identity = VerifiedIdentity(provider="fake", subject="postgres-race")
+
+    def resolve_once():
+        close_old_connections()
+        try:
+            return resolve_or_create_actor(identity)
+        finally:
+            connection.close()
+
     with ThreadPoolExecutor(max_workers=2) as pool:
-        results = list(pool.map(lambda _: resolve_or_create_actor(identity), range(2)))
+        results = list(pool.map(lambda _: resolve_once(), range(2)))
     assert results[0].actor.pk == results[1].actor.pk
     assert Actor.objects.filter(pk=results[0].actor.pk).count() == 1
     assert Workspace.objects.filter(owner=results[0].actor).count() == 1
@@ -66,7 +74,7 @@ def test_same_refresh_token_converges_and_revokes_family_under_postgresql_race()
         except SessionInvalid:
             return "rejected", None
         finally:
-            close_old_connections()
+            connection.close()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = [
@@ -109,7 +117,7 @@ def test_same_callback_state_is_consumed_once_under_postgresql_race():
         except FlowReplay:
             return "replayed", None
         finally:
-            close_old_connections()
+            connection.close()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = [
@@ -165,7 +173,7 @@ def test_avatar_completion_and_cleanup_converge_under_postgresql_race():
         except AvatarConflict:
             return "conflict"
         finally:
-            close_old_connections()
+            connection.close()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         completion = pool.submit(complete)
@@ -235,7 +243,7 @@ def test_same_avatar_completion_is_idempotent_under_postgresql_race():
             )
             return ready.asset.object_key
         finally:
-            close_old_connections()
+            connection.close()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = [

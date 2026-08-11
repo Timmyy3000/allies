@@ -232,11 +232,7 @@ def complete_auth_flow(
     # Claim the one-time state before provider I/O.  A malformed/outage
     # callback therefore cannot be retried with the same state.
     with transaction.atomic():
-        locked = (
-            AuthFlow.objects.select_for_update()
-            .select_related("actor", "session_family")
-            .get(pk=flow.pk)
-        )
+        locked = AuthFlow.objects.select_for_update().get(pk=flow.pk)
         if locked.consumed_at is not None:
             raise FlowReplay("flow already consumed")
         locked.consumed_at = now
