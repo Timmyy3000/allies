@@ -10,22 +10,62 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import os
 from pathlib import Path
+from urllib.parse import unquote, urlparse
+
+from django.core.exceptions import ImproperlyConfigured
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def env_list(name: str, default: str = "") -> list[str]:
+    return [
+        item.strip()
+        for item in os.environ.get(name, default).split(",")
+        if item.strip()
+    ]
+
+
+def database_from_url(value: str) -> dict[str, object]:
+    parsed = urlparse(value)
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise ImproperlyConfigured("DATABASE_URL must use postgres:// or postgresql://")
+    return {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": unquote(parsed.path.lstrip("/")),
+        "USER": unquote(parsed.username or ""),
+        "PASSWORD": unquote(parsed.password or ""),
+        "HOST": parsed.hostname or "",
+        "PORT": parsed.port or 5432,
+        "CONN_MAX_AGE": int(os.environ.get("DATABASE_CONN_MAX_AGE", "60")),
+    }
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-g_3lnc!l^6ye(hfs0xkk+6!17*ypruh6=qc)8p791g!(2oybfj"
+DEBUG = env_bool("DJANGO_DEBUG", True)
+
+SECRET_KEY = os.environ.get("DJANGO_SECRET_KEY", "")
+if not SECRET_KEY:
+    if not DEBUG:
+        raise ImproperlyConfigured("DJANGO_SECRET_KEY is required when DEBUG is false")
+    SECRET_KEY = "django-insecure-allies-cloud-local-development-only"
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = env_list(
+    "DJANGO_ALLOWED_HOSTS", "localhost,127.0.0.1,[::1],testserver" if DEBUG else ""
+)
 
 
 # Application definition
@@ -37,11 +77,17 @@ INSTALLED_APPS = [
     "django.contrib.sessions",
     "django.contrib.messages",
     "django.contrib.staticfiles",
+    "corsheaders",
+    "ninja_extra",
+    "auths",
+    "workspaces",
     "devtools",
 ]
 
 MIDDLEWARE = [
+    "config.middleware.TrustedProxyHeadersMiddleware",
     "django.middleware.security.SecurityMiddleware",
+    "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
@@ -73,8 +119,11 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases
 
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 DATABASES = {
-    "default": {
+    "default": database_from_url(DATABASE_URL)
+    if DATABASE_URL
+    else {
         "ENGINE": "django.db.backends.sqlite3",
         "NAME": BASE_DIR / "db.sqlite3",
     }
@@ -116,3 +165,154 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = "static/"
+
+
+# AUTH-001 security and provider configuration. Local development is explicit;
+# production values are supplied by the deployment secret/configuration store.
+AUTH_USER_MODEL = "auths.Actor"
+
+CSRF_TRUSTED_ORIGINS = env_list(
+    "ALLIES_TRUSTED_ORIGINS",
+    "http://localhost:3000,http://127.0.0.1:3000" if DEBUG else "",
+)
+CORS_ALLOWED_ORIGINS = list(CSRF_TRUSTED_ORIGINS)
+CORS_ALLOW_CREDENTIALS = True
+CORS_EXPOSE_HEADERS = ["X-CSRFToken"]
+
+SESSION_COOKIE_SECURE = not DEBUG
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SAMESITE = "Lax"
+CSRF_COOKIE_PATH = "/api/"
+
+ALLIES_TRUST_FORWARDED_PROTO = env_bool("ALLIES_TRUST_FORWARDED_PROTO", False)
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https") if ALLIES_TRUST_FORWARDED_PROTO else None
+)
+USE_X_FORWARDED_HOST = env_bool("ALLIES_TRUST_FORWARDED_HOST", False)
+ALLIES_TRUST_FORWARDED_FOR = env_bool("ALLIES_TRUST_FORWARDED_FOR", False)
+ALLIES_TRUSTED_PROXY_IPS = env_list("ALLIES_TRUSTED_PROXY_IPS")
+SECURE_SSL_REDIRECT = not DEBUG
+SECURE_HSTS_SECONDS = (
+    0 if DEBUG else int(os.environ.get("DJANGO_HSTS_SECONDS", "31536000"))
+)
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
+SECURE_CONTENT_TYPE_NOSNIFF = True
+
+ALLIES_AUTH_ACCESS_COOKIE = "allies_access"
+ALLIES_AUTH_REFRESH_COOKIE = "allies_refresh"
+ALLIES_AUTH_FLOW_COOKIE = "allies_auth_flow"
+ALLIES_AUTH_ACCESS_COOKIE_PATH = "/api/"
+ALLIES_AUTH_REFRESH_COOKIE_PATH = "/api/v1/auths/"
+ALLIES_AUTH_FLOW_COOKIE_PATH = "/api/v1/auths/callback/"
+ALLIES_AUTH_COOKIE_SECURE = not DEBUG
+ALLIES_AUTH_COOKIE_SAMESITE = "Lax"
+ALLIES_AUTH_ACCESS_TTL_SECONDS = int(
+    os.environ.get("ALLIES_AUTH_ACCESS_TTL_SECONDS", "600")
+)
+ALLIES_AUTH_FLOW_TTL_SECONDS = int(
+    os.environ.get("ALLIES_AUTH_FLOW_TTL_SECONDS", "600")
+)
+ALLIES_AUTH_REFRESH_IDLE_SECONDS = int(
+    os.environ.get("ALLIES_AUTH_REFRESH_IDLE_SECONDS", str(14 * 24 * 60 * 60))
+)
+ALLIES_AUTH_REFRESH_ABSOLUTE_SECONDS = int(
+    os.environ.get("ALLIES_AUTH_REFRESH_ABSOLUTE_SECONDS", str(30 * 24 * 60 * 60))
+)
+ALLIES_AUTH_JWT_KEY = os.environ.get("ALLIES_AUTH_JWT_KEY", "")
+ALLIES_AUTH_JWT_ISSUER = os.environ.get("ALLIES_AUTH_JWT_ISSUER", "allies-cloud")
+ALLIES_AUTH_JWT_AUDIENCE = os.environ.get(
+    "ALLIES_AUTH_JWT_AUDIENCE", "allies-interface"
+)
+ALLIES_AUTH_DIGEST_KEY = os.environ.get("ALLIES_AUTH_DIGEST_KEY", "")
+ALLIES_AUTH_REDIRECT_PATHS = env_list("ALLIES_AUTH_REDIRECT_PATHS", "/")
+
+ALLIES_AUTH_FAKE_PROVIDER_ENABLED = env_bool("ALLIES_AUTH_FAKE_PROVIDER_ENABLED", False)
+ALLIES_AUTH_GOOGLE_CLIENT_ID = os.environ.get("ALLIES_AUTH_GOOGLE_CLIENT_ID", "")
+ALLIES_AUTH_GOOGLE_CLIENT_SECRET = os.environ.get(
+    "ALLIES_AUTH_GOOGLE_CLIENT_SECRET", ""
+)
+ALLIES_AUTH_GOOGLE_REDIRECT_URI = os.environ.get("ALLIES_AUTH_GOOGLE_REDIRECT_URI", "")
+ALLIES_AUTH_GOOGLE_ENABLED = env_bool("ALLIES_AUTH_GOOGLE_ENABLED", False)
+
+ALLIES_AVATAR_MAX_BYTES = int(
+    os.environ.get("ALLIES_AVATAR_MAX_BYTES", str(5 * 1024 * 1024))
+)
+ALLIES_AVATAR_MAX_DIMENSION = int(os.environ.get("ALLIES_AVATAR_MAX_DIMENSION", "4096"))
+ALLIES_AVATAR_MAX_PIXELS = int(os.environ.get("ALLIES_AVATAR_MAX_PIXELS", "16777216"))
+ALLIES_AVATAR_URL_TTL_SECONDS = int(
+    os.environ.get("ALLIES_AVATAR_URL_TTL_SECONDS", "300")
+)
+ALLIES_AVATAR_PENDING_TTL_SECONDS = int(
+    os.environ.get("ALLIES_AVATAR_PENDING_TTL_SECONDS", str(24 * 60 * 60))
+)
+ALLIES_R2_ENDPOINT_URL = os.environ.get("ALLIES_R2_ENDPOINT_URL", "")
+ALLIES_R2_BUCKET = os.environ.get("ALLIES_R2_BUCKET", "")
+ALLIES_R2_ACCESS_KEY_ID = os.environ.get("ALLIES_R2_ACCESS_KEY_ID", "")
+ALLIES_R2_SECRET_ACCESS_KEY = os.environ.get("ALLIES_R2_SECRET_ACCESS_KEY", "")
+ALLIES_R2_ENABLED = env_bool("ALLIES_R2_ENABLED", False)
+
+CACHE_URL = os.environ.get("CACHE_URL", "")
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": CACHE_URL,
+    }
+    if CACHE_URL
+    else {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+}
+
+if not DEBUG:
+    missing = []
+    if ALLIES_AUTH_FAKE_PROVIDER_ENABLED:
+        missing.append("ALLIES_AUTH_FAKE_PROVIDER_ENABLED must be false")
+    if len(ALLIES_AUTH_JWT_KEY.encode()) < 32:
+        missing.append("ALLIES_AUTH_JWT_KEY (at least 32 bytes)")
+    if len(ALLIES_AUTH_DIGEST_KEY.encode()) < 32:
+        missing.append("ALLIES_AUTH_DIGEST_KEY (at least 32 bytes)")
+    if not CSRF_TRUSTED_ORIGINS:
+        missing.append("ALLIES_TRUSTED_ORIGINS")
+    if not ALLOWED_HOSTS:
+        missing.append("DJANGO_ALLOWED_HOSTS")
+    if not CACHE_URL:
+        missing.append("CACHE_URL")
+    if not DATABASE_URL:
+        missing.append("PostgreSQL DATABASE_URL")
+    if (
+        ALLIES_TRUST_FORWARDED_PROTO
+        or USE_X_FORWARDED_HOST
+        or ALLIES_TRUST_FORWARDED_FOR
+    ) and not ALLIES_TRUSTED_PROXY_IPS:
+        missing.append("ALLIES_TRUSTED_PROXY_IPS for forwarded-header trust")
+    if ALLIES_AUTH_GOOGLE_ENABLED and not all(
+        [
+            ALLIES_AUTH_GOOGLE_CLIENT_ID,
+            ALLIES_AUTH_GOOGLE_CLIENT_SECRET,
+            ALLIES_AUTH_GOOGLE_REDIRECT_URI,
+        ]
+    ):
+        missing.append("complete Google provider configuration")
+    if ALLIES_AUTH_GOOGLE_ENABLED:
+        google_redirect = urlparse(ALLIES_AUTH_GOOGLE_REDIRECT_URI)
+        if google_redirect.scheme != "https" or not google_redirect.netloc:
+            missing.append("HTTPS ALLIES_AUTH_GOOGLE_REDIRECT_URI")
+    if ALLIES_R2_ENABLED and not all(
+        [
+            ALLIES_R2_ENDPOINT_URL,
+            ALLIES_R2_BUCKET,
+            ALLIES_R2_ACCESS_KEY_ID,
+            ALLIES_R2_SECRET_ACCESS_KEY,
+        ]
+    ):
+        missing.append("complete R2 configuration")
+    if ALLIES_R2_ENABLED:
+        r2_endpoint = urlparse(ALLIES_R2_ENDPOINT_URL)
+        if r2_endpoint.scheme != "https" or not r2_endpoint.netloc:
+            missing.append("HTTPS ALLIES_R2_ENDPOINT_URL")
+    if missing:
+        raise ImproperlyConfigured(
+            "Unsafe AUTH-001 production configuration: " + ", ".join(missing)
+        )
