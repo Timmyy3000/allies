@@ -4,13 +4,21 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
+    "boto3>=1.40,<2",
+    "cryptography>=46,<51",
     "django>=6.0.7,<6.1",
+    "django-cors-headers>=4.7,<5",
     "django-ninja-extra>=0.31.6",
+    "pillow>=11.3,<13",
+    "psycopg[binary]>=3.2,<4",
+    "pyjwt>=2.10,<3",
+    "redis>=5,<7",
 ]
 
 [dependency-groups]
 dev = [
     "pytest>=8.3,<9",
+    "pytest-cov>=6,<8",
     "pytest-django>=4.11,<5",
     "ruff>=0.12,<1",
 ]
@@ -18,3 +26,20 @@ dev = [
 [tool.pytest.ini_options]
 DJANGO_SETTINGS_MODULE = "config.settings"
 python_files = ["tests.py", "test_*.py", "*_tests.py"]
+markers = [
+    "postgresql: requires a PostgreSQL database and exercises concurrency semantics",
+    "external: requires explicitly configured external provider or object-store credentials",
+]
+
+[tool.coverage.run]
+source = ["auths", "workspaces"]
+omit = [
+    "*/admin.py",
+    "*/apps.py",
+    "*/migrations/*",
+    "*/tests/*",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
