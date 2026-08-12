@@ -65,7 +65,7 @@ class Membership(models.Model):
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="memberships"
     )
-    actor = models.ForeignKey(
+    user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="workspace_memberships",
@@ -78,8 +78,8 @@ class Membership(models.Model):
     class Meta:
         constraints = [
             models.UniqueConstraint(
-                fields=("workspace", "actor"),
-                name="workspace_membership_workspace_actor_uniq",
+                fields=("workspace", "user"),
+                name="workspace_membership_workspace_user_uniq",
             ),
             models.CheckConstraint(
                 condition=Q(
@@ -90,11 +90,11 @@ class Membership(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=("actor", "status"), name="ws_member_actor_status_idx")
+            models.Index(fields=("user", "status"), name="ws_member_user_status_idx")
         ]
 
     def __str__(self) -> str:
-        return f"{self.workspace.public_id}:{self.actor.public_id}"
+        return f"{self.workspace.public_id}:{self.user.public_id}"
 
 
 def new_workspace_id() -> str:

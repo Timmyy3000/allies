@@ -6,15 +6,15 @@ from dataclasses import dataclass
 
 from django.db import IntegrityError, transaction
 
-from auths.models import Actor, ExternalIdentity, UserProfile
+from auths.models import ExternalIdentity, User, UserProfile
 from auths.providers.base import VerifiedIdentity
 from common.identifiers import new_public_id
 from workspaces.services.bootstrap import WorkspaceContext, ensure_personal_workspace
 
 
 @dataclass(frozen=True)
-class ActorBootstrap:
-    actor: Actor
+class UserBootstrap:
+    user: User
     identity: ExternalIdentity
     profile: UserProfile
     workspace: WorkspaceContext
@@ -26,17 +26,17 @@ def _safe_display_name(value: str) -> str:
     return value[:80]
 
 
-def resolve_or_create_actor(identity: VerifiedIdentity) -> ActorBootstrap:
+def resolve_or_create_user(identity: VerifiedIdentity) -> UserBootstrap:
     """Resolve only by immutable ``(provider, subject)``.
 
     Equal email snapshots are intentionally ignored.  The entire first-sign-in
-    bootstrap is one transaction; actor row locking makes repeat/concurrent
+    bootstrap is one transaction; user row locking makes repeat/concurrent
     callbacks converge on one profile, Workspace and owner membership.
     """
 
     with transaction.atomic():
         existing = (
-            ExternalIdentity.objects.select_related("actor", "actor__profile")
+            ExternalIdentity.objects.select_related("user", "user__profile")
             .filter(provider=identity.provider, subject=identity.subject)
             .first()
         )
@@ -44,15 +44,15 @@ def resolve_or_create_actor(identity: VerifiedIdentity) -> ActorBootstrap:
         if existing is None:
             try:
                 with transaction.atomic():
-                    actor = Actor.objects.create_user(
-                        public_id=new_public_id("act"), is_active=True
+                    user = User.objects.create_user(
+                        public_id=new_public_id("usr"), is_active=True
                     )
                     UserProfile.objects.create(
-                        actor=actor,
+                        user=user,
                         display_name=_safe_display_name(identity.display_name),
                     )
                     existing = ExternalIdentity.objects.create(
-                        actor=actor,
+                        user=user,
                         provider=identity.provider,
                         subject=identity.subject,
                         issuer=identity.issuer[:255],
@@ -62,25 +62,25 @@ def resolve_or_create_actor(identity: VerifiedIdentity) -> ActorBootstrap:
                     created = True
             except IntegrityError:
                 # Another transaction won the unique provider/subject race.
-                existing = ExternalIdentity.objects.select_related("actor").get(
+                existing = ExternalIdentity.objects.select_related("user").get(
                     provider=identity.provider, subject=identity.subject
                 )
-                actor = existing.actor
+                user = existing.user
             else:
-                actor = existing.actor
+                user = existing.user
         else:
-            actor = existing.actor
+            user = existing.user
 
-        actor = Actor.objects.select_for_update().get(pk=actor.pk)
-        if not actor.is_active:
-            raise ValueError("actor is inactive")
-        profile = UserProfile.objects.filter(actor=actor).first()
+        user = User.objects.select_for_update().get(pk=user.pk)
+        if not user.is_active:
+            raise ValueError("user is inactive")
+        profile = UserProfile.objects.filter(user=user).first()
         if profile is None:
-            profile = UserProfile.objects.create(actor=actor, display_name="")
+            profile = UserProfile.objects.create(user=user, display_name="")
         # Provider snapshots seed an empty profile only.  A user-owned name is
         # never overwritten on repeat sign-in.
         if not profile.display_name and identity.display_name:
             profile.display_name = _safe_display_name(identity.display_name)
             profile.save(update_fields=("display_name", "updated_at"))
-        workspace = ensure_personal_workspace(actor)
-        return ActorBootstrap(actor, existing, profile, workspace, created)
+        workspace = ensure_personal_workspace(user)
+        return UserBootstrap(user, existing, profile, workspace, created)

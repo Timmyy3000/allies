@@ -6,7 +6,7 @@ from django.utils import timezone
 from auths.exceptions import SessionInvalid
 from auths.models import RefreshToken, SessionFamily
 from auths.providers.base import VerifiedIdentity
-from auths.services.accounts import resolve_or_create_actor
+from auths.services.accounts import resolve_or_create_user
 from auths.services.sessions import (
     _decode_jwt,
     _encode_jwt,
@@ -21,13 +21,13 @@ from auths.services.sessions import (
 
 @pytest.mark.django_db
 def test_refresh_rotation_is_one_time_and_reuse_revokes_family():
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="session")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     rotated = rotate_refresh(issued.refresh_token)
 
-    assert authenticate_access(issued.access_token).actor.id == actor.id
+    assert authenticate_access(issued.access_token).user.id == user.id
     assert rotated.family.public_id == issued.family.public_id
     assert refresh_family_public_id(rotated.refresh_token) == issued.family.public_id
     with pytest.raises(SessionInvalid):
@@ -40,10 +40,10 @@ def test_refresh_rotation_is_one_time_and_reuse_revokes_family():
 
 @pytest.mark.django_db
 def test_access_jwt_rejects_malformed_headers_signatures_and_claims():
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="jwt-boundaries")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     claims = _decode_jwt(issued.access_token)
 
     malformed = ["not-a-jwt", "a.b.c", "a." * 5000]
@@ -87,17 +87,17 @@ def test_access_jwt_rejects_malformed_headers_signatures_and_claims():
 
 @pytest.mark.django_db
 def test_session_lifecycle_rejects_inactive_unknown_and_expired_records():
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="session-boundaries")
-    ).actor
-    actor.is_active = False
-    actor.save(update_fields=("is_active",))
+    ).user
+    user.is_active = False
+    user.save(update_fields=("is_active",))
     with pytest.raises(SessionInvalid):
-        issue_session(actor)
+        issue_session(user)
 
-    actor.is_active = True
-    actor.save(update_fields=("is_active",))
-    issued = issue_session(actor)
+    user.is_active = True
+    user.save(update_fields=("is_active",))
+    issued = issue_session(user)
     claims = _decode_jwt(issued.access_token)
     claims["sid"] = "ses_missing"
     with pytest.raises(SessionInvalid):

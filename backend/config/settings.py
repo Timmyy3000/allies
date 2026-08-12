@@ -169,7 +169,7 @@ STATIC_URL = "static/"
 
 # AUTH-001 security and provider configuration. Local development is explicit;
 # production values are supplied by the deployment secret/configuration store.
-AUTH_USER_MODEL = "auths.Actor"
+AUTH_USER_MODEL = "auths.User"
 
 CSRF_TRUSTED_ORIGINS = env_list(
     "ALLIES_TRUSTED_ORIGINS",

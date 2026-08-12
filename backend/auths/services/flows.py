@@ -22,14 +22,14 @@ from auths.exceptions import (
     InvalidRedirect,
     ProviderRejected,
 )
-from auths.models import Actor, AuthFlow, FlowPurpose, SessionFamily
+from auths.models import AuthFlow, FlowPurpose, SessionFamily, User
 from auths.providers.base import (
     ProviderFlow,
     ProviderKey,
     VerifiedIdentity,
     get_provider,
 )
-from auths.services.accounts import ActorBootstrap, resolve_or_create_actor
+from auths.services.accounts import UserBootstrap, resolve_or_create_user
 from auths.services.identities import link_identity
 from auths.services.sessions import IssuedSession, issue_session
 
@@ -45,10 +45,10 @@ class AuthorizationStart:
 
 @dataclass(frozen=True)
 class AuthCompletion:
-    actor: Actor
+    user: User
     identity: VerifiedIdentity
     session: IssuedSession | None
-    bootstrap: ActorBootstrap | None = None
+    bootstrap: UserBootstrap | None = None
     redirect_to: str = "/"
 
 
@@ -126,7 +126,7 @@ def begin_auth_flow(
     purpose: FlowPurpose,
     redirect_to: str,
     browser_binding: bytes,
-    actor: Actor | None = None,
+    user: User | None = None,
     family: SessionFamily | None = None,
 ) -> AuthorizationStart:
     try:
@@ -138,14 +138,14 @@ def begin_auth_flow(
         raise InvalidFlow("browser binding is required")
     if purpose == FlowPurpose.LINK:
         if (
-            actor is None
+            user is None
             or family is None
-            or family.actor_id != actor.pk
+            or family.user_id != user.pk
             or not family.is_active()
         ):
-            raise InvalidFlow("link requires an active actor session")
-    elif actor is not None or family is not None:
-        raise InvalidFlow("sign-in flow cannot be actor bound")
+            raise InvalidFlow("link requires an active user session")
+    elif user is not None or family is not None:
+        raise InvalidFlow("sign-in flow cannot be user bound")
     provider_adapter = get_provider(provider_key)
     state = secrets.token_urlsafe(32)
     flow_cookie = secrets.token_urlsafe(32)
@@ -162,7 +162,7 @@ def begin_auth_flow(
         purpose=purpose,
         redirect_to=redirect,
         callback_uri=callback,
-        actor=actor if purpose == FlowPurpose.LINK else None,
+        user=user if purpose == FlowPurpose.LINK else None,
         session_family=family if purpose == FlowPurpose.LINK else None,
         nonce_digest=_digest(nonce),
         nonce_sealed=_seal(nonce),
@@ -200,7 +200,7 @@ def complete_auth_flow(
     if not state or len(state) > 512 or not browser_binding:
         raise InvalidFlow("flow state invalid")
     try:
-        flow = AuthFlow.objects.select_related("actor", "session_family").get(
+        flow = AuthFlow.objects.select_related("user", "session_family").get(
             state_digest=_digest(state)
         )
     except AuthFlow.DoesNotExist as exc:
@@ -221,7 +221,7 @@ def complete_auth_flow(
     if not hmac.compare_digest(flow.flow_cookie_digest, _digest(raw_cookie)):
         raise InvalidFlow("flow cookie mismatch")
     if flow.purpose == FlowPurpose.LINK and (
-        flow.actor_id is None
+        flow.user_id is None
         or flow.session_family_id is None
         or not flow.session_family.is_active(now)
     ):
@@ -265,34 +265,34 @@ def complete_auth_flow(
         with transaction.atomic():
             family = (
                 SessionFamily.objects.select_for_update()
-                .select_related("actor")
+                .select_related("user")
                 .get(pk=flow.session_family_id)
             )
-            if family.actor_id != flow.actor_id or not family.is_active():
+            if family.user_id != flow.user_id or not family.is_active():
                 raise InvalidFlow("link session is no longer active")
-            link_identity(actor=family.actor, identity=identity)
+            link_identity(user=family.user, identity=identity)
         emit_auth_event(
             "auth.identity.linked",
             outcome="accepted",
             provider=provider_key.value,
-            actor_ref=family.actor.public_id,
+            user_ref=family.user.public_id,
         )
         return AuthCompletion(
-            actor=family.actor,
+            user=family.user,
             identity=identity,
             session=None,
             redirect_to=flow.redirect_to,
         )
-    bootstrap = resolve_or_create_actor(identity)
-    session = issue_session(bootstrap.actor)
+    bootstrap = resolve_or_create_user(identity)
+    session = issue_session(bootstrap.user)
     emit_auth_event(
         "auth.flow.completed",
         outcome="accepted",
         provider=provider_key.value,
-        actor_ref=bootstrap.actor.public_id,
+        user_ref=bootstrap.user.public_id,
     )
     return AuthCompletion(
-        actor=bootstrap.actor,
+        user=bootstrap.user,
         identity=identity,
         session=session,
         bootstrap=bootstrap,

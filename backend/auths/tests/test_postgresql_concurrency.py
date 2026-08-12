@@ -2,7 +2,7 @@ import hashlib
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from io import BytesIO
-from threading import Event, Lock
+from threading import Barrier, Event, Lock
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -11,23 +11,29 @@ from django.test import override_settings
 from django.utils import timezone
 from PIL import Image
 
-from auths.exceptions import AvatarConflict, FlowReplay, SessionInvalid
+from auths.exceptions import (
+    AvatarConflict,
+    FlowReplay,
+    IdentityConflict,
+    SessionInvalid,
+)
 from auths.models import (
-    Actor,
     AvatarAsset,
     ExternalIdentity,
     FlowPurpose,
     RefreshToken,
     SessionFamily,
+    User,
 )
 from auths.providers.base import ProviderKey, VerifiedIdentity
-from auths.services.accounts import resolve_or_create_actor
+from auths.services.accounts import resolve_or_create_user
 from auths.services.avatars import (
     cleanup_avatar_assets,
     complete_avatar_upload,
     prepare_avatar_upload,
 )
 from auths.services.flows import begin_auth_flow, complete_auth_flow
+from auths.services.identities import link_identity
 from auths.services.sessions import issue_session, rotate_refresh
 from auths.storage.avatars import InMemoryAvatarObjectStore, set_avatar_store
 from workspaces.models import Membership, Workspace
@@ -44,16 +50,16 @@ def test_same_subject_converges_under_postgresql_race():
     def resolve_once():
         close_old_connections()
         try:
-            return resolve_or_create_actor(identity)
+            return resolve_or_create_user(identity)
         finally:
             connection.close()
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         results = list(pool.map(lambda _: resolve_once(), range(2)))
-    assert results[0].actor.pk == results[1].actor.pk
-    assert Actor.objects.filter(pk=results[0].actor.pk).count() == 1
-    assert Workspace.objects.filter(owner=results[0].actor).count() == 1
-    assert Membership.objects.filter(actor=results[0].actor).count() == 1
+    assert results[0].user.pk == results[1].user.pk
+    assert User.objects.filter(pk=results[0].user.pk).count() == 1
+    assert Workspace.objects.filter(owner=results[0].user).count() == 1
+    assert Membership.objects.filter(user=results[0].user).count() == 1
 
 
 @pytest.mark.postgresql
@@ -62,10 +68,10 @@ def test_same_refresh_token_converges_and_revokes_family_under_postgresql_race()
     if connection.vendor != "postgresql":
         pytest.skip("row-lock race requires PostgreSQL")
 
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="postgres-refresh-race")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
 
     def rotate_once():
         close_old_connections()
@@ -113,7 +119,7 @@ def test_same_callback_state_is_consumed_once_under_postgresql_race():
                 browser_binding=b"postgres-browser",
                 flow_cookie=start.flow_cookie,
             )
-            return "completed", completed.actor.pk
+            return "completed", completed.user.pk
         except FlowReplay:
             return "replayed", None
         finally:
@@ -126,9 +132,53 @@ def test_same_callback_state_is_consumed_once_under_postgresql_race():
 
     assert sorted(result[0] for result in results) == ["completed", "replayed"]
     identity = ExternalIdentity.objects.get(subject="postgres-callback-race")
-    assert Actor.objects.filter(pk=identity.actor_id).count() == 1
-    assert Workspace.objects.filter(owner_id=identity.actor_id).count() == 1
-    assert Membership.objects.filter(actor_id=identity.actor_id).count() == 1
+    assert User.objects.filter(pk=identity.user_id).count() == 1
+    assert Workspace.objects.filter(owner_id=identity.user_id).count() == 1
+    assert Membership.objects.filter(user_id=identity.user_id).count() == 1
+
+
+@pytest.mark.postgresql
+@pytest.mark.django_db(transaction=True)
+def test_identity_link_recovers_from_postgresql_uniqueness_race(monkeypatch):
+    if connection.vendor != "postgresql":
+        pytest.skip("uniqueness race requires PostgreSQL")
+
+    first = resolve_or_create_user(
+        VerifiedIdentity(provider="fake", subject="postgres-link-first")
+    ).user
+    second = resolve_or_create_user(
+        VerifiedIdentity(provider="fake", subject="postgres-link-second")
+    ).user
+    identity = VerifiedIdentity(provider="fake", subject="postgres-link-race")
+    original_create = ExternalIdentity.objects.create
+    ready_to_insert = Barrier(2)
+
+    def synchronized_create(*args, **kwargs):
+        if kwargs.get("subject") == identity.subject:
+            ready_to_insert.wait(timeout=10)
+        return original_create(*args, **kwargs)
+
+    monkeypatch.setattr(ExternalIdentity.objects, "create", synchronized_create)
+
+    def link_once(user):
+        close_old_connections()
+        try:
+            try:
+                result = link_identity(user=user, identity=identity)
+                return "linked", result.user_id
+            except IdentityConflict:
+                return "conflict", None
+        finally:
+            connection.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(link_once, (first, second)))
+
+    assert sorted(outcome for outcome, _ in results) == ["conflict", "linked"]
+    winner = ExternalIdentity.objects.get(
+        provider=identity.provider, subject=identity.subject
+    )
+    assert winner.user_id in {first.pk, second.pk}
 
 
 @pytest.mark.postgresql
@@ -137,9 +187,9 @@ def test_avatar_completion_and_cleanup_converge_under_postgresql_race():
     if connection.vendor != "postgresql":
         pytest.skip("row-lock race requires PostgreSQL")
 
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="postgres-avatar-race")
-    ).actor
+    ).user
     copied = Event()
     resume = Event()
 
@@ -155,7 +205,7 @@ def test_avatar_completion_and_cleanup_converge_under_postgresql_race():
     Image.new("RGB", (2, 2), (1, 2, 3)).save(output, "PNG")
     data = output.getvalue()
     prepared = prepare_avatar_upload(
-        actor=actor,
+        user=user,
         content_type="image/png",
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
@@ -168,7 +218,7 @@ def test_avatar_completion_and_cleanup_converge_under_postgresql_race():
     def complete():
         close_old_connections()
         try:
-            complete_avatar_upload(actor=actor, asset_id=prepared.asset.public_id)
+            complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
             return "completed"
         except AvatarConflict:
             return "conflict"
@@ -196,9 +246,9 @@ def test_same_avatar_completion_is_idempotent_under_postgresql_race():
     if connection.vendor != "postgresql":
         pytest.skip("row-lock race requires PostgreSQL")
 
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="postgres-avatar-idempotency")
-    ).actor
+    ).user
     both_readers_started = Event()
     staging_deleted = Event()
     counter_lock = Lock()
@@ -228,7 +278,7 @@ def test_same_avatar_completion_is_idempotent_under_postgresql_race():
     Image.new("RGB", (2, 2), (3, 2, 1)).save(output, "PNG")
     data = output.getvalue()
     prepared = prepare_avatar_upload(
-        actor=actor,
+        user=user,
         content_type="image/png",
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
@@ -238,9 +288,7 @@ def test_same_avatar_completion_is_idempotent_under_postgresql_race():
     def complete_once():
         close_old_connections()
         try:
-            ready = complete_avatar_upload(
-                actor=actor, asset_id=prepared.asset.public_id
-            )
+            ready = complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
             return ready.asset.object_key
         finally:
             connection.close()

@@ -16,7 +16,7 @@ from auths.exceptions import (
 )
 from auths.models import AuthFlow, ExternalIdentity, FlowPurpose
 from auths.providers.base import ProviderKey, VerifiedIdentity, get_provider
-from auths.services.accounts import resolve_or_create_actor
+from auths.services.accounts import resolve_or_create_user
 from auths.services.flows import begin_auth_flow, complete_auth_flow
 from auths.services.identities import link_identity
 from auths.services.profiles import update_display_name
@@ -29,76 +29,46 @@ from auths.services.sessions import (
 
 @pytest.mark.django_db
 def test_authenticated_link_is_idempotent_and_collision_safe():
-    first = resolve_or_create_actor(
+    first = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="edge-a")
-    ).actor
-    second = resolve_or_create_actor(
+    ).user
+    second = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="edge-b")
-    ).actor
+    ).user
     identity = VerifiedIdentity(provider="fake", subject="linked")
-    linked = link_identity(actor=first, identity=identity)
-    assert link_identity(actor=first, identity=identity).pk == linked.pk
+    linked = link_identity(user=first, identity=identity)
+    assert link_identity(user=first, identity=identity).pk == linked.pk
     with pytest.raises(IdentityConflict):
-        link_identity(actor=second, identity=identity)
+        link_identity(user=second, identity=identity)
 
 
 @pytest.mark.django_db
-def test_identity_link_integrity_race_fails_closed(monkeypatch):
-    actor = resolve_or_create_actor(
+def test_identity_link_unrelated_integrity_error_is_preserved(monkeypatch):
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="edge-race")
-    ).actor
+    ).user
 
     def collide(*args, **kwargs):
         raise IntegrityError("unique provider/subject race")
 
     monkeypatch.setattr(ExternalIdentity.objects, "create", collide)
-    with pytest.raises(IdentityConflict):
+    with pytest.raises(IntegrityError):
         link_identity(
-            actor=actor,
+            user=user,
             identity=VerifiedIdentity(provider="fake", subject="race-subject"),
         )
 
 
 @pytest.mark.django_db
-def test_identity_link_integrity_race_returns_same_actor_winner(monkeypatch):
-    actor = resolve_or_create_actor(
-        VerifiedIdentity(provider="fake", subject="edge-race-winner")
-    ).actor
-    identity = VerifiedIdentity(provider="fake", subject="race-winner")
-    winner = ExternalIdentity.objects.create(
-        actor=actor,
-        provider=identity.provider,
-        subject=identity.subject,
-    )
-
-    class EmptySelectForUpdate:
-        def filter(self, **kwargs):
-            return self
-
-        def first(self):
-            return None
-
-    monkeypatch.setattr(
-        ExternalIdentity.objects, "select_for_update", lambda: EmptySelectForUpdate()
-    )
-    monkeypatch.setattr(
-        ExternalIdentity.objects,
-        "create",
-        lambda *args, **kwargs: (_ for _ in ()).throw(IntegrityError("unique race")),
-    )
-    assert link_identity(actor=actor, identity=identity).pk == winner.pk
-
-
-@pytest.mark.django_db
 def test_access_claims_logout_and_unknown_tokens_fail_closed():
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="edge-session")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     request = RequestFactory().get("/")
     request.COOKIES = {"allies_access": issued.access_token}
-    assert authenticate_request(request).actor.id == actor.id
-    assert SessionCookieAuthentication()(request).actor.id == actor.id
+    assert authenticate_request(request).user.id == user.id
+    assert SessionCookieAuthentication()(request).user.id == user.id
     logout_session(access=authenticate_access(issued.access_token))
     with pytest.raises(SessionInvalid):
         authenticate_access(issued.access_token)
@@ -142,12 +112,12 @@ def test_flow_binding_redirect_and_expiry_fail_closed():
 
 @pytest.mark.django_db
 def test_profile_name_validation_and_provider_catalogue():
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="edge-profile")
-    ).actor
+    ).user
     with pytest.raises(ValidationError):
-        update_display_name(actor, "\u0000")
+        update_display_name(user, "\u0000")
     with pytest.raises(ValidationError):
-        update_display_name(actor, "")
+        update_display_name(user, "")
     with pytest.raises(ProviderUnavailable):
         get_provider("unknown")

@@ -1,14 +1,14 @@
 import pytest
 
-from auths.models import Actor, ExternalIdentity, UserProfile
+from auths.models import ExternalIdentity, User, UserProfile
 from auths.providers.base import VerifiedIdentity
-from auths.services.accounts import resolve_or_create_actor
+from auths.services.accounts import resolve_or_create_user
 from workspaces.models import Membership, Workspace
 
 
 @pytest.mark.django_db
 def test_subject_resolution_is_idempotent_and_never_merges_email():
-    first = resolve_or_create_actor(
+    first = resolve_or_create_user(
         VerifiedIdentity(
             provider="fake",
             subject="subject-a",
@@ -16,7 +16,7 @@ def test_subject_resolution_is_idempotent_and_never_merges_email():
             display_name="Ada",
         )
     )
-    repeat = resolve_or_create_actor(
+    repeat = resolve_or_create_user(
         VerifiedIdentity(
             provider="fake",
             subject="subject-a",
@@ -24,7 +24,7 @@ def test_subject_resolution_is_idempotent_and_never_merges_email():
             display_name="Changed",
         )
     )
-    other = resolve_or_create_actor(
+    other = resolve_or_create_user(
         VerifiedIdentity(
             provider="fake",
             subject="subject-b",
@@ -33,13 +33,13 @@ def test_subject_resolution_is_idempotent_and_never_merges_email():
         )
     )
 
-    assert repeat.actor.id == first.actor.id
-    assert other.actor.id != first.actor.id
-    assert Actor.objects.count() == 2
+    assert repeat.user.id == first.user.id
+    assert other.user.id != first.user.id
+    assert User.objects.count() == 2
     assert ExternalIdentity.objects.count() == 2
     assert UserProfile.objects.count() == 2
     assert Workspace.objects.count() == 2
     assert Membership.objects.count() == 2
     assert first.profile.display_name == "Ada"
-    assert first.actor.has_usable_password() is False
-    assert other.actor.has_usable_password() is False
+    assert first.user.has_usable_password() is False
+    assert other.user.has_usable_password() is False

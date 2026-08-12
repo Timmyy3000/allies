@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.CreateModel(
-            name="Actor",
+            name="User",
             fields=[
                 (
                     "id",
@@ -83,7 +83,7 @@ class Migration(migrations.Migration):
                 "ordering": ("public_id",),
             },
             managers=[
-                ("objects", auths.models.ActorManager()),
+                ("objects", auths.models.UserManager()),
             ],
         ),
         migrations.CreateModel(
@@ -134,7 +134,7 @@ class Migration(migrations.Migration):
                 ("cleanup_attempts", models.PositiveIntegerField(default=0)),
                 ("cleanup_last_error", models.CharField(blank=True, max_length=255)),
                 (
-                    "actor",
+                    "user",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="avatar_assets",
@@ -168,7 +168,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "actor",
+                    "user",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="external_identities",
@@ -203,7 +203,7 @@ class Migration(migrations.Migration):
                 ("revoked_at", models.DateTimeField(blank=True, null=True)),
                 ("revoke_reason", models.CharField(blank=True, max_length=64)),
                 (
-                    "actor",
+                    "user",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="session_families",
@@ -284,7 +284,7 @@ class Migration(migrations.Migration):
                 ("expires_at", models.DateTimeField()),
                 ("consumed_at", models.DateTimeField(blank=True, null=True)),
                 (
-                    "actor",
+                    "user",
                     models.ForeignKey(
                         blank=True,
                         null=True,
@@ -321,7 +321,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "actor",
+                    "user",
                     models.OneToOneField(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="profile",
@@ -341,15 +341,15 @@ class Migration(migrations.Migration):
             ],
         ),
         migrations.AddIndex(
-            model_name="actor",
+            model_name="user",
             index=models.Index(
-                fields=["is_active", "public_id"], name="auth_actor_active_idx"
+                fields=["is_active", "public_id"], name="auth_user_active_idx"
             ),
         ),
         migrations.AddIndex(
             model_name="avatarasset",
             index=models.Index(
-                fields=["actor", "created_at"], name="auth_avatar_actor_created_idx"
+                fields=["user", "created_at"], name="auth_avatar_user_created_idx"
             ),
         ),
         migrations.AddConstraint(
@@ -369,7 +369,7 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="externalidentity",
             index=models.Index(
-                fields=["actor", "provider"], name="auth_identity_actor_prov_idx"
+                fields=["user", "provider"], name="auth_identity_user_prov_idx"
             ),
         ),
         migrations.AddConstraint(
@@ -381,7 +381,7 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="sessionfamily",
-            index=models.Index(fields=["actor"], name="auth_family_actor_idx"),
+            index=models.Index(fields=["user"], name="auth_family_user_idx"),
         ),
         migrations.AddIndex(
             model_name="sessionfamily",
@@ -416,14 +416,14 @@ class Migration(migrations.Migration):
             constraint=models.CheckConstraint(
                 condition=models.Q(
                     models.Q(
-                        ("actor__isnull", True),
                         ("purpose", "sign_in"),
                         ("session_family__isnull", True),
+                        ("user__isnull", True),
                     ),
                     models.Q(
-                        ("actor__isnull", False),
                         ("purpose", "link"),
                         ("session_family__isnull", False),
+                        ("user__isnull", False),
                     ),
                     _connector="OR",
                 ),

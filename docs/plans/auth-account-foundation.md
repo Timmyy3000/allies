@@ -22,7 +22,7 @@
 ## Objective
 
 Implement the accepted AUTH-001 Cloud boundary so a person can sign in through
-an approved external provider, return to the same Cloud actor, maintain a basic
+an approved external provider, return to the same Cloud user, maintain a basic
 human profile, receive exactly one personal Workspace with an active owner
 membership, and use a revocable Cloud session without exposing provider,
 runtime, or cross-Workspace authority.
@@ -41,7 +41,7 @@ infrastructure without hiding user control.
 The repository is currently a minimal Python 3.13 / Django 6.0 / Django Ninja
 Extra scaffold. It contains `config`, a `startdomain` generator, repository
 engineering policy, and accepted architecture documents, but no product domain
-apps or product migrations. Cloud owns actors, Workspaces, authorization, human
+apps or product migrations. Cloud owns users, Workspaces, authorization, human
 profiles, conversations, and product truth; Foundry owns runtime truth.
 
 AUTH-001 is owner-approved and self-contained. It freezes Google plus any
@@ -144,7 +144,7 @@ source-code failure.
 
 1. Create focused `auths` and `workspaces` Django domains using the repository's
    explicit controller → registrar → root API composition.
-2. Use one Cloud principal. Recommend `auths.Actor` as the project's custom
+2. Use one Cloud principal. Recommend `auths.User` as the project's custom
    Django user model, created in `auths/0001_initial` and configured through
    `AUTH_USER_MODEL` before product migrations. Provider identities, editable
    profile state, and Cloud sessions remain separate models.
@@ -152,8 +152,8 @@ source-code failure.
    login, reset, magic-link, MFA, or recovery API is introduced. Operator-only
    Django admin authentication is not a product login contract.
 4. Resolve identities only by verified `(provider, subject)`. Never auto-merge
-   actors by email. A second identity may be linked only from an authenticated
-   actor session and must preserve uniqueness.
+   users by email. A second identity may be linked only from an authenticated
+   user session and must preserve uniqueness.
 5. Validate provider state, issuer, audience, subject, nonce, authorization
    code, redirect target, PKCE where supported, replay, timeouts, and malformed
    responses behind separate provider adapters.
@@ -174,7 +174,7 @@ source-code failure.
     snapshots may seed but never overwrite user-owned profile fields.
 11. Provide private R2 avatar upload preparation, completion verification,
     signed reads, replacement, deletion, and bounded abandoned-object cleanup.
-    Cloud owns actor-scoped keys and never exposes bucket credentials.
+    Cloud owns user-scoped keys and never exposes bucket credentials.
 12. Record privacy-safe structured authentication/audit outcomes and enforce
     bounded provider/session abuse controls without tokens, codes, cookies, raw
     claims, or personal payloads in logs.
@@ -188,30 +188,30 @@ source-code failure.
 ## Acceptance Criteria
 
 1. First sign-in through every included v1 provider creates exactly one
-   actor, one user profile, one personal Workspace, one active owner membership,
+   user, one user profile, one personal Workspace, one active owner membership,
    and one refresh-session family.
 2. When ChatGPT is included, a normal consumer ChatGPT account with no API,
    developer, partner, paid-business, workspace, or invite entitlement can
    complete sign-in in every supported launch region. If this criterion cannot
    be proven before implementation, ChatGPT is excluded from AUTH-001.
-3. Repeat and concurrent same-subject completion resolves the same actor and
+3. Repeat and concurrent same-subject completion resolves the same user and
    personal Workspace without duplicate durable records.
-4. Equal emails from different provider subjects never merge actors; explicit
-   linking requires the authenticated actor and rejects collisions.
+4. Equal emails from different provider subjects never merge users; explicit
+   linking requires the authenticated user and rejects collisions.
 5. Access cookies are short-lived, Secure, HttpOnly, and scoped correctly;
    refresh tokens are opaque, hashed, rotating, one-time, revocable, and reuse
    revokes the family.
 6. Expired, malformed, unknown, reused, and revoked sessions return privacy-safe
-   `401` responses; logout is idempotent and cannot revoke another actor's
+   `401` responses; logout is idempotent and cannot revoke another user's
    session.
-7. `/api/v1/auths/me` returns actor, editable profile, current session metadata,
+7. `/api/v1/auths/me` returns user, editable profile, current session metadata,
    personal Workspace, owner role, and registered capabilities without
    provider tokens, raw claims, internal keys, or runtime identifiers.
 8. Profile and avatar operations are self-only. R2 completion verifies the
-   issued actor-scoped key, object existence, type, size, and checksum before an
+   issued user-scoped key, object existence, type, size, and checksum before an
    asset becomes current.
 9. Workspace context requires a current active membership and rechecks the
-   registered capability in service code; two-actor/two-Workspace negative
+   registered capability in service code; two-user/two-Workspace negative
    tests prove isolation.
 10. Provider callback state, nonce, issuer, audience, redirect, PKCE, replay,
    outage, timeout, and malformed-response behavior are covered with sanitized
@@ -261,7 +261,7 @@ source-code failure.
   migration, tenant isolation, and external-provider risk.
 - Use `auths` and `workspaces`; older `accounts` and `tenants` target-layout
   names are superseded by AUTH-001 and CLD-001.
-- Recommend `auths.Actor` as the custom Django user model while keeping
+- Recommend `auths.User` as the custom Django user model while keeping
   `ExternalIdentity`, `UserProfile`, `RefreshSession`, and `AvatarAsset`
   separate.
 - Use an explicit provider port. Implement the deterministic fake provider and
@@ -293,7 +293,7 @@ source-code failure.
   same-site default plus a documented cross-site variant with a narrow origin
   allowlist.
 - R2 presigned URLs are bearer capabilities and remain reusable until expiry.
-  Mitigation: short expiry, unguessable actor-scoped pending keys, completion
+  Mitigation: short expiry, unguessable user-scoped pending keys, completion
   verification, and cleanup.
 - Broad auth libraries can smuggle in password, email-merge, or generic social
   account behavior that conflicts with the spec. Mitigation: narrow adapters
