@@ -43,10 +43,15 @@ class IdentityIsolationError(HermesError):
     code = "identity_isolation_failed"
 
 
+class HermesHistoryMismatch(HermesError):
+    code = "history_continuity_failed"
+
+
 __all__ = [
     "HermesAuthenticationError",
     "HermesDisconnected",
     "HermesError",
+    "HermesHistoryMismatch",
     "HermesMalformedResponse",
     "HermesSessionExists",
     "HermesTimeout",

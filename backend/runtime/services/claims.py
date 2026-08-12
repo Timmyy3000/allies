@@ -44,6 +44,7 @@ class Claim:
     execution_id: UUID
     profile_id: UUID
     hermes_profile_key: str
+    model: str
     conversation_id: str | None
     session_id: str | None
     stream_id: str
@@ -240,6 +241,7 @@ def _claim_from_records(
         execution_id=attempt.execution_id,
         profile_id=profile.id,
         hermes_profile_key=profile.hermes_profile_key,
+        model=str(profile.seed_payload.get("model") or ""),
         conversation_id=conversation_id,
         session_id=session_id,
         stream_id=f"stream-{attempt.id.hex}",

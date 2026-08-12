@@ -31,6 +31,7 @@ CLAIM = {
     "execution_id": "execution-1",
     "profile_id": "profile-1",
     "hermes_profile_key": "ally-a",
+    "model": "gpt-5.6-luna",
     "conversation_id": "cloud-1",
     "session_id": "session-1",
     "stream_id": "stream-1",
@@ -264,6 +265,45 @@ async def test_worker_overlaps_profiles_and_completes_incremental_events():
         for call in transport.calls
         if "/events" in call[1] or "/complete" in call[1]
     )
+
+
+@pytest.mark.asyncio
+async def test_worker_refills_free_slot_while_an_existing_turn_is_held(monkeypatch):
+    release = asyncio.Event()
+
+    class IntermittentFoundry:
+        def __init__(self):
+            self.calls = 0
+
+        async def claim(self, _available_slots, *, claim_id):
+            self.calls += 1
+            if self.calls == 1:
+                return "held"
+            if self.calls == 2:
+                return None
+            if self.calls == 3:
+                return "second"
+            return None
+
+    foundry = IntermittentFoundry()
+    worker = FoundryWorker(foundry, object(), slots=2)
+
+    async def run_claim(claim):
+        if claim == "held":
+            await release.wait()
+        else:
+            release.set()
+        return claim
+
+    monkeypatch.setattr(worker, "_run_claim", run_claim)
+
+    results = await asyncio.wait_for(
+        worker.run(max_turns=2, idle_cycles=5, idle_delay=0.01),
+        timeout=1,
+    )
+
+    assert set(results) == {"held", "second"}
+    assert foundry.calls >= 3
 
 
 @pytest.mark.asyncio

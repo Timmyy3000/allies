@@ -41,6 +41,7 @@ class WorkspaceProvider(Protocol):
         machine_id: str,
         *,
         timeout_seconds: float,
+        state: str = "started",
     ) -> MachineRecord: ...
 
     def start_machine(self, app_name: str, machine_id: str) -> MachineRecord: ...

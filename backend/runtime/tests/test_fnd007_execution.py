@@ -45,6 +45,7 @@ def claimed_execution(db):
         hermes_profile_key="ally",
         lifecycle_state=RuntimeProfileLifecycleState.ACTIVE,
         materialized_generation=1,
+        seed_payload={"model": "gpt-5.6-luna"},
     )
     execution = Execution.objects.create(
         workspace=workspace,

@@ -102,7 +102,7 @@ async def run_worker(
     composition: RuntimeComposition,
     *,
     max_turns: int | None = None,
-    idle_cycles: int = 1,
+    idle_cycles: int | None = 1,
     idle_delay: float = 0.0,
 ) -> tuple[Any, ...]:
     """Run the explicitly composed worker entrypoint."""

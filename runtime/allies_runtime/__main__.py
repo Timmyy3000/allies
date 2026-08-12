@@ -8,7 +8,10 @@ import json
 import os
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
+from urllib.parse import unquote, urlsplit
+from urllib.request import url2pathname
 
 from .composition import RuntimeComposition, compose_runtime, run_worker
 from .config import CredentialReference, SettingsError, load_settings
@@ -21,7 +24,9 @@ from .hermes import (
 )
 from .smoke import run_smoke_sync
 
-_TEST_BOOTSTRAP_GRACE_SECONDS = 60.0
+_HERMES_STARTUP_GRACE_SECONDS = 60.0
+_MAX_RUNTIME_CREDENTIAL_BYTES = 4096
+_SECRETS_ROOT = Path("/run/secrets")
 
 
 def worker_entrypoint(
@@ -32,7 +37,7 @@ def worker_entrypoint(
     hermes: Any | None = None,
     api_key_factory: Callable[[], str] | None = None,
     max_turns: int | None = None,
-    idle_cycles: int = 1,
+    idle_cycles: int | None = 1,
     idle_delay: float = 0.0,
 ) -> int:
     """Run the production worker through the explicit composition boundary."""
@@ -58,6 +63,96 @@ def worker_entrypoint(
     return 0
 
 
+def file_credential_for_reference(reference: CredentialReference) -> str:
+    """Read one bounded credential from a Fly-mounted secret file."""
+
+    parsed = urlsplit(str(reference))
+    if parsed.scheme != "file" or parsed.netloc or parsed.query or parsed.fragment:
+        raise SettingsError("runtime credential must be a local file reference")
+    path = Path(url2pathname(unquote(parsed.path)))
+    if ".." in path.parts:
+        raise SettingsError("runtime credential must remain under /run/secrets")
+    secrets_root = _SECRETS_ROOT.resolve()
+    try:
+        path = path.resolve()
+        path.relative_to(secrets_root)
+    except (OSError, ValueError) as exc:
+        raise SettingsError(
+            "runtime credential must remain under /run/secrets"
+        ) from exc
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise SettingsError("runtime credential is unavailable") from exc
+    if not raw or len(raw) > _MAX_RUNTIME_CREDENTIAL_BYTES:
+        raise SettingsError("runtime credential has an invalid size")
+    try:
+        value = raw.decode("utf-8").strip()
+    except UnicodeDecodeError as exc:
+        raise SettingsError("runtime credential must be UTF-8") from exc
+    if not value or "\r" in value or "\n" in value:
+        raise SettingsError("runtime credential is not a header value")
+    return value
+
+
+def _default_credential_resolver(
+    reference: CredentialReference, values: dict[str, object]
+) -> Callable[[CredentialReference], str]:
+    if str(reference).lower().startswith("test://fnd004/"):
+        return test_credential_for_reference
+    if urlsplit(str(reference)).scheme.lower() == "file":
+        return file_credential_for_reference
+    return UnixSocketCredentialResolver(
+        str(values.get("HERMES_CREDENTIAL_SOCKET", DEFAULT_CREDENTIAL_SOCKET))
+    )
+
+
+def runtime_entrypoint(
+    *,
+    env: dict[str, object] | None = None,
+    credential_resolver: Callable[..., Any] | None = None,
+    foundry_credential_resolver: Callable[[CredentialReference], str] | None = None,
+    foundry_factory: Callable[..., FoundryClient] = FoundryClient,
+    hermes: Any | None = None,
+    idle_cycles: int | None = None,
+) -> int:
+    """Probe Hermes, compose the production worker, and poll until fenced."""
+
+    values = dict(os.environ) if env is None else dict(env)
+    if not values.get("HERMES_CREDENTIAL_REF"):
+        return 1
+    try:
+        settings = load_settings(values)
+        if credential_resolver is None:
+            credential_resolver = _default_credential_resolver(
+                settings.credential_ref, values
+            )
+        resolve_foundry = foundry_credential_resolver or file_credential_for_reference
+        runtime_token = resolve_foundry(settings.foundry_credential_ref)
+        foundry = foundry_factory(
+            base_url=settings.foundry_origin,
+            runtime_token=runtime_token,
+        )
+        readiness_client = hermes or HermesClient(settings, credential_resolver)
+    except (OSError, SettingsError, TypeError, ValueError):
+        return 1
+    deadline = time.monotonic() + _HERMES_STARTUP_GRACE_SECONDS
+    while not asyncio.run(probe_readiness(readiness_client)):
+        if time.monotonic() >= deadline:
+            return 1
+        time.sleep(0.25)
+    return worker_entrypoint(
+        settings=settings,
+        foundry=foundry,
+        credential_resolver=credential_resolver,
+        # A production worker must compose its own profile-aware Hermes client.
+        # An explicitly injected client remains available for tests/integrations.
+        hermes=hermes,
+        idle_cycles=idle_cycles,
+        idle_delay=0.25,
+    )
+
+
 async def probe_readiness(client: Any) -> bool:
     """Return ready only after an authenticated Hermes health request."""
 
@@ -66,7 +161,22 @@ async def probe_readiness(client: Any) -> bool:
     except Exception:  # noqa: BLE001 - readiness must fail closed
         return False
     status = getattr(health, "status", None)
-    return isinstance(status, str) and status.lower() in {"ok", "ready", "healthy"}
+    if isinstance(status, str) and status.lower() in {"ok", "ready", "healthy"}:
+        return True
+    if not isinstance(status, str) or status.lower() != "degraded":
+        return False
+    readiness = getattr(health, "readiness", None)
+    if not isinstance(readiness, dict):
+        return False
+    checks = readiness.get("checks")
+    if not isinstance(checks, dict):
+        return False
+    gateway = checks.get("gateway")
+    return (
+        isinstance(gateway, dict)
+        and gateway.get("status") == "ok"
+        and gateway.get("state") == "running"
+    )
 
 
 def serve(
@@ -86,14 +196,9 @@ def serve(
         try:
             if credential_resolver is None:
                 reference = CredentialReference(os.environ["HERMES_CREDENTIAL_REF"])
-                if str(reference).lower().startswith("test://fnd004/"):
-                    credential_resolver = test_credential_for_reference
-                else:
-                    credential_resolver = UnixSocketCredentialResolver(
-                        os.environ.get(
-                            "HERMES_CREDENTIAL_SOCKET", DEFAULT_CREDENTIAL_SOCKET
-                        )
-                    )
+                credential_resolver = _default_credential_resolver(
+                    reference, dict(os.environ)
+                )
             settings = load_settings(dict(os.environ))
             client = HermesClient(settings, credential_resolver)
         except (SettingsError, ValueError, TypeError):
@@ -105,7 +210,7 @@ def serve(
     # closed immediately when their resolver or key is unavailable.
     reference = os.environ.get("HERMES_CREDENTIAL_REF", "").lower()
     deadline = time.monotonic() + (
-        _TEST_BOOTSTRAP_GRACE_SECONDS if reference.startswith("test://fnd004/") else 0.0
+        _HERMES_STARTUP_GRACE_SECONDS if reference.startswith("test://fnd004/") else 0.0
     )
     try:
         while not asyncio.run(probe_readiness(client)):
@@ -136,8 +241,10 @@ def main() -> int:
     args = parser.parse_args()
     if args.serve and args.smoke:
         parser.error("--serve and --smoke cannot be combined")
-    if args.serve or args.smoke is None:
+    if args.serve:
         return serve()
+    if args.smoke is None:
+        return runtime_entrypoint()
     result = run_smoke_sync(args.smoke)
     print(json.dumps(result.to_dict(), sort_keys=True))
     return (

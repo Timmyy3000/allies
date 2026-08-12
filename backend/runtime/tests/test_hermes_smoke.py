@@ -529,7 +529,7 @@ def test_live_composition_classifies_settings_validation_failures():
     with pytest.raises(LiveCompositionError, match="settings_validation_failed"):
         compose_live_smoke(
             WORKSPACE_ID,
-            env={**live_env(), "HERMES_REQUEST_TIMEOUT": "61"},
+            env={**live_env(), "HERMES_REQUEST_TIMEOUT": "181"},
             provider_factory=lambda **kwargs: FakeProvider(machine()),
             bootstrap_factory=lambda: object(),
             credential_resolver=lambda _: "test-only-key",

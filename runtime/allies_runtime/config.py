@@ -16,6 +16,8 @@ from typing import Self
 from urllib.parse import urlsplit
 
 DEFAULT_HERMES_ORIGIN = "http://127.0.0.1:8642"
+DEFAULT_FOUNDRY_ORIGIN = "http://127.0.0.1:8000"
+DEFAULT_FOUNDRY_CREDENTIAL_REF = "file:///run/secrets/foundry-runtime-token"
 DEFAULT_VOLUME_ROOT = "/opt/data"
 DEFAULT_MARKER_PATH = "/opt/data/.allies-proof/fnd-004"
 DEFAULT_HERMES_IMAGE = (
@@ -23,7 +25,7 @@ DEFAULT_HERMES_IMAGE = (
     "b6f18532e2c082ef6686c659fc222427e41fde3eed08aa058411f0ea5ab705ca"
 )
 PINNED_HERMES_SOURCE_COMMIT = "36cb5ae5530a75def7df3195e49b7a4aa2add482"
-MAX_TIMEOUT_SECONDS = 60.0
+MAX_TIMEOUT_SECONDS = 180.0
 MAX_PROOF_SLOTS = 32
 
 
@@ -121,6 +123,32 @@ def _loopback_origin(value: str) -> str:
     return f"http://127.0.0.1:{port}"
 
 
+def _foundry_origin(value: str) -> str:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise SettingsError("FOUNDRY_ORIGIN is not a valid URL") from exc
+    is_test_loopback = parsed.scheme == "http" and parsed.hostname == "127.0.0.1"
+    if (
+        (parsed.scheme != "https" and not is_test_loopback)
+        or not parsed.hostname
+        or parsed.username
+        or parsed.password
+        or parsed.query
+        or parsed.fragment
+        or parsed.path not in ("", "/")
+    ):
+        raise SettingsError(
+            "FOUNDRY_ORIGIN must be an HTTPS origin or the test loopback origin"
+        )
+    host = parsed.hostname
+    if ":" in host:
+        host = f"[{host}]"
+    suffix = f":{port}" if port is not None else ""
+    return f"{parsed.scheme}://{host}{suffix}"
+
+
 def _marker_path(value: str, *, volume_root: str) -> str:
     path = PurePosixPath(value)
     root = PurePosixPath(volume_root)
@@ -138,6 +166,10 @@ class RuntimeSettings:
     """Validated, reproducible settings for one runtime process."""
 
     hermes_origin: str = DEFAULT_HERMES_ORIGIN
+    foundry_origin: str = DEFAULT_FOUNDRY_ORIGIN
+    foundry_credential_ref: CredentialReference = field(
+        default_factory=lambda: CredentialReference(DEFAULT_FOUNDRY_CREDENTIAL_REF)
+    )
     credential_ref: CredentialReference = field(
         default_factory=lambda: CredentialReference("ref://hermes/api")
     )
@@ -161,6 +193,17 @@ def load_settings(env: Mapping[str, object] | None = None) -> RuntimeSettings:
 
     values: Mapping[str, object] = env or {}
     origin = _loopback_origin(str(values.get("HERMES_ORIGIN", DEFAULT_HERMES_ORIGIN)))
+    foundry_origin = _foundry_origin(
+        str(values.get("FOUNDRY_ORIGIN", DEFAULT_FOUNDRY_ORIGIN))
+    )
+    foundry_ref = CredentialReference(
+        str(
+            values.get(
+                "FOUNDRY_RUNTIME_CREDENTIAL_REF",
+                DEFAULT_FOUNDRY_CREDENTIAL_REF,
+            )
+        )
+    )
     raw_ref = values.get("HERMES_CREDENTIAL_REF", "ref://hermes/api")
     ref = CredentialReference(str(raw_ref))
     volume_root = str(values.get("VOLUME_ROOT", DEFAULT_VOLUME_ROOT))
@@ -186,6 +229,8 @@ def load_settings(env: Mapping[str, object] | None = None) -> RuntimeSettings:
         raise SettingsError("HERMES_SOURCE_COMMIT must be a 40-character commit")
     return RuntimeSettings(
         hermes_origin=origin,
+        foundry_origin=foundry_origin,
+        foundry_credential_ref=foundry_ref,
         credential_ref=ref,
         request_timeout=_float_setting(values, "HERMES_REQUEST_TIMEOUT", 5.0),
         stream_timeout=_float_setting(values, "HERMES_STREAM_TIMEOUT", 15.0),
@@ -199,6 +244,8 @@ def load_settings(env: Mapping[str, object] | None = None) -> RuntimeSettings:
 
 
 __all__ = [
+    "DEFAULT_FOUNDRY_CREDENTIAL_REF",
+    "DEFAULT_FOUNDRY_ORIGIN",
     "DEFAULT_HERMES_ORIGIN",
     "CredentialReference",
     "RuntimeSettings",

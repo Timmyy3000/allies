@@ -21,7 +21,7 @@ from datetime import datetime
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from .errors import HermesError, HermesMalformedResponse
+from .errors import HermesError, HermesHistoryMismatch, HermesMalformedResponse
 from .hermes import HermesEvent, stable_session_identifiers, validate_stream_message
 
 MAX_CLAIM_SLOTS = 8
@@ -139,6 +139,7 @@ class FoundryClaim:
     execution_id: str
     profile_id: str
     hermes_profile_key: str
+    model: str
     conversation_id: str | None
     session_id: str | None
     stream_id: str
@@ -588,6 +589,7 @@ class FoundryClient:
             "execution_id",
             "profile_id",
             "hermes_profile_key",
+            "model",
             "stream_id",
             "lease_id",
             "lease_token",
@@ -604,6 +606,7 @@ class FoundryClient:
             execution_id=str(payload["execution_id"]),
             profile_id=str(payload["profile_id"]),
             hermes_profile_key=str(payload["hermes_profile_key"]),
+            model=str(payload["model"]),
             conversation_id=payload.get("conversation_id"),
             session_id=payload.get("session_id"),
             stream_id=str(payload["stream_id"]),
@@ -1045,6 +1048,33 @@ class FoundryWorker:
 
             identifiers = stable_session_identifiers(claim.profile_id, conversation_id)
             session_id = claim.session_id or identifiers.candidate_id
+            history_verified = False
+            expected_history_marker = claim.payload.get(
+                "proof_expected_history_marker"
+            )
+            if expected_history_marker is not None:
+                forbidden_history_marker = claim.payload.get(
+                    "proof_forbidden_history_marker"
+                )
+                if not isinstance(expected_history_marker, str) or not isinstance(
+                    forbidden_history_marker, str
+                ):
+                    raise InvalidRequestError("Execution history proof was invalid")
+                inspect_history = getattr(
+                    self.hermes, "profile_session_matches_markers", None
+                )
+                if not callable(inspect_history) or claim.session_id is None:
+                    raise HermesError("Hermes session history was unavailable")
+                history_verified = inspect_history(
+                    claim.hermes_profile_key,
+                    session_id,
+                    expected_history_marker,
+                    forbidden_history_marker,
+                )
+                if inspect.isawaitable(history_verified):
+                    history_verified = await history_verified
+                if history_verified is not True:
+                    raise HermesHistoryMismatch()
 
             sequence = 1
             dispatch_payload = {"status": "dispatched"}
@@ -1072,7 +1102,11 @@ class FoundryWorker:
                 ensure_session = getattr(self.hermes, "ensure_profile_session", None)
                 if not callable(ensure_session):
                     raise HermesError("Hermes session operations were unavailable")
-                ensured = ensure_session(claim.hermes_profile_key, session_id)
+                ensured = ensure_session(
+                    claim.hermes_profile_key,
+                    session_id,
+                    model=claim.model,
+                )
                 if inspect.isawaitable(ensured):
                     await ensured
 
@@ -1085,6 +1119,8 @@ class FoundryWorker:
             )
             renewal = asyncio.create_task(self._renew_loop(claim, stream, lost))
             terminal: HermesEvent | None = None
+            proof_hold = claim.payload.get("proof_hold_after_first_safe_event") is True
+            held_after_safe_event = False
             async for event in stream:
                 if lost.is_set():
                     break
@@ -1133,6 +1169,11 @@ class FoundryWorker:
                         )
                     except FoundryError:
                         return None
+                if proof_hold and not held_after_safe_event:
+                    held_after_safe_event = True
+                    while not lost.is_set():
+                        await asyncio.sleep(min(self.renew_interval, 0.25))
+                    break
             if lost.is_set():
                 return await self.foundry.stopped(
                     claim.attempt_id, claim.lease_token, reason="lease_lost"
@@ -1168,7 +1209,14 @@ class FoundryWorker:
                         stream_id=claim.stream_id,
                         sequence=sequence,
                         payload=terminal.payload,
-                        receipt={"code": "ok"},
+                        receipt={
+                            "code": "ok",
+                            **(
+                                {"history_verified": True}
+                                if expected_history_marker is not None
+                                else {}
+                            ),
+                        },
                     )
                 )
             except ResponseLossError:
@@ -1248,7 +1296,7 @@ class FoundryWorker:
         self,
         *,
         max_turns: int | None = None,
-        idle_cycles: int = 1,
+        idle_cycles: int | None = 1,
         idle_delay: float = 0.0,
     ) -> tuple[Any, ...]:
         """Poll until the requested number of turns has completed.
@@ -1258,7 +1306,7 @@ class FoundryWorker:
         """
         if max_turns is not None and (isinstance(max_turns, bool) or max_turns < 1):
             raise ValueError("max_turns must be positive")
-        if idle_cycles < 1:
+        if idle_cycles is not None and idle_cycles < 1:
             raise ValueError("idle_cycles must be positive")
         await self._reconcile_profiles(force=True)
         results: list[Any] = []
@@ -1308,8 +1356,12 @@ class FoundryWorker:
                 task.add_done_callback(self._active.discard)
             if self._active:
                 done, _ = await asyncio.wait(
-                    self._active, return_when=asyncio.FIRST_COMPLETED
+                    self._active,
+                    timeout=poll_delay,
+                    return_when=asyncio.FIRST_COMPLETED,
                 )
+                if not done:
+                    continue
                 for task in done:
                     try:
                         results.append(task.result())
@@ -1323,7 +1375,7 @@ class FoundryWorker:
             if self._ambiguous_claims:
                 await asyncio.sleep(poll_delay)
                 continue
-            if empty >= idle_cycles or self._stopping:
+            if (idle_cycles is not None and empty >= idle_cycles) or self._stopping:
                 break
             await asyncio.sleep(poll_delay)
         if self._active:

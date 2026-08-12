@@ -8,9 +8,11 @@ validating and translating external responses into these shapes.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
+from pathlib import PurePosixPath
 from types import MappingProxyType
+from urllib.parse import urlsplit
 from uuid import UUID
 
 
@@ -164,11 +166,33 @@ class VolumeMount:
 
 
 @dataclass(frozen=True, slots=True)
+class ContainerFileSecret:
+    guest_path: str
+    secret_name: str
+
+    def __post_init__(self) -> None:
+        _identifier(self.guest_path, "container secret guest path", max_length=255)
+        path = PurePosixPath(self.guest_path)
+        if (
+            not path.is_absolute()
+            or ".." in path.parts
+            or len(path.parts) < 4
+            or path.parts[:3] != ("/", "run", "secrets")
+        ):
+            raise ValueError("container secret files must remain under /run/secrets")
+        _identifier(self.secret_name, "container secret name", max_length=128)
+
+
+@dataclass(frozen=True, slots=True)
 class ContainerSpec:
     name: str
     image: str
     command: tuple[str, ...] = ()
+    entrypoint: tuple[str, ...] = ()
+    user: str | None = None
     healthchecks: tuple[Mapping[str, object], ...] = ()
+    environment: Mapping[str, str] = field(default_factory=dict)
+    secret_files: tuple[ContainerFileSecret, ...] = ()
 
     def __post_init__(self) -> None:
         _identifier(self.name, "container name", max_length=64)
@@ -177,6 +201,12 @@ class ContainerSpec:
             object.__setattr__(self, "command", tuple(self.command))
         for item in self.command:
             _identifier(item, "container command")
+        if not isinstance(self.entrypoint, tuple):
+            object.__setattr__(self, "entrypoint", tuple(self.entrypoint))
+        for item in self.entrypoint:
+            _identifier(item, "container entrypoint", max_length=4096)
+        if self.user is not None:
+            _identifier(self.user, "container user", max_length=64)
         if not isinstance(self.healthchecks, tuple):
             object.__setattr__(self, "healthchecks", tuple(self.healthchecks))
         normalized_checks: list[Mapping[str, object]] = []
@@ -189,6 +219,16 @@ class ContainerSpec:
             _identifier(check_name, "container healthcheck name", max_length=64)
             normalized_checks.append(MappingProxyType(dict(check)))
         object.__setattr__(self, "healthchecks", tuple(normalized_checks))
+        object.__setattr__(
+            self, "environment", _labels(self.environment, "container env")
+        )
+        if not isinstance(self.secret_files, tuple):
+            object.__setattr__(self, "secret_files", tuple(self.secret_files))
+        if not all(isinstance(item, ContainerFileSecret) for item in self.secret_files):
+            raise TypeError("container secret files must be ContainerFileSecret values")
+        guest_paths = [item.guest_path for item in self.secret_files]
+        if len(guest_paths) != len(set(guest_paths)):
+            raise ValueError("container secret file paths must be unique")
 
 
 @dataclass(frozen=True, slots=True)
@@ -200,6 +240,9 @@ class MachineSpec:
     mount: VolumeMount
     ownership: OwnershipMetadata
     runtime_credential_ref: OpaqueReference | str | None = None
+    foundry_origin: str | None = None
+    foundry_runtime_credential_ref: OpaqueReference | str | None = None
+    foundry_runtime_credential_secret_name: str | None = None
     public_services: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
@@ -228,6 +271,57 @@ class MachineSpec:
             OpaqueReference,
         ):
             raise ValueError("runtime credential must be an opaque reference")
+        foundry_values = (
+            self.foundry_origin,
+            self.foundry_runtime_credential_ref,
+            self.foundry_runtime_credential_secret_name,
+        )
+        if any(value is not None for value in foundry_values) and not all(
+            value is not None for value in foundry_values
+        ):
+            raise ValueError(
+                "Foundry runtime connection fields must be supplied together"
+            )
+        if self.foundry_origin is not None:
+            parsed = urlsplit(self.foundry_origin)
+            if (
+                parsed.scheme != "https"
+                or not parsed.hostname
+                or parsed.username
+                or parsed.password
+                or parsed.query
+                or parsed.fragment
+                or parsed.path not in ("", "/")
+            ):
+                raise ValueError("Foundry origin must be a plain HTTPS origin")
+        if isinstance(self.foundry_runtime_credential_ref, str):
+            object.__setattr__(
+                self,
+                "foundry_runtime_credential_ref",
+                OpaqueReference(self.foundry_runtime_credential_ref),
+            )
+        elif self.foundry_runtime_credential_ref is not None and not isinstance(
+            self.foundry_runtime_credential_ref,
+            OpaqueReference,
+        ):
+            raise ValueError("Foundry runtime credential must be an opaque reference")
+        if self.foundry_runtime_credential_ref is not None:
+            reference = urlsplit(self.foundry_runtime_credential_ref.reference)
+            if (
+                reference.scheme != "file"
+                or reference.netloc
+                or not reference.path.startswith("/run/secrets/")
+                or reference.query
+                or reference.fragment
+            ):
+                raise ValueError(
+                    "Foundry runtime credential must reference /run/secrets"
+                )
+            _identifier(
+                self.foundry_runtime_credential_secret_name,
+                "Foundry runtime credential secret name",
+                max_length=128,
+            )
         if not isinstance(self.public_services, tuple):
             object.__setattr__(self, "public_services", tuple(self.public_services))
         if self.public_services:

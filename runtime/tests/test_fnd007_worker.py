@@ -7,6 +7,7 @@ import pytest
 from allies_runtime.errors import HermesMalformedResponse
 from allies_runtime.foundry import (
     EventReceipt,
+    FencedError,
     FoundryClaim,
     FoundryWorker,
     ResponseLossError,
@@ -30,6 +31,7 @@ def claim(*, conversation_id: str | None = None, session_id: str | None = None):
         execution_id="execution-1",
         profile_id="profile-1",
         hermes_profile_key="ally-a",
+        model="gpt-5.6-luna",
         conversation_id=conversation_id,
         session_id=session_id,
         stream_id="stream-1",
@@ -84,9 +86,16 @@ class RecordingHermes:
         self.failure = failure
         self.ensured = []
         self.streams = []
+        self.history_checks = []
 
-    async def ensure_profile_session(self, profile_key, session_id):
-        self.ensured.append((profile_key, session_id))
+    async def ensure_profile_session(self, profile_key, session_id, *, model):
+        self.ensured.append((profile_key, session_id, model))
+
+    async def profile_session_matches_markers(
+        self, profile_key, session_id, expected, forbidden
+    ):
+        self.history_checks.append((profile_key, session_id, expected, forbidden))
+        return True
 
     async def stream_profile_incremental(
         self, profile_key, session_id, message, *, session_key
@@ -146,6 +155,34 @@ async def test_first_turn_dispatches_once_binds_terminal_session_and_completes()
 
 
 @pytest.mark.asyncio
+async def test_proof_hold_keeps_stream_open_until_generation_fence():
+    class FencingFoundry(RecordingFoundry):
+        async def renew(self, attempt_id, lease_token):
+            raise FencedError("retired generation")
+
+    foundry = FencingFoundry()
+    proof_claim = claim()
+    proof_claim.payload["proof_hold_after_first_safe_event"] = True
+
+    result = await FoundryWorker(
+        foundry,
+        RecordingHermes(),
+        renew_interval=0.01,
+        lease_seconds=1,
+        stop_safety_margin=0.1,
+    ).run_claim(proof_claim)
+
+    assert result == StoppedReceipt("attempt-1", "failed", False)
+    assert [event["event_type"] for event in foundry.events] == [
+        "execution.dispatched",
+        "message.delta",
+    ]
+    assert foundry.binds == []
+    assert foundry.completes == []
+    assert foundry.stops == ["lease_lost"]
+
+
+@pytest.mark.asyncio
 async def test_bound_turn_resumes_claimed_session_without_creating_one():
     foundry = RecordingFoundry()
     hermes = RecordingHermes()
@@ -156,6 +193,45 @@ async def test_bound_turn_resumes_claimed_session_without_creating_one():
     assert hermes.ensured == []
     assert hermes.streams[0][1] == "session-1"
     assert foundry.binds[0]["expected_session_id"] == "session-1"
+
+
+@pytest.mark.asyncio
+async def test_proof_turn_verifies_persisted_history_and_records_receipt():
+    foundry = RecordingFoundry()
+    hermes = RecordingHermes()
+    proof_claim = claim(conversation_id="cloud-1", session_id="session-1")
+    proof_claim.payload["proof_expected_history_marker"] = "copper lighthouse"
+    proof_claim.payload["proof_forbidden_history_marker"] = "blue orchard"
+
+    result = await FoundryWorker(foundry, hermes).run_claim(proof_claim)
+
+    assert result.status == "succeeded"
+    assert hermes.history_checks == [
+        ("ally-a", "session-1", "copper lighthouse", "blue orchard")
+    ]
+    assert foundry.completes[0]["receipt"] == {
+        "code": "ok",
+        "history_verified": True,
+    }
+
+
+@pytest.mark.asyncio
+async def test_proof_turn_fails_with_distinct_code_when_history_is_missing():
+    class MissingHistoryHermes(RecordingHermes):
+        async def profile_session_matches_markers(
+            self, profile_key, session_id, expected, forbidden
+        ):
+            return False
+
+    foundry = RecordingFoundry()
+    proof_claim = claim(conversation_id="cloud-1", session_id="session-1")
+    proof_claim.payload["proof_expected_history_marker"] = "copper lighthouse"
+    proof_claim.payload["proof_forbidden_history_marker"] = "blue orchard"
+
+    result = await FoundryWorker(foundry, MissingHistoryHermes()).run_claim(proof_claim)
+
+    assert result.status == "failed"
+    assert foundry.failures[0]["code"] == "history_continuity_failed"
 
 
 @pytest.mark.asyncio

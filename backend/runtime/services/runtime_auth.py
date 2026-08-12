@@ -10,7 +10,9 @@ from django.utils import timezone
 from runtime.exceptions import (
     RuntimeAuthorizationError,
     RuntimeFencedError,
+    RuntimeIdempotencyConflictError,
     RuntimeNotReadyError,
+    RuntimeValidationError,
 )
 from runtime.models import (
     RuntimeCredential,
@@ -60,6 +62,56 @@ def issue_runtime_credential(
             machine_generation=workspace.machine_generation,
         )
         return RuntimeCredentialIssue(credential, token)
+
+    return run_with_sqlite_lock_retry(issue_once)
+
+
+def issue_runtime_credential_for_generation(
+    workspace_id: UUID,
+    generation: int,
+    raw_token: str,
+    operation_id: UUID,
+) -> RuntimeCredentialIssue:
+    """Issue or exactly replay one generation-bound proof credential."""
+
+    if type(generation) is not int or generation <= 0:
+        raise RuntimeValidationError("generation must be positive")
+    if not isinstance(operation_id, UUID):
+        raise RuntimeValidationError("operation_id must be a UUID")
+    validate_nonempty(raw_token, "raw_token", max_length=512)
+    token_digest = digest_lease_token(raw_token)
+
+    @transaction.atomic
+    def issue_once() -> RuntimeCredentialIssue:
+        workspace = Workspace.objects.select_for_update().get(pk=workspace_id)
+        existing = RuntimeCredential.objects.filter(pk=operation_id).first()
+        if existing is not None:
+            if (
+                existing.workspace_id != workspace.id
+                or existing.machine_generation != generation
+                or existing.token_digest != token_digest
+                or existing.revoked_at is not None
+            ):
+                raise RuntimeIdempotencyConflictError(
+                    "credential operation was reused with different content"
+                )
+            return RuntimeCredentialIssue(existing, raw_token)
+
+        targets_current = generation == workspace.machine_generation
+        targets_expected_next = generation == workspace.machine_generation + 1
+        if targets_current:
+            _require_ready_workspace(workspace)
+        elif not targets_expected_next:
+            raise RuntimeNotReadyError(
+                "credential generation is not the current or next expected target"
+            )
+        credential = RuntimeCredential.objects.create(
+            id=operation_id,
+            workspace=workspace,
+            token_digest=token_digest,
+            machine_generation=generation,
+        )
+        return RuntimeCredentialIssue(credential, raw_token)
 
     return run_with_sqlite_lock_retry(issue_once)
 
@@ -131,5 +183,6 @@ __all__ = [
     "authenticate_runtime_token_for_claim",
     "create_runtime_credential",
     "issue_runtime_credential",
+    "issue_runtime_credential_for_generation",
     "revoke_runtime_credential",
 ]

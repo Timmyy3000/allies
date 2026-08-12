@@ -94,6 +94,24 @@ def validate_stream_message(message: str) -> str:
     return message
 
 
+def _content_contains_text(value: Any, expected: str, *, depth: int = 0) -> bool:
+    if isinstance(value, str):
+        return expected in value.casefold()
+    if depth >= 4:
+        return False
+    if isinstance(value, list):
+        return len(value) <= MAX_EVENTS and any(
+            _content_contains_text(item, expected, depth=depth + 1) for item in value
+        )
+    if isinstance(value, dict) and len(value) <= 16:
+        return any(
+            _content_contains_text(value.get(key), expected, depth=depth + 1)
+            for key in ("text", "content")
+            if key in value
+        )
+    return False
+
+
 def stable_session_identifiers(
     profile_id: str, cloud_conversation_ref: str
 ) -> StableSessionIdentifiers:
@@ -187,6 +205,8 @@ class _IncrementalHTTPStream:
         self.run_id: str | None = None
         self.state = "awaiting_run"
         self.active_activities: list[tuple[str, str]] = []
+        self.saw_assistant_delta = False
+        self.assistant_completion_session_id: str | None = None
         self.terminal_event: HermesEvent | None = None
         self.done = False
         self.closed = False
@@ -285,6 +305,7 @@ class _IncrementalHTTPStream:
             "message.started",
             "assistant.delta",
             "tool.started",
+            "tool.progress",
             "tool.completed",
             "assistant.completed",
             "run.completed",
@@ -346,7 +367,21 @@ class _IncrementalHTTPStream:
                 raise HermesMalformedResponse(
                     "Hermes assistant completion session was invalid"
                 )
-            return None
+            if name == "message.started" or self.saw_assistant_delta:
+                if name == "assistant.completed":
+                    self.assistant_completion_session_id = payload_session
+                return None
+            content = payload.get("content")
+            if (
+                not isinstance(content, str)
+                or not content
+                or len(content.encode("utf-8")) > MAX_SAFE_TEXT_BYTES
+            ):
+                raise HermesMalformedResponse(
+                    "Hermes assistant completion omitted bounded text"
+                )
+            self.assistant_completion_session_id = payload_session
+            return self._event("message.delta", self.session_id, {"text": content})
         if name == "error":
             raise HermesError("Hermes reported a turn failure")
         if name == "assistant.delta":
@@ -357,6 +392,7 @@ class _IncrementalHTTPStream:
                 or len(delta.encode("utf-8")) > MAX_SAFE_TEXT_BYTES
             ):
                 raise HermesMalformedResponse("Hermes assistant delta was invalid")
+            self.saw_assistant_delta = True
             return self._event("message.delta", self.session_id, {"text": delta})
         if name == "tool.started":
             tool_name = payload.get("tool_name")
@@ -372,6 +408,11 @@ class _IncrementalHTTPStream:
                 self.session_id,
                 {"activity_id": activity_id, "kind": "tool"},
             )
+        if name == "tool.progress":
+            tool_name = payload.get("tool_name")
+            if not isinstance(tool_name, str) or not tool_name or len(tool_name) > 128:
+                raise HermesMalformedResponse("Hermes tool progress was invalid")
+            return None
         if name == "tool.completed":
             tool_name = payload.get("tool_name")
             match = next(
@@ -396,6 +437,18 @@ class _IncrementalHTTPStream:
         if name == "run.completed":
             if self.active_activities or payload.get("completed") is not True:
                 raise HermesMalformedResponse("Hermes run completion was invalid")
+            messages = payload.get("messages")
+            if (
+                not isinstance(messages, list)
+                or len(messages) > MAX_EVENTS
+            ):
+                raise HermesMalformedResponse(
+                    "Hermes run completion omitted its transcript"
+                )
+            if not messages and self.assistant_completion_session_id != payload_session:
+                raise HermesMalformedResponse(
+                    "Hermes run completion omitted its transcript"
+                )
             if not isinstance(payload_session, str) or not _SESSION_ID.fullmatch(
                 payload_session
             ):
@@ -795,13 +848,16 @@ class HermesClient:
             raise HermesTimeout("Hermes health timed out") from exc
 
     async def create_profile_session(
-        self, profile_id: str, session_id: str
+        self, profile_id: str, session_id: str, *, model: str
     ) -> HermesSession:
         profile_id = _profile_path(profile_id)
         session_id = _session_path(session_id)
+        model = validate_stream_message(model)
         token = await self._profile_credential(profile_id)
         path = f"/p/{profile_id}/api/sessions"
-        body = json.dumps({"id": session_id}, separators=(",", ":")).encode("utf-8")
+        body = json.dumps(
+            {"id": session_id, "model": model}, separators=(",", ":")
+        ).encode("utf-8")
 
         def create() -> HermesSession:
             response = None
@@ -849,12 +905,59 @@ class HermesClient:
         )
 
     async def ensure_profile_session(
-        self, profile_id: str, session_id: str
+        self, profile_id: str, session_id: str, *, model: str
     ) -> HermesSession:
         try:
-            return await self.create_profile_session(profile_id, session_id)
+            return await self.create_profile_session(
+                profile_id, session_id, model=model
+            )
         except HermesSessionExists:
             return await self.inspect_profile_session(profile_id, session_id)
+
+    async def profile_session_matches_markers(
+        self,
+        profile_id: str,
+        session_id: str,
+        expected_text: str,
+        forbidden_text: str,
+    ) -> bool:
+        """Confirm profile history contains only its expected proof marker."""
+
+        profile_id = _profile_path(profile_id)
+        session_id = _session_path(session_id)
+        expected = validate_stream_message(expected_text).casefold()
+        forbidden = validate_stream_message(forbidden_text).casefold()
+        token = await self._profile_credential(profile_id)
+        path = f"/p/{profile_id}/api/sessions/{session_id}/messages"
+
+        def inspect_history() -> bool:
+            response = None
+            try:
+                response = self._request(method="GET", path=path, token=token)
+                payload = _decode_json(_read_bounded(response))
+                rows = payload.get("data")
+                if not isinstance(rows, list) or len(rows) > MAX_EVENTS:
+                    raise HermesMalformedResponse(
+                        "Hermes session history was malformed"
+                    )
+                contains_expected = any(
+                    isinstance(row, dict)
+                    and _content_contains_text(row.get("content"), expected)
+                    for row in rows
+                )
+                contains_forbidden = any(
+                    isinstance(row, dict)
+                    and _content_contains_text(row.get("content"), forbidden)
+                    for row in rows
+                )
+                return contains_expected and not contains_forbidden
+            finally:
+                if response is not None:
+                    response.close()
+
+        return await asyncio.wait_for(
+            asyncio.to_thread(inspect_history), self.settings.request_timeout
+        )
 
     async def stream(
         self,

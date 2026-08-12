@@ -321,6 +321,10 @@ class FlyHttpClient:
             raise ProviderConflictError(
                 "provider reported a resource conflict", **kwargs
             )
+        if status == 412 and operation == "start_machine":
+            raise ProviderRetryableError(
+                "provider Machine is not ready to start", **kwargs
+            )
         if status in (400, 422):
             if hint == "unsupported_topology":
                 raise ProviderUnsupportedTopologyError(
