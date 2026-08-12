@@ -8,10 +8,13 @@ claims, deadlines, and backoff.
 
 from __future__ import annotations
 
+import base64
 import os
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from .domain import (
@@ -73,7 +76,10 @@ def deterministic_app_name(workspace_id: UUID | str) -> str:
 
 
 def deterministic_volume_name(workspace_id: UUID | str) -> str:
-    return f"allies-vol-{_workspace_text(workspace_id)}"
+    encoded_workspace = base64.b32encode(
+        bytes.fromhex(_workspace_text(workspace_id))
+    ).decode("ascii")
+    return f"avol{encoded_workspace.rstrip('=').lower()}"
 
 
 def deterministic_machine_name(workspace_id: UUID | str, generation: int) -> str:
@@ -86,7 +92,7 @@ def deterministic_resource_names(workspace_id: UUID | str) -> WorkspaceResourceN
     workspace = _workspace_text(workspace_id)
     return WorkspaceResourceNames(
         app=f"allies-ws-{workspace}",
-        volume=f"allies-vol-{workspace}",
+        volume=deterministic_volume_name(workspace_id),
         workspace_id=workspace,
     )
 
@@ -104,6 +110,7 @@ class FlyProvider:
         base_url: str | None = None,
         timeout_seconds: float = 10.0,
         multi_container_enabled: bool | None = None,
+        file_secrets_enabled: bool | None = None,
     ) -> None:
         if client is not None and (http_client is not None or transport is not None):
             raise TypeError("pass only one Fly HTTP client or transport")
@@ -125,6 +132,15 @@ class FlyProvider:
         if multi_container_enabled is None:
             multi_container_enabled = _env_flag("FLY_MULTI_CONTAINER_ENABLED")
         self.multi_container_enabled = bool(multi_container_enabled)
+        if file_secrets_enabled is None:
+            file_secrets_enabled = _env_flag("FLY_FILE_SECRETS_ENABLED")
+        self.file_secrets_enabled = bool(file_secrets_enabled)
+        self.release_metadata: tuple[str, str] | None = None
+
+    def set_release_metadata(self, release_id: str, version: str) -> None:
+        if not re.fullmatch(r"rel_[A-Za-z0-9]+", release_id) or not version.isdigit():
+            raise ValueError("Fly release metadata is invalid")
+        self.release_metadata = (release_id, version)
 
     @property
     def topology_supported(self) -> bool:
@@ -139,6 +155,13 @@ class FlyProvider:
     # Names used by deployment preflight callers; all are the same pure gate.
     preflight = assert_topology_supported
     check_capabilities = assert_topology_supported
+
+    def assert_proof_capabilities(self) -> None:
+        self.assert_topology_supported()
+        if not self.file_secrets_enabled:
+            raise ProviderUnsupportedTopologyError(
+                "Fly runtime-container file secrets are not enabled"
+            )
 
     def inspect_app(
         self, name: str, organization: str | None = None
@@ -371,7 +394,18 @@ class FlyProvider:
             _WORKSPACE_MARKER: str(spec.ownership.workspace_id),
             _OPERATION_MARKER: str(spec.ownership.operation_id),
             _GENERATION_MARKER: str(spec.ownership.generation),
+            # Fly's release-backed secret deployment discovers Machines through
+            # the same metadata written by Fly Launch.
+            "fly_platform_version": "v2",
+            "fly_process_group": "app",
         }
+        if self.release_metadata is not None:
+            metadata.update(
+                {
+                    "fly_release_id": self.release_metadata[0],
+                    "fly_release_version": self.release_metadata[1],
+                }
+            )
         containers: list[dict[str, Any]] = []
         for container in spec.containers:
             if not container.healthchecks:
@@ -385,21 +419,82 @@ class FlyProvider:
                 "image": container.image,
             }
             if container.command:
-                item["command"] = list(container.command)
+                item["cmd"] = list(container.command)
+            if container.entrypoint:
+                item["entrypoint"] = list(container.entrypoint)
+            if container.user is not None:
+                item["user"] = container.user
             item["healthchecks"] = [dict(check) for check in container.healthchecks]
+            if container.environment:
+                item["env"] = dict(container.environment)
+            if container.secret_files:
+                item["files"] = [
+                    {
+                        "guest_path": secret.guest_path,
+                        "secret_name": secret.secret_name,
+                    }
+                    for secret in container.secret_files
+                ]
+                # ContainerConfig has no ignore_app_secrets flag. An explicit
+                # process-level list overrides inherited app secrets, while
+                # files remain the credential source used by the process.
+                item["secrets"] = [
+                    {
+                        "env_var": secret.secret_name,
+                        "name": secret.secret_name,
+                    }
+                    for secret in container.secret_files
+                ]
             if (
                 container.name == "allies-runtime"
                 and spec.runtime_credential_ref is not None
             ):
                 # Only the reference is sent.  Secret resolution is owned by a
                 # later deployment boundary; Fly app secrets are global.
-                item["env"] = {
-                    "HERMES_CREDENTIAL_REF": spec.runtime_credential_ref.reference
-                }
+                item.setdefault("env", {})["HERMES_CREDENTIAL_REF"] = (
+                    spec.runtime_credential_ref.reference
+                )
+            if (
+                container.name == "allies-runtime"
+                and spec.foundry_runtime_credential_ref is not None
+            ):
+                item.setdefault("env", {}).update(
+                    {
+                        "FOUNDRY_ORIGIN": spec.foundry_origin,
+                        "FOUNDRY_RUNTIME_CREDENTIAL_REF": (
+                            spec.foundry_runtime_credential_ref.reference
+                        ),
+                    }
+                )
+                foundry_path = urlsplit(spec.foundry_runtime_credential_ref.reference).path
+                if any(
+                    secret.guest_path == foundry_path
+                    for secret in container.secret_files
+                ):
+                    raise ProviderInvalidConfigurationError(
+                        "runtime secret file paths must be unique",
+                        operation="create_machine",
+                        details={"resource_type": "machine"},
+                    )
+                item.setdefault("files", []).append(
+                    {
+                        "guest_path": foundry_path,
+                        "secret_name": spec.foundry_runtime_credential_secret_name,
+                    }
+                )
+                item.setdefault("secrets", []).append(
+                    {
+                        "env_var": spec.foundry_runtime_credential_secret_name,
+                        "name": spec.foundry_runtime_credential_secret_name,
+                    }
+                )
             containers.append(item)
         return {
             "name": spec.name,
             "region": spec.region,
+            # Secrets are staged before creation.  Starting only after the
+            # Machine exists gives Fly a deterministic boot boundary at which
+            # it can resolve those staged values into container files.
             "skip_launch": True,
             "skip_service_registration": True,
             "config": {
@@ -417,6 +512,11 @@ class FlyProvider:
                 # An explicit empty list makes the no-public-service
                 # invariant testable and cannot accidentally inherit routes.
                 "services": [],
+                "guest": {
+                    "cpu_kind": "shared",
+                    "cpus": 1,
+                    "memory_mb": 1024,
+                },
                 "metadata": metadata,
             },
         }
@@ -437,11 +537,16 @@ class FlyProvider:
             query={"state": state, "timeout": max(1, int(timeout_seconds))},
         )
         if isinstance(payload, Mapping) and payload.get("ok") is True:
-            try:
-                requested_state = MachineState(state)
-            except ValueError:
-                requested_state = MachineState.UNKNOWN
-            return _minimal_machine(machine_id, app_name, requested_state)
+            # Fly's wait acknowledgement confirms only that the request
+            # completed. Re-read the Machine instead of fabricating the
+            # requested state; image pulls and boots can still be in progress.
+            machine = self.inspect_machine_by_id(app_name, machine_id)
+            if machine is None:
+                raise ProviderNotFoundError(
+                    "workspace Machine was not found after wait",
+                    operation="wait_machine",
+                )
+            return machine
         return _machine_record(
             _mapping(payload, "machine", operation="wait_machine"),
             app_name=app_name,
@@ -764,6 +869,11 @@ def _machine_health(
             if isinstance(item, Mapping) and isinstance(item.get("name"), str):
                 status = item.get("state") or item.get("status") or item.get("health")
                 containers[item["name"]] = _container_state(status)
+    runtime_containers = raw.get("containers")
+    if isinstance(runtime_containers, list):
+        for item in runtime_containers:
+            if isinstance(item, Mapping) and isinstance(item.get("name"), str):
+                containers[item["name"]] = _container_state(item)
     checks = raw.get("checks")
     check_entries: list[tuple[str, Any]] = []
     if isinstance(checks, Mapping):

@@ -83,7 +83,9 @@ class FakeHermesClient:
     async def health_detailed(self) -> HermesHealth:
         return await self.health()
 
-    async def ensure_profile_session(self, profile_id: str, session_id: str) -> None:
+    async def ensure_profile_session(
+        self, profile_id: str, session_id: str, *, model: str
+    ) -> None:
         self.ensured_sessions.append((profile_id, session_id))
 
     async def stream_profile(

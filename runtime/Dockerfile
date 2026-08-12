@@ -14,4 +14,4 @@ RUN python -m compileall -q /app/allies_runtime
 
 # Fly's container command is intentionally not overridden: this is the
 # image-baked process and therefore the runtime container's PID 1.
-ENTRYPOINT ["python", "-m", "allies_runtime", "--serve"]
+ENTRYPOINT ["python", "-m", "allies_runtime"]

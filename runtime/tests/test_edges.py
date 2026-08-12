@@ -209,11 +209,11 @@ def test_pid1_entrypoint_main(monkeypatch, capsys):
     assert "different_profile_overlap" in capsys.readouterr().out
 
 
-def test_default_entrypoint_keeps_runtime_alive(monkeypatch):
+def test_default_entrypoint_runs_the_foundry_worker(monkeypatch):
     from allies_runtime import __main__
 
     monkeypatch.setattr(sys, "argv", ["allies-runtime"])
-    monkeypatch.setattr(__main__, "serve", lambda: 0)
+    monkeypatch.setattr(__main__, "runtime_entrypoint", lambda: 0)
     assert __main__.main() == 0
 
 
@@ -228,7 +228,27 @@ def test_readiness_requires_authenticated_hermes_probe():
         async def health_detailed(self):
             raise HermesAuthenticationError("rejected")
 
+    class DegradedModelWithReadyGateway:
+        async def health_detailed(self):
+            return SimpleNamespace(
+                status="degraded",
+                readiness={
+                    "checks": {"gateway": {"status": "ok", "state": "running"}}
+                },
+            )
+
+    class DegradedWithUnavailableGateway:
+        async def health_detailed(self):
+            return SimpleNamespace(
+                status="degraded",
+                readiness={
+                    "checks": {"gateway": {"status": "degraded", "state": "starting"}}
+                },
+            )
+
     assert asyncio.run(__main__.probe_readiness(Healthy()))
+    assert asyncio.run(__main__.probe_readiness(DegradedModelWithReadyGateway()))
+    assert not asyncio.run(__main__.probe_readiness(DegradedWithUnavailableGateway()))
     assert not asyncio.run(__main__.probe_readiness(Unauthenticated()))
 
 
@@ -271,3 +291,105 @@ def test_live_entrypoint_fails_closed(monkeypatch, capsys):
     monkeypatch.setattr(sys, "argv", ["allies-runtime", "--smoke", "live"])
     assert __main__.main() == 1
     assert "live_capability_gate" in capsys.readouterr().out
+
+
+def test_foundry_file_credential_resolver_reads_only_bounded_secret_files(
+    monkeypatch, tmp_path
+):
+    from allies_runtime import __main__
+    from allies_runtime.config import CredentialReference, SettingsError
+
+    secrets_root = tmp_path / "secrets"
+    secrets_root.mkdir()
+    secret = secrets_root / "foundry-token"
+    secret.write_bytes(b"runtime-bearer\n")
+    monkeypatch.setattr(__main__, "_SECRETS_ROOT", secrets_root)
+    assert (
+        __main__.file_credential_for_reference(CredentialReference(secret.as_uri()))
+        == "runtime-bearer"
+    )
+
+    with pytest.raises(SettingsError, match="local file reference"):
+        __main__.file_credential_for_reference(
+            CredentialReference("vault://runtime/foundry-token")
+        )
+    with pytest.raises(SettingsError, match="remain under"):
+        __main__.file_credential_for_reference(
+            CredentialReference("file:///tmp/foundry-token")
+        )
+
+    with pytest.raises(SettingsError, match="remain under"):
+        __main__.file_credential_for_reference(
+            CredentialReference("file:///run/secrets/../../etc/passwd")
+        )
+
+
+def test_foundry_file_credential_resolver_rejects_symlink_escape(monkeypatch, tmp_path):
+    from allies_runtime import __main__
+    from allies_runtime.config import CredentialReference, SettingsError
+
+    secrets_root = tmp_path / "secrets"
+    secrets_root.mkdir()
+    outside = tmp_path / "outside-token"
+    outside.write_text("private", encoding="utf-8")
+    link = secrets_root / "foundry-token"
+    try:
+        link.symlink_to(outside)
+    except OSError:
+        pytest.skip("symlink creation is unavailable")
+    monkeypatch.setattr(__main__, "_SECRETS_ROOT", secrets_root)
+
+    with pytest.raises(SettingsError, match="remain under"):
+        __main__.file_credential_for_reference(CredentialReference(link.as_uri()))
+
+
+@pytest.mark.parametrize(
+    ("raw", "message"),
+    [
+        (b"", "invalid size"),
+        (b"x" * 4097, "invalid size"),
+        (b"\xff", "UTF-8"),
+        (b"first\nsecond", "header value"),
+    ],
+)
+def test_foundry_file_credential_resolver_rejects_unsafe_content(
+    monkeypatch, raw, message
+):
+    from allies_runtime import __main__
+    from allies_runtime.config import CredentialReference, SettingsError
+
+    monkeypatch.setattr(__main__.Path, "read_bytes", lambda _path: raw)
+    with pytest.raises(SettingsError, match=message):
+        __main__.file_credential_for_reference(
+            CredentialReference("file:///run/secrets/foundry-token")
+        )
+
+
+def test_runtime_entrypoint_fails_before_worker_when_hermes_is_unready(monkeypatch):
+    from allies_runtime import __main__
+
+    class Unready:
+        async def health_detailed(self):
+            raise RuntimeError("private readiness detail")
+
+    worker_calls = []
+    monkeypatch.setattr(
+        __main__, "worker_entrypoint", lambda **kwargs: worker_calls.append(kwargs)
+    )
+    monkeypatch.setattr(__main__, "_HERMES_STARTUP_GRACE_SECONDS", 0.0)
+    result = __main__.runtime_entrypoint(
+        env={
+            "HERMES_CREDENTIAL_REF": "vault://hermes/runtime",
+            "FOUNDRY_ORIGIN": "https://foundry.example.com",
+            "FOUNDRY_RUNTIME_CREDENTIAL_REF": (
+                "file:///run/secrets/foundry-runtime-token"
+            ),
+        },
+        credential_resolver=lambda _reference: "hermes-secret",
+        foundry_credential_resolver=lambda _reference: "foundry-secret",
+        foundry_factory=lambda **_kwargs: object(),
+        hermes=Unready(),
+    )
+
+    assert result == 1
+    assert worker_calls == []

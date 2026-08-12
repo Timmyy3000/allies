@@ -8,6 +8,7 @@ import pytest
 
 from runtime.providers import (
     AppSpec,
+    ContainerFileSecret,
     ContainerSpec,
     ContainerState,
     FakeFlyTransport,
@@ -21,6 +22,7 @@ from runtime.providers import (
     ProviderInvalidConfigurationError,
     ProviderOwnershipError,
     ProviderRateLimitError,
+    ProviderRetryableError,
     ProviderTimeoutError,
     ProviderUnauthorizedError,
     ProviderUnsupportedTopologyError,
@@ -35,6 +37,8 @@ from runtime.providers import (
 FIXTURES = Path(__file__).parent / "fixtures" / "providers"
 WORKSPACE_ID = UUID("01234567-89ab-cdef-0123-456789abcdef")
 OPERATION_ID = UUID("11111111-2222-3333-4444-555555555555")
+HERMES_FILE_SECRET = "FND008_HERMES_KEY"
+OPENAI_FILE_SECRET = "FND008_OPENAI_KEY"
 
 
 def fixture(name: str):
@@ -75,17 +79,40 @@ def machine_spec(generation: int = 1) -> MachineSpec:
             ContainerSpec(
                 "hermes",
                 "registry.example/hermes@sha256:hermes",
+                command=("sh", "-c", "exec hermes gateway run --no-supervise"),
+                entrypoint=("/bin/sh",),
+                user="0",
+                environment={
+                    "HERMES_ENV": "/run/secrets/hermes.env",
+                    "GATEWAY_MULTIPLEX_PROFILES": "true",
+                },
+                secret_files=(
+                    ContainerFileSecret("/run/secrets/hermes.env", "FND008_HERMES_ENV"),
+                ),
                 healthchecks=(healthcheck("hermes"),),
             ),
             ContainerSpec(
                 "allies-runtime",
                 "registry.example/runtime@sha256:runtime",
+                secret_files=(
+                    ContainerFileSecret(
+                        "/run/secrets/hermes-api-key", HERMES_FILE_SECRET
+                    ),
+                    ContainerFileSecret(
+                        "/run/secrets/openai-api-key", OPENAI_FILE_SECRET
+                    ),
+                ),
                 healthchecks=(healthcheck("allies-runtime"),),
             ),
         ),
         mount=VolumeMount("vol-01"),
         ownership=ownership(generation),
         runtime_credential_ref=OpaqueReference("vault://runtime/opaque-ref"),
+        foundry_origin="https://foundry.example.com",
+        foundry_runtime_credential_ref=OpaqueReference(
+            "file:///run/secrets/foundry-runtime-token"
+        ),
+        foundry_runtime_credential_secret_name="FND008_RUNTIME_G1",
     )
 
 
@@ -98,6 +125,20 @@ def test_names_are_stable_and_generation_scoped():
     )
     assert deterministic_machine_name(WORKSPACE_ID, 1) != deterministic_machine_name(
         WORKSPACE_ID, 2
+    )
+    volume_name = deterministic_volume_name(WORKSPACE_ID)
+    assert len(volume_name) == 30
+    assert volume_name.isalnum()
+    assert volume_name == volume_name.lower()
+    assert volume_name.startswith("avol")
+
+
+def test_volume_name_preserves_full_workspace_identity():
+    first = UUID("01234567-89ab-cdef-0123-456789abcdef")
+    last_bit_changed = UUID("01234567-89ab-cdef-0123-456789abcdee")
+
+    assert deterministic_volume_name(first) != deterministic_volume_name(
+        last_bit_changed
     )
 
 
@@ -126,18 +167,68 @@ def test_machine_payload_has_two_containers_private_mount_and_opaque_ref_only():
     payload = fake.calls[0].json_body
     config = payload["config"]
     assert result.id == "machine-01"
+    assert payload["skip_launch"] is True
     assert [item["name"] for item in config["containers"]] == [
         "hermes",
         "allies-runtime",
     ]
     assert config["mounts"] == [{"volume": "vol-01", "path": "/opt/data"}]
     assert config["services"] == []
+    assert config["guest"] == {
+        "cpu_kind": "shared",
+        "cpus": 1,
+        "memory_mb": 1024,
+    }
     assert config["containers"][0]["healthchecks"][0]["name"] == "hermes"
     assert config["containers"][1]["healthchecks"][0]["name"] == "allies-runtime"
-    assert config["metadata"]["allies_machine_generation"] == "1"
-    assert config["containers"][1]["env"] == {
-        "HERMES_CREDENTIAL_REF": "vault://runtime/opaque-ref"
+    assert config["containers"][0]["cmd"] == [
+        "sh",
+        "-c",
+        "exec hermes gateway run --no-supervise",
+    ]
+    assert config["containers"][0]["entrypoint"] == ["/bin/sh"]
+    assert config["containers"][0]["user"] == "0"
+    assert "command" not in config["containers"][0]
+    assert config["containers"][0]["env"] == {
+        "HERMES_ENV": "/run/secrets/hermes.env",
+        "GATEWAY_MULTIPLEX_PROFILES": "true",
     }
+    assert config["containers"][0]["files"] == [
+        {
+            "guest_path": "/run/secrets/hermes.env",
+            "secret_name": "FND008_HERMES_ENV",
+        }
+    ]
+    assert config["metadata"]["allies_machine_generation"] == "1"
+    assert config["metadata"]["fly_platform_version"] == "v2"
+    assert config["metadata"]["fly_process_group"] == "app"
+    assert config["containers"][1]["env"] == {
+        "HERMES_CREDENTIAL_REF": "vault://runtime/opaque-ref",
+        "FOUNDRY_ORIGIN": "https://foundry.example.com",
+        "FOUNDRY_RUNTIME_CREDENTIAL_REF": ("file:///run/secrets/foundry-runtime-token"),
+    }
+    assert config["containers"][1]["files"] == [
+        {
+            "guest_path": "/run/secrets/hermes-api-key",
+            "secret_name": "FND008_HERMES_KEY",
+        },
+        {
+            "guest_path": "/run/secrets/openai-api-key",
+            "secret_name": "FND008_OPENAI_KEY",
+        },
+        {
+            "guest_path": "/run/secrets/foundry-runtime-token",
+            "secret_name": "FND008_RUNTIME_G1",
+        },
+    ]
+    assert config["containers"][0]["secrets"] == [
+        {"env_var": "FND008_HERMES_ENV", "name": "FND008_HERMES_ENV"}
+    ]
+    assert config["containers"][1]["secrets"] == [
+        {"env_var": "FND008_HERMES_KEY", "name": "FND008_HERMES_KEY"},
+        {"env_var": "FND008_OPENAI_KEY", "name": "FND008_OPENAI_KEY"},
+        {"env_var": "FND008_RUNTIME_G1", "name": "FND008_RUNTIME_G1"},
+    ]
     assert result.health is not None
     assert result.health.containers == {
         "hermes": ContainerState.STARTED,
@@ -146,8 +237,24 @@ def test_machine_payload_has_two_containers_private_mount_and_opaque_ref_only():
     serialized = json.dumps(payload)
     assert "fly-token-must-not-be-retained" not in serialized
     assert "plain-secret" not in serialized
+    assert "foundry-secret" not in serialized
     assert fake.calls[0].headers["Authorization"] == "<redacted>"
     assert fake.calls[0].timeout == 10.0
+
+
+def test_machine_payload_includes_current_release_metadata():
+    fly = provider(FakeFlyTransport([]))
+    fly.set_release_metadata("rel_release123", "2")
+
+    metadata = fly.machine_payload(machine_spec())["config"]["metadata"]
+
+    assert metadata["fly_release_id"] == "rel_release123"
+    assert metadata["fly_release_version"] == "2"
+
+
+def test_container_file_secret_rejects_paths_outside_runtime_secret_root():
+    with pytest.raises(ValueError, match="/run/secrets"):
+        ContainerFileSecret("/opt/data/private", "FND008_SECRET")
 
 
 def test_machine_payload_requires_named_healthchecks():
@@ -172,6 +279,25 @@ def test_machine_payload_requires_named_healthchecks():
     with pytest.raises(ProviderInvalidConfigurationError, match="healthcheck"):
         provider(fake).machine_payload(unready_spec)
     assert fake.calls == []
+
+
+def test_machine_health_uses_top_level_runtime_container_states():
+    machine = fixture("machines.json")[0]
+    machine.pop("checks")
+    machine["containers"] = [
+        {"name": "hermes", "state": "healthy"},
+        {"name": "allies-runtime", "state": "healthy"},
+    ]
+    fake = FakeFlyTransport([TransportResponse(200, machine)])
+
+    result = provider(fake).inspect_machine_by_id("workspace-app", "machine-01")
+
+    assert result is not None
+    assert result.health is not None
+    assert result.health.containers == {
+        "hermes": ContainerState.STARTED,
+        "allies-runtime": ContainerState.STARTED,
+    }
 
 
 def test_start_action_ack_is_not_parsed_as_a_machine_record():
@@ -233,7 +359,11 @@ def test_attachment_conflict_is_typed_and_does_not_start_machine():
 
 def test_wait_and_start_ok_responses_map_to_machine_records():
     fake = FakeFlyTransport(
-        [TransportResponse(200, {"ok": True}), TransportResponse(200, {"ok": True})]
+        [
+            TransportResponse(200, {"ok": True}),
+            TransportResponse(200, fixture("machines.json")[0]),
+            TransportResponse(200, {"ok": True}),
+        ]
     )
     adapter = provider(fake)
     waited = adapter.wait_machine("app", "machine", timeout_seconds=10)
@@ -241,6 +371,19 @@ def test_wait_and_start_ok_responses_map_to_machine_records():
     assert waited.state.value == "started"
     assert started.state.value == "started"
     assert fake.calls[0].url.endswith("/machines/machine/wait?state=started&timeout=10")
+    assert fake.calls[1].url.endswith("/machines/machine")
+
+
+def test_wait_acknowledgement_preserves_authoritative_created_state():
+    machine = dict(fixture("machines.json")[0])
+    machine["state"] = "created"
+    fake = FakeFlyTransport(
+        [TransportResponse(200, {"ok": True}), TransportResponse(200, machine)]
+    )
+
+    waited = provider(fake).wait_machine("app", "machine-01", timeout_seconds=10)
+
+    assert waited.state is MachineState.CREATED
 
 
 @pytest.mark.parametrize(
@@ -262,9 +405,30 @@ def test_status_mapping_is_typed_and_does_not_retain_response_body(status, error
     assert "secret response" not in str(caught.value)
 
 
+def test_start_precondition_is_retryable_without_retaining_response_body():
+    fake = FakeFlyTransport(
+        [TransportResponse(412, {"message": "sensitive provider detail"})]
+    )
+
+    with pytest.raises(ProviderRetryableError) as caught:
+        provider(fake).start_machine("workspace-app", "machine-01")
+
+    assert caught.value.operation == "start_machine"
+    assert caught.value.status_code == 412
+    assert "sensitive provider detail" not in str(caught.value)
+
+
 def test_unsupported_topology_gate_runs_before_machine_request():
     fake = FakeFlyTransport([])
     blocked = provider(fake, multi_container_enabled=False)
     with pytest.raises(ProviderUnsupportedTopologyError):
         blocked.create_machine(machine_spec())
     assert fake.calls == []
+
+
+def test_proof_capability_gate_requires_explicit_file_secret_support():
+    fake = FakeFlyTransport([])
+    with pytest.raises(ProviderUnsupportedTopologyError, match="file secrets"):
+        provider(fake).assert_proof_capabilities()
+
+    provider(fake, file_secrets_enabled=True).assert_proof_capabilities()

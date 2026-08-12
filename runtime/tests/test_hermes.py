@@ -168,6 +168,63 @@ async def test_health_sends_bearer_and_decodes_json(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_profile_session_history_confirms_persisted_marker(monkeypatch):
+    response = FakeResponse(
+        json.dumps(
+            {
+                "object": "list",
+                "session_id": "s1",
+                "data": [
+                    {
+                        "role": "user",
+                        "content": "Remember the copper lighthouse is north.",
+                    }
+                ],
+            }
+        ).encode()
+    )
+    client, calls = _client(monkeypatch, response)
+
+    assert await client.profile_session_matches_markers(
+        "ally-a",
+        "s1",
+        "the copper lighthouse is north",
+        "the blue orchard is east",
+    )
+    assert calls[0][0].endswith("/p/ally-a/api/sessions/s1/messages")
+    assert calls[0][1] == "Bearer test-only-key"
+    assert response.closed
+
+
+@pytest.mark.asyncio
+async def test_profile_session_history_rejects_peer_marker(monkeypatch):
+    response = FakeResponse(
+        json.dumps(
+            {
+                "object": "list",
+                "session_id": "s1",
+                "data": [
+                    {
+                        "role": "user",
+                        "content": (
+                            "The copper lighthouse is north and the blue orchard "
+                            "is east."
+                        ),
+                    }
+                ],
+            }
+        ).encode()
+    )
+    client, _calls = _client(monkeypatch, response)
+
+    assert not await client.profile_session_matches_markers(
+        "ally-a",
+        "s1",
+        "the copper lighthouse is north",
+        "the blue orchard is east",
+    )
+    assert response.closed
+@pytest.mark.asyncio
 async def test_profile_session_create_uses_selected_profile_credential(monkeypatch):
     response = FakeResponse(
         json.dumps(
@@ -190,12 +247,17 @@ async def test_profile_session_create_uses_selected_profile_credential(monkeypat
         profile_credential_resolver=lambda key: resolved.append(key) or "profile-a-key",
     )
 
-    session = await client.create_profile_session("ally-a", "candidate-1")
+    session = await client.create_profile_session(
+        "ally-a", "candidate-1", model="gpt-5.6-luna"
+    )
 
     assert session.session_id == "candidate-1"
     assert resolved == ["ally-a"]
     assert calls[0].get_header("Authorization") == "Bearer profile-a-key"
-    assert json.loads(calls[0].data) == {"id": "candidate-1"}
+    assert json.loads(calls[0].data) == {
+        "id": "candidate-1",
+        "model": "gpt-5.6-luna",
+    }
 
 
 @pytest.mark.asyncio
@@ -246,7 +308,9 @@ async def test_profile_session_conflict_requires_exact_inspection(monkeypatch):
         profile_credential_resolver=lambda key: "profile-a-key",
     )
 
-    session = await client.ensure_profile_session("ally-a", "candidate-1")
+    session = await client.ensure_profile_session(
+        "ally-a", "candidate-1", model="gpt-5.6-luna"
+    )
 
     assert session.session_id == "candidate-1"
     assert [request.method for request in calls] == ["POST", "GET"]
@@ -306,6 +370,9 @@ async def test_incremental_stream_normalizes_safe_events_and_terminal_rotation()
                     b"event: assistant.delta\n",
                     b'data: {"session_id":"s1","run_id":"r1","delta":"hello","private":"drop"}\n',
                     b"\n",
+                    b"event: tool.progress\n",
+                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"_thinking","delta":"private reasoning"}\n',
+                    b"\n",
                     b"event: tool.started\n",
                     b'data: {"session_id":"s1","run_id":"r1","tool_name":"terminal","args":{"secret":"drop"}}\n',
                     b"\n",
@@ -348,6 +415,120 @@ async def test_incremental_stream_normalizes_safe_events_and_terminal_rotation()
     assert events[2].payload["status"] == "completed"
     assert events[3].session_id == "s2"
     assert events[3].payload == {"run_id": "r1", "status": "completed"}
+
+
+def test_incremental_stream_rejects_invalid_tool_progress():
+    stream = _IncrementalHTTPStream(object(), "ally-a", "s1")
+    stream._normalize_event("run.started", {"session_id": "s1", "run_id": "r1"})
+
+    with pytest.raises(HermesMalformedResponse, match="tool progress"):
+        stream._normalize_event(
+            "tool.progress", {"session_id": "s1", "run_id": "r1"}
+        )
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_uses_final_content_when_provider_emits_no_deltas():
+    class Response:
+        def __init__(self):
+            self.rows = iter(
+                [
+                    b"event: run.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                    b"event: assistant.completed\n",
+                    b'data: {"session_id":"s1","run_id":"r1","content":"final answer"}\n',
+                    b"\n",
+                    b"event: run.completed\n",
+                    b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[{"role":"assistant","content":"final answer"}]}\n',
+                    b"\n",
+                    b"event: done\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                ]
+            )
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+        def close(self):
+            return None
+
+    events = [event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")]
+
+    assert [event.name for event in events] == [
+        "message.delta",
+        "execution.completed",
+    ]
+    assert events[0].payload == {"text": "final answer"}
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_accepts_empty_inline_transcript_after_completion():
+    """Pinned Hermes can persist history while omitting it from run.completed."""
+
+    class Response:
+        def __init__(self):
+            self.rows = iter(
+                [
+                    b"event: run.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                    b"event: assistant.completed\n",
+                    b'data: {"session_id":"s1","run_id":"r1","content":"final answer"}\n',
+                    b"\n",
+                    b"event: run.completed\n",
+                    b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[]}\n',
+                    b"\n",
+                    b"event: done\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                ]
+            )
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+        def close(self):
+            return None
+
+    events = [event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")]
+
+    assert [event.name for event in events] == [
+        "message.delta",
+        "execution.completed",
+    ]
+    assert events[0].payload == {"text": "final answer"}
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_rejects_empty_transcript_for_another_session():
+    class Response:
+        def __init__(self):
+            self.rows = iter(
+                [
+                    b"event: run.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                    b"event: assistant.completed\n",
+                    b'data: {"session_id":"s2","run_id":"r1","content":"final answer"}\n',
+                    b"\n",
+                    b"event: run.completed\n",
+                    b'data: {"session_id":"s3","run_id":"r1","completed":true,"messages":[]}\n',
+                    b"\n",
+                ]
+            )
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+        def close(self):
+            return None
+
+    stream = _IncrementalHTTPStream(Response(), "ally-a", "s1")
+
+    with pytest.raises(HermesMalformedResponse, match="omitted its transcript"):
+        [event async for event in stream]
 
 
 @pytest.mark.asyncio
@@ -480,14 +661,34 @@ def test_incremental_state_machine_rejects_each_invalid_transition():
             {"session_id": "s1", "run_id": "r1", "completed": True},
         )
     current.active_activities.clear()
+    with pytest.raises(HermesMalformedResponse, match="omitted its transcript"):
+        current._normalize_event(
+            "run.completed",
+            {
+                "session_id": "s1",
+                "run_id": "r1",
+                "completed": True,
+                "messages": [],
+            },
+        )
     with pytest.raises(HermesMalformedResponse, match="terminal session"):
         current._normalize_event(
             "run.completed",
-            {"session_id": "bad/session", "run_id": "r1", "completed": True},
+            {
+                "session_id": "bad/session",
+                "run_id": "r1",
+                "completed": True,
+                "messages": [{"role": "assistant", "content": "ok"}],
+            },
         )
     current._normalize_event(
         "run.completed",
-        {"session_id": "s2", "run_id": "r1", "completed": True},
+        {
+            "session_id": "s2",
+            "run_id": "r1",
+            "completed": True,
+            "messages": [{"role": "assistant", "content": "ok"}],
+        },
     )
     with pytest.raises(HermesMalformedResponse, match="after run completion"):
         current._normalize_event(
@@ -534,7 +735,7 @@ async def test_incremental_stream_yields_before_done_and_closes_response(monkeyp
             b'data: {"session_id":"s1","run_id":"r1","delta":"hello"}\n',
             b"\n",
             b"event: run.completed\n",
-            b'data: {"session_id":"s1","run_id":"r1","completed":true}\n',
+            b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[{"role":"assistant","content":"hello"}]}\n',
             b"\n",
             b"event: done\n",
             b'data: {"session_id":"s1","run_id":"r1"}\n',
@@ -568,7 +769,7 @@ async def test_incremental_stream_consumes_done_and_ignores_comments(monkeypatch
                     b'data: {"session_id":"s1","run_id":"r1"}\n',
                     b"\n",
                     b"event: run.completed\n",
-                    b'data: {"session_id":"s1","run_id":"r1","completed":true}\n',
+                    b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[{"role":"assistant","content":"hello"}]}\n',
                     b"\n",
                     b"event: done\n",
                     b'data: {"session_id":"s1","run_id":"r1"}\n',

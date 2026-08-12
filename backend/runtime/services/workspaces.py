@@ -22,6 +22,13 @@ from django.utils import timezone
 
 from runtime.exceptions import RuntimeConflictError, RuntimeValidationError
 from runtime.models import (
+    Attempt,
+    AttemptStatus,
+    Execution,
+    ExecutionEvent,
+    ExecutionStatus,
+    Lease,
+    LeaseState,
     RuntimeProfile,
     RuntimeProfileLifecycleState,
     Workspace,
@@ -46,6 +53,7 @@ from runtime.providers import (
     ProviderOwnershipError,
     ProviderRetryableError,
     ProviderTerminalError,
+    ProviderTimeoutError,
     VolumeMount,
     VolumeRecord,
     VolumeSpec,
@@ -65,6 +73,7 @@ PHASE_DEADLINE_SECONDS = 120
 MAX_ATTEMPTS = 5
 BACKOFF_SECONDS = (0.5, 1.0, 2.0, 4.0)
 STOP_POLL_SECONDS = 0.05
+HEALTH_POLL_SECONDS = 1.0
 REQUIRED_CONTAINERS = frozenset(("hermes", "allies-runtime"))
 
 
@@ -93,6 +102,9 @@ class WorkspaceSpec:
     hermes_image: str | None = None
     runtime_image: str | None = None
     runtime_credential_ref: OpaqueReference | str | None = None
+    foundry_origin: str | None = None
+    foundry_runtime_credential_ref: OpaqueReference | str | None = None
+    foundry_runtime_credential_secret_name: str | None = None
     volume_size_gb: int = 1
     filesystem: str = "ext4"
     containers: tuple[ContainerSpec, ...] | None = None
@@ -153,7 +165,94 @@ class WorkspaceSpec:
             mount=VolumeMount(volume_id),
             ownership=OwnershipMetadata(workspace_id, operation_id, generation),
             runtime_credential_ref=self.runtime_credential_ref,
+            foundry_origin=self.foundry_origin,
+            foundry_runtime_credential_ref=self.foundry_runtime_credential_ref,
+            foundry_runtime_credential_secret_name=(
+                self.foundry_runtime_credential_secret_name
+            ),
         )
+
+
+@dataclass(frozen=True, slots=True)
+class ReplacementProofPrecondition:
+    """Read-only proof state that must exist before generation fencing."""
+
+    active_attempt_ids: tuple[UUID, UUID]
+    queued_execution_id: UUID
+
+    def __post_init__(self) -> None:
+        if (
+            not isinstance(self.active_attempt_ids, tuple)
+            or len(self.active_attempt_ids) != 2
+            or len(set(self.active_attempt_ids)) != 2
+            or not all(isinstance(item, UUID) for item in self.active_attempt_ids)
+        ):
+            raise RuntimeValidationError("exactly two active attempt IDs are required")
+        if not isinstance(self.queued_execution_id, UUID):
+            raise RuntimeValidationError("queued_execution_id must be a UUID")
+
+    def assert_satisfied(self, workspace: Workspace) -> None:
+        attempts = list(
+            Attempt.objects.select_related("execution__profile")
+            .filter(
+                pk__in=self.active_attempt_ids,
+                execution__workspace_id=workspace.id,
+                execution__status=ExecutionStatus.RUNNING,
+                status=AttemptStatus.RUNNING,
+                machine_generation=workspace.machine_generation,
+            )
+            .order_by("id")
+        )
+        if (
+            len(attempts) != 2
+            or len({item.execution.profile_id for item in attempts}) != 2
+        ):
+            raise RuntimeConflictError(
+                "replacement proof requires two active profile-scoped attempts"
+            )
+        attempt_ids = {item.id for item in attempts}
+        active_leases = set(
+            Lease.objects.filter(
+                attempt_id__in=attempt_ids,
+                state=LeaseState.ACTIVE,
+                machine_generation=workspace.machine_generation,
+                expires_at__gt=timezone.now(),
+            ).values_list("attempt_id", flat=True)
+        )
+        if active_leases != attempt_ids:
+            raise RuntimeConflictError(
+                "replacement proof attempts must have active generation leases"
+            )
+        dispatched = set(
+            ExecutionEvent.objects.filter(
+                attempt_id__in=attempt_ids,
+                event_type="execution.dispatched",
+            ).values_list("attempt_id", flat=True)
+        )
+        safe_progress = set(
+            ExecutionEvent.objects.filter(attempt_id__in=attempt_ids)
+            .exclude(event_type="execution.dispatched")
+            .values_list("attempt_id", flat=True)
+        )
+        if dispatched != attempt_ids or safe_progress != attempt_ids:
+            raise RuntimeConflictError(
+                "replacement proof attempts must have durable dispatch and progress"
+            )
+        queued = (
+            Execution.objects.filter(
+                pk=self.queued_execution_id,
+                workspace_id=workspace.id,
+                status=ExecutionStatus.QUEUED,
+            )
+            .only("profile_id")
+            .first()
+        )
+        if queued is None or queued.profile_id not in {
+            item.execution.profile_id for item in attempts
+        }:
+            raise RuntimeConflictError(
+                "replacement proof requires a same-profile queued execution"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -262,6 +361,7 @@ class WorkspaceLifecycle:
         workspace_id: UUID | str,
         spec: WorkspaceSpec,
         expected_source_generation: int,
+        proof_precondition: ReplacementProofPrecondition | None = None,
     ) -> WorkspaceBinding:
         workspace_id = _uuid(workspace_id)
         if (
@@ -275,6 +375,7 @@ class WorkspaceLifecycle:
                 workspace_id,
                 WorkspaceProvisioningKind.REPLACE,
                 expected_source_generation=expected_source_generation,
+                proof_precondition=proof_precondition,
             )
             if isinstance(operation, WorkspaceBinding):
                 return operation
@@ -309,6 +410,7 @@ class WorkspaceLifecycle:
         kind: str,
         *,
         expected_source_generation: int | None,
+        proof_precondition: ReplacementProofPrecondition | None = None,
     ) -> _Claim | WorkspaceBinding | None:
         now = self.clock()
 
@@ -349,6 +451,8 @@ class WorkspaceLifecycle:
                         raise WorkspaceStaleOperationError(
                             "replacement source generation is stale"
                         )
+                    if proof_precondition is not None:
+                        proof_precondition.assert_satisfied(workspace)
                     operation_id = uuid.uuid4()
                     target = source + 1
                     previous = workspace.machine_ref
@@ -493,7 +597,9 @@ class WorkspaceLifecycle:
         if claim.phase == WorkspaceProvisioningPhase.MACHINE_STARTED:
             if not workspace.machine_ref:
                 raise ProviderTerminalError("workspace Machine binding is incomplete")
-            self.provider.start_machine(app_spec.name, workspace.machine_ref)
+            self._start_machine_if_needed(
+                app_spec.name, workspace.machine_ref, deadline
+            )
             self._cas_phase(
                 workspace_id,
                 claim,
@@ -630,7 +736,7 @@ class WorkspaceLifecycle:
         if claim.phase == WorkspaceProvisioningPhase.MACHINE_STARTED:
             if not workspace.machine_ref:
                 raise ProviderTerminalError("replacement Machine is missing")
-            self.provider.start_machine(app_name, workspace.machine_ref)
+            self._start_machine_if_needed(app_name, workspace.machine_ref, deadline)
             self._cas_phase(
                 workspace_id,
                 claim,
@@ -708,6 +814,76 @@ class WorkspaceLifecycle:
             # recorded Machine and is safe to reconcile as already gone.
             return None
 
+    def _start_machine_if_needed(
+        self, app_name: str, machine_id: str, deadline: float
+    ) -> None:
+        machine = self._inspect_machine_by_id(app_name, machine_id)
+        if machine is None:
+            raise ProviderNotFoundError("workspace Machine was not found")
+        if machine.state is MachineState.STARTED:
+            return
+        if machine.state is MachineState.DESTROYED:
+            raise ProviderNotFoundError("workspace Machine was destroyed")
+        if machine.state not in (MachineState.CREATED, MachineState.STOPPED):
+            machine = self._wait_machine_ready_to_start(app_name, machine_id, deadline)
+            if machine.state is MachineState.STARTED:
+                return
+        while True:
+            try:
+                self.provider.start_machine(app_name, machine_id)
+                break
+            except ProviderRetryableError:
+                if time.monotonic() >= deadline:
+                    raise
+                self.sleep(STOP_POLL_SECONDS)
+        self._wait_machine_started(app_name, machine_id, deadline)
+
+    def _wait_machine_ready_to_start(
+        self, app_name: str, machine_id: str, deadline: float
+    ) -> MachineRecord:
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            try:
+                machine = self.provider.wait_machine(
+                    app_name,
+                    machine_id,
+                    timeout_seconds=min(REQUEST_TIMEOUT_SECONDS, remaining),
+                    state="stopped",
+                )
+            except ProviderTimeoutError:
+                continue
+            if machine.state in (MachineState.STOPPED, MachineState.STARTED):
+                return machine
+            if machine.state is MachineState.DESTROYED:
+                raise ProviderNotFoundError("workspace Machine was destroyed")
+        raise ProviderRetryableError(
+            "workspace Machine was not ready to start before deadline",
+            operation="wait_machine_stopped",
+        )
+
+    def _wait_machine_started(
+        self, app_name: str, machine_id: str, deadline: float
+    ) -> None:
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            try:
+                machine = self.provider.wait_machine(
+                    app_name,
+                    machine_id,
+                    timeout_seconds=min(REQUEST_TIMEOUT_SECONDS, remaining),
+                )
+            except ProviderTimeoutError:
+                continue
+            if machine.state is MachineState.STARTED:
+                return
+            self.sleep(
+                min(HEALTH_POLL_SECONDS, max(0.0, deadline - time.monotonic()))
+            )
+        raise ProviderRetryableError(
+            "workspace Machine did not start before deadline",
+            operation="wait_machine_start",
+        )
+
     def _wait_healthy(
         self,
         app_name: str,
@@ -716,13 +892,22 @@ class WorkspaceLifecycle:
         deadline: float,
     ) -> MachineRecord:
         while time.monotonic() < deadline:
-            machine = self.provider.wait_machine(
-                app_name,
-                machine_id,
-                timeout_seconds=min(
-                    REQUEST_TIMEOUT_SECONDS, max(1, deadline - time.monotonic())
-                ),
-            )
+            try:
+                machine = self.provider.wait_machine(
+                    app_name,
+                    machine_id,
+                    timeout_seconds=min(
+                        REQUEST_TIMEOUT_SECONDS, max(1, deadline - time.monotonic())
+                    ),
+                )
+            except ProviderTimeoutError:
+                self.sleep(
+                    min(
+                        HEALTH_POLL_SECONDS,
+                        max(0.0, deadline - time.monotonic()),
+                    )
+                )
+                continue
             if machine.state is MachineState.STARTED:
                 health = machine.health
                 if health is None or not _healthy_containers(health, spec):
@@ -732,7 +917,9 @@ class WorkspaceLifecycle:
                         health = inspected.health if inspected else None
                 if health is not None and _healthy_containers(health, spec):
                     return machine
-            self.sleep(0.05)
+            self.sleep(
+                min(HEALTH_POLL_SECONDS, max(0.0, deadline - time.monotonic()))
+            )
         raise ProviderRetryableError(
             "workspace Machine did not become healthy before deadline",
             operation="wait_machine",
@@ -955,8 +1142,14 @@ def replace_machine(
     workspace_id: UUID | str,
     spec: WorkspaceSpec,
     expected_source_generation: int,
+    proof_precondition: ReplacementProofPrecondition | None = None,
 ) -> WorkspaceBinding:
-    return _service().replace_machine(workspace_id, spec, expected_source_generation)
+    return _service().replace_machine(
+        workspace_id,
+        spec,
+        expected_source_generation,
+        proof_precondition,
+    )
 
 
 def _uuid(value: UUID | str) -> UUID:

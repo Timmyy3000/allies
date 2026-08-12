@@ -35,6 +35,7 @@ from runtime.services.runtime_auth import (
     RuntimeContext,
     authenticate_runtime_token,
     issue_runtime_credential,
+    issue_runtime_credential_for_generation,
 )
 from runtime.services.sessions import update_session_binding
 
@@ -100,6 +101,32 @@ def test_claim_replay_and_terminal_receipt(runtime_setup):
             first.attempt_id,
             first.lease_token,
             {"code": "different"},
+        )
+
+
+def test_generation_credential_issue_is_exactly_replayable(ready_workspace):
+    operation_id = uuid4()
+    first = issue_runtime_credential_for_generation(
+        ready_workspace.id,
+        ready_workspace.machine_generation,
+        "generation-secret",
+        operation_id,
+    )
+    replay = issue_runtime_credential_for_generation(
+        ready_workspace.id,
+        ready_workspace.machine_generation,
+        "generation-secret",
+        operation_id,
+    )
+
+    assert replay.credential.id == first.credential.id == operation_id
+    assert replay.raw_token == "generation-secret"
+    with pytest.raises(RuntimeIdempotencyConflictError):
+        issue_runtime_credential_for_generation(
+            ready_workspace.id,
+            ready_workspace.machine_generation,
+            "different-secret",
+            operation_id,
         )
 
 

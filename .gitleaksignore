@@ -1,2 +1,6 @@
 # Deterministic non-secret FND-006 profile-key test vector.
 40d9f42f68eadad1bf161c1dce43f97fe7cd83c8:runtime/tests/test_profile_store.py:generic-api-key:74
+
+# Deterministic non-secret Fly file-secret names in FND-008 provider tests.
+05bd8fe46655d31775a9ad7d4651bcc582f64528:backend/runtime/tests/test_fly_provider.py:generic-api-key:94
+3c55aaa29bb5d43a51b37825db64d793fe717e13:backend/runtime/tests/test_fly_provider.py:generic-api-key:39
