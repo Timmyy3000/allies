@@ -51,6 +51,9 @@ _railway_health_gate_lock = threading.Lock()
 _railway_health_gate_in_flight = False
 _railway_health_gate_last_at = 0.0
 _railway_health_gate_last_result: HealthResult | None = None
+_health_throttle_cache_lock = threading.Lock()
+_health_throttle_cache_instance: RedisCache | None = None
+_health_throttle_cache_signature: tuple[object, ...] | None = None
 _health_failure_log_lock = threading.Lock()
 _health_failure_last_at = 0.0
 _HEALTH_FAILURE_LOG_INTERVAL_SECONDS = 60.0
@@ -123,6 +126,9 @@ def _health_probe_transaction(db, *, alias: str, use_atomic: bool):
     """Run the probe in a transaction without touching shared connections."""
 
     if use_atomic:
+        # Lightweight test doubles do not expose a full database wrapper. The
+        # production path uses ``use_atomic=False`` and controls the
+        # transaction directly on the short-lived probe wrapper below.
         with transaction.atomic(using=alias), db.cursor() as cursor:
             yield cursor
         return
@@ -140,7 +146,7 @@ def _health_probe_transaction(db, *, alias: str, use_atomic: bool):
 
 
 def _health_probe_cache(*, deadline: float):
-    """Build a Redis probe backend whose socket timeout matches the budget."""
+    """Build a binary-safe Redis probe backend within the remaining budget."""
 
     health_cache = _health_cache_backend()
     if not isinstance(health_cache, RedisCache):
@@ -200,6 +206,61 @@ def _health_cache_backend():
     if getattr(settings, "CACHE_URL", "") and "health" in settings.CACHES:
         return caches["health"]
     return cache
+
+
+def _health_throttle_cache(*, deadline: float):
+    """Use application cache semantics with a deadline-bounded Redis client."""
+
+    global _health_throttle_cache_instance
+    global _health_throttle_cache_signature
+
+    application_cache = (
+        caches["default"] if getattr(settings, "CACHE_URL", "") else cache
+    )
+    if not isinstance(application_cache, RedisCache):
+        return application_cache
+    config = settings.CACHES["default"]
+    options = config.get("OPTIONS", {})
+    configured_connect = float(
+        options.get(
+            "socket_connect_timeout",
+            getattr(settings, "HEALTH_CACHE_OPERATION_TIMEOUT_SECONDS", 0.001),
+        )
+    )
+    configured_socket = float(
+        options.get(
+            "socket_timeout",
+            getattr(settings, "HEALTH_CACHE_OPERATION_TIMEOUT_SECONDS", 0.001),
+        )
+    )
+    # A failed counter check can issue add then incr. Keep both operations
+    # below the health operation budget while reusing one pool per worker.
+    timeout = max(
+        0.001,
+        min(
+            getattr(settings, "HEALTH_CACHE_OPERATION_TIMEOUT_SECONDS", 0.001),
+            configured_connect,
+            configured_socket,
+        ),
+    )
+    _remaining_seconds_for_operation(deadline, timeout)
+    signature = (config["LOCATION"], repr(options), timeout)
+    with _health_throttle_cache_lock:
+        if (
+            _health_throttle_cache_instance is None
+            or _health_throttle_cache_signature != signature
+        ):
+            params = {
+                **config,
+                "OPTIONS": {
+                    **options,
+                    "socket_connect_timeout": timeout,
+                    "socket_timeout": timeout,
+                },
+            }
+            _health_throttle_cache_instance = RedisCache(config["LOCATION"], params)
+            _health_throttle_cache_signature = signature
+        return _health_throttle_cache_instance
 
 
 def check_health(*, total_budget: float | None = None) -> HealthResult:
@@ -265,10 +326,7 @@ def _health_check_with_gate(*, total_budget: float) -> HealthResult:
     now = time.monotonic()
     with _railway_health_gate_lock:
         if _railway_health_gate_in_flight:
-            if (
-                _railway_health_gate_last_result is not None
-                and not _railway_health_gate_last_result.healthy
-            ):
+            if _railway_health_gate_last_result is not None:
                 return _railway_health_gate_last_result
             return HealthResult(healthy=False, elapsed_seconds=0.0)
         if (
@@ -311,15 +369,15 @@ class HealthController(ControllerBase):
                     identity=_client_identity(request),
                     limit=60,
                     period=60,
-                    # The health cache uses sub-second socket timeouts for
-                    # dependency probing.  Rate limiting is application work
-                    # and must use the normal cache timeout instead of
-                    # reporting a healthy Redis as unavailable at ~750ms.
-                    cache_backend=cache,
+                    cache_backend=_health_throttle_cache(
+                        deadline=started + total_budget
+                    ),
                 )
             except ThrottleExceeded:
                 return error_json("throttled", "try again later", 429)
             except ThrottleUnavailable:
+                return error_json("service_unavailable", "Service unavailable", 503)
+            except HealthBudgetExceeded:
                 return error_json("service_unavailable", "Service unavailable", 503)
             remaining_budget = total_budget - (time.monotonic() - started)
             if remaining_budget <= 0:

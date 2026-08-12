@@ -23,6 +23,8 @@ def reset_health_gate(monkeypatch):
     monkeypatch.setattr("config.health._railway_health_gate_last_at", 0.0)
     monkeypatch.setattr("config.health._railway_health_gate_in_flight", False)
     monkeypatch.setattr("config.health._health_failure_last_at", -60.0)
+    monkeypatch.setattr("config.health._health_throttle_cache_instance", None)
+    monkeypatch.setattr("config.health._health_throttle_cache_signature", None)
 
 
 def test_health_check_scopes_postgres_statement_timeout_to_probe(monkeypatch):
@@ -173,6 +175,63 @@ def test_health_rate_limit_uses_application_cache_timeout(monkeypatch):
     assert calls[0]["cache_backend"] is health.cache
 
 
+@override_settings(
+    CACHE_URL="redis://cache.internal:6379/0",
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": "redis://cache.internal:6379/0",
+            "OPTIONS": {"socket_connect_timeout": 10, "socket_timeout": 10},
+        }
+    },
+)
+def test_health_throttle_cache_caps_socket_timeout_to_remaining_budget():
+    backend = health._health_throttle_cache(deadline=time.monotonic() + 4)
+
+    assert backend._options["socket_connect_timeout"] <= 0.75
+    assert backend._options["socket_timeout"] <= 0.75
+
+
+@override_settings(
+    CACHE_URL="redis://cache.internal:6379/0",
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": "redis://cache.internal:6379/0",
+            "OPTIONS": {"socket_connect_timeout": 10, "socket_timeout": 10},
+        }
+    },
+)
+def test_health_throttle_cache_reuses_one_bounded_client():
+    first = health._health_throttle_cache(deadline=time.monotonic() + 4)
+    second = health._health_throttle_cache(deadline=time.monotonic() + 4)
+
+    assert first is second
+
+
+@override_settings(
+    CACHE_URL="redis://cache.internal:6379/0",
+    CACHES={
+        "health": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": "redis://cache.internal:6379/0",
+            "OPTIONS": {},
+        }
+    },
+)
+def test_health_probe_cache_keeps_django_binary_serializer(monkeypatch):
+    from django.core.cache.backends.redis import RedisCache
+
+    monkeypatch.setattr(
+        "config.health.caches",
+        {"health": RedisCache("redis://cache.internal:6379/0", {"OPTIONS": {}})},
+    )
+    backend = health._health_probe_cache(deadline=time.monotonic() + 5)
+
+    assert backend._options.get("decode_responses", False) is False
+    assert backend._options["socket_timeout"] <= 0.75
+
+
 def test_health_probe_does_not_follow_database_test_mirror(monkeypatch):
     class FakeDatabase:
         vendor = "postgresql"
@@ -198,6 +257,68 @@ def test_health_probe_does_not_follow_database_test_mirror(monkeypatch):
     with _health_db_probe(source, deadline=time.monotonic() + 5) as (probe, _):
         assert "TEST" not in probe.settings_dict
     assert source.settings_dict["TEST"] == {"MIRROR": "default"}
+
+
+def test_health_probe_transaction_uses_probe_connection(monkeypatch):
+    calls = []
+
+    class Cursor:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+    class Database:
+        vendor = "postgresql"
+
+        def __init__(self, settings_dict, alias):
+            self.settings_dict = settings_dict
+            self.alias = alias
+
+        def ensure_connection(self):
+            return None
+
+        def set_autocommit(self, value):
+            calls.append((self.alias, "autocommit", value))
+
+        def cursor(self):
+            calls.append((self.alias, "cursor"))
+            return Cursor()
+
+        def commit(self):
+            calls.append((self.alias, "commit"))
+
+        def rollback(self):
+            calls.append((self.alias, "rollback"))
+
+        def close(self):
+            calls.append((self.alias, "close"))
+
+    source = Database(
+        {"OPTIONS": {"connect_timeout": 10}},
+        alias="health",
+    )
+    with health._health_db_probe(source, deadline=time.monotonic() + 5) as (
+        probe,
+        use_atomic,
+    ):
+        assert not use_atomic
+        with health._health_probe_transaction(
+            probe,
+            alias="health",
+            use_atomic=use_atomic,
+        ):
+            calls.append((probe.alias, "body"))
+
+    assert calls == [
+        ("health__health_probe", "autocommit", False),
+        ("health__health_probe", "cursor"),
+        ("health__health_probe", "body"),
+        ("health__health_probe", "commit"),
+        ("health__health_probe", "autocommit", True),
+        ("health__health_probe", "close"),
+    ]
 
 
 @override_settings(ALLIES_RAILWAY_PROXY_MODE=True)
@@ -256,7 +377,7 @@ def test_direct_health_gate_coalesces_distributed_probe_work(monkeypatch):
     assert len(calls) == 1
 
 
-def test_health_gate_fails_closed_while_a_previous_healthy_probe_is_in_flight(
+def test_health_gate_reuses_previous_healthy_result_while_a_probe_is_in_flight(
     monkeypatch,
 ):
     monkeypatch.setattr("config.health._railway_health_gate_in_flight", True)
@@ -267,7 +388,7 @@ def test_health_gate_fails_closed_while_a_previous_healthy_probe_is_in_flight(
 
     result = _health_check_with_gate(total_budget=5.0)
 
-    assert not result.healthy
+    assert result == HealthResult(healthy=True, elapsed_seconds=0.1)
 
 
 def test_health_gate_preserves_a_previous_failure_while_a_probe_is_in_flight(
