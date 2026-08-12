@@ -1,0 +1,119 @@
+"""Typed request and response contracts for the Cloud authentication API."""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any, Literal
+
+from ninja import Schema
+from pydantic import ConfigDict
+
+
+class SuccessResponse[DataT](Schema):
+    """Stable envelope for successful JSON responses."""
+
+    status: Literal["success"] = "success"
+    message: str
+    data: DataT
+
+
+class ErrorData(Schema):
+    """Machine-readable failure data kept separate from human messaging."""
+
+    code: str
+    details: dict[str, Any] | None = None
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "code": "validation_error",
+                    "details": {"errors": [{"field": "display_name"}]},
+                },
+                {"code": "session_invalid"},
+                {"code": "already_linked_elsewhere"},
+                {"code": "throttled"},
+            ]
+        }
+    )
+
+
+class ErrorResponse[DataT](Schema):
+    """Stable envelope for expected JSON failures."""
+
+    status: Literal["error"] = "error"
+    message: str
+    data: DataT | None = None
+
+
+class RedirectRequest(Schema):
+    redirect_to: str = "/"
+
+
+class AuthorizationStartResponse(Schema):
+    redirect_url: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {"redirect_url": "https://provider.example/authorize?state=example"}
+            ]
+        }
+    )
+
+
+class UserResponse(Schema):
+    id: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"id": "usr_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"}]
+        }
+    )
+
+
+class ProfileUpdateRequest(Schema):
+    display_name: str
+
+
+class AvatarPrepareRequest(Schema):
+    content_type: str
+    size: int
+    sha256: str
+
+
+class ProfileResponse(Schema):
+    display_name: str
+    avatar_url: str | None = None
+
+
+class SessionResponse(Schema):
+    id: str
+    expires_at: datetime
+
+
+class WorkspaceResponse(Schema):
+    id: str
+    name: str
+    role: str
+    capabilities: list[str]
+
+
+class MeResponse(Schema):
+    user: UserResponse
+    profile: ProfileResponse
+    session: SessionResponse
+    workspace: WorkspaceResponse
+
+
+class PreparedAvatarResponse(Schema):
+    asset_id: str
+    upload_url: str
+    headers: dict[str, str]
+    expires_at: datetime
+
+
+class AvatarResponse(Schema):
+    asset_id: str
+    url: str | None = None
+    expires_at: datetime | None = None
