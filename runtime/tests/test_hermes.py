@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from threading import Event
 from urllib.error import HTTPError
 
@@ -356,6 +357,41 @@ async def test_incremental_profile_stream_sends_stable_session_key(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_incremental_profile_stream_passes_overall_deadline_to_adapter(monkeypatch):
+    class Response:
+        def __init__(self):
+            self.closed = False
+
+        def readline(self, _limit):
+            time.sleep(0.05)
+            return b": keepalive\n"
+
+        def close(self):
+            self.closed = True
+
+    response = Response()
+    monkeypatch.setattr(
+        "allies_runtime.hermes.urlopen", lambda *_args, **_kwargs: response
+    )
+    client = HermesClient(
+        load_settings(
+            {
+                "HERMES_CREDENTIAL_REF": "ref://bootstrap",
+                "HERMES_STREAM_TIMEOUT": "0.01",
+            }
+        ),
+        lambda ref: "bootstrap-key",
+        profile_credential_resolver=lambda key: "profile-a-key",
+    )
+
+    stream = await client.stream_profile_incremental("ally-a", "s1", "hello")
+    with pytest.raises(HermesTimeout, match="stream timed out"):
+        await stream.__anext__()
+
+    assert response.closed is True
+
+
+@pytest.mark.asyncio
 async def test_incremental_stream_normalizes_safe_events_and_terminal_rotation():
     class Response:
         def __init__(self):
@@ -415,6 +451,123 @@ async def test_incremental_stream_normalizes_safe_events_and_terminal_rotation()
     assert events[2].payload["status"] == "completed"
     assert events[3].session_id == "s2"
     assert events[3].payload == {"run_id": "r1", "status": "completed"}
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_accepts_terminal_after_more_than_512_raw_events():
+    rows = [
+        b"event: run.started\n",
+        b'data: {"session_id":"s1","run_id":"r1"}\n',
+        b"\n",
+        b"event: message.started\n",
+        b'data: {"session_id":"s1","run_id":"r1"}\n',
+        b"\n",
+    ]
+    for index in range(510):
+        if index == 255:
+            rows.extend(
+                [
+                    b"event: tool.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"calendar"}\n',
+                    b"\n",
+                    b"event: tool.progress\n",
+                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"calendar","delta":"private"}\n',
+                    b"\n",
+                    b"event: tool.completed\n",
+                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"calendar"}\n',
+                    b"\n",
+                ]
+            )
+        rows.extend(
+            [
+                b"event: assistant.delta\n",
+                f'data: {{"session_id":"s1","run_id":"r1","delta":"chunk-{index}"}}\n'.encode(),
+                b"\n",
+            ]
+        )
+    rows.extend(
+        [
+            b"event: assistant.completed\n",
+            b'data: {"session_id":"s1","run_id":"r1","content":"ignored"}\n',
+            b"\n",
+            b"event: run.completed\n",
+            b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[]}\n',
+            b"\n",
+            b"event: done\n",
+            b'data: {"session_id":"s1","run_id":"r1"}\n',
+            b"\n",
+        ]
+    )
+
+    class Response:
+        def __init__(self):
+            self.rows = iter(rows)
+            self.closed = False
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+        def close(self):
+            self.closed = True
+
+    events = [event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")]
+
+    assert len(events) == 513
+    assert sum(event.name == "message.delta" for event in events) == 510
+    assert sum(event.name == "activity.started" for event in events) == 1
+    assert sum(event.name == "activity.completed" for event in events) == 1
+    assert events[-1].name == "execution.completed"
+    assert events[-1].session_id == "s1"
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_enforces_overall_deadline_for_keepalives():
+    class Response:
+        def __init__(self):
+            self.closed = False
+
+        def readline(self, _limit):
+            time.sleep(0.05)
+            return b": keepalive\n"
+
+        def close(self):
+            self.closed = True
+
+    response = Response()
+    stream = _IncrementalHTTPStream(
+        response, "ally-a", "s1", stream_timeout=0.01
+    )
+
+    with pytest.raises(HermesTimeout, match="stream timed out"):
+        await stream.__anext__()
+
+    assert response.closed is True
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_rejects_invalid_or_expired_overall_deadlines():
+    with pytest.raises(ValueError, match="stream timeout must be positive"):
+        _IncrementalHTTPStream(object(), "ally-a", "s1", stream_timeout=0)
+    with pytest.raises(ValueError, match="stream timeout must be positive"):
+        _IncrementalHTTPStream(object(), "ally-a", "s1", stream_timeout=True)
+
+    class Response:
+        def __init__(self):
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    response = Response()
+    stream = _IncrementalHTTPStream(
+        response, "ally-a", "s1", stream_timeout=1
+    )
+    stream.deadline = time.monotonic() - 1
+
+    with pytest.raises(HermesTimeout, match="stream timed out"):
+        await stream.__anext__()
+
+    assert response.closed is True
 
 
 def test_incremental_stream_rejects_invalid_tool_progress():

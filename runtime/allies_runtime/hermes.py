@@ -14,6 +14,7 @@ import inspect
 import json
 import re
 import socket
+import time
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import PurePosixPath
@@ -36,6 +37,7 @@ _PROFILE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 MAX_RESPONSE_BYTES = 1_048_576
 MAX_EVENTS = 512
+MAX_BUFFERED_EVENTS = 65_536
 MAX_STREAM_BYTES = 4 * 1_048_576
 MAX_EVENT_BYTES = 256 * 1_024
 MAX_SAFE_TEXT_BYTES = 16 * 1024
@@ -192,10 +194,26 @@ class CancellableHermesStream:
 class _IncrementalHTTPStream:
     """Validate and normalize one bounded Hermes session stream."""
 
-    def __init__(self, response: Any, profile_id: str, session_id: str):
+    def __init__(
+        self,
+        response: Any,
+        profile_id: str,
+        session_id: str,
+        *,
+        stream_timeout: float | None = None,
+    ):
+        if stream_timeout is not None and (
+            isinstance(stream_timeout, bool) or stream_timeout <= 0
+        ):
+            raise ValueError("Hermes stream timeout must be positive")
         self.response = response
         self.profile_id = profile_id
         self.session_id = session_id
+        self.deadline = (
+            time.monotonic() + stream_timeout
+            if stream_timeout is not None
+            else None
+        )
         self.current_name = "message"
         self.data_lines: list[str] = []
         self.total_bytes = 0
@@ -218,13 +236,22 @@ class _IncrementalHTTPStream:
         if self.closed or self.done:
             raise StopAsyncIteration
         while True:
+            remaining = None
+            if self.deadline is not None:
+                remaining = self.deadline - time.monotonic()
+                if remaining <= 0:
+                    await self.aclose()
+                    raise HermesTimeout("Hermes stream timed out")
             try:
-                line = await asyncio.to_thread(
-                    self.response.readline, MAX_EVENT_BYTES + 1
+                read = asyncio.to_thread(self.response.readline, MAX_EVENT_BYTES + 1)
+                line = (
+                    await asyncio.wait_for(read, remaining)
+                    if remaining is not None
+                    else await read
                 )
             except TimeoutError as exc:
                 await self.aclose()
-                raise HermesTimeout("Hermes stream read timed out") from exc
+                raise HermesTimeout("Hermes stream timed out") from exc
             except (OSError, ConnectionError) as exc:
                 await self.aclose()
                 raise HermesDisconnected("Hermes stream disconnected") from exc
@@ -293,8 +320,6 @@ class _IncrementalHTTPStream:
         if not isinstance(payload, dict):
             raise HermesMalformedResponse("Hermes stream event was not an object")
         self.event_count += 1
-        if self.event_count > MAX_EVENTS:
-            raise HermesMalformedResponse("Hermes stream exceeded the event limit")
         return self._normalize_event(name, payload)
 
     def _normalize_event(
@@ -655,9 +680,9 @@ def _sse_events(lines: Iterable[bytes]) -> list[tuple[str, Mapping[str, Any]]]:
                             "Hermes stream event was not an object"
                         )
                     events.append((current_name, payload))
-                    if len(events) > MAX_EVENTS:
+                    if len(events) > MAX_BUFFERED_EVENTS:
                         raise HermesMalformedResponse(
-                            "Hermes stream exceeded the event limit"
+                            "Hermes stream exceeded the buffered event limit"
                         )
                 current_name = "message"
                 data_lines = []
@@ -686,8 +711,10 @@ def _sse_events(lines: Iterable[bytes]) -> list[tuple[str, Mapping[str, Any]]]:
             if not isinstance(payload, dict):
                 raise HermesMalformedResponse("Hermes stream event was not an object")
             events.append((current_name, payload))
-            if len(events) > MAX_EVENTS:
-                raise HermesMalformedResponse("Hermes stream exceeded the event limit")
+            if len(events) > MAX_BUFFERED_EVENTS:
+                raise HermesMalformedResponse(
+                    "Hermes stream exceeded the buffered event limit"
+                )
     return events
 
 
@@ -1109,7 +1136,12 @@ class HermesClient:
                 "Hermes stream did not expose incremental reads"
             )
         return CancellableHermesStream(
-            _IncrementalHTTPStream(response, profile_id, session_id)
+            _IncrementalHTTPStream(
+                response,
+                profile_id,
+                session_id,
+                stream_timeout=self.settings.stream_timeout,
+            )
         )
 
 

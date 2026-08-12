@@ -16,6 +16,7 @@ from allies_runtime.errors import (
 )
 from allies_runtime.fake import FakeHermesClient, FakeProfilePlan
 from allies_runtime.hermes import (
+    MAX_BUFFERED_EVENTS,
     HermesClient,
     _bounded_lines,
     _decode_json,
@@ -61,6 +62,16 @@ def test_sse_stream_and_event_byte_limits(monkeypatch):
     monkeypatch.setattr("allies_runtime.hermes.MAX_STREAM_BYTES", 10)
     with pytest.raises(HermesMalformedResponse, match="stream.*byte"):
         _sse_events([b": 12345\n", b": 6789\n"])
+
+
+def test_buffered_sse_parser_has_an_independent_event_limit(monkeypatch):
+    monkeypatch.setattr("allies_runtime.hermes.MAX_BUFFERED_EVENTS", 1)
+    with pytest.raises(HermesMalformedResponse, match="buffered event limit"):
+        _sse_events([b"data: {}\n", b"\n", b"data: {}\n", b"\n"])
+    with pytest.raises(HermesMalformedResponse, match="buffered event limit"):
+        _sse_events([b"data: {}\n", b"\n", b"data: {}\n"])
+
+    assert MAX_BUFFERED_EVENTS == 65_536
 
 
 def test_socket_sse_lines_are_read_with_a_hard_limit(monkeypatch):
