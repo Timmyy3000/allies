@@ -23,3 +23,10 @@ make app NAME=<domain>
 Run `make help` for the available commands. The underlying Django and uv
 commands remain available from `backend/` when a command needs to be run
 directly.
+
+## Staging operations
+
+Cloud runs one codebase as web, Celery worker, and Celery beat processes. See
+[`docs/operations/railway-staging.md`](docs/operations/railway-staging.md) for
+the process commands, deployment order, health checks, and rollback boundary.
+Railway IaC is local operator material and must never be committed or pushed.
