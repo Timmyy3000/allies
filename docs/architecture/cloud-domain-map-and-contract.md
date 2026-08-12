@@ -81,7 +81,7 @@ CLD-001. Each app begins only when its first real feature is implemented.
 
 | App | First responsibility | Durable nouns | Explicitly out of scope |
 | --- | --- | --- | --- |
-| `auths` | Actor identity, pre-auth sessions, provider handoff, and account claim | Actor, identity, `PreAuthContext`, sign-in handoff | Workspace membership or Ally data |
+| `auths` | User identity, pre-auth sessions, provider handoff, and account claim | User, identity, `PreAuthContext`, sign-in handoff | Workspace membership or Ally data |
 | `workspaces` | Cloud Workspace context and membership/capability decisions | Workspace, membership, capability context | Resource-specific business workflows |
 | `allies` | Product Ally identity, purpose, and the Cloud-to-Foundry binding | Ally, job, personality seed, responsibility, routine definition, binding | Runtime profile, execution, or Hermes state |
 | `chat` | One continuous customer-facing conversation per Ally | Conversation, message, intent, delivery state | Foundry attempt state or a second conversation family in v1 |
@@ -104,7 +104,7 @@ Shared words describe the crossing boundary; they do not imply shared models.
 | Conversation / message | Hermes session / transcript | Cloud owns the user-facing conversation and message lifecycle. Hermes owns the local session and transcript. |
 | Activity | Runtime event | Cloud projects safe product activities and assigns public feed order. Foundry keeps attempt-local event order and raw runtime payloads. |
 | Routine | Execution | A routine is a future product trigger. An execution is a Foundry runtime fact; CLD-001 only reserves the source kind. |
-| Auth | Runtime/service authentication | Cloud resolves actors, pre-auth principals, and claims. Foundry authenticates runtime and service calls. Credentials do not cross the product boundary. |
+| Auth | Runtime/service authentication | Cloud resolves users, pre-auth principals, and claims. Foundry authenticates runtime and service calls. Credentials do not cross the product boundary. |
 
 `Workspace` is the canonical Cloud product/API noun. Legacy `organization` or
 generic `tenant` wording means Cloud Workspace when it appears in older product
@@ -131,10 +131,10 @@ resolves resource ancestry and rechecks capability.
 
 | Use case | Contract shape | Authorization source |
 | --- | --- | --- |
-| Authenticated Ally creation | `POST /api/v1/workspaces/{cloud_workspace_id}/allies` | Actor capability in the resolved Cloud Workspace; the service rechecks ownership and lifecycle. |
+| Authenticated Ally creation | `POST /api/v1/workspaces/{cloud_workspace_id}/allies` | User capability in the resolved Cloud Workspace; the service rechecks ownership and lifecycle. |
 | Pre-auth Ally creation | `POST /api/v1/auths/preauth/allies` | Session-bound temporary principal and `PreAuthContext`; no permanent Workspace exists yet. |
-| Account claim | `POST /api/v1/auths/claims` | Authenticated actor plus the session-bound pre-auth claim context; creates a new personal Cloud Workspace. |
-| Conversation message | `POST /api/v1/chat/conversations/{conversation_id}/messages` | Authenticated actor or explicitly scoped temporary principal; Cloud resolves conversation → Ally → Workspace and rechecks capability. |
+| Account claim | `POST /api/v1/auths/claims` | Authenticated user plus the session-bound pre-auth claim context; creates a new personal Cloud Workspace. |
+| Conversation message | `POST /api/v1/chat/conversations/{conversation_id}/messages` | Authenticated user or explicitly scoped temporary principal; Cloud resolves conversation → Ally → Workspace and rechecks capability. |
 | Ally activity feed | `GET /api/v1/activities?conversation_id=...&after=...` | Normal Cloud authorization for the conversation/Ally feed. |
 | Cloud product snapshot | `GET /api/v1/activities/snapshots?conversation_id=...` | Normal Cloud authorization is rechecked before snapshot delivery or acceptance. |
 | Background dispatch and projection | Service/gateway calls, not public routes | Persisted product context, authenticated envelope, immutable binding, correlation, and generation checks. |
@@ -209,7 +209,7 @@ The client supplies no assistant-authored text for the pre-auth greeting.
 
 ### 6.1 Authenticated Ally creation
 
-1. Cloud validates the actor, Workspace capability, and canonical seed:
+1. Cloud validates the user, Workspace capability, and canonical seed:
    `name`, `job`, and `personality_seed`.
 2. Cloud creates the Ally and immutable `cloud_binding_id` in its transaction.
 3. Cloud persists a deterministic provisioning operation, request fingerprint,
@@ -257,7 +257,7 @@ proposed rate/cost cap pending product and engineering approval.
 Claim and expiry are serialized by locking the `PreAuthContext`, Ally binding,
 and provisioning record.
 
-1. An authenticated actor submits a durable `claim_operation_id` and claim
+1. An authenticated user submits a durable `claim_operation_id` and claim
    nonce.
 2. If expiry has not committed, the context enters `claiming`, quiesces new
    pre-auth writes, and records a cutover marker.
@@ -308,10 +308,10 @@ Message acceptance is durable ingress, not execution completion.
 
 | Function / seam | Inputs | Owns | Result |
 | --- | --- | --- | --- |
-| `accept_message` | Actor or `PreAuthContext`, optional Workspace, conversation, text or server-created greeting, idempotency key | Authorization, fingerprint, scope-specific idempotency, message intent, and initial scheduling state | Typed accepted/waiting result or authorization, validation, or idempotency conflict |
+| `accept_message` | User or `PreAuthContext`, optional Workspace, conversation, text or server-created greeting, idempotency key | Authorization, fingerprint, scope-specific idempotency, message intent, and initial scheduling state | Typed accepted/waiting result or authorization, validation, or idempotency conflict |
 | `dispatch_execution_intent` | Cloud intent ID and deterministic command key | Post-commit gateway call, dispatch attempt state, timeout and reconciliation | Private Foundry reference or unresolved/retryable result; never an HTTP response |
 | `project_foundry_event` | Authenticated versioned event envelope | Correlation, dedupe, claim mapping, state crosswalk, sequence recovery, and product activity allocation | Projection, typed rejection, or held sequence gap |
-| `replay_ally_feed` | Authorized actor, Ally feed, opaque cursor | Retention/gap check, cutoff, ordered activities, live handoff | Activity page, bounded snapshot handoff, or cursor/scope error |
+| `replay_ally_feed` | Authorized user, Ally feed, opaque cursor | Retention/gap check, cutoff, ordered activities, live handoff | Activity page, bounded snapshot handoff, or cursor/scope error |
 | `cleanup_preauth_context` | Locked context, binding, and cleanup operation ID | Provisioning/expiry fencing, Foundry cleanup retry, purge, tombstone, and repair owner | `deprovisioned`, `already_cleaned`, or `repair_required` |
 
 Cloud commits the message, request fingerprint, intent, and `dispatch_pending`
@@ -322,7 +322,7 @@ implies execution completion.
 
 Idempotency scope is the authority context:
 
-- authenticated: Cloud Workspace + actor + conversation;
+- authenticated: Cloud Workspace + user + conversation;
 - pre-auth: `preauth_context_id` + conversation;
 - claim: pre-auth context + claim operation, preserving lookup by immutable
   binding;

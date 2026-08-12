@@ -25,3 +25,7 @@ htmlcov/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Local agent and review surfaces; durable counterparts belong in docs/.
+.agent/
+.lavish/

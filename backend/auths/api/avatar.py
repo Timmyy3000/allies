@@ -33,7 +33,7 @@ class AvatarController(ControllerBase):
         "/me/avatar/uploads",
         response={
             201: SuccessResponse[PreparedAvatarResponse],
-            **error_responses(401, 415, 422, 429, 500, 503),
+            **error_responses(401, 403, 415, 422, 429, 500, 503),
         },
     )
     def prepare(self, request: HttpRequest, payload: AvatarPrepareRequest):
@@ -80,7 +80,7 @@ class AvatarController(ControllerBase):
         "/me/avatar/{asset_id}/complete",
         response={
             200: SuccessResponse[AvatarResponse],
-            **error_responses(401, 404, 409, 422, 429, 500, 503),
+            **error_responses(401, 403, 404, 409, 422, 429, 500, 503),
         },
     )
     def complete(self, request: HttpRequest, asset_id: str):
@@ -138,7 +138,7 @@ class AvatarController(ControllerBase):
 
     @http_delete(
         "/me/avatar",
-        response={204: None, **error_responses(401, 404, 409, 500, 503)},
+        response={204: None, **error_responses(401, 403, 404, 409, 500, 503)},
     )
     def delete(self, request: HttpRequest):
         rejected = _require_origin(request)
