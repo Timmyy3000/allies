@@ -61,11 +61,22 @@ remove a final object left by a crash before the database promotion commits.
 
 ## Routine Operations
 
-- Schedule `cleanup_auth_artifacts --batch-size 100` every 15 minutes. Alert on
-  nonzero exit, repeated object deletion failures, or a persistent backlog.
-- Revoke compromised access with
-  `revoke_auth_sessions --actor-id ACTOR --reason REASON` or
-  `revoke_auth_sessions --family-id FAMILY --reason REASON`.
+| Command | Trigger | Production frequency | Safe to retry? | Expected output |
+| --- | --- | --- | --- | --- |
+| `cleanup_auth_artifacts --batch-size 100` | Deployment scheduler | Every 15 minutes | Yes | `flows`, `refresh_tokens`, `avatars`, and `failures` counts; no secrets |
+| `revoke_auth_sessions --user-id USER --reason REASON` | Authorized operator | Manual, as needed | Yes | `revoked=<count>`; no tokens or provider claims |
+
+Production deployment must run `python manage.py cleanup_auth_artifacts
+--batch-size 100` in the Cloud application environment every 15 minutes. The
+job must allow only one concurrent run, time out after five minutes, retry a
+failed invocation once with bounded backoff, and alert the deployment's normal
+monitoring destination on a nonzero exit or missed schedule. It needs the same
+database, storage, cache, and secret configuration as the web application.
+
+`revoke_auth_sessions` is intentionally an operator-triggered incident-response
+or support command; it is not a scheduled task. Revoke compromised access with
+`revoke_auth_sessions --user-id USER --reason REASON` or
+`revoke_auth_sessions --family-id FAMILY --reason REASON`.
 - Monitor callback rejection spikes, refresh reuse, provider latency/failure,
   throttle/cache failure, cleanup backlog, and avatar verification rejection.
 - Keep structured security events privacy-safe. Never log codes, tokens,

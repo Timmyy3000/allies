@@ -27,7 +27,7 @@ def emit_auth_event(
     outcome: str,
     reason_code: str = "",
     provider: str = "",
-    actor_ref: str = "",
+    user_ref: str = "",
     family_ref: str = "",
     correlation_id: str = "",
 ) -> None:
@@ -36,7 +36,7 @@ def emit_auth_event(
         "outcome": outcome[:32],
         "reason_code": reason_code[:64],
         "provider": provider[:32],
-        "actor_ref": opaque_ref(actor_ref) if actor_ref else "",
+        "user_ref": opaque_ref(user_ref) if user_ref else "",
         "family_ref": opaque_ref(family_ref) if family_ref else "",
         "correlation_id": correlation_id[:64],
         "timestamp": datetime.now(UTC).isoformat(),

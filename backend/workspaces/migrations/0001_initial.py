@@ -77,7 +77,7 @@ class Migration(migrations.Migration):
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 ("updated_at", models.DateTimeField(auto_now=True)),
                 (
-                    "actor",
+                    "user",
                     models.ForeignKey(
                         on_delete=django.db.models.deletion.CASCADE,
                         related_name="workspace_memberships",
@@ -122,14 +122,14 @@ class Migration(migrations.Migration):
         migrations.AddIndex(
             model_name="membership",
             index=models.Index(
-                fields=["actor", "status"], name="ws_member_actor_status_idx"
+                fields=["user", "status"], name="ws_member_user_status_idx"
             ),
         ),
         migrations.AddConstraint(
             model_name="membership",
             constraint=models.UniqueConstraint(
-                fields=("workspace", "actor"),
-                name="workspace_membership_workspace_actor_uniq",
+                fields=("workspace", "user"),
+                name="workspace_membership_workspace_user_uniq",
             ),
         ),
         migrations.AddConstraint(

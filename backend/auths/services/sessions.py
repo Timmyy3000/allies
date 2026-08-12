@@ -26,7 +26,7 @@ from auths.config import (
     refresh_idle_seconds,
 )
 from auths.exceptions import SessionInvalid
-from auths.models import Actor, RefreshToken, SessionFamily
+from auths.models import RefreshToken, SessionFamily, User
 from common.identifiers import new_public_id
 
 
@@ -111,7 +111,7 @@ class IssuedSession:
 
 @dataclass(frozen=True)
 class AuthenticatedSession:
-    actor: Actor
+    user: User
     family: SessionFamily
     claims: dict[str, Any]
 
@@ -122,13 +122,13 @@ class _RefreshReuse(Exception):
 
 
 def _access_token(
-    family: SessionFamily, actor: Actor, now: datetime
+    family: SessionFamily, user: User, now: datetime
 ) -> tuple[str, datetime]:
     expires = now + timedelta(seconds=access_ttl_seconds())
     claims = {
         "iss": jwt_issuer(),
         "aud": jwt_audience(),
-        "sub": actor.public_id,
+        "sub": user.public_id,
         "sid": family.public_id,
         "jti": uuid.uuid4().hex,
         "iat": int(now.timestamp()),
@@ -144,15 +144,15 @@ def _new_refresh() -> tuple[str, str]:
 
 @transaction.atomic
 def issue_session(
-    actor: Actor, *, context: SessionContext | None = None
+    user: User, *, context: SessionContext | None = None
 ) -> IssuedSession:
-    if not actor.is_active:
-        raise SessionInvalid("actor inactive")
+    if not user.is_active:
+        raise SessionInvalid("user inactive")
     now = timezone.now()
     idle = now + timedelta(seconds=refresh_idle_seconds())
     absolute = now + timedelta(seconds=refresh_absolute_seconds())
     family = SessionFamily.objects.create(
-        actor=actor,
+        user=user,
         public_id=new_public_id("ses"),
         last_used_at=now,
         idle_expires_at=idle,
@@ -161,21 +161,21 @@ def issue_session(
     raw_refresh, digest = _new_refresh()
     RefreshToken.objects.create(family=family, token_digest=digest, expires_at=idle)
     del context
-    access, access_expires = _access_token(family, actor, now)
+    access, access_expires = _access_token(family, user, now)
     return IssuedSession(family, access, raw_refresh, access_expires, idle)
 
 
 def authenticate_access(raw_jwt: str) -> AuthenticatedSession:
     claims = _decode_jwt(raw_jwt)
     try:
-        family = SessionFamily.objects.select_related("actor").get(
-            public_id=claims["sid"], actor__public_id=claims["sub"]
+        family = SessionFamily.objects.select_related("user").get(
+            public_id=claims["sid"], user__public_id=claims["sub"]
         )
     except SessionFamily.DoesNotExist as exc:
         raise SessionInvalid("session not found") from exc
-    if not family.is_active() or family.actor.public_id != claims["sub"]:
+    if not family.is_active() or family.user.public_id != claims["sub"]:
         raise SessionInvalid("session inactive")
-    return AuthenticatedSession(actor=family.actor, family=family, claims=claims)
+    return AuthenticatedSession(user=family.user, family=family, claims=claims)
 
 
 def refresh_family_public_id(raw_token: str) -> str:
@@ -202,14 +202,14 @@ def _rotate_refresh(
     try:
         token = (
             RefreshToken.objects.select_for_update()
-            .select_related("family__actor")
+            .select_related("family__user")
             .get(token_digest=_digest(raw_token))
         )
     except RefreshToken.DoesNotExist as exc:
         raise SessionInvalid("refresh token invalid") from exc
     family = (
         SessionFamily.objects.select_for_update()
-        .select_related("actor")
+        .select_related("user")
         .get(pk=token.family_id)
     )
     now = timezone.now()
@@ -232,7 +232,7 @@ def _rotate_refresh(
     family.last_used_at = now
     family.idle_expires_at = successor_expires
     family.save(update_fields=("last_used_at", "idle_expires_at"))
-    access, access_expires = _access_token(family, family.actor, now)
+    access, access_expires = _access_token(family, family.user, now)
     del request_context
     return IssuedSession(
         family, access, raw_successor, access_expires, successor_expires

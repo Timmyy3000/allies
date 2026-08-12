@@ -8,7 +8,7 @@ from auths.models import ExternalIdentity, FlowPurpose
 from auths.providers.base import ProviderKey, VerifiedIdentity
 from auths.providers.fake import FakeProvider
 from auths.services import flows as flow_service
-from auths.services.accounts import resolve_or_create_actor
+from auths.services.accounts import resolve_or_create_user
 from auths.services.flows import (
     _safe_redirect,
     _seal,
@@ -80,10 +80,10 @@ def test_flow_validation_rejects_bad_redirect_bindings_and_link_sessions():
             browser_binding=b"",
         )
 
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="flow-link")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     with pytest.raises(InvalidFlow):
         begin_auth_flow(
             provider=ProviderKey.FAKE,
@@ -97,7 +97,7 @@ def test_flow_validation_rejects_bad_redirect_bindings_and_link_sessions():
             purpose=FlowPurpose.SIGN_IN,
             redirect_to="/app",
             browser_binding=b"csrf",
-            actor=actor,
+            user=user,
             family=issued.family,
         )
 
@@ -180,16 +180,16 @@ def test_flow_protection_and_link_state_and_provider_identity_mismatch(monkeypat
         _unseal("sealed", max_age=60)
     monkeypatch.undo()
 
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="flow-link-state")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     start = begin_auth_flow(
         provider=ProviderKey.FAKE,
         purpose=FlowPurpose.LINK,
         redirect_to="/app",
         browser_binding=b"csrf",
-        actor=actor,
+        user=user,
         family=issued.family,
     )
     state = parse_qs(urlparse(start.authorization_url).query)["state"][0]
@@ -207,16 +207,16 @@ def test_flow_protection_and_link_state_and_provider_identity_mismatch(monkeypat
 @pytest.mark.django_db
 @override_settings(ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True)
 def test_link_rechecks_session_after_provider_io(monkeypatch):
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="link-race-owner")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     start = begin_auth_flow(
         provider=ProviderKey.FAKE,
         purpose=FlowPurpose.LINK,
         redirect_to="/app",
         browser_binding=b"csrf",
-        actor=actor,
+        user=user,
         family=issued.family,
     )
     state = parse_qs(urlparse(start.authorization_url).query)["state"][0]
