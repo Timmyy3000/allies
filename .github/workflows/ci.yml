@@ -22,6 +22,11 @@ jobs:
   check:
     name: Backend and runtime checks
     runs-on: ubuntu-latest
+    env:
+      # CI uses the explicit local-development database path. Production
+      # deployments must provide DJANGO_DEBUG=false, DJANGO_SECRET_KEY, and
+      # DATABASE_URL through the platform environment.
+      DJANGO_DEBUG: "true"
     outputs:
       source_sha: ${{ steps.record_source.outputs.sha }}
     steps:
@@ -62,3 +67,17 @@ jobs:
       - name: Verify migrations are applied
         working-directory: backend
         run: uv run --locked python manage.py migrate --check
+
+      - name: Verify production configuration
+        working-directory: backend
+        env:
+          DJANGO_DEBUG: "false"
+          DJANGO_SECRET_KEY: ci-only-production-check
+          DJANGO_ALLOWED_HOSTS: localhost
+          DJANGO_TRUST_PROXY_HEADERS: "true"
+          # A non-routable URL exercises dj-database-url's PostgreSQL path
+          # without requiring a live service for this settings/static check.
+          DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/foundry
+        run: |
+          uv run --locked python manage.py check
+          uv run --locked python manage.py collectstatic --noinput --dry-run
