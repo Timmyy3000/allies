@@ -26,3 +26,7 @@ htmlcov/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Local agent planning, review, evidence, and rendered artifacts
+.agent/
+.lavish/
