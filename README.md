@@ -8,27 +8,63 @@ belong at the repository root.
 
 ## Development
 
-```powershell
+POSIX shells:
+
+```sh
+export DJANGO_DEBUG=true
 make sync
 make migrate
 make server
 ```
 
-Run the full cross-platform validation command from the repository root:
+PowerShell:
 
 ```powershell
+$env:DJANGO_DEBUG = "true"
+make sync
+make migrate
+make server
+```
+
+Run the full validation command from the repository root. In a POSIX shell:
+
+```sh
+DJANGO_DEBUG=true \
 uv run --locked --project backend python scripts/validate.py
 ```
 
-The Make convenience target is equivalent:
+In PowerShell:
 
 ```powershell
+$env:DJANGO_DEBUG = "true"
+uv run --locked --project backend python scripts/validate.py
+```
+
+The Make convenience target is equivalent. In a POSIX shell:
+
+```sh
+DJANGO_DEBUG=true make validate
+```
+
+In PowerShell:
+
+```powershell
+$env:DJANGO_DEBUG = "true"
 make validate
 ```
 
 Create Foundry domain apps from the repository root as they become necessary:
 
+POSIX shells:
+
+```sh
+DJANGO_DEBUG=true make app NAME=<domain>
+```
+
+PowerShell:
+
 ```powershell
+$env:DJANGO_DEBUG = "true"
 make app NAME=<domain>
 ```
 

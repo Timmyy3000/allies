@@ -4,6 +4,11 @@ NAME ?=
 MIGRATION_NAME ?=
 PORT ?= 8000
 
+# Preserve the production-safe default for every target. Local development
+# commands should set DJANGO_DEBUG=true explicitly before invoking make.
+DJANGO_DEBUG ?= false
+export DJANGO_DEBUG
+
 .PHONY: help sync app check validate test runtime-test format lint runtime-lint migrate migrations server shell
 
 help:
