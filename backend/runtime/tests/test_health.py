@@ -6,6 +6,7 @@ import pytest
 from django.conf import settings
 from django.db import DatabaseError
 from django.db.backends.postgresql.base import DatabaseWrapper
+from django.test import override_settings
 
 from config.health import healthz
 
@@ -130,6 +131,54 @@ def test_healthz_runs_initial_postgres_probe_before_reply(client):
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
     probe.assert_called_once_with()
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLOWED_HOSTS=["healthcheck.railway.app", "example.test"],
+    SECURE_SSL_REDIRECT=True,
+)
+def test_healthz_is_directly_probeable_over_railway_internal_http(client):
+    healthcheck_headers = {
+        "HTTP_HOST": "healthcheck.railway.app",
+        "HTTP_USER_AGENT": "RailwayHealthCheck/1.0",
+    }
+    response = client.get("/healthz", **healthcheck_headers)
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+    port_bearing_host = client.get(
+        "/healthz",
+        HTTP_HOST="healthcheck.railway.app:8080",
+        HTTP_USER_AGENT="RailwayHealthCheck/1.0",
+    )
+    assert port_bearing_host.status_code == 200
+    assert port_bearing_host.json() == {"status": "ok"}
+
+    trailing_slash = client.get("/healthz/", **healthcheck_headers)
+    assert trailing_slash.status_code == 301
+    assert trailing_slash["Location"] == "https://healthcheck.railway.app/healthz/"
+
+    application_route = client.get("/api/v1/", **healthcheck_headers)
+    assert application_route.status_code == 301
+    assert application_route["Location"] == "https://healthcheck.railway.app/api/v1/"
+
+    non_railway_host = client.get(
+        "/healthz",
+        HTTP_HOST="example.test",
+        HTTP_USER_AGENT="RailwayHealthCheck/1.0",
+    )
+    assert non_railway_host.status_code == 301
+    assert non_railway_host["Location"] == "https://example.test/healthz"
+
+    spoofed_user_agent = client.get(
+        "/healthz",
+        HTTP_HOST="healthcheck.railway.app",
+        HTTP_USER_AGENT="curl/8.0",
+    )
+    assert spoofed_user_agent.status_code == 301
+    assert spoofed_user_agent["Location"] == "https://healthcheck.railway.app/healthz"
 
 
 @pytest.mark.django_db
