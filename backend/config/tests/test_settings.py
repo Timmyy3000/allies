@@ -101,7 +101,8 @@ def test_fractional_health_timeout_is_valid_and_separate_from_db_connect_timeout
             "assert s.DATABASES['default']['OPTIONS']['connect_timeout'] == 7; "
             "assert s.DATABASES['health']['OPTIONS']['connect_timeout'] == 2; "
             "assert s.DATABASES['health']['CONN_MAX_AGE'] == 0; "
-            "assert abs(s.CACHES['health']['OPTIONS']['socket_timeout'] - 0.625) < 0.000001"
+            "assert abs(s.CACHES['health']['OPTIONS']['socket_timeout'] - 0.625) < 0.000001; "
+            "assert s.CACHES['health']['OPTIONS'].get('decode_responses', False) is False"
         ),
     )
 

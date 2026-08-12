@@ -18,7 +18,7 @@ uv run python manage.py migrate --noinput
 Web:
 
 ```text
-uv run python manage.py collectstatic --noinput && uv run gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --worker-class gthread --workers ${WEB_CONCURRENCY:-2} --threads ${WEB_THREADS:-4} --timeout ${WEB_TIMEOUT:-120} --graceful-timeout ${WEB_GRACEFUL_TIMEOUT:-10} --max-requests ${WEB_MAX_REQUESTS:-1000} --max-requests-jitter ${WEB_MAX_REQUESTS_JITTER:-100} --access-logfile - --error-logfile - --capture-output
+uv run python manage.py collectstatic --noinput && uv run gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --worker-class gthread --workers ${WEB_CONCURRENCY:-2} --threads ${WEB_THREADS:-4} --timeout ${WEB_TIMEOUT:-120} --graceful-timeout ${WEB_GRACEFUL_TIMEOUT:-10} --max-requests ${WEB_MAX_REQUESTS:-1000} --max-requests-jitter ${WEB_MAX_REQUESTS_JITTER:-100} --access-logfile - --access-logformat '%(h)s %(l)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s "%(f)s" "%(a)s"' --error-logfile - --capture-output
 ```
 
 Worker:
@@ -96,6 +96,9 @@ throttle, so distributed callers cannot turn every allowed request into a new
 Postgres connection. Health dependency failures emit one detailed traceback per
 process at most once per minute; subsequent failures retain only a sanitized
 warning so an outage cannot flood logs with repeated infrastructure details.
+The direct-mode throttle reuses one worker-scoped Redis client with bounded
+health-operation socket timeouts; it must not construct a new Redis pool per
+request.
 
 Railway hides the original peer address behind its shared edge. Auth throttles
 therefore use a server-issued, signed HttpOnly browser cookie as the fairness
@@ -111,6 +114,9 @@ Cache and broker state use separate Redis logical databases. `CACHE_URL` uses
 database 0 for Django cache/throttle data; `CELERY_BROKER_URL` is derived as
 database 1 when it is not supplied explicitly. Never run `FLUSHDB` against the
 broker database as a cache operation.
+The health probe cache keeps Django's binary serializer; do not enable Redis
+`decode_responses` for that backend, because the probe sentinel is serialized
+before it is written to Redis.
 
 ### Recorded deployment exceptions
 
