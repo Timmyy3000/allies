@@ -31,7 +31,7 @@ class IdentityController(ControllerBase):
         "/identities/{provider}/link",
         response={
             200: SuccessResponse[AuthorizationStartResponse],
-            **error_responses(400, 401, 404, 409, 422, 429, 500, 503),
+            **error_responses(400, 401, 403, 404, 409, 422, 429, 500, 503),
         },
     )
     def link(self, request: HttpRequest, provider: str, payload: RedirectRequest):

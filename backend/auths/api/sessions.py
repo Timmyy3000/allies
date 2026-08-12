@@ -1,12 +1,15 @@
 """Refresh, logout, and session-cookie routes."""
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from ninja_extra import ControllerBase, api_controller, http_post
 
 from auths.api.common import (
+    _auth_rate_limit_identity,
     _clear_auth_cookies,
-    _client_identity,
+    _railway_auth_admission_allowed,
     _require_origin,
+    _set_auth_throttle_cookie,
     _set_session_cookies,
     error_json,
     error_responses,
@@ -26,7 +29,7 @@ from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_lim
 class SessionController(ControllerBase):
     @http_post(
         "/refresh",
-        response={204: None, **error_responses(401, 429, 500, 503)},
+        response={204: None, **error_responses(401, 403, 429, 500, 503)},
     )
     def refresh(self, request: HttpRequest):
         rejected = _require_origin(request)
@@ -36,12 +39,16 @@ class SessionController(ControllerBase):
         if not raw:
             return error_json("session_invalid", "session invalid", 401)
         try:
-            check_rate_limit(
-                scope="refresh-ip",
-                identity=_client_identity(request),
-                limit=20,
-                period=60,
-            )
+            if not _railway_auth_admission_allowed(request):
+                return error_json("throttled", "try again later", 429)
+            identity = _auth_rate_limit_identity(request)
+            if identity:
+                check_rate_limit(
+                    scope="refresh-ip",
+                    identity=identity,
+                    limit=20,
+                    period=60,
+                )
             family_id = refresh_family_public_id(raw)
             check_rate_limit(
                 scope="refresh-family",
@@ -61,6 +68,8 @@ class SessionController(ControllerBase):
             return error_json("session_invalid", "session invalid", 401)
         response = HttpResponse(status=204)
         _set_session_cookies(response, issued)
+        if getattr(settings, "ALLIES_RAILWAY_PROXY_MODE", False):
+            _set_auth_throttle_cookie(response, request)
         return response
 
     @http_post(

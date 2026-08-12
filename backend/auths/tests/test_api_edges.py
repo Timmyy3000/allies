@@ -7,6 +7,11 @@ from django.test import Client, override_settings
 from django.test.client import RequestFactory
 from PIL import Image
 
+from auths.api.common import (
+    _auth_rate_limit_identity,
+    _new_auth_throttle_cookie,
+    _railway_auth_admission_allowed,
+)
 from auths.api.controllers import _client_identity, _domain_status, _origin_allowed
 from auths.exceptions import AvatarConflict, AvatarStorageUnavailable
 from auths.models import ExternalIdentity
@@ -43,6 +48,79 @@ def test_client_identity_only_uses_forwarding_from_trusted_proxy():
 
     assert _client_identity(spoofed) == "203.0.113.0/24"
     assert _client_identity(proxied) == "10.0.0.0/24"
+
+
+@override_settings(ALLIES_RAILWAY_PROXY_MODE=True)
+def test_railway_auth_throttle_identity_uses_a_server_issued_cookie():
+    factory = RequestFactory()
+    first = factory.post(
+        "/",
+        HTTP_COOKIE=f"allies_throttle={_new_auth_throttle_cookie()}",
+        REMOTE_ADDR="10.0.0.1",
+    )
+    second = factory.post("/", HTTP_COOKIE="csrftoken=second", REMOTE_ADDR="10.0.0.1")
+
+    assert _auth_rate_limit_identity(first).startswith("browser:")
+    assert _auth_rate_limit_identity(second) == ""
+
+
+@override_settings(ALLIES_RAILWAY_PROXY_MODE=True)
+def test_railway_auth_admission_cannot_be_reset_by_rotating_csrf_cookie(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr("auths.api.common.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("auths.api.common._railway_auth_bootstrap_tokens", 1.0)
+    monkeypatch.setattr("auths.api.common._railway_auth_bootstrap_last_at", 100.0)
+
+    factory = RequestFactory()
+    first = factory.post("/", HTTP_COOKIE="csrftoken=first")
+    second = factory.post("/", HTTP_COOKIE="csrftoken=second")
+
+    assert _railway_auth_admission_allowed(first)
+    assert not _railway_auth_admission_allowed(second)
+    clock[0] += 1.0
+    assert _railway_auth_admission_allowed(second)
+
+
+@override_settings(ALLIES_RAILWAY_PROXY_MODE=True)
+def test_valid_railway_throttle_cookie_does_not_share_bootstrap_gate(monkeypatch):
+    monkeypatch.setattr("auths.api.common._railway_auth_bootstrap_tokens", 0.0)
+    monkeypatch.setattr("auths.api.common._railway_auth_bootstrap_last_at", 100.0)
+    request = RequestFactory().post(
+        "/",
+        HTTP_COOKIE=f"allies_throttle={_new_auth_throttle_cookie()}",
+    )
+
+    assert _railway_auth_admission_allowed(request)
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True,
+    ALLIES_RAILWAY_PROXY_MODE=True,
+    ALLOWED_HOSTS=["testserver"],
+)
+def test_railway_sign_in_gate_survives_throttle_cookie_rotation(monkeypatch):
+    clock = [100.0]
+    monkeypatch.setattr("auths.api.common.time.monotonic", lambda: clock[0])
+    monkeypatch.setattr("auths.api.common._railway_auth_bootstrap_tokens", 1.0)
+    monkeypatch.setattr("auths.api.common._railway_auth_bootstrap_last_at", 100.0)
+
+    client = Client(enforce_csrf_checks=True)
+    csrf = _csrf(client)
+    first = client.post(
+        "/api/v1/auths/sign-in/fake",
+        {"redirect_to": "/"},
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=csrf,
+        HTTP_ORIGIN="http://localhost:3000",
+        HTTP_HOST="testserver",
+    )
+    assert first.status_code == 200
+
+    del client.cookies["allies_throttle"]
+    del client.cookies["csrftoken"]
+    second = client.get("/api/v1/auths/csrf", HTTP_HOST="testserver")
+    assert second.status_code == 429
 
 
 @pytest.mark.django_db

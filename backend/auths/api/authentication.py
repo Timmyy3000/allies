@@ -1,14 +1,17 @@
 """Authentication start and provider callback routes."""
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
 from ninja_extra import ControllerBase, api_controller, http_get, http_post
 
 from auths.api.common import (
-    _client_identity,
+    _auth_rate_limit_identity,
     _csrf_binding,
     _domain_status,
+    _railway_auth_admission_allowed,
     _require_origin,
+    _set_auth_throttle_cookie,
     _set_flow_cookie,
     error_json,
     error_responses,
@@ -33,30 +36,38 @@ from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_lim
 
 @api_controller("/auths", tags=["Authentication"])
 class AuthenticationController(ControllerBase):
-    @http_get("/csrf", response={204: None})
+    @http_get("/csrf", response={204: None, **error_responses(429)})
     def csrf(self, request: HttpRequest):
+        if not _railway_auth_admission_allowed(request):
+            return error_json("throttled", "try again later", 429)
         response = HttpResponse(status=204)
         response["X-CSRFToken"] = get_token(request)
+        if getattr(settings, "ALLIES_RAILWAY_PROXY_MODE", False):
+            _set_auth_throttle_cookie(response, request)
         return response
 
     @http_post(
         "/sign-in/{provider}",
         response={
             200: SuccessResponse[AuthorizationStartResponse],
-            **error_responses(400, 404, 422, 429, 500, 503),
+            **error_responses(400, 403, 404, 422, 429, 500, 503),
         },
     )
     def sign_in(self, request: HttpRequest, provider: str, payload: RedirectRequest):
         rejected = _require_origin(request)
         if rejected:
             return rejected
+        if not _railway_auth_admission_allowed(request):
+            return error_json("throttled", "try again later", 429)
         try:
-            check_rate_limit(
-                scope="sign-in",
-                identity=f"{_client_identity(request)}:{provider}",
-                limit=10,
-                period=60,
-            )
+            identity = _auth_rate_limit_identity(request)
+            if identity:
+                check_rate_limit(
+                    scope="sign-in",
+                    identity=f"{identity}:{provider}",
+                    limit=10,
+                    period=60,
+                )
         except ThrottleExceeded:
             return error_json("throttled", "try again later", 429)
         except ThrottleUnavailable:
@@ -75,6 +86,8 @@ class AuthenticationController(ControllerBase):
             AuthorizationStartResponse(redirect_url=start.authorization_url),
             "Sign-in started",
         )
+        if getattr(settings, "ALLIES_RAILWAY_PROXY_MODE", False):
+            _set_auth_throttle_cookie(response, request)
         _set_flow_cookie(response, start.flow_cookie, start.expires_at)
         return response
 

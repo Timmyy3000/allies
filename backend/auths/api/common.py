@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import ipaddress
+import secrets
+import threading
+import time
 from collections.abc import Mapping
 from typing import Any
 
@@ -22,6 +27,7 @@ from auths.config import (
     cookie_path,
     cookie_samesite,
     cookie_secure,
+    digest_key,
     flow_ttl_seconds,
 )
 from auths.exceptions import SessionInvalid
@@ -149,6 +155,104 @@ def _client_identity(request: HttpRequest) -> str:
         return str(ipaddress.ip_network(f"{address}/{prefix}", strict=False))
     except ValueError:
         return "unknown"
+
+
+def _auth_rate_limit_identity(request: HttpRequest) -> str:
+    """Provide a server-issued browser key when Railway hides the original IP.
+
+    The CSRF cookie remains a separate double-submit token and is deliberately
+    not used as an abuse-control identity. Railway requests without a valid
+    server-issued throttle cookie use the bounded bootstrap admission path.
+    """
+
+    if getattr(settings, "ALLIES_RAILWAY_PROXY_MODE", False):
+        throttle_cookie = request.COOKIES.get(cookie_name("throttle"), "")
+        if _auth_throttle_cookie_valid(throttle_cookie):
+            digest = hmac.new(
+                digest_key(), throttle_cookie.encode(), hashlib.sha256
+            ).hexdigest()[:24]
+            return f"browser:{digest}"
+        return ""
+    return _client_identity(request)
+
+
+_AUTH_THROTTLE_COOKIE_TTL_SECONDS = 30 * 24 * 60 * 60
+_RAILWAY_AUTH_BOOTSTRAP_CAPACITY = 30.0
+_RAILWAY_AUTH_BOOTSTRAP_REFILL_PER_SECOND = 1.0
+_railway_auth_admission_lock = threading.Lock()
+_railway_auth_bootstrap_tokens = _RAILWAY_AUTH_BOOTSTRAP_CAPACITY
+_railway_auth_bootstrap_last_at = 0.0
+
+
+def _new_auth_throttle_cookie() -> str:
+    issued_at = str(int(time.time()))
+    nonce = secrets.token_urlsafe(24)
+    payload = f"{issued_at}.{nonce}"
+    signature = hmac.new(digest_key(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{signature}"
+
+
+def _auth_throttle_cookie_valid(value: str) -> bool:
+    try:
+        issued_at, nonce, signature = value.split(".", 2)
+        issued_at_int = int(issued_at)
+    except (AttributeError, TypeError, ValueError):
+        return False
+    if not nonce or not signature:
+        return False
+    age = time.time() - issued_at_int
+    if age < 0 or age > _AUTH_THROTTLE_COOKIE_TTL_SECONDS:
+        return False
+    payload = f"{issued_at}.{nonce}"
+    expected = hmac.new(digest_key(), payload.encode(), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(signature, expected)
+
+
+def _set_auth_throttle_cookie(response: HttpResponse, request: HttpRequest) -> None:
+    name = cookie_name("throttle")
+    current = request.COOKIES.get(name, "")
+    if _auth_throttle_cookie_valid(current):
+        return
+    response.set_cookie(
+        name,
+        _new_auth_throttle_cookie(),
+        max_age=_AUTH_THROTTLE_COOKIE_TTL_SECONDS,
+        httponly=True,
+        secure=cookie_secure(),
+        samesite=cookie_samesite(),
+        path=cookie_path("throttle"),
+    )
+
+
+def _railway_auth_admission_allowed(request: HttpRequest) -> bool:
+    """Bound only unbound Railway callers while preserving browser fairness.
+
+    Valid server-issued throttle cookies are governed by their cache-backed
+    per-browser buckets. Missing, expired, or forged cookies use a small
+    process-local bootstrap bucket so cookie rotation cannot create unbounded
+    auth work, without making normal authenticated browser traffic share one
+    global one-request-per-second gate.
+    """
+
+    if not getattr(settings, "ALLIES_RAILWAY_PROXY_MODE", False):
+        return True
+    if _auth_throttle_cookie_valid(request.COOKIES.get(cookie_name("throttle"), "")):
+        return True
+    global _railway_auth_bootstrap_last_at
+    global _railway_auth_bootstrap_tokens
+    now = time.monotonic()
+    with _railway_auth_admission_lock:
+        elapsed = max(0.0, now - _railway_auth_bootstrap_last_at)
+        _railway_auth_bootstrap_tokens = min(
+            _RAILWAY_AUTH_BOOTSTRAP_CAPACITY,
+            _railway_auth_bootstrap_tokens
+            + elapsed * _RAILWAY_AUTH_BOOTSTRAP_REFILL_PER_SECOND,
+        )
+        _railway_auth_bootstrap_last_at = now
+        if _railway_auth_bootstrap_tokens < 1.0:
+            return False
+        _railway_auth_bootstrap_tokens -= 1.0
+    return True
 
 
 def _set_session_cookies(response: HttpResponse, issued) -> None:

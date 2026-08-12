@@ -5,14 +5,17 @@ description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
     "boto3>=1.40,<2",
+    "celery[redis]>=5.6,<6",
     "cryptography>=46,<51",
     "django>=6.0.7,<6.1",
     "django-cors-headers>=4.7,<5",
     "django-ninja-extra>=0.31.6",
+    "gunicorn>=23,<24",
     "pillow>=11.3,<13",
     "psycopg[binary]>=3.2,<4",
     "pyjwt>=2.10,<3",
     "redis>=5,<7",
+    "whitenoise>=6.9,<7",
 ]
 
 [dependency-groups]

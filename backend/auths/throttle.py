@@ -23,16 +23,24 @@ def _cache_key(scope: str, identity: str) -> str:
     return f"allies:auth:throttle:{scope}:{digest}"
 
 
-def check_rate_limit(*, scope: str, identity: str, limit: int, period: int) -> None:
+def check_rate_limit(
+    *,
+    scope: str,
+    identity: str,
+    limit: int,
+    period: int,
+    cache_backend=None,
+) -> None:
     """Increment one bounded counter, failing closed when cache is unavailable."""
 
     if limit < 1 or period < 1:
         raise ValueError("invalid throttle configuration")
     key = _cache_key(scope, identity)
+    throttle_cache = cache if cache_backend is None else cache_backend
     try:
-        if cache.add(key, 1, timeout=period):
+        if throttle_cache.add(key, 1, timeout=period):
             return
-        count = cache.incr(key)
+        count = throttle_cache.incr(key)
     except Exception as exc:
         raise ThrottleUnavailable("auth throttle cache unavailable") from exc
     if count > limit:

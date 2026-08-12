@@ -10,6 +10,7 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
+import math
 import os
 from pathlib import Path
 from urllib.parse import unquote, urlparse
@@ -35,7 +36,62 @@ def env_list(name: str, default: str = "") -> list[str]:
     ]
 
 
-def database_from_url(value: str) -> dict[str, object]:
+def env_positive_float(name: str, default: float) -> float:
+    raw = os.environ.get(name, str(default))
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must be a positive number") from exc
+    if value <= 0:
+        raise ImproperlyConfigured(f"{name} must be a positive number")
+    return value
+
+
+def env_positive_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, str(default))
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise ImproperlyConfigured(f"{name} must be a positive integer")
+    return value
+
+
+ALLIES_HEALTH_OPERATION_TIMEOUT_SECONDS = env_positive_float(
+    "ALLIES_HEALTH_OPERATION_TIMEOUT_SECONDS", 2.0
+)
+ALLIES_HEALTH_TOTAL_TIMEOUT_SECONDS = env_positive_float(
+    "ALLIES_HEALTH_TOTAL_TIMEOUT_SECONDS", 5.0
+)
+if ALLIES_HEALTH_OPERATION_TIMEOUT_SECONDS >= ALLIES_HEALTH_TOTAL_TIMEOUT_SECONDS:
+    raise ImproperlyConfigured(
+        "ALLIES_HEALTH_OPERATION_TIMEOUT_SECONDS must be less than "
+        "ALLIES_HEALTH_TOTAL_TIMEOUT_SECONDS"
+    )
+DATABASE_CONNECT_TIMEOUT_SECONDS = env_positive_int(
+    "DATABASE_CONNECT_TIMEOUT_SECONDS", 10
+)
+CACHE_CONNECT_TIMEOUT_SECONDS = env_positive_float(
+    "CACHE_CONNECT_TIMEOUT_SECONDS", 10.0
+)
+CACHE_SOCKET_TIMEOUT_SECONDS = env_positive_float("CACHE_SOCKET_TIMEOUT_SECONDS", 10.0)
+HEALTH_CACHE_OPERATION_TIMEOUT_SECONDS = max(
+    0.001,
+    min(
+        ALLIES_HEALTH_OPERATION_TIMEOUT_SECONDS,
+        (ALLIES_HEALTH_TOTAL_TIMEOUT_SECONDS - ALLIES_HEALTH_OPERATION_TIMEOUT_SECONDS)
+        / 4,
+    ),
+)
+
+
+def database_from_url(
+    value: str,
+    *,
+    connect_timeout: int | None = None,
+    conn_max_age: int | None = None,
+) -> dict[str, object]:
     parsed = urlparse(value)
     if parsed.scheme not in {"postgres", "postgresql"}:
         raise ImproperlyConfigured("DATABASE_URL must use postgres:// or postgresql://")
@@ -46,7 +102,18 @@ def database_from_url(value: str) -> dict[str, object]:
         "PASSWORD": unquote(parsed.password or ""),
         "HOST": parsed.hostname or "",
         "PORT": parsed.port or 5432,
-        "CONN_MAX_AGE": int(os.environ.get("DATABASE_CONN_MAX_AGE", "60")),
+        "CONN_MAX_AGE": (
+            int(os.environ.get("DATABASE_CONN_MAX_AGE", "60"))
+            if conn_max_age is None
+            else conn_max_age
+        ),
+        "OPTIONS": {
+            "connect_timeout": (
+                DATABASE_CONNECT_TIMEOUT_SECONDS
+                if connect_timeout is None
+                else connect_timeout
+            ),
+        },
     }
 
 
@@ -84,9 +151,9 @@ INSTALLED_APPS = [
     "devtools",
 ]
 
-MIDDLEWARE = [
-    "config.middleware.TrustedProxyHeadersMiddleware",
-    "django.middleware.security.SecurityMiddleware",
+ALLIES_RAILWAY_PROXY_MODE = env_bool("ALLIES_RAILWAY_PROXY_MODE", False)
+
+_COMMON_MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -95,6 +162,13 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
+MIDDLEWARE = [
+    "config.middleware.TrustedProxyHeadersMiddleware",
+    "django.middleware.security.SecurityMiddleware",
+    *_COMMON_MIDDLEWARE,
+]
+if not DEBUG:
+    MIDDLEWARE.insert(2, "whitenoise.middleware.WhiteNoiseMiddleware")
 
 ROOT_URLCONF = "config.urls"
 
@@ -128,6 +202,22 @@ DATABASES = {
         "NAME": BASE_DIR / "db.sqlite3",
     }
 }
+if DATABASE_URL:
+    health_connect_timeout = max(
+        1,
+        math.floor(
+            min(
+                ALLIES_HEALTH_OPERATION_TIMEOUT_SECONDS,
+                ALLIES_HEALTH_TOTAL_TIMEOUT_SECONDS,
+            )
+        ),
+    )
+    DATABASES["health"] = database_from_url(
+        DATABASE_URL,
+        connect_timeout=health_connect_timeout,
+        conn_max_age=0,
+    )
+    DATABASES["health"]["TEST"] = {"MIRROR": "default"}
 
 
 # Password validation
@@ -165,6 +255,13 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = "static/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+STORAGES = {
+    "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+    "staticfiles": {
+        "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    },
+}
 
 
 # AUTH-001 security and provider configuration. Local development is explicit;
@@ -188,6 +285,11 @@ CSRF_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_PATH = "/api/"
 
 ALLIES_TRUST_FORWARDED_PROTO = env_bool("ALLIES_TRUST_FORWARDED_PROTO", False)
+if ALLIES_RAILWAY_PROXY_MODE:
+    # Railway mode is an explicit deployment contract: the managed edge is
+    # the only supported ingress and its HTTPS signal must not be disabled by
+    # an inherited local `.env` value.
+    ALLIES_TRUST_FORWARDED_PROTO = True
 SECURE_PROXY_SSL_HEADER = (
     ("HTTP_X_FORWARDED_PROTO", "https") if ALLIES_TRUST_FORWARDED_PROTO else None
 )
@@ -195,6 +297,9 @@ USE_X_FORWARDED_HOST = env_bool("ALLIES_TRUST_FORWARDED_HOST", False)
 ALLIES_TRUST_FORWARDED_FOR = env_bool("ALLIES_TRUST_FORWARDED_FOR", False)
 ALLIES_TRUSTED_PROXY_IPS = env_list("ALLIES_TRUSTED_PROXY_IPS")
 SECURE_SSL_REDIRECT = not DEBUG
+# Railway performs its private readiness probe over HTTP. Outside Railway
+# mode, health checks use the same HTTPS policy as every other route.
+SECURE_REDIRECT_EXEMPT = [r"^/?api/v1/health$"] if ALLIES_RAILWAY_PROXY_MODE else []
 SECURE_HSTS_SECONDS = (
     0 if DEBUG else int(os.environ.get("DJANGO_HSTS_SECONDS", "31536000"))
 )
@@ -205,9 +310,11 @@ SECURE_CONTENT_TYPE_NOSNIFF = True
 ALLIES_AUTH_ACCESS_COOKIE = "allies_access"
 ALLIES_AUTH_REFRESH_COOKIE = "allies_refresh"
 ALLIES_AUTH_FLOW_COOKIE = "allies_auth_flow"
+ALLIES_AUTH_THROTTLE_COOKIE = "allies_throttle"
 ALLIES_AUTH_ACCESS_COOKIE_PATH = "/api/"
 ALLIES_AUTH_REFRESH_COOKIE_PATH = "/api/v1/auths/"
 ALLIES_AUTH_FLOW_COOKIE_PATH = "/api/v1/auths/callback/"
+ALLIES_AUTH_THROTTLE_COOKIE_PATH = "/api/"
 ALLIES_AUTH_COOKIE_SECURE = not DEBUG
 ALLIES_AUTH_COOKIE_SAMESITE = "Lax"
 ALLIES_AUTH_ACCESS_TTL_SECONDS = int(
@@ -260,9 +367,50 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": CACHE_URL,
+        "OPTIONS": {
+            "socket_connect_timeout": CACHE_CONNECT_TIMEOUT_SECONDS,
+            "socket_timeout": CACHE_SOCKET_TIMEOUT_SECONDS,
+        },
     }
     if CACHE_URL
     else {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
+}
+if CACHE_URL:
+    CACHES["health"] = {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": CACHE_URL,
+        "OPTIONS": {
+            "decode_responses": True,
+            "socket_connect_timeout": HEALTH_CACHE_OPERATION_TIMEOUT_SECONDS,
+            "socket_timeout": HEALTH_CACHE_OPERATION_TIMEOUT_SECONDS,
+        },
+    }
+
+CELERY_BROKER_URL = os.environ.get("CELERY_BROKER_URL", "")
+if not CELERY_BROKER_URL:
+    if CACHE_URL:
+        parsed_cache_url = urlparse(CACHE_URL)
+        CELERY_BROKER_URL = parsed_cache_url._replace(path="/1").geturl()
+    else:
+        CELERY_BROKER_URL = "redis://localhost:6379/1"
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+CELERY_ENABLE_UTC = True
+CELERY_TIMEZONE = "UTC"
+CELERY_TASK_DEFAULT_QUEUE = "cloud"
+CELERY_TASK_IGNORE_RESULT = True
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 50
+CELERY_TASK_SOFT_TIME_LIMIT = 270
+CELERY_TASK_TIME_LIMIT = 300
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BEAT_SCHEDULE = {
+    "cleanup-auth-artifacts": {
+        "task": "auths.cleanup_auth_artifacts",
+        "schedule": 900.0,
+        "options": {"queue": "cloud"},
+    }
 }
 
 if not DEBUG:
@@ -282,10 +430,14 @@ if not DEBUG:
     if not DATABASE_URL:
         missing.append("PostgreSQL DATABASE_URL")
     if (
-        ALLIES_TRUST_FORWARDED_PROTO
-        or USE_X_FORWARDED_HOST
-        or ALLIES_TRUST_FORWARDED_FOR
-    ) and not ALLIES_TRUSTED_PROXY_IPS:
+        (
+            ALLIES_TRUST_FORWARDED_PROTO
+            or USE_X_FORWARDED_HOST
+            or ALLIES_TRUST_FORWARDED_FOR
+        )
+        and not ALLIES_TRUSTED_PROXY_IPS
+        and not ALLIES_RAILWAY_PROXY_MODE
+    ):
         missing.append("ALLIES_TRUSTED_PROXY_IPS for forwarded-header trust")
     if ALLIES_AUTH_GOOGLE_ENABLED and not all(
         [

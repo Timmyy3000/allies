@@ -4,7 +4,7 @@ NAME ?=
 MIGRATION_NAME ?=
 PORT ?= 8000
 
-.PHONY: help sync app check test format lint migrate migrations server shell
+.PHONY: help sync app beat check format lint migrate migrations server shell test worker
 
 help:
 	@echo Allies Cloud commands:
@@ -17,6 +17,8 @@ help:
 	@echo   make migrate APP=label
 	@echo   make migrations APP=label MIGRATION_NAME=name
 	@echo   make server PORT=8000
+	@echo   make worker
+	@echo   make beat
 	@echo   make shell
 
 sync:
@@ -46,6 +48,12 @@ migrations:
 
 server:
 	cd $(BACKEND_DIR) && uv run python manage.py runserver $(PORT)
+
+worker:
+	cd $(BACKEND_DIR) && uv run celery -A config.celery:app worker --loglevel=INFO --concurrency=1 --prefetch-multiplier=1 --queues=cloud
+
+beat:
+	cd $(BACKEND_DIR) && uv run celery -A config.celery:app beat --loglevel=INFO --schedule=/tmp/celerybeat-schedule
 
 shell:
 	cd $(BACKEND_DIR) && uv run python manage.py shell

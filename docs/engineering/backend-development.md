@@ -167,7 +167,7 @@ Controllers are HTTP adapters.
 A controller should:
 
 1. authenticate the request;
-2. resolve the actor and Cloud Workspace context;
+2. resolve the user and Cloud Workspace context;
 3. validate the request schema;
 4. call a service or read function;
 5. translate the result into a response schema and HTTP status.
@@ -235,8 +235,8 @@ access rules in `access.py` or an `access/` package.
 
 For example:
 
-- Workspace authorization: can this actor edit anything in this Cloud Workspace?
-- Ally access: can this actor edit this Ally?
+- Workspace authorization: can this user edit anything in this Cloud Workspace?
+- Ally access: can this user edit this Ally?
 - service: perform the edit.
 
 Do not create one global resource switchboard that imports every domain model and resolves resources by string type. That pattern combines authentication, resource lookup, authorization, and HTTP behavior into one growing module.
@@ -407,7 +407,7 @@ Workspace explicitly.
 
 For each use case, identify:
 
-- actor;
+- user;
 - Cloud Workspace;
 - resource;
 - required capability or role;
@@ -566,7 +566,7 @@ Before calling a domain slice ready for review, confirm:
 These remain intentionally open until implementation gives us evidence:
 
 - the exact Cloud Workspace role and capability model;
-- whether the API uses an envelope or resource-first responses;
+- the standardized API envelope is `status`, `message`, and `data`; new routes document complete success and error examples;
 - whether `startdomain` should gain an explicit registration option;
 - which worker and scheduler targets should be added with background processing;
 - event and outbox conventions;
