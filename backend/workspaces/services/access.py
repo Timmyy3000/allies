@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from auths.exceptions import WorkspaceAccessDenied
-from auths.models import Actor
+from auths.models import User
 
 from ..capabilities import Capability, capabilities_for_role
 from ..models import Membership, MembershipStatus
@@ -11,16 +11,16 @@ from .bootstrap import WorkspaceContext
 
 
 def require_workspace_capability(
-    *, actor: Actor, workspace_id: str, capability: Capability | str
+    *, user: User, workspace_id: str, capability: Capability | str
 ) -> WorkspaceContext:
     try:
         requested = Capability(str(capability))
     except ValueError as exc:
         raise WorkspaceAccessDenied("workspace denied") from exc
     membership = (
-        Membership.objects.select_related("workspace", "actor")
+        Membership.objects.select_related("workspace", "user")
         .filter(
-            actor=actor,
+            user=user,
             workspace__public_id=workspace_id,
             workspace__is_active=True,
             status=MembershipStatus.ACTIVE,

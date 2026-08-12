@@ -12,5 +12,5 @@ class WorkspaceAdmin(admin.ModelAdmin):
 
 @admin.register(Membership)
 class MembershipAdmin(admin.ModelAdmin):
-    list_display = ("workspace", "actor", "role", "status", "created_at")
-    search_fields = ("workspace__public_id", "actor__public_id")
+    list_display = ("workspace", "user", "role", "status", "created_at")
+    search_fields = ("workspace__public_id", "user__public_id")

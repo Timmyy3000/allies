@@ -1,7 +1,19 @@
 from ninja_extra import NinjaExtraAPI
 
-from .controllers import AuthController
+from .authentication import AuthenticationController
+from .avatar import AvatarController
+from .identities import IdentityController
+from .profile import ProfileController
+from .sessions import SessionController
 
 
 def register(api: NinjaExtraAPI) -> None:
-    api.register_controllers(AuthController)
+    """Register capability-owned controllers without changing public paths."""
+
+    api.register_controllers(
+        AuthenticationController,
+        SessionController,
+        IdentityController,
+        ProfileController,
+        AvatarController,
+    )

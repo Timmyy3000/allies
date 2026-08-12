@@ -15,7 +15,7 @@ from auths.exceptions import (
 )
 from auths.models import AvatarAsset, AvatarStatus, UserProfile
 from auths.providers.base import VerifiedIdentity
-from auths.services.accounts import resolve_or_create_actor
+from auths.services.accounts import resolve_or_create_user
 from auths.services.avatars import (
     cleanup_avatar_assets,
     complete_avatar_upload,
@@ -36,52 +36,52 @@ def _image(
 
 @pytest.fixture
 def avatar_context():
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="avatar-test")
-    ).actor
+    ).user
     store = InMemoryAvatarObjectStore()
     set_avatar_store(store)
-    return actor, store
+    return user, store
 
 
 @pytest.mark.django_db
 def test_avatar_prepare_complete_replace_read_and_delete(avatar_context):
-    actor, store = avatar_context
+    user, store = avatar_context
     first_data, content_type = _image()
     first = prepare_avatar_upload(
-        actor=actor,
+        user=user,
         content_type=content_type,
         size=len(first_data),
         sha256=hashlib.sha256(first_data).hexdigest(),
     )
     store.put(first.asset.object_key, first_data, content_type)
-    ready = complete_avatar_upload(actor=actor, asset_id=first.asset.public_id)
+    ready = complete_avatar_upload(user=user, asset_id=first.asset.public_id)
     assert ready.asset.status == AvatarStatus.READY
     assert ready.asset.width == 12
-    url, expires = signed_avatar_read(actor=actor)
+    url, expires = signed_avatar_read(user=user)
     assert url.startswith("memory://get/")
     assert expires > timezone.now()
     second_data, second_type = _image("JPEG")
     second = prepare_avatar_upload(
-        actor=actor,
+        user=user,
         content_type=second_type,
         size=len(second_data),
         sha256=hashlib.sha256(second_data).hexdigest(),
     )
     store.put(second.asset.object_key, second_data, second_type)
-    complete_avatar_upload(actor=actor, asset_id=second.asset.public_id)
+    complete_avatar_upload(user=user, asset_id=second.asset.public_id)
     assert AvatarAsset.objects.get(pk=first.asset.pk).status == AvatarStatus.REPLACED
-    delete_current_avatar(actor)
+    delete_current_avatar(user)
     with pytest.raises(AvatarNotFound):
-        signed_avatar_read(actor=actor)
+        signed_avatar_read(user=user)
 
 
 @pytest.mark.django_db
 def test_completed_avatar_is_immune_to_staging_url_reuse(avatar_context):
-    actor, store = avatar_context
+    user, store = avatar_context
     original, content_type = _image()
     prepared = prepare_avatar_upload(
-        actor=actor,
+        user=user,
         content_type=content_type,
         size=len(original),
         sha256=hashlib.sha256(original).hexdigest(),
@@ -89,7 +89,7 @@ def test_completed_avatar_is_immune_to_staging_url_reuse(avatar_context):
     staging_key = prepared.asset.object_key
     store.put(staging_key, original, content_type)
 
-    completed = complete_avatar_upload(actor=actor, asset_id=prepared.asset.public_id)
+    completed = complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
     store.put(staging_key, b"attacker-overwrite", content_type)
 
     completed.asset.refresh_from_db()
@@ -108,10 +108,10 @@ def test_completed_avatar_is_immune_to_staging_url_reuse(avatar_context):
 def test_avatar_promotion_conflict_removes_uncommitted_verified_object(
     avatar_context, monkeypatch
 ):
-    actor, store = avatar_context
+    user, store = avatar_context
     data, content_type = _image()
     prepared = prepare_avatar_upload(
-        actor=actor,
+        user=user,
         content_type=content_type,
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
@@ -129,7 +129,7 @@ def test_avatar_promotion_conflict_removes_uncommitted_verified_object(
     verified_key = f"{prepared.asset.object_key.removeprefix('staging/')}.verified"
 
     with pytest.raises(AvatarConflict):
-        complete_avatar_upload(actor=actor, asset_id=prepared.asset.public_id)
+        complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
     with pytest.raises(KeyError):
         store.head(key=verified_key)
 
@@ -138,10 +138,10 @@ def test_avatar_promotion_conflict_removes_uncommitted_verified_object(
 def test_avatar_completion_reloads_ready_state_after_staging_disappears(
     avatar_context, monkeypatch
 ):
-    actor, _store = avatar_context
+    user, _store = avatar_context
     data, content_type = _image()
     prepared = prepare_avatar_upload(
-        actor=actor,
+        user=user,
         content_type=content_type,
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
@@ -156,7 +156,7 @@ def test_avatar_completion_reloads_ready_state_after_staging_disappears(
 
     monkeypatch.setattr("auths.services.avatars._read_object", concurrently_promoted)
 
-    ready = complete_avatar_upload(actor=actor, asset_id=prepared.asset.public_id)
+    ready = complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
     assert ready.asset.status == AvatarStatus.READY
     assert ready.asset.object_key == final_key
 
@@ -165,7 +165,7 @@ def test_avatar_completion_reloads_ready_state_after_staging_disappears(
 def test_avatar_prepare_does_not_leave_row_when_signing_fails(
     avatar_context, monkeypatch
 ):
-    actor, store = avatar_context
+    user, store = avatar_context
     data, content_type = _image()
     before = AvatarAsset.objects.count()
     monkeypatch.setattr(
@@ -176,7 +176,7 @@ def test_avatar_prepare_does_not_leave_row_when_signing_fails(
 
     with pytest.raises(AvatarStorageUnavailable, match="signing unavailable"):
         prepare_avatar_upload(
-            actor=actor,
+            user=user,
             content_type=content_type,
             size=len(data),
             sha256=hashlib.sha256(data).hexdigest(),
@@ -186,10 +186,10 @@ def test_avatar_prepare_does_not_leave_row_when_signing_fails(
 
 @pytest.mark.django_db
 def test_avatar_storage_failures_are_normalized(avatar_context, monkeypatch):
-    actor, store = avatar_context
+    user, store = avatar_context
     data, content_type = _image()
     prepared = prepare_avatar_upload(
-        actor=actor,
+        user=user,
         content_type=content_type,
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
@@ -201,54 +201,54 @@ def test_avatar_storage_failures_are_normalized(avatar_context, monkeypatch):
         lambda **kwargs: (_ for _ in ()).throw(OSError("R2 unavailable")),
     )
     with pytest.raises(AvatarStorageUnavailable, match="promotion"):
-        complete_avatar_upload(actor=actor, asset_id=prepared.asset.public_id)
+        complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
 
     monkeypatch.undo()
     set_avatar_store(store)
-    ready = complete_avatar_upload(actor=actor, asset_id=prepared.asset.public_id)
+    ready = complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
     monkeypatch.setattr(
         store,
         "sign_get",
         lambda **kwargs: (_ for _ in ()).throw(OSError("R2 unavailable")),
     )
     with pytest.raises(AvatarStorageUnavailable, match="read"):
-        signed_avatar_read(actor=actor)
+        signed_avatar_read(user=user)
     assert ready.asset.status == AvatarStatus.READY
 
 
 @pytest.mark.django_db
-def test_cross_actor_avatar_pointer_fails_closed(avatar_context):
-    actor, store = avatar_context
-    other = resolve_or_create_actor(
-        VerifiedIdentity(provider="fake", subject="avatar-other-actor")
-    ).actor
+def test_cross_user_avatar_pointer_fails_closed(avatar_context):
+    user, store = avatar_context
+    other = resolve_or_create_user(
+        VerifiedIdentity(provider="fake", subject="avatar-other-user")
+    ).user
     data, content_type = _image()
     other_upload = prepare_avatar_upload(
-        actor=other,
+        user=other,
         content_type=content_type,
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
     )
     store.put(other_upload.asset.object_key, data, content_type)
     other_ready = complete_avatar_upload(
-        actor=other, asset_id=other_upload.asset.public_id
+        user=other, asset_id=other_upload.asset.public_id
     ).asset
-    UserProfile.objects.filter(actor=actor).update(current_avatar=other_ready)
+    UserProfile.objects.filter(user=user).update(current_avatar=other_ready)
 
     with pytest.raises(AvatarNotFound):
-        signed_avatar_read(actor=actor)
+        signed_avatar_read(user=user)
     with pytest.raises(AvatarConflict):
-        delete_current_avatar(actor)
+        delete_current_avatar(user)
 
-    actor_upload = prepare_avatar_upload(
-        actor=actor,
+    user_upload = prepare_avatar_upload(
+        user=user,
         content_type=content_type,
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
     )
-    store.put(actor_upload.asset.object_key, data, content_type)
+    store.put(user_upload.asset.object_key, data, content_type)
     with pytest.raises(AvatarConflict):
-        complete_avatar_upload(actor=actor, asset_id=actor_upload.asset.public_id)
+        complete_avatar_upload(user=user, asset_id=user_upload.asset.public_id)
     other_ready.refresh_from_db()
     assert other_ready.status == AvatarStatus.READY
     assert store.head(key=other_ready.object_key).size == len(data)
@@ -256,34 +256,34 @@ def test_cross_actor_avatar_pointer_fails_closed(avatar_context):
 
 @pytest.mark.django_db
 def test_avatar_rejects_bad_objects_and_foreign_assets(avatar_context):
-    actor, store = avatar_context
+    user, store = avatar_context
     data, content_type = _image()
     pending = prepare_avatar_upload(
-        actor=actor,
+        user=user,
         content_type=content_type,
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),
     )
     store.put(pending.asset.object_key, b"not-an-image", content_type)
     with pytest.raises(AvatarError):
-        complete_avatar_upload(actor=actor, asset_id=pending.asset.public_id)
+        complete_avatar_upload(user=user, asset_id=pending.asset.public_id)
     with pytest.raises(AvatarNotFound):
-        complete_avatar_upload(actor=actor, asset_id="avt_missing")
+        complete_avatar_upload(user=user, asset_id="avt_missing")
     with pytest.raises(ValidationError):
         prepare_avatar_upload(
-            actor=actor, content_type="text/plain", size=1, sha256="0" * 64
+            user=user, content_type="text/plain", size=1, sha256="0" * 64
         )
     with pytest.raises(ValidationError):
         prepare_avatar_upload(
-            actor=actor, content_type=content_type, size=1, sha256="bad"
+            user=user, content_type=content_type, size=1, sha256="bad"
         )
 
 
 @pytest.mark.django_db
 def test_avatar_cleanup_claims_expired_pending_and_records_failures(avatar_context):
-    actor, store = avatar_context
+    user, store = avatar_context
     asset = AvatarAsset.objects.create(
-        actor=actor,
+        user=user,
         public_id="avt_expired",
         object_key="expired-key",
         status=AvatarStatus.PENDING,
@@ -302,11 +302,11 @@ def test_avatar_cleanup_claims_expired_pending_and_records_failures(avatar_conte
 def test_avatar_cleanup_rechecks_status_after_candidate_selection(
     avatar_context, monkeypatch
 ):
-    actor, store = avatar_context
+    user, store = avatar_context
     asset = AvatarAsset.objects.create(
-        actor=actor,
+        user=user,
         public_id="avt_cleanup_race",
-        object_key="staging/actors/test/avatar-race",
+        object_key="staging/users/test/avatar-race",
         status=AvatarStatus.PENDING,
         expected_content_type="image/png",
         expected_size=1,
@@ -333,10 +333,10 @@ def test_avatar_cleanup_rechecks_status_after_candidate_selection(
 def test_avatar_cleanup_reconciles_crash_between_copy_and_database_promotion(
     avatar_context,
 ):
-    actor, store = avatar_context
+    user, store = avatar_context
     data, content_type = _image()
     prepared = prepare_avatar_upload(
-        actor=actor,
+        user=user,
         content_type=content_type,
         size=len(data),
         sha256=hashlib.sha256(data).hexdigest(),

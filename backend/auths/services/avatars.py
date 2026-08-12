@@ -29,7 +29,7 @@ from auths.exceptions import (
     AvatarStorageUnavailable,
     ValidationError,
 )
-from auths.models import Actor, AvatarAsset, AvatarStatus, UserProfile
+from auths.models import AvatarAsset, AvatarStatus, User, UserProfile
 from auths.storage.avatars import ObjectMetadata, get_avatar_store
 from common.identifiers import new_public_id
 
@@ -76,7 +76,7 @@ def _validate_prepare(
 
 
 def prepare_avatar_upload(
-    *, actor: Actor, content_type: str, size: int, sha256: str
+    *, user: User, content_type: str, size: int, sha256: str
 ) -> PreparedAvatar:
     content_type, size, sha256 = _validate_prepare(content_type, size, sha256)
     store = _store()
@@ -84,11 +84,11 @@ def prepare_avatar_upload(
     expires = now + timedelta(seconds=avatar_url_ttl_seconds())
     asset_id = new_public_id("avt")
     key = (
-        f"{STAGING_PREFIX}actors/{actor.public_id}/avatars/"
+        f"{STAGING_PREFIX}users/{user.public_id}/avatars/"
         f"{asset_id}/{secrets.token_urlsafe(18)}"
     )
     asset = AvatarAsset.objects.create(
-        actor=actor,
+        user=user,
         public_id=asset_id,
         object_key=key,
         status=AvatarStatus.PENDING,
@@ -199,8 +199,8 @@ def _delete_related_objects(object_key: str) -> None:
         store.delete(key=key)
 
 
-def complete_avatar_upload(*, actor: Actor, asset_id: str) -> ReadyAvatar:
-    asset = AvatarAsset.objects.filter(actor=actor, public_id=asset_id).first()
+def complete_avatar_upload(*, user: User, asset_id: str) -> ReadyAvatar:
+    asset = AvatarAsset.objects.filter(user=user, public_id=asset_id).first()
     if asset is None:
         raise AvatarNotFound("avatar is unavailable")
     if asset.status == AvatarStatus.READY:
@@ -210,7 +210,7 @@ def complete_avatar_upload(*, actor: Actor, asset_id: str) -> ReadyAvatar:
     try:
         data, metadata = _read_object(asset)
     except AvatarError:
-        concurrent = AvatarAsset.objects.filter(pk=asset.pk, actor=actor).first()
+        concurrent = AvatarAsset.objects.filter(pk=asset.pk, user=user).first()
         if concurrent is not None and concurrent.status == AvatarStatus.READY:
             return ReadyAvatar(concurrent)
         raise
@@ -225,7 +225,7 @@ def complete_avatar_upload(*, actor: Actor, asset_id: str) -> ReadyAvatar:
     try:
         with transaction.atomic():
             profile, _ = UserProfile.objects.select_for_update().get_or_create(
-                actor=actor, defaults={"display_name": ""}
+                user=user, defaults={"display_name": ""}
             )
             try:
                 locked = AvatarAsset.objects.select_for_update().get(pk=asset.pk)
@@ -233,11 +233,11 @@ def complete_avatar_upload(*, actor: Actor, asset_id: str) -> ReadyAvatar:
                 raise AvatarConflict("avatar state changed") from exc
             if locked.status == AvatarStatus.READY:
                 pass
-            elif locked.status != AvatarStatus.PENDING or locked.actor_id != actor.pk:
+            elif locked.status != AvatarStatus.PENDING or locked.user_id != user.pk:
                 raise AvatarConflict("avatar state changed")
             else:
                 previous = profile.current_avatar
-                if previous is not None and previous.actor_id != actor.pk:
+                if previous is not None and previous.user_id != user.pk:
                     raise AvatarConflict("profile avatar ownership invalid")
                 locked.object_key = verified_key
                 locked.status = AvatarStatus.READY
@@ -293,15 +293,15 @@ def complete_avatar_upload(*, actor: Actor, asset_id: str) -> ReadyAvatar:
     return ReadyAvatar(locked)
 
 
-def signed_avatar_read(*, actor: Actor) -> tuple[str, datetime]:
+def signed_avatar_read(*, user: User) -> tuple[str, datetime]:
     profile = (
-        UserProfile.objects.select_related("current_avatar").filter(actor=actor).first()
+        UserProfile.objects.select_related("current_avatar").filter(user=user).first()
     )
     if (
         not profile
         or not profile.current_avatar
         or profile.current_avatar.status != AvatarStatus.READY
-        or profile.current_avatar.actor_id != actor.pk
+        or profile.current_avatar.user_id != user.pk
     ):
         raise AvatarNotFound("avatar is unavailable")
     try:
@@ -314,17 +314,17 @@ def signed_avatar_read(*, actor: Actor) -> tuple[str, datetime]:
         raise AvatarStorageUnavailable("avatar read unavailable") from exc
 
 
-def delete_current_avatar(actor: Actor) -> None:
+def delete_current_avatar(user: User) -> None:
     with transaction.atomic():
         profile = (
             UserProfile.objects.select_for_update()
             .select_related("current_avatar")
-            .filter(actor=actor)
+            .filter(user=user)
             .first()
         )
         if not profile or profile.current_avatar is None:
             return
-        if profile.current_avatar.actor_id != actor.pk:
+        if profile.current_avatar.user_id != user.pk:
             raise AvatarConflict("profile avatar ownership invalid")
         asset = AvatarAsset.objects.select_for_update().get(
             pk=profile.current_avatar.pk

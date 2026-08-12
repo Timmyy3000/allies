@@ -11,7 +11,7 @@ from auths.api.controllers import _client_identity, _domain_status, _origin_allo
 from auths.exceptions import AvatarConflict, AvatarStorageUnavailable
 from auths.models import ExternalIdentity
 from auths.providers.base import VerifiedIdentity
-from auths.services.accounts import resolve_or_create_actor
+from auths.services.accounts import resolve_or_create_user
 from auths.services.sessions import issue_session
 from auths.storage.avatars import InMemoryAvatarObjectStore, set_avatar_store
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable
@@ -48,13 +48,13 @@ def test_client_identity_only_uses_forwarding_from_trusted_proxy():
 @pytest.mark.django_db
 @override_settings(ALLOWED_HOSTS=["testserver"])
 def test_refresh_throttle_uses_stable_family_across_rotation(monkeypatch):
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="refresh-throttle")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     captured: list[tuple[str, str]] = []
     monkeypatch.setattr(
-        "auths.api.controllers.check_rate_limit",
+        "auths.api.sessions.check_rate_limit",
         lambda **kwargs: captured.append((kwargs["scope"], kwargs["identity"])),
     )
     client = Client(enforce_csrf_checks=True)
@@ -79,10 +79,10 @@ def test_refresh_throttle_uses_stable_family_across_rotation(monkeypatch):
 @pytest.mark.django_db
 @override_settings(ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True, ALLOWED_HOSTS=["testserver"])
 def test_profile_refresh_logout_and_link_error_paths():
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="api-edge")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     client = Client(enforce_csrf_checks=True)
     client.cookies["allies_access"] = issued.access_token
     client.cookies["allies_refresh"] = issued.refresh_token
@@ -114,14 +114,14 @@ def test_profile_refresh_logout_and_link_error_paths():
         HTTP_HOST="testserver",
     )
     assert link.status_code == 200
-    state = parse_qs(urlparse(link.json()["redirect_url"]).query)["state"][0]
+    state = parse_qs(urlparse(link.json()["data"]["redirect_url"]).query)["state"][0]
     callback = client.get(
         "/api/v1/auths/callback/fake",
         {"state": state, "code": "fake:linked"},
         HTTP_HOST="testserver",
     )
     assert callback.status_code == 303
-    assert ExternalIdentity.objects.filter(actor=actor, subject="linked").exists()
+    assert ExternalIdentity.objects.filter(user=user, subject="linked").exists()
     refreshed = client.post(
         "/api/v1/auths/refresh",
         HTTP_X_CSRFTOKEN=csrf,
@@ -141,10 +141,10 @@ def test_profile_refresh_logout_and_link_error_paths():
 @pytest.mark.django_db
 @override_settings(ALLOWED_HOSTS=["testserver"])
 def test_avatar_and_workspace_controller_boundaries():
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="api-avatar")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     client = Client(enforce_csrf_checks=True)
     client.cookies["allies_access"] = issued.access_token
     csrf = _csrf(client)
@@ -165,7 +165,7 @@ def test_avatar_and_workspace_controller_boundaries():
     assert prepare.status_code == 201
     from auths.models import AvatarAsset
 
-    asset = AvatarAsset.objects.get(public_id=prepare.json()["asset_id"])
+    asset = AvatarAsset.objects.get(public_id=prepare.json()["data"]["asset_id"])
     store = InMemoryAvatarObjectStore()
     set_avatar_store(store)
     store.put(asset.object_key, data, "image/png")
@@ -178,7 +178,9 @@ def test_avatar_and_workspace_controller_boundaries():
     )
     assert complete.status_code == 200
     read = client.get("/api/v1/auths/me/avatar/read", HTTP_HOST="testserver")
-    assert read.status_code == 200 and read.json()["url"].startswith("memory://")
+    assert read.status_code == 200 and read.json()["data"]["url"].startswith(
+        "memory://"
+    )
     deleted = client.delete(
         "/api/v1/auths/me/avatar",
         HTTP_X_CSRFTOKEN=csrf,
@@ -186,7 +188,7 @@ def test_avatar_and_workspace_controller_boundaries():
         HTTP_HOST="testserver",
     )
     assert deleted.status_code == 204
-    workspace = actor.owned_workspaces.first()
+    workspace = user.owned_workspaces.first()
     context = client.get(
         f"/api/v1/workspaces/{workspace.public_id}", HTTP_HOST="testserver"
     )
@@ -200,10 +202,10 @@ def test_avatar_and_workspace_controller_boundaries():
 @pytest.mark.django_db
 @override_settings(ALLOWED_HOSTS=["testserver"])
 def test_avatar_controller_normalizes_storage_and_pointer_failures(monkeypatch):
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="api-avatar-outage")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     client = Client(enforce_csrf_checks=True)
     client.cookies["allies_access"] = issued.access_token
     csrf = _csrf(client)
@@ -216,7 +218,7 @@ def test_avatar_controller_normalizes_storage_and_pointer_failures(monkeypatch):
         AvatarStorageUnavailable("R2 unavailable")
     )
 
-    monkeypatch.setattr("auths.api.controllers.prepare_avatar_upload", unavailable)
+    monkeypatch.setattr("auths.api.avatar.prepare_avatar_upload", unavailable)
     prepared = client.post(
         "/api/v1/auths/me/avatar/uploads",
         {"content_type": "image/png", "size": 10, "sha256": "0" * 64},
@@ -225,7 +227,7 @@ def test_avatar_controller_normalizes_storage_and_pointer_failures(monkeypatch):
     )
     assert prepared.status_code == 503
 
-    monkeypatch.setattr("auths.api.controllers.complete_avatar_upload", unavailable)
+    monkeypatch.setattr("auths.api.avatar.complete_avatar_upload", unavailable)
     completed = client.post(
         "/api/v1/auths/me/avatar/avt_missing/complete",
         content_type="application/json",
@@ -233,15 +235,15 @@ def test_avatar_controller_normalizes_storage_and_pointer_failures(monkeypatch):
     )
     assert completed.status_code == 503
 
-    monkeypatch.setattr("auths.api.controllers.signed_avatar_read", unavailable)
+    monkeypatch.setattr("auths.api.avatar.signed_avatar_read", unavailable)
     assert (
         client.get("/api/v1/auths/me/avatar/read", HTTP_HOST="testserver").status_code
         == 503
     )
 
     monkeypatch.setattr(
-        "auths.api.controllers.delete_current_avatar",
-        lambda actor: (_ for _ in ()).throw(AvatarConflict("invalid pointer")),
+        "auths.api.avatar.delete_current_avatar",
+        lambda user: (_ for _ in ()).throw(AvatarConflict("invalid pointer")),
     )
     deleted = client.delete("/api/v1/auths/me/avatar", **request_headers)
     assert deleted.status_code == 409
@@ -262,7 +264,7 @@ def test_controller_origin_provider_callback_and_throttle_failures(monkeypatch):
     )
     assert rejected.status_code == 403
     monkeypatch.setattr(
-        "auths.api.controllers.check_rate_limit",
+        "auths.api.authentication.check_rate_limit",
         lambda **kwargs: (_ for _ in ()).throw(ThrottleExceeded()),
     )
     throttled = client.post(
@@ -275,7 +277,7 @@ def test_controller_origin_provider_callback_and_throttle_failures(monkeypatch):
     )
     assert throttled.status_code == 429
     monkeypatch.setattr(
-        "auths.api.controllers.check_rate_limit",
+        "auths.api.authentication.check_rate_limit",
         lambda **kwargs: (_ for _ in ()).throw(ThrottleUnavailable()),
     )
     unavailable = client.post(
@@ -292,10 +294,10 @@ def test_controller_origin_provider_callback_and_throttle_failures(monkeypatch):
 @pytest.mark.django_db
 @override_settings(ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True, ALLOWED_HOSTS=["testserver"])
 def test_all_mutating_routes_reject_missing_origin_and_referer():
-    actor = resolve_or_create_actor(
+    user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="missing-origin")
-    ).actor
-    issued = issue_session(actor)
+    ).user
+    issued = issue_session(user)
     client = Client(enforce_csrf_checks=True)
     client.cookies["allies_access"] = issued.access_token
     client.cookies["allies_refresh"] = issued.refresh_token
@@ -352,7 +354,7 @@ def test_callback_provider_failure_redirects_without_reusing_state():
         HTTP_ORIGIN="http://localhost:3000",
         HTTP_HOST="testserver",
     )
-    state = parse_qs(urlparse(start.json()["redirect_url"]).query)["state"][0]
+    state = parse_qs(urlparse(start.json()["data"]["redirect_url"]).query)["state"][0]
     failed = client.get(
         "/api/v1/auths/callback/fake",
         {"state": state, "code": "bad-code"},

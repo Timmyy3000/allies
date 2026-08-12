@@ -39,23 +39,23 @@ class AvatarStatus(models.TextChoices):
     REJECTED = "rejected", "Rejected"
 
 
-class ActorManager(BaseUserManager["Actor"]):
+class UserManager(BaseUserManager["User"]):
     use_in_migrations = True
 
     def _create(self, *, is_staff: bool, is_superuser: bool, **extra_fields):
-        actor = self.model(
-            public_id=extra_fields.pop("public_id", new_public_id("act")),
+        user = self.model(
+            public_id=extra_fields.pop("public_id", new_public_id("usr")),
             is_staff=is_staff,
             is_superuser=is_superuser,
             **extra_fields,
         )
-        actor.set_unusable_password()
-        actor.save(using=self._db)
-        return actor
+        user.set_unusable_password()
+        user.save(using=self._db)
+        return user
 
     def create_user(self, public_id: str | None = None, **extra_fields):
         return self._create(
-            public_id=public_id or new_public_id("act"),
+            public_id=public_id or new_public_id("usr"),
             is_staff=False,
             is_superuser=False,
             **extra_fields,
@@ -63,14 +63,14 @@ class ActorManager(BaseUserManager["Actor"]):
 
     def create_superuser(self, public_id: str | None = None, **extra_fields):
         return self._create(
-            public_id=public_id or new_public_id("act"),
+            public_id=public_id or new_public_id("usr"),
             is_staff=True,
             is_superuser=True,
             **extra_fields,
         )
 
 
-class Actor(AbstractBaseUser, PermissionsMixin):
+class User(AbstractBaseUser, PermissionsMixin):
     """The sole Cloud principal.
 
     ``public_id`` is the only user identifier exposed to product clients.  No
@@ -83,7 +83,7 @@ class Actor(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now, editable=False)
 
-    objects = ActorManager()
+    objects = UserManager()
 
     USERNAME_FIELD = "public_id"
     REQUIRED_FIELDS: list[str] = []
@@ -91,9 +91,7 @@ class Actor(AbstractBaseUser, PermissionsMixin):
     class Meta:
         ordering = ("public_id",)
         indexes = [
-            models.Index(
-                fields=("is_active", "public_id"), name="auth_actor_active_idx"
-            )
+            models.Index(fields=("is_active", "public_id"), name="auth_user_active_idx")
         ]
 
     def __str__(self) -> str:
@@ -101,8 +99,8 @@ class Actor(AbstractBaseUser, PermissionsMixin):
 
 
 class ExternalIdentity(models.Model):
-    actor = models.ForeignKey(
-        Actor, on_delete=models.CASCADE, related_name="external_identities"
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="external_identities"
     )
     provider = models.CharField(max_length=32, choices=Provider.choices)
     subject = models.CharField(max_length=255)
@@ -121,7 +119,7 @@ class ExternalIdentity(models.Model):
         ]
         indexes = [
             models.Index(
-                fields=("actor", "provider"), name="auth_identity_actor_prov_idx"
+                fields=("user", "provider"), name="auth_identity_user_prov_idx"
             )
         ]
 
@@ -130,9 +128,7 @@ class ExternalIdentity(models.Model):
 
 
 class UserProfile(models.Model):
-    actor = models.OneToOneField(
-        Actor, on_delete=models.CASCADE, related_name="profile"
-    )
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     display_name = models.CharField(max_length=80, blank=True)
     current_avatar = models.ForeignKey(
         "AvatarAsset",
@@ -161,8 +157,8 @@ class AuthFlow(models.Model):
     purpose = models.CharField(max_length=16, choices=FlowPurpose.choices)
     redirect_to = models.CharField(max_length=500)
     callback_uri = models.CharField(max_length=500)
-    actor = models.ForeignKey(
-        Actor,
+    user = models.ForeignKey(
+        User,
         null=True,
         blank=True,
         on_delete=models.CASCADE,
@@ -187,13 +183,13 @@ class AuthFlow(models.Model):
             models.CheckConstraint(
                 condition=(
                     Q(
+                        user__isnull=True,
                         purpose=FlowPurpose.SIGN_IN,
-                        actor__isnull=True,
                         session_family__isnull=True,
                     )
                     | Q(
+                        user__isnull=False,
                         purpose=FlowPurpose.LINK,
-                        actor__isnull=False,
                         session_family__isnull=False,
                     )
                 ),
@@ -209,8 +205,8 @@ class AuthFlow(models.Model):
 
 
 class SessionFamily(models.Model):
-    actor = models.ForeignKey(
-        Actor, on_delete=models.CASCADE, related_name="session_families"
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="session_families"
     )
     public_id = models.CharField(max_length=40, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -222,7 +218,7 @@ class SessionFamily(models.Model):
 
     class Meta:
         indexes = [
-            models.Index(fields=("actor",), name="auth_family_actor_idx"),
+            models.Index(fields=("user",), name="auth_family_user_idx"),
             models.Index(
                 fields=("revoked_at", "absolute_expires_at", "idle_expires_at"),
                 name="auth_family_state_idx",
@@ -238,7 +234,7 @@ class SessionFamily(models.Model):
             self.revoked_at is None
             and self.absolute_expires_at > now
             and self.idle_expires_at > now
-            and self.actor.is_active
+            and self.user.is_active
         )
 
 
@@ -267,8 +263,8 @@ class RefreshToken(models.Model):
 
 
 class AvatarAsset(models.Model):
-    actor = models.ForeignKey(
-        Actor, on_delete=models.CASCADE, related_name="avatar_assets"
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="avatar_assets"
     )
     public_id = models.CharField(max_length=40, unique=True, editable=False)
     object_key = models.CharField(max_length=500, unique=True, editable=False)
@@ -292,7 +288,7 @@ class AvatarAsset(models.Model):
     class Meta:
         indexes = [
             models.Index(
-                fields=("actor", "created_at"), name="auth_avatar_actor_created_idx"
+                fields=("user", "created_at"), name="auth_avatar_user_created_idx"
             )
         ]
         constraints = [

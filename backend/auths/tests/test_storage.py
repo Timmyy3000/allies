@@ -8,21 +8,21 @@ from auths.storage.avatars import Boto3AvatarObjectStore, InMemoryAvatarObjectSt
 
 def test_in_memory_avatar_store_is_private_and_bounded():
     store = InMemoryAvatarObjectStore()
-    store.put("actors/a/key", b"bytes", "image/png")
-    metadata = store.head(key="actors/a/key")
+    store.put("users/a/key", b"bytes", "image/png")
+    metadata = store.head(key="users/a/key")
     assert metadata.size == 5
-    assert b"".join(store.stream_get(key="actors/a/key", max_bytes=5)) == b"bytes"
+    assert b"".join(store.stream_get(key="users/a/key", max_bytes=5)) == b"bytes"
     with pytest.raises(ValueError):
-        list(store.stream_get(key="actors/a/key", max_bytes=4))
+        list(store.stream_get(key="users/a/key", max_bytes=4))
     put_url, headers = store.sign_put(
-        key="actors/a/new", content_type="image/png", size=5, expires_in=30
+        key="users/a/new", content_type="image/png", size=5, expires_in=30
     )
     assert put_url.startswith("memory://put/") and headers["Content-Length"] == "5"
-    get_url, expires = store.sign_get(key="actors/a/key", expires_in=30)
+    get_url, expires = store.sign_get(key="users/a/key", expires_in=30)
     assert get_url.startswith("memory://get/") and isinstance(expires, datetime)
-    store.delete(key="actors/a/key")
+    store.delete(key="users/a/key")
     with pytest.raises(KeyError):
-        store.head(key="actors/a/key")
+        store.head(key="users/a/key")
 
 
 @pytest.mark.parametrize("method", ["head", "stream_get"])
