@@ -141,7 +141,7 @@ uv run python manage.py migrate --noinput
 Web start, from `backend/`:
 
 ```text
-uv run python manage.py collectstatic --noinput && uv run gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --worker-class gthread --workers ${WEB_CONCURRENCY:-2} --threads ${WEB_THREADS:-4} --timeout ${WEB_TIMEOUT:-120} --graceful-timeout ${WEB_GRACEFUL_TIMEOUT:-10} --max-requests ${WEB_MAX_REQUESTS:-1000} --max-requests-jitter ${WEB_MAX_REQUESTS_JITTER:-100} --access-logfile - --error-logfile - --capture-output
+uv run python manage.py collectstatic --noinput && uv run gunicorn config.wsgi:application --bind 0.0.0.0:${PORT:-8000} --worker-class gthread --workers ${WEB_CONCURRENCY:-2} --threads ${WEB_THREADS:-4} --timeout ${WEB_TIMEOUT:-120} --graceful-timeout ${WEB_GRACEFUL_TIMEOUT:-10} --max-requests ${WEB_MAX_REQUESTS:-1000} --max-requests-jitter ${WEB_MAX_REQUESTS_JITTER:-100} --access-logfile - --access-logformat '%(h)s %(l)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s "%(f)s" "%(a)s"' --error-logfile - --capture-output
 ```
 
 Worker start, from `backend/`:
@@ -239,7 +239,7 @@ The generated public domain reaches the application through Railway's managed HT
 
 ### Query optimization plan
 
-- The health probe performs one `SELECT 1` and one cache set/get round trip with a unique five-second probe key, a two-second operation budget that must remain below the five-second total endpoint budget, and per-operation timeouts derived from the remaining deadline. It does not query product tables or delete a shared key, avoiding concurrent probe races. A process-local one-second result gate bounds connection churn after the direct-mode prefix throttle.
+- The health probe performs one `SELECT 1` and one cache set/get round trip with a unique five-second probe key, a two-second operation budget that must remain below the five-second total endpoint budget, and per-operation timeouts derived from the remaining deadline. It does not query product tables or delete a shared key, avoiding concurrent probe races. The health Redis cache keeps Django's binary serializer and must not enable `decode_responses`, because the probe sentinel is serialized before it is written to Redis. Direct-mode throttling reuses one worker-scoped Redis client with bounded health-operation socket timeouts, and a process-local one-second result gate bounds connection churn after the prefix throttle.
 - Railway's shared edge peer address is never used as a global auth throttle bucket: sign-in and IP-level refresh admission use a server-issued, signed HttpOnly browser cookie as the fairness key when Railway mode is enabled, while requests without a valid binding use a bounded process-local bootstrap bucket (30-admission burst, refilling at one admission per second). Deleting and reissuing the cookie cannot create unbounded auth work. Session, refresh-family, and user-specific limits remain unchanged. Any unavailable health throttle/cache and database failure use the same neutral `service_unavailable` response.
 - Cleanup retains the existing batch maximum of 100 and ordered indexed queries. Extraction into a service must not add per-record database queries.
 - No response endpoint gains relation traversal or list behavior, so no new N+1 path is expected.

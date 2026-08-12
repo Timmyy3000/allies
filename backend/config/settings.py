@@ -376,11 +376,14 @@ CACHES = {
     else {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"}
 }
 if CACHE_URL:
+    # RedisCache serializes values with Django's binary serializer by default;
+    # enabling redis-py's response decoding would corrupt those values before
+    # Django can deserialize them.
     CACHES["health"] = {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": CACHE_URL,
         "OPTIONS": {
-            "decode_responses": True,
+            "decode_responses": False,
             "socket_connect_timeout": HEALTH_CACHE_OPERATION_TIMEOUT_SECONDS,
             "socket_timeout": HEALTH_CACHE_OPERATION_TIMEOUT_SECONDS,
         },
