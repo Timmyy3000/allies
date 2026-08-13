@@ -27,6 +27,7 @@ def run_settings_probe(**overrides):
         "DJANGO_DEBUG",
         "DJANGO_SECRET_KEY",
         "DJANGO_TRUST_PROXY_HEADERS",
+        "DJANGO_TRUSTED_PROXY_IPS",
         "RAILWAY_PUBLIC_DOMAIN",
     ):
         environment.pop(name, None)
@@ -78,6 +79,54 @@ def test_production_mode_requires_database_url():
     assert "DATABASE_URL is required" in result.stderr
 
 
+def test_proxy_header_trust_requires_explicit_proxy_networks():
+    result = run_settings_probe(
+        DJANGO_DEBUG="false",
+        DJANGO_SECRET_KEY="synthetic-test-secret",
+        DJANGO_ALLOWED_HOSTS="localhost",
+        DATABASE_URL="sqlite:///test-production.sqlite3",
+        DJANGO_TRUST_PROXY_HEADERS="true",
+    )
+
+    assert result.returncode != 0
+    assert "DJANGO_TRUSTED_PROXY_IPS is required" in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("trusted_proxy_ips", "error_message"),
+    [
+        ("100.64.0.5/10", "invalid IP network"),
+        ("0.0.0.0/0", "must not contain a catch-all network"),
+        ("::/0", "must not contain a catch-all network"),
+    ],
+)
+def test_proxy_header_trust_rejects_unsafe_networks(trusted_proxy_ips, error_message):
+    result = run_settings_probe(
+        DJANGO_DEBUG="false",
+        DJANGO_SECRET_KEY="synthetic-test-secret",
+        DJANGO_ALLOWED_HOSTS="localhost",
+        DATABASE_URL="sqlite:///test-production.sqlite3",
+        DJANGO_TRUST_PROXY_HEADERS="true",
+        DJANGO_TRUSTED_PROXY_IPS=trusted_proxy_ips,
+    )
+
+    assert result.returncode != 0
+    assert error_message in result.stderr
+
+
+def test_proxy_networks_are_ignored_when_proxy_trust_is_disabled():
+    result = run_settings_probe(
+        DJANGO_DEBUG="false",
+        DJANGO_SECRET_KEY="synthetic-test-secret",
+        DJANGO_ALLOWED_HOSTS="localhost",
+        DATABASE_URL="sqlite:///test-production.sqlite3",
+        DJANGO_TRUSTED_PROXY_IPS="not-an-ip-network",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "None" in result.stdout
+
+
 def test_production_mode_requires_allowed_host():
     result = run_settings_probe(
         DJANGO_DEBUG="false",
@@ -103,6 +152,7 @@ def test_production_mode_accepts_explicit_database(database_url, engine):
         DJANGO_ALLOWED_HOSTS="localhost",
         DATABASE_URL=database_url,
         DJANGO_TRUST_PROXY_HEADERS="true",
+        DJANGO_TRUSTED_PROXY_IPS="127.0.0.1/32",
     )
 
     assert result.returncode == 0, result.stderr
