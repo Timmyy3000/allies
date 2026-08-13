@@ -69,9 +69,27 @@ The current baseline is:
 - file-based routing through the Next.js App Router and Expo Router;
 - root scripts for web development, mobile development, linting, and the web build.
 
-The repository does not yet have a feature directory, API client, component library,
-state library, or test suite. Introduce these structures when a real feature needs
-them. Do not copy them from a generic starter architecture.
+The repository now has a pinned Cloud contract, a small typed Cloud client package,
+TanStack Query providers, validated public environment boundaries, and a focused
+Vitest suite. It does not yet have a feature directory, component library, Zustand
+store, or feature UI. Introduce those structures only when a real feature needs
+them; do not copy them from a generic starter architecture.
+
+### Application foundation
+
+- `@allies/cloud-client` owns generated wire types, bounded request handling,
+  selected runtime validation, safe errors, and DTO-to-view-model mapping.
+- TanStack Query owns Cloud/server state in both applications. Eligible
+  idempotent reads retry once; mutations and authentication failures do not retry
+  automatically.
+- Web sessions use Cloud cookies and the readable `csrf_token` only through the
+  browser request adapter. HttpOnly credentials never enter application state.
+- Mobile exposes an explicit unavailable session until AUTH-002 is published. It
+  does not emulate the web cookie session.
+- React owns local interaction state. Add Zustand only when a concrete
+  cross-screen workflow demonstrates the need; never store credentials or copy
+  Query data into it.
+- Next.js App Router and Expo Router remain the platform navigation authorities.
 
 ## Product and system boundaries
 
