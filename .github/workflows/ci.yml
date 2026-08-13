@@ -75,6 +75,7 @@ jobs:
           DJANGO_SECRET_KEY: ci-only-production-check
           DJANGO_ALLOWED_HOSTS: localhost
           DJANGO_TRUST_PROXY_HEADERS: "true"
+          DJANGO_TRUSTED_PROXY_IPS: "127.0.0.1/32"
           # A non-routable URL exercises dj-database-url's PostgreSQL path
           # without requiring a live service for this settings/static check.
           DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/foundry

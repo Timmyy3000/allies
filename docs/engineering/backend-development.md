@@ -534,15 +534,25 @@ make server
 Deployments must set `DJANGO_DEBUG=false`, `DJANGO_SECRET_KEY`, and
 `DATABASE_URL` through the platform's secret/environment configuration. Set
 `DJANGO_ALLOWED_HOSTS` (or provide Railway's `RAILWAY_PUBLIC_DOMAIN`) and opt
-into trusted proxy headers with `DJANGO_TRUST_PROXY_HEADERS=true` only when a
-TLS-terminating proxy strips and rewrites `X-Forwarded-Proto`. In that mode,
-the backend also redirects HTTP requests to HTTPS and enables one-year HSTS;
-leave the flag off for direct/local deployments that do not have that proxy
-guarantee.
+into trusted proxy headers only when a TLS-terminating proxy strips and rewrites
+`X-Forwarded-Proto`:
+
+```text
+DJANGO_TRUST_PROXY_HEADERS=true
+DJANGO_TRUSTED_PROXY_IPS=192.0.2.10/32,2001:db8:1234::/48
+```
+
+`DJANGO_TRUSTED_PROXY_IPS` is a comma-separated list of the proxy's IPv4/IPv6
+addresses or CIDR networks. Foundry removes `X-Forwarded-Proto` before Django's
+security middleware when the connection does not come from one of those
+networks, so a direct app connection cannot spoof HTTPS. Enabling
+`DJANGO_TRUST_PROXY_HEADERS` without an explicit allowlist fails configuration
+validation. In trusted-proxy mode, the backend redirects HTTP requests to HTTPS
+and enables one-year HSTS; leave both settings off for direct/local deployments.
 
 ## Health endpoint
 
-`GET /healthz` is the public Railway liveness/readiness contract. It requires
+`GET /healthz` is the public liveness/readiness contract. It requires
 no authentication and returns `{"status": "ok"}` with HTTP 200 after a
 successful database probe, or `{"status": "unavailable"}` with HTTP 503 when
 the database probe fails or is still unavailable. PostgreSQL's first request

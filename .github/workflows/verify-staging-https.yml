@@ -1,0 +1,68 @@
+name: Verify Staging HTTPS
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Public HTTPS base URL for the staging service"
+        required: false
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: staging-https-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Public HTTPS healthcheck
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      BASE_URL: ${{ inputs.base_url || vars.STAGING_URL }}
+    steps:
+      - name: Check public HTTPS readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_url="${BASE_URL%/}"
+          [[ -n "$base_url" ]] || {
+            echo "STAGING_URL is required for push-triggered verification; provide base_url for manual dispatch" >&2
+            exit 1
+          }
+          [[ "$base_url" =~ ^https://([A-Za-z0-9.-]+|\[[0-9A-Fa-f:.]+\])(:[0-9]+)?$ ]] || {
+            echo "BASE_URL must be an https:// hostname or IPv6 literal with an optional port" >&2
+            exit 1
+          }
+
+          echo "::add-mask::${base_url}"
+          http_base="${base_url#https://}"
+          http_url="http://${http_base}/healthz"
+          echo "::add-mask::${http_url}"
+
+          for attempt in $(seq 1 30); do
+            result=$(curl --silent --max-time 10 --location --max-redirs 3 \
+              --output response.json \
+              --write-out '%{http_code} %{num_redirects} %{url_effective}' \
+              "$http_url" || true)
+            status="${result%% *}"
+            remaining="${result#* }"
+            redirect_count="${remaining%% *}"
+            effective_url="${remaining#* }"
+            if [[ "$status" == "200" && "$redirect_count" =~ ^[1-9][0-9]*$ \
+              && "$effective_url" == "${base_url}/healthz" ]] \
+              && jq -e '.status == "ok"' response.json >/dev/null 2>&1; then
+              echo "Public HTTPS readiness and HTTP redirect passed on attempt ${attempt}."
+              exit 0
+            fi
+            echo "Attempt ${attempt}/30 did not meet public HTTPS readiness; retrying..."
+            sleep 10
+          done
+
+          echo "Public HTTPS readiness failed after 30 attempts." >&2
+          exit 1

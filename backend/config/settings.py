@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 
 import os
 import secrets
+from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
 
 import dj_database_url
@@ -33,6 +34,21 @@ def env_bool(name: str, *, default: bool) -> bool:
 
 def env_list(name: str, *, default: str = "") -> list[str]:
     return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+
+
+def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
+    networks = []
+    for value in env_list(name):
+        try:
+            network = ip_network(value, strict=True)
+        except ValueError as error:
+            raise ImproperlyConfigured(
+                f"{name} contains an invalid IP network: {value}"
+            ) from error
+        if network.prefixlen == 0:
+            raise ImproperlyConfigured(f"{name} must not contain a catch-all network")
+        networks.append(network)
+    return tuple(networks)
 
 
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
@@ -69,6 +85,13 @@ if railway_public_domain:
         CSRF_TRUSTED_ORIGINS.append(railway_origin)
 
 TRUST_PROXY_HEADERS = env_bool("DJANGO_TRUST_PROXY_HEADERS", default=False)
+TRUSTED_PROXY_NETWORKS = (
+    env_networks("DJANGO_TRUSTED_PROXY_IPS") if TRUST_PROXY_HEADERS else ()
+)
+if TRUST_PROXY_HEADERS and not TRUSTED_PROXY_NETWORKS:
+    raise ImproperlyConfigured(
+        "DJANGO_TRUSTED_PROXY_IPS is required when DJANGO_TRUST_PROXY_HEADERS is true"
+    )
 
 
 # Application definition
@@ -85,7 +108,8 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
-    "config.security.RailwayHealthcheckSecurityMiddleware",
+    "config.middleware.TrustedProxyHeadersMiddleware",
+    "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
