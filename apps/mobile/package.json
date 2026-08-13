@@ -3,6 +3,8 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "dependencies": {
+    "@allies/cloud-client": "workspace:*",
+    "@tanstack/react-query": "^5.85.5",
     "@expo/ui": "~57.0.8",
     "expo": "~57.0.9",
     "expo-constants": "~57.0.8",
@@ -38,7 +40,9 @@
     "android": "expo start --android",
     "ios": "expo start --ios",
     "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "typecheck": "tsc --noEmit",
+    "export:ios": "expo export --platform ios --output-dir dist/ios"
   },
   "private": true
 }
