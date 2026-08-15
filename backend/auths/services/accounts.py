@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from auths.models import ExternalIdentity, User, UserProfile
 from auths.providers.base import VerifiedIdentity
@@ -57,6 +58,15 @@ def resolve_or_create_user(identity: VerifiedIdentity) -> UserBootstrap:
                         subject=identity.subject,
                         issuer=identity.issuer[:255],
                         email_snapshot=identity.email[:254],
+                        email_verified=identity.email_verified,
+                        email_verified_at=timezone.now()
+                        if identity.email_verified
+                        else None,
+                        email_verification_source=(
+                            identity.email_verification_source[:32]
+                            if identity.email_verified
+                            else ""
+                        ),
                         display_name_snapshot=_safe_display_name(identity.display_name),
                     )
                     created = True
@@ -82,5 +92,21 @@ def resolve_or_create_user(identity: VerifiedIdentity) -> UserBootstrap:
         if not profile.display_name and identity.display_name:
             profile.display_name = _safe_display_name(identity.display_name)
             profile.save(update_fields=("display_name", "updated_at"))
+        if identity.email_verified and identity.email:
+            # A fresh allowlisted assertion can refresh durable verification
+            # provenance without making email equality an account key.
+            existing.email_snapshot = identity.email[:254]
+            existing.email_verified = True
+            existing.email_verified_at = timezone.now()
+            existing.email_verification_source = identity.email_verification_source[:32]
+            existing.save(
+                update_fields=(
+                    "email_snapshot",
+                    "email_verified",
+                    "email_verified_at",
+                    "email_verification_source",
+                    "updated_at",
+                )
+            )
         workspace = ensure_personal_workspace(user)
         return UserBootstrap(user, existing, profile, workspace, created)
