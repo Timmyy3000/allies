@@ -1,0 +1,35 @@
+{
+  "source": "/Users/danielayandiran/Documents/codes/allies/apps/web/app/(onboarding)/_components/index-ref.html",
+  "frame_style_snip": null,
+  "image_count": 3,
+  "images": [
+    {
+      "index": 0,
+      "alt": "image 3",
+      "filename": "01-image-3.png",
+      "bytes": 3245,
+      "path": "/Users/danielayandiran/Documents/codes/allies/apps/web/app/(onboarding)/_components/_images/from-html/01-image-3.png"
+    },
+    {
+      "index": 1,
+      "alt": "image 3",
+      "filename": "02-image-3.png",
+      "bytes": 3245,
+      "path": "/Users/danielayandiran/Documents/codes/allies/apps/web/app/(onboarding)/_components/_images/from-html/02-image-3.png"
+    },
+    {
+      "index": 2,
+      "alt": "image 4",
+      "filename": "03-image-4.png",
+      "bytes": 2765,
+      "path": "/Users/danielayandiran/Documents/codes/allies/apps/web/app/(onboarding)/_components/_images/from-html/03-image-4.png"
+    }
+  ],
+  "top_level_children": [],
+  "texts": [],
+  "bans": [
+    "Do not use dangerouslySetInnerHTML for this design",
+    "Do not invent padding or substitute images",
+    "Convert every visible node to JSX"
+  ]
+}

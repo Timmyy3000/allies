@@ -35,4 +35,20 @@ describe("normalizeCloudError", () => {
     expect(error.fieldIssues).toEqual([{ field: "display_name", message: "Required" }]);
     expect(JSON.stringify(error)).not.toContain("secret");
   });
+
+  it("preserves the safe validation reason code", () => {
+    const error = normalizeCloudError(422, {
+      status: "error",
+      message: "Invalid",
+      data: {
+        code: "validation_error",
+        details: {
+          errors: [{ field: "email", code: "invalid_email", internal: "secret" }],
+        },
+      },
+    });
+
+    expect(error.fieldIssues).toEqual([{ field: "email", code: "invalid_email" }]);
+    expect(JSON.stringify(error)).not.toContain("internal");
+  });
 });

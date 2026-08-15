@@ -502,6 +502,121 @@
         "title": "SuccessResponse[ProfileResponse]",
         "type": "object"
       },
+      "SuccessResponse_WaitlistAcknowledgement_": {
+        "example": {
+          "data": {
+            "operation": "configure",
+            "result_lifecycle": "ready_for_greeting",
+            "result_revision": 2
+          },
+          "message": "Waitlist updated",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WaitlistAcknowledgement"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[WaitlistAcknowledgement]",
+        "type": "object"
+      },
+      "SuccessResponse_WaitlistJoinConfirmation_": {
+        "example": {
+          "data": {
+            "email": "a***@example.com",
+            "operation": "join",
+            "result_lifecycle": "pending_claim",
+            "result_revision": 6
+          },
+          "message": "Waitlist joined",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WaitlistJoinConfirmation"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[WaitlistJoinConfirmation]",
+        "type": "object"
+      },
+      "SuccessResponse_WaitlistSnapshot_": {
+        "example": {
+          "data": {
+            "configuration": {
+              "appearance_catalog_version": "v1",
+              "appearance_key": "calm-blue",
+              "job": "Planning",
+              "name": "Ari",
+              "personality": "Warm and concise"
+            },
+            "greeting": null,
+            "id": "wld_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+            "join": null,
+            "lifecycle": "ready_for_greeting",
+            "reply": null,
+            "revision": 2,
+            "timestamps": {
+              "created_at": "2026-08-14T12:00:00Z",
+              "expires_at": "2026-08-21T12:00:00Z",
+              "generated_at": null,
+              "joined_at": null,
+              "replied_at": null,
+              "updated_at": "2026-08-14T12:00:00Z"
+            }
+          },
+          "message": "Waitlist draft restored",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WaitlistSnapshot"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[WaitlistSnapshot]",
+        "type": "object"
+      },
       "SuccessResponse_WorkspaceContextResponse_": {
         "example": {
           "data": {
@@ -553,6 +668,283 @@
           "id"
         ],
         "title": "UserResponse",
+        "type": "object"
+      },
+      "WaitlistAcknowledgement": {
+        "properties": {
+          "operation": {
+            "title": "Operation",
+            "type": "string"
+          },
+          "result_lifecycle": {
+            "title": "Result Lifecycle",
+            "type": "string"
+          },
+          "result_revision": {
+            "title": "Result Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operation",
+          "result_revision",
+          "result_lifecycle"
+        ],
+        "title": "WaitlistAcknowledgement",
+        "type": "object"
+      },
+      "WaitlistConfigurationRequest": {
+        "properties": {
+          "appearance_catalog_version": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appearance Catalog Version"
+          },
+          "appearance_key": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Appearance Key"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "personality": {
+            "anyOf": [
+              {
+                "maxLength": 1200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Personality"
+          },
+          "revision": {
+            "exclusiveMinimum": 0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "title": "WaitlistConfigurationRequest",
+        "type": "object"
+      },
+      "WaitlistGreetingRequest": {
+        "properties": {
+          "revision": {
+            "exclusiveMinimum": 0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "title": "WaitlistGreetingRequest",
+        "type": "object"
+      },
+      "WaitlistJoinConfirmation": {
+        "properties": {
+          "email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Email"
+          },
+          "operation": {
+            "title": "Operation",
+            "type": "string"
+          },
+          "result_lifecycle": {
+            "title": "Result Lifecycle",
+            "type": "string"
+          },
+          "result_revision": {
+            "title": "Result Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "operation",
+          "result_revision",
+          "result_lifecycle"
+        ],
+        "title": "WaitlistJoinConfirmation",
+        "type": "object"
+      },
+      "WaitlistJoinRequest": {
+        "properties": {
+          "consent_version": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Consent Version",
+            "type": "string"
+          },
+          "email": {
+            "maxLength": 254,
+            "minLength": 3,
+            "title": "Email",
+            "type": "string"
+          },
+          "revision": {
+            "exclusiveMinimum": 0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision",
+          "email",
+          "consent_version"
+        ],
+        "title": "WaitlistJoinRequest",
+        "type": "object"
+      },
+      "WaitlistReplyRequest": {
+        "properties": {
+          "revision": {
+            "exclusiveMinimum": 0,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "text": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "text"
+        ],
+        "title": "WaitlistReplyRequest",
+        "type": "object"
+      },
+      "WaitlistSnapshot": {
+        "properties": {
+          "configuration": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Configuration",
+            "type": "object"
+          },
+          "greeting": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Greeting"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "join": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Join"
+          },
+          "lifecycle": {
+            "title": "Lifecycle",
+            "type": "string"
+          },
+          "reply": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reply"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "timestamps": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Timestamps",
+            "type": "object"
+          }
+        },
+        "required": [
+          "id",
+          "revision",
+          "lifecycle",
+          "configuration",
+          "timestamps"
+        ],
+        "title": "WaitlistSnapshot",
         "type": "object"
       },
       "WorkspaceContextResponse": {
@@ -617,6 +1009,14 @@
         "title": "WorkspaceResponse",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "WaitlistCapability": {
+        "description": "HttpOnly browser capability issued by GET /waitlist/session.",
+        "in": "cookie",
+        "name": "allies_waitlist_capability",
+        "type": "apiKey"
+      }
     }
   },
   "info": {
@@ -628,7 +1028,7 @@
   "paths": {
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_4d23c549",
+        "operationId": "authentication_callback_a13c0181",
         "parameters": [
           {
             "in": "path",
@@ -733,7 +1133,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_87c09260",
+        "operationId": "authentication_csrf_9ea1485d",
         "parameters": [],
         "responses": {
           "204": {
@@ -763,7 +1163,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_0563ecef",
+        "operationId": "identity_link_16491f06",
         "parameters": [
           {
             "in": "path",
@@ -940,7 +1340,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_127341a3",
+        "operationId": "session_logout_627fb876",
         "parameters": [],
         "responses": {
           "204": {
@@ -985,7 +1385,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_6664e859",
+        "operationId": "profile_me_2572aa6d",
         "parameters": [],
         "responses": {
           "200": {
@@ -1037,7 +1437,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_4198c0f1",
+        "operationId": "avatar_delete_2ade750a",
         "parameters": [],
         "responses": {
           "204": {
@@ -1142,7 +1542,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_dcf0b4b9",
+        "operationId": "avatar_complete_ffee4a90",
         "parameters": [
           {
             "in": "path",
@@ -1294,7 +1694,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_2b0cb9a2",
+        "operationId": "avatar_read_c90b2197",
         "parameters": [],
         "responses": {
           "200": {
@@ -1376,7 +1776,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_bc70572a",
+        "operationId": "avatar_prepare_2425b661",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -1513,7 +1913,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_190cdd6b",
+        "operationId": "profile_profile_15e818e1",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -1620,7 +2020,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_335a5d1b",
+        "operationId": "session_refresh_6acf2386",
         "parameters": [],
         "responses": {
           "204": {
@@ -1710,7 +2110,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_66934997",
+        "operationId": "authentication_sign_in_2a377af8",
         "parameters": [
           {
             "in": "path",
@@ -1857,7 +2257,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_e85a23e9",
+        "operationId": "health_health_0833fb9a",
         "parameters": [],
         "responses": {
           "200": {
@@ -1907,9 +2307,1509 @@
         ]
       }
     },
+    "/api/v1/waitlist/draft": {
+      "get": {
+        "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
+        "operationId": "waitlist_restore_73ed29f0",
+        "parameters": [
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_WaitlistSnapshot_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "origin_rejected": {
+                    "summary": "origin rejected",
+                    "value": {
+                      "data": {
+                        "code": "origin_rejected"
+                      },
+                      "message": "origin rejected",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_draft_unavailable": {
+                    "summary": "waitlist draft unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_draft_unavailable"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "throttled": {
+                    "summary": "throttled",
+                    "value": {
+                      "data": {
+                        "code": "throttled"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_unavailable": {
+                    "summary": "waitlist unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_unavailable"
+                      },
+                      "message": "waitlist unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "WaitlistCapability": []
+          }
+        ],
+        "summary": "Restore",
+        "tags": [
+          "Waitlist"
+        ]
+      },
+      "post": {
+        "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
+        "operationId": "waitlist_create_273618b3",
+        "parameters": [
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_WaitlistAcknowledgement_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "csrf_rejected": {
+                    "summary": "csrf rejected",
+                    "value": {
+                      "data": {
+                        "code": "csrf_rejected"
+                      },
+                      "message": "csrf rejected",
+                      "status": "error"
+                    }
+                  },
+                  "origin_rejected": {
+                    "summary": "origin rejected",
+                    "value": {
+                      "data": {
+                        "code": "origin_rejected"
+                      },
+                      "message": "origin rejected",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_draft_unavailable": {
+                    "summary": "waitlist draft unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_draft_unavailable"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "idempotency_conflict": {
+                    "summary": "idempotency conflict",
+                    "value": {
+                      "data": {
+                        "code": "idempotency_conflict"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_operation_in_progress": {
+                    "summary": "waitlist operation in progress",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_operation_in_progress"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "validation_error": {
+                    "summary": "validation error",
+                    "value": {
+                      "data": {
+                        "code": "validation_error",
+                        "details": {
+                          "errors": [
+                            {
+                              "code": "string_type",
+                              "field": "body.payload.name"
+                            }
+                          ]
+                        }
+                      },
+                      "message": "request validation failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "throttled": {
+                    "summary": "throttled",
+                    "value": {
+                      "data": {
+                        "code": "throttled"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_unavailable": {
+                    "summary": "waitlist unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_unavailable"
+                      },
+                      "message": "waitlist unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "WaitlistCapability": []
+          }
+        ],
+        "summary": "Create",
+        "tags": [
+          "Waitlist"
+        ]
+      }
+    },
+    "/api/v1/waitlist/draft/configuration": {
+      "patch": {
+        "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
+        "operationId": "waitlist_configuration_7fe90763",
+        "parameters": [
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitlistConfigurationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_WaitlistAcknowledgement_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "csrf_rejected": {
+                    "summary": "csrf rejected",
+                    "value": {
+                      "data": {
+                        "code": "csrf_rejected"
+                      },
+                      "message": "csrf rejected",
+                      "status": "error"
+                    }
+                  },
+                  "origin_rejected": {
+                    "summary": "origin rejected",
+                    "value": {
+                      "data": {
+                        "code": "origin_rejected"
+                      },
+                      "message": "origin rejected",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_draft_unavailable": {
+                    "summary": "waitlist draft unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_draft_unavailable"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "idempotency_conflict": {
+                    "summary": "idempotency conflict",
+                    "value": {
+                      "data": {
+                        "code": "idempotency_conflict"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_draft_stale": {
+                    "summary": "waitlist draft stale",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_draft_stale"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_invalid_state": {
+                    "summary": "waitlist invalid state",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_invalid_state"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_operation_in_progress": {
+                    "summary": "waitlist operation in progress",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_operation_in_progress"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "validation_error": {
+                    "summary": "validation error",
+                    "value": {
+                      "data": {
+                        "code": "validation_error",
+                        "details": {
+                          "errors": [
+                            {
+                              "code": "string_type",
+                              "field": "body.payload.name"
+                            }
+                          ]
+                        }
+                      },
+                      "message": "request validation failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "throttled": {
+                    "summary": "throttled",
+                    "value": {
+                      "data": {
+                        "code": "throttled"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_unavailable": {
+                    "summary": "waitlist unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_unavailable"
+                      },
+                      "message": "waitlist unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "WaitlistCapability": []
+          }
+        ],
+        "summary": "Configuration",
+        "tags": [
+          "Waitlist"
+        ]
+      }
+    },
+    "/api/v1/waitlist/draft/greeting": {
+      "post": {
+        "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
+        "operationId": "waitlist_greeting_95c0adfe",
+        "parameters": [
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitlistGreetingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_WaitlistAcknowledgement_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "csrf_rejected": {
+                    "summary": "csrf rejected",
+                    "value": {
+                      "data": {
+                        "code": "csrf_rejected"
+                      },
+                      "message": "csrf rejected",
+                      "status": "error"
+                    }
+                  },
+                  "origin_rejected": {
+                    "summary": "origin rejected",
+                    "value": {
+                      "data": {
+                        "code": "origin_rejected"
+                      },
+                      "message": "origin rejected",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_draft_unavailable": {
+                    "summary": "waitlist draft unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_draft_unavailable"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "idempotency_conflict": {
+                    "summary": "idempotency conflict",
+                    "value": {
+                      "data": {
+                        "code": "idempotency_conflict"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_draft_stale": {
+                    "summary": "waitlist draft stale",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_draft_stale"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_invalid_state": {
+                    "summary": "waitlist invalid state",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_invalid_state"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_operation_in_progress": {
+                    "summary": "waitlist operation in progress",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_operation_in_progress"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "validation_error": {
+                    "summary": "validation error",
+                    "value": {
+                      "data": {
+                        "code": "validation_error",
+                        "details": {
+                          "errors": [
+                            {
+                              "code": "string_type",
+                              "field": "body.payload.name"
+                            }
+                          ]
+                        }
+                      },
+                      "message": "request validation failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "throttled": {
+                    "summary": "throttled",
+                    "value": {
+                      "data": {
+                        "code": "throttled"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "generation_outcome_unknown": {
+                    "summary": "generation outcome unknown",
+                    "value": {
+                      "data": {
+                        "code": "generation_outcome_unknown"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "generation_unavailable": {
+                    "summary": "generation unavailable",
+                    "value": {
+                      "data": {
+                        "code": "generation_unavailable"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_unavailable": {
+                    "summary": "waitlist unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_unavailable"
+                      },
+                      "message": "waitlist unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "WaitlistCapability": []
+          }
+        ],
+        "summary": "Greeting",
+        "tags": [
+          "Waitlist"
+        ]
+      }
+    },
+    "/api/v1/waitlist/draft/join": {
+      "post": {
+        "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
+        "operationId": "waitlist_join_22e36269",
+        "parameters": [
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitlistJoinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_WaitlistJoinConfirmation_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "csrf_rejected": {
+                    "summary": "csrf rejected",
+                    "value": {
+                      "data": {
+                        "code": "csrf_rejected"
+                      },
+                      "message": "csrf rejected",
+                      "status": "error"
+                    }
+                  },
+                  "origin_rejected": {
+                    "summary": "origin rejected",
+                    "value": {
+                      "data": {
+                        "code": "origin_rejected"
+                      },
+                      "message": "origin rejected",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_draft_unavailable": {
+                    "summary": "waitlist draft unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_draft_unavailable"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "idempotency_conflict": {
+                    "summary": "idempotency conflict",
+                    "value": {
+                      "data": {
+                        "code": "idempotency_conflict"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_draft_stale": {
+                    "summary": "waitlist draft stale",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_draft_stale"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_invalid_state": {
+                    "summary": "waitlist invalid state",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_invalid_state"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_operation_in_progress": {
+                    "summary": "waitlist operation in progress",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_operation_in_progress"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "validation_error": {
+                    "summary": "validation error",
+                    "value": {
+                      "data": {
+                        "code": "validation_error",
+                        "details": {
+                          "errors": [
+                            {
+                              "code": "string_type",
+                              "field": "body.payload.name"
+                            }
+                          ]
+                        }
+                      },
+                      "message": "request validation failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "throttled": {
+                    "summary": "throttled",
+                    "value": {
+                      "data": {
+                        "code": "throttled"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_unavailable": {
+                    "summary": "waitlist unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_unavailable"
+                      },
+                      "message": "waitlist unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "WaitlistCapability": []
+          }
+        ],
+        "summary": "Join",
+        "tags": [
+          "Waitlist"
+        ]
+      }
+    },
+    "/api/v1/waitlist/draft/reply": {
+      "post": {
+        "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
+        "operationId": "waitlist_reply_cc9d1a55",
+        "parameters": [
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WaitlistReplyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_WaitlistAcknowledgement_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "csrf_rejected": {
+                    "summary": "csrf rejected",
+                    "value": {
+                      "data": {
+                        "code": "csrf_rejected"
+                      },
+                      "message": "csrf rejected",
+                      "status": "error"
+                    }
+                  },
+                  "origin_rejected": {
+                    "summary": "origin rejected",
+                    "value": {
+                      "data": {
+                        "code": "origin_rejected"
+                      },
+                      "message": "origin rejected",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_draft_unavailable": {
+                    "summary": "waitlist draft unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_draft_unavailable"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "idempotency_conflict": {
+                    "summary": "idempotency conflict",
+                    "value": {
+                      "data": {
+                        "code": "idempotency_conflict"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_draft_stale": {
+                    "summary": "waitlist draft stale",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_draft_stale"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_invalid_state": {
+                    "summary": "waitlist invalid state",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_invalid_state"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  },
+                  "waitlist_operation_in_progress": {
+                    "summary": "waitlist operation in progress",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_operation_in_progress"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "validation_error": {
+                    "summary": "validation error",
+                    "value": {
+                      "data": {
+                        "code": "validation_error",
+                        "details": {
+                          "errors": [
+                            {
+                              "code": "string_type",
+                              "field": "body.payload.name"
+                            }
+                          ]
+                        }
+                      },
+                      "message": "request validation failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "throttled": {
+                    "summary": "throttled",
+                    "value": {
+                      "data": {
+                        "code": "throttled"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_unavailable": {
+                    "summary": "waitlist unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_unavailable"
+                      },
+                      "message": "waitlist unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "WaitlistCapability": []
+          }
+        ],
+        "summary": "Reply",
+        "tags": [
+          "Waitlist"
+        ]
+      }
+    },
+    "/api/v1/waitlist/session": {
+      "get": {
+        "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
+        "operationId": "waitlist_session_40c993ce",
+        "parameters": [
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "One of Origin or Referer must match a configured trusted frontend origin.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "origin_rejected": {
+                    "summary": "origin rejected",
+                    "value": {
+                      "data": {
+                        "code": "origin_rejected"
+                      },
+                      "message": "origin rejected",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "throttled": {
+                    "summary": "throttled",
+                    "value": {
+                      "data": {
+                        "code": "throttled"
+                      },
+                      "message": "waitlist request failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "waitlist_unavailable": {
+                    "summary": "waitlist unavailable",
+                    "value": {
+                      "data": {
+                        "code": "waitlist_unavailable"
+                      },
+                      "message": "waitlist unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Session",
+        "tags": [
+          "Waitlist"
+        ]
+      }
+    },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_28a5489c",
+        "operationId": "workspace_context_94b799ec",
         "parameters": [
           {
             "in": "path",

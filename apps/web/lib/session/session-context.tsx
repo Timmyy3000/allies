@@ -9,6 +9,7 @@ import { createWebSessionAdapter, type LogoutResult, type SessionState } from ".
 type RootSessionState = { status: "unknown" | "restoring" } | SessionState;
 
 interface SessionContextValue {
+  client: CloudClient;
   state: RootSessionState;
   restore(): Promise<void>;
   logout(): Promise<LogoutResult>;
@@ -16,13 +17,27 @@ interface SessionContextValue {
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
-export function SessionProvider({ client, children }: { client: CloudClient; children: ReactNode }) {
+export function SessionProvider({
+  client,
+  children,
+  restoreOnMount = true,
+}: {
+  client: CloudClient;
+  children: ReactNode;
+  restoreOnMount?: boolean;
+}) {
   const adapter = useMemo(() => createWebSessionAdapter(client), [client]);
   const queryClient = useQueryClient();
-  const [state, setState] = useState<RootSessionState>({ status: "restoring" });
+  const [state, setState] = useState<RootSessionState>(() =>
+    restoreOnMount ? { status: "restoring" } : { status: "signed-out" },
+  );
   const operationGeneration = useRef(0);
 
   const restore = async () => {
+    if (!restoreOnMount) {
+      setState({ status: "signed-out" });
+      return;
+    }
     const restoreGeneration = ++operationGeneration.current;
     setState({ status: "restoring" });
     const nextState = await adapter.restore();
@@ -41,6 +56,7 @@ export function SessionProvider({ client, children }: { client: CloudClient; chi
   };
 
   useEffect(() => {
+    if (!restoreOnMount) return;
     const controller = new AbortController();
     const restoreGeneration = ++operationGeneration.current;
     void adapter.restore(controller.signal).then((nextState) => {
@@ -50,13 +66,17 @@ export function SessionProvider({ client, children }: { client: CloudClient; chi
       }
     });
     return () => controller.abort();
-  }, [adapter, queryClient]);
+  }, [adapter, queryClient, restoreOnMount]);
 
-  return <SessionContext.Provider value={{ state, restore, logout }}>{children}</SessionContext.Provider>;
+  return <SessionContext.Provider value={{ client, state, restore, logout }}>{children}</SessionContext.Provider>;
 }
 
 export function useSession(): SessionContextValue {
   const value = useContext(SessionContext);
   if (!value) throw new Error("useSession must be used within SessionProvider");
   return value;
+}
+
+export function useCloudClient(): CloudClient {
+  return useSession().client;
 }

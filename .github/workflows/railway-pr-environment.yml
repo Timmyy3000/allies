@@ -1,0 +1,165 @@
+name: Railway PR Environment
+
+on:
+  pull_request:
+    branches: [dev]
+    types: [opened, reopened, synchronize, edited, closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: railway-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: false
+
+# These identifiers intentionally pin this workflow to the Interface web
+# service. Do not reuse it for the mobile app or another Railway project.
+env:
+  RAILWAY_PROJECT_ID: da3df107-205e-4294-b725-c146d2e47637
+  RAILWAY_BASE_ENVIRONMENT_ID: b691ddf0-a115-48d9-b96b-2905cb7439b8
+  RAILWAY_WEB_SERVICE_ID: 8355390d-0318-4b79-8ed9-172a9ac05e21
+
+jobs:
+  deploy:
+    name: Deploy web preview
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/railwayapp/cli:latest
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+
+    steps:
+      - name: Check out the pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Check Railway credentials
+        shell: sh
+        run: |
+          if [ -z "${RAILWAY_API_TOKEN:-}" ]; then
+            echo "::error::Add the RAILWAY_API_TOKEN repository secret before enabling Railway PR previews"
+            exit 1
+          fi
+
+      - name: Calculate the readable environment name
+        shell: sh
+        run: |
+          set -eu
+          slug=$(printf '%s' "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-50 | sed 's/^-*//; s/-*$//')
+          if [ -z "$slug" ]; then
+            slug=preview
+          fi
+          echo "PR_ENVIRONMENT=pr-${PR_NUMBER}-${slug}" >> "$GITHUB_ENV"
+
+      - name: Link the Interface web service
+        shell: sh
+        run: |
+          set -eu
+          railway link \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$RAILWAY_BASE_ENVIRONMENT_ID" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json
+
+      - name: Remove stale names for this PR
+        shell: sh
+        run: |
+          set -eu
+          environment_json=$(railway environment list --json)
+          printf '%s' "$environment_json" |
+            tr ',' '\n' |
+            sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+            while IFS= read -r candidate; do
+              case "$candidate" in
+                "pr-${PR_NUMBER}"|"pr-${PR_NUMBER}-"*)
+                  if [ "$candidate" != "$PR_ENVIRONMENT" ]; then
+                    echo "Deleting stale $candidate"
+                    railway environment delete "$candidate" --yes --json
+                  fi
+                  ;;
+              esac
+            done
+
+      - name: Create or reuse the PR environment
+        shell: sh
+        run: |
+          set -eu
+          if railway environment config --environment "$PR_ENVIRONMENT" --json >/dev/null 2>/tmp/railway-environment-error; then
+            echo "Reusing $PR_ENVIRONMENT"
+          else
+            cat /tmp/railway-environment-error >&2
+            railway environment new "$PR_ENVIRONMENT" \
+              --duplicate "$RAILWAY_BASE_ENVIRONMENT_ID" \
+              --json
+          fi
+
+      - name: Deploy only the web service
+        shell: sh
+        run: |
+          set -eu
+          railway up \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --ci \
+            --yes \
+            --message "PR #${{ github.event.pull_request.number }} ${{ github.event.pull_request.head.sha }}"
+
+      - name: Print preview domains
+        shell: sh
+        run: railway domain list --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENVIRONMENT" --service "$RAILWAY_WEB_SERVICE_ID" --json
+
+  cleanup:
+    name: Delete web preview
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/railwayapp/cli:latest
+    env:
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+
+    steps:
+      - name: Check Railway credentials
+        shell: sh
+        run: |
+          if [ -z "${RAILWAY_API_TOKEN:-}" ]; then
+            echo "::error::Add the RAILWAY_API_TOKEN repository secret before enabling Railway PR previews"
+            exit 1
+          fi
+
+      - name: Link the Interface project
+        shell: sh
+        run: |
+          set -eu
+          railway link \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$RAILWAY_BASE_ENVIRONMENT_ID" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json
+
+      - name: Delete the PR environment
+        shell: sh
+        run: |
+          set -eu
+          environment_json=$(railway environment list --json)
+          printf '%s' "$environment_json" |
+            tr ',' '\n' |
+            sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+            while IFS= read -r candidate; do
+              case "$candidate" in
+                "pr-${PR_NUMBER}"|"pr-${PR_NUMBER}-"*)
+                  echo "Deleting $candidate"
+                  railway environment delete "$candidate" --yes --json
+                  ;;
+              esac
+            done

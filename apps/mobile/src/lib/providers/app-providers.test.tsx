@@ -13,8 +13,6 @@ function SessionProbe() {
 
 describe('AppProviders', () => {
   it('composes the mobile Query and unavailable native-session boundaries', () => {
-    process.env.EXPO_PUBLIC_CLOUD_API_URL = 'https://cloud.example.com';
-
     render(
       <AppProviders>
         <SessionProbe />

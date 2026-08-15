@@ -12,7 +12,7 @@ export interface paths {
             cookie?: never;
         };
         /** Callback */
-        get: operations["authentication_callback_4d23c549"];
+        get: operations["authentication_callback_a13c0181"];
         put?: never;
         post?: never;
         delete?: never;
@@ -29,7 +29,7 @@ export interface paths {
             cookie?: never;
         };
         /** Csrf */
-        get: operations["authentication_csrf_87c09260"];
+        get: operations["authentication_csrf_9ea1485d"];
         put?: never;
         post?: never;
         delete?: never;
@@ -48,7 +48,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Link */
-        post: operations["identity_link_0563ecef"];
+        post: operations["identity_link_16491f06"];
         delete?: never;
         options?: never;
         head?: never;
@@ -65,7 +65,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Logout */
-        post: operations["session_logout_127341a3"];
+        post: operations["session_logout_627fb876"];
         delete?: never;
         options?: never;
         head?: never;
@@ -80,7 +80,7 @@ export interface paths {
             cookie?: never;
         };
         /** Me */
-        get: operations["profile_me_6664e859"];
+        get: operations["profile_me_2572aa6d"];
         put?: never;
         post?: never;
         delete?: never;
@@ -100,7 +100,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete */
-        delete: operations["avatar_delete_4198c0f1"];
+        delete: operations["avatar_delete_2ade750a"];
         options?: never;
         head?: never;
         patch?: never;
@@ -116,7 +116,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Complete */
-        post: operations["avatar_complete_dcf0b4b9"];
+        post: operations["avatar_complete_ffee4a90"];
         delete?: never;
         options?: never;
         head?: never;
@@ -131,7 +131,7 @@ export interface paths {
             cookie?: never;
         };
         /** Read */
-        get: operations["avatar_read_2b0cb9a2"];
+        get: operations["avatar_read_c90b2197"];
         put?: never;
         post?: never;
         delete?: never;
@@ -150,7 +150,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Prepare */
-        post: operations["avatar_prepare_bc70572a"];
+        post: operations["avatar_prepare_2425b661"];
         delete?: never;
         options?: never;
         head?: never;
@@ -171,7 +171,7 @@ export interface paths {
         options?: never;
         head?: never;
         /** Profile */
-        patch: operations["profile_profile_190cdd6b"];
+        patch: operations["profile_profile_15e818e1"];
         trace?: never;
     };
     "/api/v1/auths/refresh": {
@@ -184,7 +184,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Refresh */
-        post: operations["session_refresh_335a5d1b"];
+        post: operations["session_refresh_6acf2386"];
         delete?: never;
         options?: never;
         head?: never;
@@ -201,7 +201,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Sign In */
-        post: operations["authentication_sign_in_66934997"];
+        post: operations["authentication_sign_in_2a377af8"];
         delete?: never;
         options?: never;
         head?: never;
@@ -216,7 +216,131 @@ export interface paths {
             cookie?: never;
         };
         /** Health */
-        get: operations["health_health_e85a23e9"];
+        get: operations["health_health_0833fb9a"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/waitlist/draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Restore
+         * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
+         */
+        get: operations["waitlist_restore_73ed29f0"];
+        put?: never;
+        /**
+         * Create
+         * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
+         */
+        post: operations["waitlist_create_273618b3"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/waitlist/draft/configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Configuration
+         * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
+         */
+        patch: operations["waitlist_configuration_7fe90763"];
+        trace?: never;
+    };
+    "/api/v1/waitlist/draft/greeting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Greeting
+         * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
+         */
+        post: operations["waitlist_greeting_95c0adfe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/waitlist/draft/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join
+         * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
+         */
+        post: operations["waitlist_join_22e36269"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/waitlist/draft/reply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Reply
+         * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
+         */
+        post: operations["waitlist_reply_cc9d1a55"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/waitlist/session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Session
+         * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
+         */
+        get: operations["waitlist_session_40c993ce"];
         put?: never;
         post?: never;
         delete?: never;
@@ -233,7 +357,7 @@ export interface paths {
             cookie?: never;
         };
         /** Context */
-        get: operations["workspace_context_28a5489c"];
+        get: operations["workspace_context_94b799ec"];
         put?: never;
         post?: never;
         delete?: never;
@@ -538,6 +662,94 @@ export interface components {
             status: "success";
         };
         /**
+         * SuccessResponse[WaitlistAcknowledgement]
+         * @example {
+         *       "data": {
+         *         "operation": "configure",
+         *         "result_lifecycle": "ready_for_greeting",
+         *         "result_revision": 2
+         *       },
+         *       "message": "Waitlist updated",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_WaitlistAcknowledgement_: {
+            data: components["schemas"]["WaitlistAcknowledgement"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[WaitlistJoinConfirmation]
+         * @example {
+         *       "data": {
+         *         "email": "a***@example.com",
+         *         "operation": "join",
+         *         "result_lifecycle": "pending_claim",
+         *         "result_revision": 6
+         *       },
+         *       "message": "Waitlist joined",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_WaitlistJoinConfirmation_: {
+            data: components["schemas"]["WaitlistJoinConfirmation"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[WaitlistSnapshot]
+         * @example {
+         *       "data": {
+         *         "configuration": {
+         *           "appearance_catalog_version": "v1",
+         *           "appearance_key": "calm-blue",
+         *           "job": "Planning",
+         *           "name": "Ari",
+         *           "personality": "Warm and concise"
+         *         },
+         *         "greeting": null,
+         *         "id": "wld_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+         *         "join": null,
+         *         "lifecycle": "ready_for_greeting",
+         *         "reply": null,
+         *         "revision": 2,
+         *         "timestamps": {
+         *           "created_at": "2026-08-14T12:00:00Z",
+         *           "expires_at": "2026-08-21T12:00:00Z",
+         *           "generated_at": null,
+         *           "joined_at": null,
+         *           "replied_at": null,
+         *           "updated_at": "2026-08-14T12:00:00Z"
+         *         }
+         *       },
+         *       "message": "Waitlist draft restored",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_WaitlistSnapshot_: {
+            data: components["schemas"]["WaitlistSnapshot"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
          * SuccessResponse[WorkspaceContextResponse]
          * @example {
          *       "data": {
@@ -573,6 +785,91 @@ export interface components {
             /** Id */
             id: string;
         };
+        /** WaitlistAcknowledgement */
+        WaitlistAcknowledgement: {
+            /** Operation */
+            operation: string;
+            /** Result Lifecycle */
+            result_lifecycle: string;
+            /** Result Revision */
+            result_revision: number;
+        };
+        /** WaitlistConfigurationRequest */
+        WaitlistConfigurationRequest: {
+            /** Appearance Catalog Version */
+            appearance_catalog_version?: string | null;
+            /** Appearance Key */
+            appearance_key?: string | null;
+            /** Job */
+            job?: string | null;
+            /** Name */
+            name?: string | null;
+            /** Personality */
+            personality?: string | null;
+            /** Revision */
+            revision: number;
+        };
+        /** WaitlistGreetingRequest */
+        WaitlistGreetingRequest: {
+            /** Revision */
+            revision: number;
+        };
+        /** WaitlistJoinConfirmation */
+        WaitlistJoinConfirmation: {
+            /** Email */
+            email?: string | null;
+            /** Operation */
+            operation: string;
+            /** Result Lifecycle */
+            result_lifecycle: string;
+            /** Result Revision */
+            result_revision: number;
+        };
+        /** WaitlistJoinRequest */
+        WaitlistJoinRequest: {
+            /** Consent Version */
+            consent_version: string;
+            /** Email */
+            email: string;
+            /** Revision */
+            revision: number;
+        };
+        /** WaitlistReplyRequest */
+        WaitlistReplyRequest: {
+            /** Revision */
+            revision: number;
+            /** Text */
+            text: string;
+        };
+        /** WaitlistSnapshot */
+        WaitlistSnapshot: {
+            /** Configuration */
+            configuration: {
+                [key: string]: string;
+            };
+            /** Greeting */
+            greeting?: {
+                [key: string]: unknown;
+            } | null;
+            /** Id */
+            id: string;
+            /** Join */
+            join?: {
+                [key: string]: unknown;
+            } | null;
+            /** Lifecycle */
+            lifecycle: string;
+            /** Reply */
+            reply?: {
+                [key: string]: unknown;
+            } | null;
+            /** Revision */
+            revision: number;
+            /** Timestamps */
+            timestamps: {
+                [key: string]: string | null;
+            };
+        };
         /** WorkspaceContextResponse */
         WorkspaceContextResponse: {
             /** Capabilities */
@@ -604,7 +901,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    authentication_callback_4d23c549: {
+    authentication_callback_a13c0181: {
         parameters: {
             query?: {
                 code?: string;
@@ -691,7 +988,7 @@ export interface operations {
             };
         };
     };
-    authentication_csrf_87c09260: {
+    authentication_csrf_9ea1485d: {
         parameters: {
             query?: never;
             header?: never;
@@ -725,7 +1022,7 @@ export interface operations {
             };
         };
     };
-    identity_link_0563ecef: {
+    identity_link_16491f06: {
         parameters: {
             query?: never;
             header?: never;
@@ -895,7 +1192,7 @@ export interface operations {
             };
         };
     };
-    session_logout_127341a3: {
+    session_logout_627fb876: {
         parameters: {
             query?: never;
             header?: never;
@@ -945,7 +1242,7 @@ export interface operations {
             };
         };
     };
-    profile_me_6664e859: {
+    profile_me_2572aa6d: {
         parameters: {
             query?: never;
             header?: never;
@@ -997,7 +1294,7 @@ export interface operations {
             };
         };
     };
-    avatar_delete_4198c0f1: {
+    avatar_delete_2ade750a: {
         parameters: {
             query?: never;
             header?: never;
@@ -1111,7 +1408,7 @@ export interface operations {
             };
         };
     };
-    avatar_complete_dcf0b4b9: {
+    avatar_complete_ffee4a90: {
         parameters: {
             query?: never;
             header?: never;
@@ -1261,7 +1558,7 @@ export interface operations {
             };
         };
     };
-    avatar_read_2b0cb9a2: {
+    avatar_read_c90b2197: {
         parameters: {
             query?: never;
             header?: never;
@@ -1345,7 +1642,7 @@ export interface operations {
             };
         };
     };
-    avatar_prepare_bc70572a: {
+    avatar_prepare_2425b661: {
         parameters: {
             query?: never;
             header?: never;
@@ -1481,7 +1778,7 @@ export interface operations {
             };
         };
     };
-    profile_profile_190cdd6b: {
+    profile_profile_15e818e1: {
         parameters: {
             query?: never;
             header?: never;
@@ -1585,7 +1882,7 @@ export interface operations {
             };
         };
     };
-    session_refresh_335a5d1b: {
+    session_refresh_6acf2386: {
         parameters: {
             query?: never;
             header?: never;
@@ -1683,7 +1980,7 @@ export interface operations {
             };
         };
     };
-    authentication_sign_in_66934997: {
+    authentication_sign_in_2a377af8: {
         parameters: {
             query?: never;
             header?: never;
@@ -1821,7 +2118,7 @@ export interface operations {
             };
         };
     };
-    health_health_e85a23e9: {
+    health_health_0833fb9a: {
         parameters: {
             query?: never;
             header?: never;
@@ -1873,7 +2170,539 @@ export interface operations {
             };
         };
     };
-    workspace_context_28a5489c: {
+    waitlist_restore_73ed29f0: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Origin?: string;
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Referer?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_WaitlistSnapshot_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    waitlist_create_273618b3: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Origin?: string;
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Referer?: string;
+                "Idempotency-Key": string;
+                "X-CSRFToken": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_WaitlistAcknowledgement_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    waitlist_configuration_7fe90763: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Origin?: string;
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Referer?: string;
+                "Idempotency-Key": string;
+                "X-CSRFToken": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WaitlistConfigurationRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_WaitlistAcknowledgement_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    waitlist_greeting_95c0adfe: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Origin?: string;
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Referer?: string;
+                "Idempotency-Key": string;
+                "X-CSRFToken": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WaitlistGreetingRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_WaitlistAcknowledgement_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    waitlist_join_22e36269: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Origin?: string;
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Referer?: string;
+                "Idempotency-Key": string;
+                "X-CSRFToken": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WaitlistJoinRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_WaitlistJoinConfirmation_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    waitlist_reply_cc9d1a55: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Origin?: string;
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Referer?: string;
+                "Idempotency-Key": string;
+                "X-CSRFToken": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WaitlistReplyRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_WaitlistAcknowledgement_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    waitlist_session_40c993ce: {
+        parameters: {
+            query?: never;
+            header?: {
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Origin?: string;
+                /** @description One of Origin or Referer must match a configured trusted frontend origin. */
+                Referer?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    workspace_context_94b799ec: {
         parameters: {
             query?: never;
             header?: never;
