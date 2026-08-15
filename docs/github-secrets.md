@@ -7,6 +7,7 @@ This file records secret names and their purpose only. Secret values must be add
 | `OPENROUTER_API_KEY` | Enkii review and production release-note summarization | To be added |
 | `PROMOTION_TOKEN` | Protected branch promotions and Fastlane back-merge PRs | To be added |
 | `GITLEAKS_LICENSE` | Gitleaks scan for private-repository licensing, if required by the action | To be confirmed |
+| `RAILWAY_API_TOKEN` | Interface web PR-environment creation, deployment, and cleanup | To be added |
 | `VERCEL_TOKEN` | Future Vercel deployment workflow, if GitHub Actions owns deployment | Not used yet |
 | `VERCEL_ORG_ID` | Future Vercel deployment workflow | Not used yet |
 | `VERCEL_PROJECT_ID` | Future Vercel deployment workflow | Not used yet |

@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Implementation plan for integrating the Allies waitlist onboarding UI with the Cloud API.">
+  <title>INT-009 · Frontend API integration plan</title>
+  <style>
+    :root {
+      --paper: #f7f7f3;
+      --ink: #121212;
+      --muted: #687078;
+      --line: #d9ddd8;
+      --orange: #ff5800;
+      --orange-soft: #fff0e8;
+      --blue: #3446e9;
+      --blue-soft: #eef0ff;
+      --green: #12a962;
+      --green-soft: #e9f8ef;
+      --pink: #ff2d55;
+      --yellow: #e9b43a;
+      --white: #ffffff;
+      --radius: 18px;
+      color-scheme: light;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background: var(--paper);
+      font-family: "Manrope", "Open Runde", system-ui, sans-serif;
+      line-height: 1.55;
+    }
+    a { color: inherit; }
+    .page { max-width: 1180px; margin: 0 auto; padding: 28px 28px 80px; }
+    .masthead {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 32px;
+      align-items: end;
+      padding: 40px 0 30px;
+      border-bottom: 2px solid var(--ink);
+    }
+    .eyebrow, .label, th, .meta-label {
+      font-family: "DM Mono", ui-monospace, monospace;
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .eyebrow { color: var(--orange); font-weight: 500; }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 {
+      max-width: 760px;
+      margin: 12px 0 18px;
+      font-size: clamp(38px, 6vw, 76px);
+      line-height: .98;
+      letter-spacing: -.055em;
+      font-weight: 800;
+    }
+    .dek { max-width: 680px; color: #454b50; font-size: 18px; }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 9px 12px;
+      border: 1px solid var(--orange);
+      border-radius: 999px;
+      color: var(--orange);
+      background: var(--orange-soft);
+      font: 500 11px "DM Mono", ui-monospace, monospace;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      white-space: nowrap;
+    }
+    .status::before {
+      width: 7px; height: 7px; content: "";
+      border-radius: 50%; background: var(--orange);
+    }
+    .meta-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      margin: 24px 0 0;
+      background: var(--line);
+      border: 1px solid var(--line);
+    }
+    .meta { min-height: 98px; padding: 18px; background: var(--white); }
+    .meta-label { color: var(--muted); }
+    .meta-value { margin-top: 8px; font-size: 14px; font-weight: 700; }
+    code, .mono { font-family: "DM Mono", ui-monospace, monospace; font-size: .9em; }
+    code { padding: 2px 5px; border-radius: 4px; background: #eef0eb; }
+    .callout {
+      display: grid;
+      grid-template-columns: 10px 1fr;
+      gap: 18px;
+      margin: 44px 0;
+      padding: 24px 28px 24px 0;
+      border-top: 1px solid var(--ink);
+      border-bottom: 1px solid var(--ink);
+      font-size: 20px;
+      line-height: 1.35;
+      letter-spacing: -.02em;
+    }
+    .callout-bar { background: var(--orange); }
+    section { margin-top: 68px; }
+    .section-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 20px;
+      align-items: baseline;
+      margin-bottom: 22px;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 12px;
+    }
+    h2 { margin-bottom: 0; font-size: 30px; letter-spacing: -.04em; }
+    h3 { margin-bottom: 8px; font-size: 19px; letter-spacing: -.025em; }
+    .section-note { max-width: 540px; color: var(--muted); font-size: 14px; }
+    .evidence-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+    }
+    .evidence {
+      min-height: 160px;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-top: 4px solid var(--blue);
+      background: var(--white);
+    }
+    .evidence:nth-child(2) { border-top-color: var(--orange); }
+    .evidence:nth-child(3) { border-top-color: var(--green); }
+    .evidence:nth-child(4) { border-top-color: var(--pink); }
+    .evidence .label { color: var(--muted); }
+    .evidence p { margin: 14px 0 0; font-size: 14px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); background: var(--white); }
+    table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 15px 16px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    tr:last-child td { border-bottom: 0; }
+    th { color: var(--muted); font-weight: 500; background: #f0f2ee; }
+    td:first-child { width: 20%; font-weight: 700; }
+    .tag {
+      display: inline-block;
+      padding: 3px 7px;
+      border-radius: 4px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font: 500 11px "DM Mono", ui-monospace, monospace;
+      white-space: nowrap;
+    }
+    .tag.orange { color: #a53a00; background: var(--orange-soft); }
+    .tag.green { color: #08763e; background: var(--green-soft); }
+    .diagram {
+      padding: 24px;
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      background: var(--white);
+    }
+    .mermaid { display: none; }
+    .phase {
+      display: grid;
+      grid-template-columns: 76px 1fr;
+      gap: 22px;
+      padding: 22px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .phase:last-child { border-bottom: 0; }
+    .phase-number {
+      display: grid; place-items: center;
+      width: 52px; height: 52px;
+      border-radius: 50%;
+      color: var(--white);
+      background: var(--ink);
+      font: 500 14px "DM Mono", ui-monospace, monospace;
+    }
+    .phase:nth-child(2) .phase-number { background: var(--orange); }
+    .phase:nth-child(3) .phase-number { background: var(--blue); }
+    .phase:nth-child(4) .phase-number { background: var(--green); }
+    .phase h3 { margin-top: 2px; }
+    .phase p { margin-bottom: 0; color: #4d555a; font-size: 14px; }
+    .shape-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+    .shape {
+      padding: 20px;
+      border: 1px solid var(--line);
+      background: var(--white);
+    }
+    .shape h3 { font-size: 16px; }
+    .shape ul { margin: 0; padding-left: 18px; color: #4d555a; font-size: 14px; }
+    .shape li + li { margin-top: 7px; }
+    .risk-high { color: #b8203d; font-weight: 700; }
+    .risk-med { color: #9a6800; font-weight: 700; }
+    .checks {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 10px 34px;
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+    .checks li {
+      position: relative;
+      padding: 11px 0 11px 28px;
+      border-bottom: 1px solid var(--line);
+      font-size: 14px;
+    }
+    .checks li::before {
+      position: absolute; left: 0; top: 12px;
+      content: "□";
+      color: var(--orange);
+      font: 18px "DM Mono", ui-monospace, monospace;
+    }
+    .sources {
+      columns: 2;
+      column-gap: 40px;
+      margin: 0;
+      padding-left: 18px;
+      color: #4d555a;
+      font-size: 13px;
+    }
+    .sources li { break-inside: avoid; margin: 7px 0; }
+    footer {
+      margin-top: 72px;
+      padding-top: 18px;
+      border-top: 2px solid var(--ink);
+      color: var(--muted);
+      font: 11px "DM Mono", ui-monospace, monospace;
+    }
+    @media (max-width: 820px) {
+      .page { padding: 18px 18px 56px; }
+      .masthead { grid-template-columns: 1fr; gap: 18px; padding-top: 26px; }
+      h1 { font-size: clamp(38px, 13vw, 64px); }
+      .meta-grid, .evidence-grid { grid-template-columns: repeat(2, 1fr); }
+      .shape-grid, .checks { grid-template-columns: 1fr; }
+      .callout { font-size: 17px; }
+    }
+    @media (max-width: 520px) {
+      .meta-grid, .evidence-grid { grid-template-columns: 1fr; }
+      .meta { min-height: 0; }
+      .sources { columns: 1; }
+      section { margin-top: 50px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <header class="masthead">
+      <div>
+        <div class="eyebrow">Allies Interface · accepted handoff · 15 Aug 2026</div>
+        <h1>Connect the first Ally UI to Cloud.</h1>
+        <p class="dek">A full implementation plan for taking the existing responsive onboarding story from static presentation to a durable, testable waitlist draft flow.</p>
+      </div>
+      <div><span class="status">plan · security revision</span></div>
+    </header>
+
+    <div class="meta-grid" aria-label="Plan metadata">
+      <div class="meta"><div class="meta-label">Ticket</div><div class="meta-value">INT-009</div></div>
+      <div class="meta"><div class="meta-label">Branch</div><div class="meta-value mono">ft/int-009-frontend-api-integration</div></div>
+      <div class="meta"><div class="meta-label">Base</div><div class="meta-value mono">cf4a4f1 ← 66f56c8</div></div>
+      <div class="meta"><div class="meta-label">Worker</div><div class="meta-value mono">luna_worker · xhigh</div></div>
+    </div>
+
+    <div class="callout">
+      <div class="callout-bar" aria-hidden="true"></div>
+      <div><strong>Plan in one sentence:</strong> keep the onboarding UI as the presentation layer, make Cloud the source of truth for the waitlist draft, and use a same-origin waitlist facade plus the pinned staging OpenAPI to drive every request safely.</div>
+    </div>
+
+    <section id="evidence">
+      <div class="section-head">
+        <h2>What is known</h2>
+        <p class="section-note">The accepted Nabu handoff and repository inspection establish the product boundary. The staging contract is now fetched, pinned, and ready for typed integration.</p>
+      </div>
+      <div class="evidence-grid">
+        <article class="evidence">
+          <div class="label">Baseline</div>
+          <p><span class="mono">web/dev/onboarding</span> now includes <span class="mono">origin/dev@66f56c8</span>, the shared Cloud client, browser transport, session provider, and CI checks.</p>
+        </article>
+        <article class="evidence">
+          <div class="label">UI source</div>
+          <p><span class="mono">origin/web/feat/waitlist-ally-avatar@69f5794</span> contains the accepted Ally avatar/story pieces, onboarding store, assets, and flow tests.</p>
+        </article>
+        <article class="evidence">
+          <div class="label">Contract</div>
+          <p>The checked-in <span class="mono">allies-cloud-0.1.0.json</span> is now refreshed from staging and includes all <span class="mono">/api/v1/waitlist/*</span> operations named by CLD-008. Cloud source <span class="mono">a071fa4</span> confirms the response field shapes.</p>
+        </article>
+        <article class="evidence">
+          <div class="label">Authority</div>
+          <p>Nabu is the source of truth: Cloud owns durable state and authorization; Interface owns presentation, local interaction, and transport adapters.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="delta">
+      <div class="section-head">
+        <h2>Current → target</h2>
+        <p class="section-note">The visual story remains recognizable. The change is the data path and its honest states.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Surface</th><th>Today</th><th>After this plan</th><th>Guardrail</th></tr></thead>
+          <tbody>
+            <tr><td>Entry</td><td>Static <span class="mono">/onboarding</span> story with a presentation-only CTA.</td><td>Existing CTA enters a flow controller without replacing the current story renderer.</td><td><span class="tag">one entry point</span></td></tr>
+            <tr><td>Draft</td><td>Configuration lives only in component or local UI state.</td><td>Create/resume and restore a Cloud draft; successful mutations return a revision and the client re-reads the draft.</td><td><span class="tag blue">Cloud authoritative</span></td></tr>
+            <tr><td>Greeting</td><td>No durable generation state.</td><td>Request only after configuration is durable; show loading, ready, throttle, unavailable, and retry states.</td><td><span class="tag orange">no false success</span></td></tr>
+            <tr><td>Reply</td><td>No API-backed send path.</td><td>Preserve exact input through sending and only show pending after Cloud acknowledgement.</td><td><span class="tag green">truthful pending</span></td></tr>
+            <tr><td>Join</td><td>No durable join confirmation.</td><td>Join with active consent, keep the preview visible, and show masked email only.</td><td><span class="tag">no credentials</span></td></tr>
+            <tr><td>Refresh/error</td><td>Browser refresh loses the story's product state.</td><td>Restore from Cloud; retain unsaved input on validation, stale, throttled, and temporary failures.</td><td><span class="tag orange">recoverable</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="flow">
+      <div class="section-head">
+        <h2>System shape</h2>
+        <p class="section-note">Only the Cloud client crosses the API boundary. UI components never call a provider or runtime directly.</p>
+      </div>
+      <div class="diagram">
+        <pre class="mermaid">flowchart LR
+          V["Visitor"] --> U["Onboarding UI"]
+          U --> S["Flow controller + form input"]
+          S --> G["Waitlist gateway"]
+          G --> C["Typed Cloud client"]
+          C --> P["Same-origin /api/v1/waitlist facade"]
+          P --> W["Cloud waitlist draft"]
+          W -->|ack + revision| C
+          C -->|restore snapshot| S
+          G -->|typed error| S
+          S --> R["Preview, greeting, pending reply, masked join"]
+          classDef ui fill:#fff0e8,stroke:#ff5800,color:#121212,stroke-width:2px;
+          classDef data fill:#eef0ff,stroke:#3446e9,color:#121212,stroke-width:2px;
+          classDef cloud fill:#e9f8ef,stroke:#12a962,color:#121212,stroke-width:2px;
+          class U,S,R ui;
+          class G,C,P data;
+          class W cloud;</pre>
+        <p class="section-note">Static artifact: the executable diagram renderer is omitted; the surrounding tables are the canonical flow description.</p>
+      </div>
+    </section>
+
+    <section id="delivery">
+      <div class="section-head">
+        <h2>Delivery sequence</h2>
+        <p class="section-note">Each phase has a reviewable boundary. The contract is confirmed; browser security, cookie topology, and generated types come before live flow wiring.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Phase</th><th>Change</th><th>Done when</th></tr></thead>
+          <tbody>
+            <tr><td><span class="tag">01 · UI baseline</span></td><td>Bring over the Ally avatar, story choreography, onboarding screens, store, assets, and tests from <span class="mono">69f5794</span>. Resolve <span class="mono">index.tsx</span>, layout, globals, package, and lock files deliberately; retain the merged dev foundation and do not take destructive deletions.</td><td>The existing route still renders at desktop and narrow widths, the visual flow tests pass, and the new UI pieces are reusable at the presentation seam.</td></tr>
+            <tr><td><span class="tag orange">02 · typed boundary</span></td><td>Keep the fetched staging snapshot and generated <span class="mono">paths</span> types in sync; add waitlist methods and defensive response mapping to <span class="mono">packages/cloud-client</span>. Add the same-origin <span class="mono">/api/v1/waitlist/*</span> facade, correct the adapter to read <span class="mono">csrftoken</span>, and forward browser security headers without manufacturing <span class="mono">Origin</span>.</td><td>Cookie paths work through the browser origin; bodyless create, CSRF, origin/referer, idempotency, response envelopes, limits, and error codes have focused tests.</td></tr>
+            <tr><td><span class="tag">03 · durable flow</span></td><td>Wire session bootstrap, create/resume, restore, configuration save, greeting, reply, and join through the gateway. Use revision from the latest snapshot, stable idempotency keys per mutation intent, and re-read after acknowledgements.</td><td>Every request has explicit loading/success/error state; stale revision restores before retry; input remains intact on failure; no browser storage is used for durable state.</td></tr>
+            <tr><td><span class="tag green">04 · verification</span></td><td>Exercise keyboard/focus, touch, screen readers, reduced motion, narrow layouts, validation, throttle, unavailable, stale, refresh, retry, and masked join confirmation. Use Vitest/Testing Library plus browser/manual smoke only with authorized synthetic staging data.</td><td>Acceptance checks pass, including a conditional staging smoke check where safe. The branch is reviewable and ready for PR preparation.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="security">
+      <div class="section-head">
+        <h2>Browser security topology</h2>
+        <p class="section-note">The API contract uses host/path-scoped cookies. A web facade keeps that contract usable without exposing the HttpOnly capability or manufacturing forbidden browser headers.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Hop</th><th>Behavior</th><th>Invariant</th></tr></thead>
+          <tbody>
+            <tr><td>Onboarding browser</td><td>Waitlist client requests the exact <span class="mono">/api/v1/waitlist/*</span> path on the current Interface origin with <span class="mono">credentials: include</span>. The facade preserves the path-scoped <span class="mono">csrftoken</span>; the browser adapter never reads the capability cookie or needs to read a cookie outside the onboarding document path.</td><td>Browser supplies normal <span class="mono">Origin</span>/<span class="mono">Referer</span>; client does not set <span class="mono">Origin</span>.</td></tr>
+            <tr><td>Next route handler</td><td>Forward the method, body, <span class="mono">Cookie</span>, <span class="mono">Origin</span>, <span class="mono">Referer</span>, <span class="mono">Idempotency-Key</span>, <span class="mono">Content-Type</span>, and <span class="mono">Accept</span> to the configured Cloud origin, deriving <span class="mono">X-CSRFToken</span> from the incoming <span class="mono">csrftoken</span> cookie.</td><td>Same path means Cloud <span class="mono">/api/</span> and <span class="mono">/api/v1/waitlist/</span> cookie paths remain valid on the browser origin; no request body is invented.</td></tr>
+            <tr><td>Cloud response</td><td>Return status, JSON envelope, safe content headers, and all <span class="mono">Set-Cookie</span> values to the browser.</td><td>Capability stays HttpOnly; CSRF remains readable only for the exact mutation header; no cookie/value is logged or copied into app state.</td></tr>
+            <tr><td>Deployment</td><td>Cloud's <span class="mono">ALLIES_TRUSTED_ORIGINS</span> must include each actual Interface origin. Web uses explicit <span class="mono">NEXT_PUBLIC_WAITLIST_ENABLED</span> and <span class="mono">NEXT_PUBLIC_WAITLIST_CONSENT_VERSION</span>.</td><td>Feature is default-off and join fails closed if consent is absent; staging <span class="mono">503</span> remains an honest unavailable state.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="contract">
+      <div class="section-head">
+        <h2>Contract boundary</h2>
+        <p class="section-note">These operations are present in the pinned staging OpenAPI. Generated types remain the source for request and response shapes; the browser sees the same paths through the web facade.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Operation</th><th>Request shape</th><th>Client behavior</th><th>Important outcomes</th></tr></thead>
+          <tbody>
+            <tr><td><span class="mono">GET /api/v1/waitlist/session</span></td><td>No body; browser credentials included.</td><td>Bootstrap the anonymous capability. Do not persist the capability in application storage.</td><td><span class="mono">204</span> sets the HttpOnly capability and path-scoped <span class="mono">csrftoken</span> cookie.</td></tr>
+            <tr><td><span class="mono">POST /api/v1/waitlist/draft</span></td><td>No body; browser credentials included.</td><td>Create or resume the anonymous draft; capture the authoritative acknowledgement, then restore.</td><td>Do not send the older handoff's <span class="mono">{}</span>; handle unavailable/throttle explicitly.</td></tr>
+            <tr><td><span class="mono">GET /api/v1/waitlist/draft</span></td><td>No body.</td><td>Reconcile after bootstrap, refresh, stale revision, or a successful mutation.</td><td>Lifecycle and revision control the UI state.</td></tr>
+            <tr><td><span class="mono">PATCH .../configuration</span></td><td><span class="mono">{ revision, changed fields }</span></td><td>Send only changed values with CSRF and a stable idempotency key.</td><td>Limits: name 80; appearance key 128; job/personality 1200.</td></tr>
+            <tr><td><span class="mono">POST .../greeting</span></td><td><span class="mono">{ revision }</span></td><td>Request only when configuration is ready; expose pending generation.</td><td>Keep model output as untrusted plain text; handle 503/429.</td></tr>
+            <tr><td><span class="mono">POST .../reply</span></td><td><span class="mono">{ revision, exact text }</span></td><td>Show sending, then pending only after acknowledgement; never claim live execution.</td><td>Reply limit 4000; preserve exact input on failure.</td></tr>
+            <tr><td><span class="mono">POST .../join</span></td><td><span class="mono">{ revision, email, active consent_version }</span></td><td>Submit once with stable idempotency; keep Ally and preview visible.</td><td>Show masked email; email limit 254; no credentials stored.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="section-note" style="margin-top:14px">Waitlist mutations use <span class="mono">credentials: include</span>, <span class="mono">X-CSRFToken</span> derived by the same-origin facade from the path-scoped <span class="mono">csrftoken</span> cookie, a trusted browser origin context, and a stable <span class="mono">Idempotency-Key</span>. Existing auth requests retain their separate <span class="mono">csrf_token</span> behavior until that contract is revised. Retry the same intent with the same key; do not silently mint a new key.</p>
+      <div class="table-wrap" style="margin-top:18px">
+        <table>
+          <thead><tr><th>Cloud field</th><th>Accepted mapping</th><th>UI rule</th></tr></thead>
+          <tbody>
+            <tr><td><span class="mono">configuration</span></td><td><span class="mono">name</span>, <span class="mono">job</span>, <span class="mono">personality</span>, plus <span class="mono">appearance_catalog_version: "v1"</span> and <span class="mono">appearance_key: ${shape}:${lowercase-six-digit-hex}</span>.</td><td>Pin the v1 shape/color fixtures; serialize traits in canonical order with <span class="mono">", "</span>, append <span class="mono">. Note: ...</span> only for a non-empty note, omit an empty personality, and reject values above 1200 characters.</td></tr>
+            <tr><td><span class="mono">greeting</span></td><td>Allow only <span class="mono">text</span>, <span class="mono">policy_version</span>, and <span class="mono">generated_at</span>.</td><td>Require non-empty text, render as plain text, and hide it only while <span class="mono">name</span>, <span class="mono">job</span>, or serialized personality is locally stale; appearance-only edits do not invalidate it.</td></tr>
+            <tr><td><span class="mono">reply</span></td><td>Allow only <span class="mono">text</span>, <span class="mono">status: "pending"</span>, and <span class="mono">recorded_at</span>.</td><td>Show sending before acknowledgement; never call it delivered or executed.</td></tr>
+            <tr><td><span class="mono">join</span></td><td>Allow only masked <span class="mono">email</span> and <span class="mono">joined_at</span>; do not accept or render raw email from a snapshot.</td><td>Require an active configured consent version; keep Ally, greeting, and pending reply visible after join.</td></tr>
+            <tr><td><span class="mono">personality</span></td><td>Serialize selected traits in the pinned canonical order with <span class="mono">", "</span>; append <span class="mono">. Note: ${trimmedNote}</span> when present, omit when empty, and reject over-limit input.</td><td>TanStack Query owns the Cloud snapshot; React/feature-local state owns unsaved fields and current step. No second general-purpose store or browser queue.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="state">
+      <div class="section-head">
+        <h2>State and ownership</h2>
+          <p class="section-note">One waitlist flow controller coordinates interaction. TanStack Query owns the Cloud snapshot; React/feature-local state owns unsaved input, step, pending action, and retry intent.</p>
+      </div>
+      <div class="diagram">
+        <pre class="mermaid">stateDiagram-v2
+          [*] --> bootstrapping
+          bootstrapping --> creating: intentional CTA
+          bootstrapping --> restoring: refresh / existing capability
+          creating --> restoring: bodyless create ack
+          restoring --> configuring: active draft
+          restoring --> joined: pending_claim snapshot
+          restoring --> expired: expired / unavailable draft
+          configuring --> configuring: edit local input
+          configuring --> saving: continue / changed fields
+          saving --> restoring: ack + GET draft
+          saving --> restoring: stale 409 -> restore
+          saving --> error: validation / retryable failure
+          restoring --> ready_for_greeting: complete configuration
+          restoring --> greeting_ready: greeting exists
+          ready_for_greeting --> greeting_pending: request greeting
+          greeting_pending --> restoring: ack + GET draft
+          greeting_pending --> error: throttle / unavailable / unknown outcome
+          greeting_ready --> configuring: edit invalidates greeting
+          greeting_ready --> reply_sending: submit exact reply
+          reply_sending --> restoring: ack + GET draft
+          reply_sending --> error: failure, preserve exact input
+          restoring --> joined: pending_claim after join
+          joined --> joined: refresh restore
+          joined --> claimed: Cloud lifecycle claimed
+          joined --> expired: retention expiry
+          error --> restoring: controlled retry
+          expired --> creating: explicit restart</pre>
+        <p class="section-note">Static artifact: the executable diagram renderer is omitted; the surrounding tables are the canonical state description.</p>
+      </div>
+      <div class="shape-grid" style="margin-top:14px">
+        <article class="shape">
+          <h3>Cloud-owned snapshot</h3>
+          <ul>
+            <li>Draft id, lifecycle, revision, configuration, greeting, pending reply, join state, timestamps.</li>
+            <li>Returned after restore and after every successful mutation acknowledgement.</li>
+            <li>Controls refresh restoration and stale-revision reconciliation.</li>
+          </ul>
+        </article>
+        <article class="shape">
+          <h3>Browser-owned interaction</h3>
+          <ul>
+            <li>Current step, focus, open/closed panels, unsaved form input, mutation status, and retry intent.</li>
+            <li>Use one in-flight guard and one in-memory idempotency key per visible operation; no general queue or second general-purpose store.</li>
+            <li>No localStorage/sessionStorage for draft, email, reply, or capability.</li>
+            <li>Greeting and reply text render as plain text, never executable markup.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="risks">
+      <div class="section-head">
+        <h2>Risks and fallbacks</h2>
+        <p class="section-note">The plan keeps uncertainty visible and preserves a safe stopping point.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Risk</th><th>Level</th><th>Mitigation / fallback</th></tr></thead>
+          <tbody>
+            <tr><td>Staging contract can change while this branch is in flight.</td><td class="risk-med">Medium</td><td>Keep the fetched snapshot and metadata together, run <span class="mono">bun run cloud:check</span>, and refresh only through the repository fetch script with reviewable generated diffs.</td></tr>
+            <tr><td>Staging waitlist session is currently unavailable.</td><td class="risk-med">Medium</td><td>A read-only probe returned <span class="mono">503</span> from the staging session endpoint. Keep fixture and transport coverage authoritative for CI, and make live smoke evidence conditional on the environment becoming available.</td></tr>
+            <tr><td>Older UI branch conflicts with current Cloud/session foundation.</td><td class="risk-high">High</td><td>Selective file import and focused conflict resolution. Never accept branch deletions of generated client, auth, environment, or root guidance without explicit review.</td></tr>
+            <tr><td>CSRF cookie is host/path scoped and cannot be read from a direct cross-origin page.</td><td class="risk-high">High</td><td>Use the exact same-origin <span class="mono">/api/v1/waitlist/*</span> facade; preserve upstream <span class="mono">Set-Cookie</span> paths; test session bootstrap, cookie storage, forwarded headers, and mutation header preparation.</td></tr>
+            <tr><td>Trusted origin is absent, the web feature is enabled without consent, or the feature flag is disabled.</td><td class="risk-high">High</td><td>Keep the feature default-off and leave the static story in place with no Cloud call when disabled. Require explicit <span class="mono">NEXT_PUBLIC_WAITLIST_CONSENT_VERSION</span>; missing consent disables only join and never exposes configuration details. Document the local/staging/production <span class="mono">ALLIES_TRUSTED_ORIGINS</span> matrix.</td></tr>
+            <tr><td>Older UI branch reintroduces sign-in or mismaps shape/color/personality.</td><td class="risk-high">High</td><td>Exclude sign-in components, route CTA to waitlist bootstrap, and use explicit v1 appearance/personality serialization fixtures.</td></tr>
+            <tr><td>Replies or email expose more than the safe Cloud snapshot.</td><td class="risk-high">High</td><td>Allowlist the confirmed fields only, require masked join email, preserve plain-text output, and reject/ignore unknown fields.</td></tr>
+            <tr><td>Retries duplicate a mutation or create a new intent.</td><td class="risk-med">Medium</td><td>Generate one idempotency key per user intent, persist it only in in-memory mutation state, serialize operations, reuse on retry, and re-read after acknowledgement.</td></tr>
+            <tr><td>Greeting becomes stale after configuration edits.</td><td class="risk-med">Medium</td><td>Invalidate only when <span class="mono">name</span>, <span class="mono">job</span>, or serialized personality changes; appearance-only edits do not invalidate it. Trust the post-ack snapshot and Cloud lifecycle before showing it again.</td></tr>
+            <tr><td>UI implies the reply was delivered or executed.</td><td class="risk-med">Medium</td><td>Use pending language and assertions; keep the Ally, greeting, and attempted reply visible after join without claiming runtime execution.</td></tr>
+            <tr><td>Existing PNG import prevents the web baseline from typechecking.</td><td class="risk-med">Medium</td><td>Add the smallest repository-local asset declaration or supported import path as part of the UI baseline, then record the fix in web typecheck evidence.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="acceptance">
+      <div class="section-head">
+        <h2>Acceptance and verification</h2>
+        <p class="section-note">Evidence should be attached to the branch and PR, with contract availability called out separately.</p>
+      </div>
+      <ul class="checks">
+        <li>CTA enters the first Ally flow from the existing <span class="mono">/onboarding</span> route.</li>
+        <li>When waitlist enablement is false, the static story remains present and no Cloud request is made; missing consent disables only join.</li>
+        <li>Ally/avatar and story remain responsive from 320px through 1440px.</li>
+        <li>Keyboard order, focus visibility, touch targets, labels, and screen reader state are usable.</li>
+        <li>Reduced-motion mode removes non-essential choreography without losing meaning.</li>
+        <li>Bootstrap, create/resume, restore, save, greeting, reply, and join have explicit loading/error states.</li>
+        <li>Waitlist calls use the same-origin <span class="mono">/api/v1/waitlist/*</span> facade; cookies, <span class="mono">Origin</span>/<span class="mono">Referer</span>, CSRF, and idempotency behavior are covered without manually setting <span class="mono">Origin</span>.</li>
+        <li>Stale revision restores the draft before another mutation; unsaved input is preserved.</li>
+        <li>Reply is sending first and pending only after acknowledgement; no direct provider/runtime call exists.</li>
+        <li>Join shows a masked email and keeps the Ally, greeting, and pending reply visible.</li>
+        <li>No sign-in or authenticated account flow is reachable from the waitlist CTA; join is disabled when consent configuration is absent.</li>
+        <li>Snapshot mapping allowlists greeting/reply/join fields and maps the local appearance/personality model to the Cloud request shape.</li>
+        <li>Appearance and personality serialization fixtures are deterministic, bounded, and covered; appearance-only edits do not invalidate a greeting.</li>
+        <li>Response limits, field errors, 404/409/422/429/503, idempotency conflict, and timeout paths are covered.</li>
+        <li>Cloud contract verification, typecheck, lint, tests, and web build are recorded.</li>
+      </ul>
+      <div class="shape-grid" style="margin-top:26px">
+        <article class="shape">
+          <h3>Focused checks</h3>
+          <ul>
+            <li>Cloud client and facade tests for credentials, CSRF cookie/header, origin forwarding, revision, and idempotency.</li>
+            <li>Gateway/state tests using fixture responses for every lifecycle and error branch.</li>
+            <li>Vitest/Testing Library flow tests for refresh restoration, retry, pending reply, masked join, and accessible status/focus behavior.</li>
+          </ul>
+        </article>
+        <article class="shape">
+          <h3>Repository checks</h3>
+          <ul>
+            <li><span class="mono">bun run cloud:check</span></li>
+            <li><span class="mono">bun run typecheck</span></li>
+            <li><span class="mono">bun run test:run</span></li>
+            <li><span class="mono">bun run lint</span></li>
+            <li><span class="mono">bun run build:web</span></li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section id="sources">
+      <div class="section-head">
+        <h2>Evidence links</h2>
+        <p class="section-note">Nabu paths are the product authority; repository paths are implementation evidence in this task worktree.</p>
+      </div>
+      <ul class="sources">
+        <li><span class="mono">projects/allies/index.md</span> · Allies source of truth and delivery focus.</li>
+        <li><span class="mono">projects/allies/engineering/specs/waitlist/INT-009-frontend-handoff.md</span> · endpoint sequence, limits, lifecycle, acceptance.</li>
+        <li><span class="mono">projects/allies/engineering/specs/waitlist/INT-009-responsive-waitlist-preview.md</span> · accepted responsive product boundary.</li>
+        <li><span class="mono">projects/allies/engineering/specs/waitlist/CLD-008-cloud-waitlist-draft.md</span> · Cloud contract outcome and ownership.</li>
+        <li><span class="mono">projects/allies/delivery/tickets/interface/INT-009.md</span> · delivery acceptance and ownership.</li>
+        <li><span class="mono">AGENTS.md</span> · Nabu-first workflow, plan location, validation, branch policy.</li>
+        <li><span class="mono">ENGINEERING_STYLE.md</span> · trust boundaries, durable state, retries, concurrency, tests.</li>
+        <li><span class="mono">packages/cloud-client/openapi/allies-cloud-0.1.0.json</span> · staging snapshot fetched 2026-08-15 with waitlist paths.</li>
+        <li><span class="mono">https://cloud.staging.yourallies.io/api/v1/docs#/</span> · staging Swagger UI and contract source.</li>
+        <li><span class="mono">codex/cld-008-waitlist@a071fa4</span> · public Cloud implementation evidence for cookie paths, default-off configuration, and snapshot fields.</li>
+        <li><span class="mono">origin/web/feat/waitlist-ally-avatar@69f5794</span> · selective UI source.</li>
+      </ul>
+    </section>
+
+    <footer>
+      Prepared in Forest worktree <span class="mono">ft/int-009-frontend-api-integration</span> · local Allies design system (Open Runde / orange / ink / blue) · plan review worker: <span class="mono">gpt-5.6-luna · xhigh</span>
+    </footer>
+  </main>
+</body>
+</html>

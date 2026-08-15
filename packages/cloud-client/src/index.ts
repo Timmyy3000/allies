@@ -5,6 +5,18 @@ export type {
   CloudClientOptions,
   PreparedAvatarViewModel,
   ProfileViewModel,
+  WaitlistAcknowledgementViewModel,
+  WaitlistConfigurationInput,
+  WaitlistConfigurationViewModel,
+  WaitlistGreetingInput,
+  WaitlistGreetingViewModel,
+  WaitlistJoinConfirmationViewModel,
+  WaitlistJoinInput,
+  WaitlistJoinSnapshotViewModel,
+  WaitlistReplyInput,
+  WaitlistReplyViewModel,
+  WaitlistSnapshotViewModel,
+  WaitlistTimestampsViewModel,
   WorkspaceViewModel,
 } from "./client";
 export { createCloudClient } from "./client";

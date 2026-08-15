@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { useSession } from "../lib/session/session-context";
@@ -11,10 +11,15 @@ function SessionProbe() {
 }
 
 describe("AppProviders", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+  });
 
   it("composes Query and session providers and settles unauthorized restoration", async () => {
-    process.env.NEXT_PUBLIC_CLOUD_API_URL = "https://cloud.example.com";
+    vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
+    vi.stubEnv("NEXT_PUBLIC_WAITLIST_ENABLED", "true");
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
@@ -34,5 +39,21 @@ describe("AppProviders", () => {
     );
 
     expect(await screen.findByText("signed-out")).toBeTruthy();
+  });
+
+  it("does not restore the shared session when the waitlist is disabled", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
+    vi.stubEnv("NEXT_PUBLIC_WAITLIST_ENABLED", "false");
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AppProviders>
+        <SessionProbe />
+      </AppProviders>,
+    );
+
+    expect(await screen.findByText("signed-out")).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });

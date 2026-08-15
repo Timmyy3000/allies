@@ -21,6 +21,7 @@ export type CloudErrorKind =
 export interface FieldIssue {
   field?: string;
   message?: string;
+  code?: string;
 }
 
 export interface CloudError {
@@ -43,6 +44,7 @@ const errorEnvelopeSchema = z
                 z.object({
                   field: z.string().optional(),
                   message: z.string().optional(),
+                  code: z.string().optional(),
                 }),
               )
               .optional(),

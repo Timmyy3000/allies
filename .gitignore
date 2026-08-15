@@ -8,6 +8,7 @@ out
 dist
 web-build/
 coverage/
+test-results/
 *.tgz
 
 # Logs
