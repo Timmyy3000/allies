@@ -14,6 +14,10 @@ make migrate
 make server
 ```
 
+`.env.example` contains only the small local-development surface. Deployment
+owners can use `.env.deploy.example` as a variable inventory for Railway staging
+or production; real values belong in the deployment secret/configuration store.
+
 Create Allies domain apps from the repository root as they become necessary:
 
 ```powershell
