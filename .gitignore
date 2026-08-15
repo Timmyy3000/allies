@@ -42,3 +42,6 @@ android/
 *.p12
 *.key
 *.mobileprovision
+
+.forest/
+.lavish/
