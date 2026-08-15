@@ -63,8 +63,9 @@ before changing files in its subtree; nested guidance is additive.
 ## Git workflow
 
 - Substantial implementation from an approved plan starts on a feature branch
-  and opens a PR into `dev`; follow `CONTRIBUTING.md` naming (`ft/`, `fix/`, or
-  `hot/`).
+  and opens a PR into the platform's development branch; follow
+  `ENGINEERING_STYLE.md` naming (`web/` for web work, `mobile/` for mobile
+  work, and a non-platform prefix for shared changes).
 - Do not create a branch for every small fix or documentation chore unless the
   user asks for one.
 - Keep commits focused and inspect status and the diff before committing.

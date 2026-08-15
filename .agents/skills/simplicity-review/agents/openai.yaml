@@ -1,0 +1,4 @@
+interface:
+  display_name: "Simplicity Review"
+  short_description: "Challenge unnecessary plan complexity"
+  default_prompt: "Use $simplicity-review to independently check this plan for unnecessary complexity."

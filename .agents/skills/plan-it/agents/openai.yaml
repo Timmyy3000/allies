@@ -1,0 +1,4 @@
+interface:
+  display_name: "Plan It"
+  short_description: "Create Lavish-backed implementation plans"
+  default_prompt: "Use $plan-it to create an interactive implementation plan for this feature."

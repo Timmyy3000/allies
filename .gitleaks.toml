@@ -2,3 +2,10 @@ title = "Allies Interface Gitleaks configuration"
 
 [extend]
 useDefault = true
+
+[allowlist]
+description = "The waitlist plan uses this exact security phrase as documentation, not a credential."
+regexTarget = "line"
+regexes = [
+  '''credentialed browser requests, CSRF/idempotency headers for mutations'''
+]

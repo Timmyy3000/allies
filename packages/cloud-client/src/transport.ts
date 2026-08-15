@@ -14,6 +14,21 @@ function transportError(kind: CloudError["kind"]): CloudError {
   return { kind };
 }
 
+function applySignal(request: Request, signal: AbortSignal): Request {
+  try {
+    return new Request(request, { signal });
+  } catch {
+    // Test environments can provide Request and AbortSignal from different
+    // realms. Preserve the request shape while allowing the transport to run.
+    return new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+      credentials: request.credentials,
+    });
+  }
+}
+
 async function boundResponse(response: Response, maxBytes: number, signal: AbortSignal): Promise<Response> {
   if (!response.body || response.status === 204 || response.status === 205) return response;
 
@@ -82,9 +97,9 @@ export function createControlledFetch(options: TransportOptions): typeof globalT
     }, timeoutMs);
 
     try {
-      const request = new Request(originalRequest, { signal: controller.signal });
+      const request = applySignal(originalRequest, controller.signal);
       const prepared = options.prepareRequest ? await options.prepareRequest(request) : request;
-      const controlledRequest = new Request(prepared, { signal: controller.signal });
+      const controlledRequest = applySignal(prepared, controller.signal);
       const response = await options.fetch(controlledRequest);
       return await boundResponse(response, maxJsonBytes, controller.signal);
     } catch (error) {

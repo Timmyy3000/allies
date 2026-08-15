@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ship it"
+  short_description: "Execute plans with optional worker delegation"
+  default_prompt: "Use $ship-it to execute this reviewed plan through PR readiness with the configured implementation-delegation preference."

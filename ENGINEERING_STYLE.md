@@ -1,6 +1,6 @@
 # Allies Engineering Policy
 
-**Core version:** 1.0
+**Core version:** 1.1
 **Repository profile:** Interface 1.0
 **Status:** Required for new and materially changed code
 
@@ -95,7 +95,8 @@ security assessment. Do not build speculative frameworks.
 ### AL-12 — Make changes reviewable
 
 Keep commits and diffs focused. Include relevant tests and contract changes in
-the same change. Record a concrete owner, impact, mitigation, and revisit
+the same change. Name branches and commits with the platform being changed, as
+required by INT-03. Record a concrete owner, impact, mitigation, and revisit
 condition for an exception rather than hiding it in a TODO.
 
 ## Interface profile
@@ -110,6 +111,23 @@ duplicate backend business rules in screens or silently invent fallback data.
 
 Every meaningful request surface defines loading, empty, success, error,
 retry, cancellation, and reconnect behavior appropriate to the product flow.
+
+### INT-03 — Name branches and commits by platform
+
+A branch that changes one client must start with that platform. Web work uses
+a `web/` prefix; mobile work uses a `mobile/` prefix:
+
+- `web/dev/agent-tester`
+- `mobile/dev/agent-tester`
+
+Commit subjects use the same platform marker:
+
+- `web: add agent tester`
+- `mobile: add agent tester`
+
+Do not label mobile-only work as web, or the reverse. Shared docs, CI, or
+repository-wide changes use a non-platform prefix such as `docs/` or `ci/`
+rather than borrowing `web` or `mobile`.
 
 ## Exceptions
 

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Better Docs"
+  short_description: "Make product documents clear and digestible"
+  default_prompt: "Use $better-docs to improve this product-document draft and show me a reviewable diff."

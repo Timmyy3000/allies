@@ -1,0 +1,71 @@
+# Figma plugin payload
+
+This is the exact shape Allies Interface Builder expects. Treat it as
+sufficient to start a task.
+
+```json
+{
+  "description": "the screen with id of sign-in-page is the initial page you see in  the onboarding , when you click on meet your first ally It then goes to what you want screen. Yeah, I want you what one screen, and when you give type in, they give it a name box is actually a text box space. So when you type in it, it becomes the color in what you want to, as you can see, as the orange color, and then the button of the text also changes to orange. When we click on next on what you want 2 , Should go to should look like one and should look like one the initial page, right? The next buttons inactive, right? But when I swipe between where this avatar is, I can see other avatars. So, when I swipe once, the button should now be active. All right, the reason why we're doing this is because we don't want the button to be active at first to not prompt users to just select the default avatar that it's there right when it does that once it swipes at things once and then the button is active when they click on next right they can also now select a color now, right? They can select a colour. Now, the color pages should look like to yeah, I want a color is selected, the state of the color being selected is shown it should look like three. Once you click on next, it now goes to job description one job description one once they start typing in that the button becomes active remember that the button color is adapting from the color that we are selected in should look like three. Once we do that, it then shows goes to the personality page where we have a list of things that it can select from.",
+  "screens": [
+    {
+      "screenId": "sign-in-page",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1786735751/figma-screens/batch_mstcbzzq_bfkkp/sign-in-page.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1786735752/figma-screens/batch_mstcbzzq_bfkkp/sign-in-page.html"
+    },
+    {
+      "screenId": "what-you-want-1",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1786735753/figma-screens/batch_mstcbzzq_bfkkp/what-you-want-1.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1786735753/figma-screens/batch_mstcbzzq_bfkkp/what-you-want-1.html"
+    },
+    {
+      "screenId": "what-you-want-2",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1786735754/figma-screens/batch_mstcbzzq_bfkkp/what-you-want-2.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1786735754/figma-screens/batch_mstcbzzq_bfkkp/what-you-want-2.html"
+    },
+    {
+      "screenId": "should-look-like-1",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1786735755/figma-screens/batch_mstcbzzq_bfkkp/should-look-like-1.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1786735756/figma-screens/batch_mstcbzzq_bfkkp/should-look-like-1.html"
+    },
+    {
+      "screenId": "should-look-like-2",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1786735756/figma-screens/batch_mstcbzzq_bfkkp/should-look-like-2.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1786735757/figma-screens/batch_mstcbzzq_bfkkp/should-look-like-2.html"
+    },
+    {
+      "screenId": "should-look-like-3",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1786735757/figma-screens/batch_mstcbzzq_bfkkp/should-look-like-3.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1786735758/figma-screens/batch_mstcbzzq_bfkkp/should-look-like-3.html"
+    },
+    {
+      "screenId": "job-description-1",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1786735758/figma-screens/batch_mstcbzzq_bfkkp/job-description-1.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1786735759/figma-screens/batch_mstcbzzq_bfkkp/job-description-1.html"
+    },
+    {
+      "screenId": "job-description-2",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1786735759/figma-screens/batch_mstcbzzq_bfkkp/job-description-2.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1786735760/figma-screens/batch_mstcbzzq_bfkkp/job-description-2.html"
+    },
+    {
+      "screenId": "personality-page",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1786735760/figma-screens/batch_mstcbzzq_bfkkp/personality-page.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1786735761/figma-screens/batch_mstcbzzq_bfkkp/personality-page.html"
+    }
+  ]
+}
+```
+
+## Field rules
+
+| Field | Required | Role |
+|---|---|---|
+| `description` | yes | Flow authority: start screen, clicks, swipes, validation, destinations |
+| `screens[].screenId` | yes | Stable id for the screen / visual state |
+| `screens[].imageUrl` | yes | Screenshot for visual QA only |
+| `screens[].htmlUrl` | yes | Layout, copy, spacing, and assets to convert |
+
+Same `screenId` appearing twice, or ids that differ only by `-1` / `-2` / `-3`,
+usually means **states of one screen** (empty vs filled, inactive vs active
+button). Document those as variants of one component unless the flow truly
+navigates to a separate route.

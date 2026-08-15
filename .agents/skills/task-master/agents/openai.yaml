@@ -1,0 +1,4 @@
+interface:
+  display_name: "Task Master"
+  short_description: "Coordinate roadmaps into executable tickets"
+  default_prompt: "Use $task-master to set up, reconcile, or advance a project delivery board."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kickoff"
+  short_description: "Start a full or fast engineering workflow"
+  default_prompt: "Use /kickoff to choose a planning and delivery path, including required first-use worker configuration."

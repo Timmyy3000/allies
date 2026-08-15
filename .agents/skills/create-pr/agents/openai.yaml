@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create PR"
+  short_description: "Validate, review, fix, and open a PR"
+  default_prompt: "Use $create-pr to validate my branch, fix blocking local review findings, and create a PR."

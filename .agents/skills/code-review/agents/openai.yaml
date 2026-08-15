@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Review"
+  short_description: "Review branch diffs before a PR"
+  default_prompt: "Use $code-review to review my current branch before I open a PR."
