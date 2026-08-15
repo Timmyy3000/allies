@@ -31,12 +31,22 @@ class VerifiedIdentity:
     issuer: str = ""
     email: str = ""
     display_name: str = ""
+    email_verified: bool = False
+    email_verification_source: str = ""
 
     def __post_init__(self):
         if self.provider not in {key.value for key in ProviderKey}:
             raise ProviderRejected("unknown provider")
         if not self.subject or len(self.subject) > 255:
             raise ProviderRejected("provider subject is invalid")
+        if self.email_verified and (
+            self.provider != ProviderKey.GOOGLE.value
+            or not self.email
+            or self.email_verification_source not in {"google"}
+        ):
+            raise ProviderRejected("verified identity email evidence is incomplete")
+        if not self.email_verified and self.email_verification_source:
+            raise ProviderRejected("unverified identity provenance is invalid")
 
 
 class OIDCProvider(Protocol):

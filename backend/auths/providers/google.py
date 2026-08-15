@@ -188,7 +188,8 @@ class GoogleProvider(OIDCProvider):
         if not isinstance(subject, str) or not subject.strip():
             raise ProviderRejected("google subject malformed")
         email = claims.get("email", "")
-        if claims.get("email_verified") is not True or not isinstance(email, str):
+        email_verified = claims.get("email_verified") is True and isinstance(email, str)
+        if not email_verified:
             email = ""
         display_name = claims.get("name", "")
         if not isinstance(display_name, str):
@@ -199,4 +200,6 @@ class GoogleProvider(OIDCProvider):
             issuer=str(issuer),
             email=email[:254],
             display_name=display_name[:80],
+            email_verified=email_verified,
+            email_verification_source="google" if email_verified else "",
         )

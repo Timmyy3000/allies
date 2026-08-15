@@ -7,7 +7,7 @@ import pytest
 from django.test import override_settings
 
 from auths.exceptions import ProviderRejected
-from auths.providers.base import ProviderFlow, ProviderKey
+from auths.providers.base import ProviderFlow, ProviderKey, VerifiedIdentity
 from auths.providers.google import GoogleProvider
 
 
@@ -35,6 +35,17 @@ def test_google_uses_s256_pkce_challenge():
     )
     assert query["code_challenge"] == [expected]
     assert query["code_challenge_method"] == ["S256"]
+
+
+def test_verified_email_provenance_is_google_only():
+    with pytest.raises(ProviderRejected):
+        VerifiedIdentity(
+            provider=ProviderKey.FAKE.value,
+            subject="fake-subject",
+            email="person@example.com",
+            email_verified=True,
+            email_verification_source="google",
+        )
 
 
 @pytest.mark.django_db
