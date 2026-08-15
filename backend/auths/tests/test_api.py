@@ -71,8 +71,21 @@ def test_framework_validation_errors_use_the_standard_envelope():
     )
 
     assert response.status_code == 422
-    assert response.json()["status"] == "error"
-    assert response.json()["data"]["code"] == "validation_error"
+    assert response.json() == {
+        "status": "error",
+        "message": "request validation failed",
+        "data": {
+            "code": "validation_error",
+            "details": {
+                "errors": [
+                    {
+                        "field": "body.payload.redirect_to",
+                        "code": "string_type",
+                    }
+                ]
+            },
+        },
+    }
 
 
 @pytest.mark.django_db

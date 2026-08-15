@@ -106,6 +106,9 @@ class ExternalIdentity(models.Model):
     subject = models.CharField(max_length=255)
     issuer = models.CharField(max_length=255, blank=True)
     email_snapshot = models.EmailField(blank=True)
+    email_verified = models.BooleanField(default=False)
+    email_verified_at = models.DateTimeField(null=True, blank=True)
+    email_verification_source = models.CharField(max_length=32, blank=True)
     display_name_snapshot = models.CharField(max_length=80, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -115,7 +118,24 @@ class ExternalIdentity(models.Model):
             models.UniqueConstraint(
                 fields=("provider", "subject"),
                 name="auth_identity_provider_subject_uniq",
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        email_verified=False,
+                        email_verified_at__isnull=True,
+                        email_verification_source="",
+                    )
+                    | Q(
+                        email_verified=True,
+                        provider=Provider.GOOGLE,
+                        email_snapshot__gt="",
+                        email_verified_at__isnull=False,
+                        email_verification_source="google",
+                    )
+                ),
+                name="auth_identity_verified_email_coherent",
+            ),
         ]
         indexes = [
             models.Index(
