@@ -32,12 +32,10 @@ const MOBILE_ART_W = 375;
 const MOBILE_ART_H = 812;
 const BRAND_ORANGE = "#FF5800";
 
-const DESKTOP_ACTOR_BOUNDS: StoryActorBounds = {
-  width: DESKTOP_ART_W,
-  height: DESKTOP_ART_H,
-  offsetLeft: 387,
-  offsetTop: 208,
-};
+const DESKTOP_COPY_OFFSET = {
+  left: 387,
+  top: 208,
+} as const;
 
 const MOBILE_ACTOR_BOUNDS: StoryActorBounds = {
   width: MOBILE_ART_W,
@@ -65,13 +63,16 @@ const IconSizeContext = createContext(24);
 function useArtboardScale(artW: number, maxScale = Number.POSITIVE_INFINITY) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const [hostWidth, setHostWidth] = useState(artW);
 
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
 
     const update = () => {
-      setScale(Math.min(host.clientWidth / artW, maxScale));
+      const width = host.clientWidth;
+      setHostWidth(width);
+      setScale(Math.min(width / artW, maxScale));
     };
 
     update();
@@ -80,7 +81,7 @@ function useArtboardScale(artW: number, maxScale = Number.POSITIVE_INFINITY) {
     return () => observer.disconnect();
   }, [artW, maxScale]);
 
-  return { hostRef, scale };
+  return { hostRef, scale, hostWidth };
 }
 
 export default function Onboarding({
@@ -238,8 +239,18 @@ function DesktopOnboarding({
   ctaHref?: string;
   onOpenOnboarding?: () => void;
 }) {
-  const { hostRef, scale } = useArtboardScale(DESKTOP_ART_W, 1);
-  const isNativeWidth = scale === 1;
+  const { hostRef, scale, hostWidth } = useArtboardScale(DESKTOP_ART_W, 1);
+  const logicalViewportWidth = Math.max(
+    DESKTOP_ART_W,
+    hostWidth / Math.max(scale, Number.EPSILON),
+  );
+  const artboardOffsetLeft = (logicalViewportWidth - DESKTOP_ART_W) / 2;
+  const desktopActorBounds: StoryActorBounds = {
+    width: logicalViewportWidth,
+    height: DESKTOP_ART_H,
+    offsetLeft: artboardOffsetLeft + DESKTOP_COPY_OFFSET.left,
+    offsetTop: DESKTOP_COPY_OFFSET.top,
+  };
   const [storyDone, setStoryDone] = useState(false);
 
   return (
@@ -253,12 +264,11 @@ function DesktopOnboarding({
         style={{
           width: DESKTOP_ART_W,
           height: DESKTOP_ART_H,
-          left: isNativeWidth ? "50%" : 0,
-          marginLeft: isNativeWidth ? -DESKTOP_ART_W / 2 : 0,
+          left: artboardOffsetLeft,
           transform: `scale(${scale})`,
           borderRadius: "10px 10px 0px 0px",
           backgroundColor: "#fff",
-          overflow: "hidden",
+          overflow: "visible",
         }}
       >
         <div
@@ -284,7 +294,7 @@ function DesktopOnboarding({
             paragraphGap={0}
             beats={STORY_BEATS}
             initialParagraphs={[0]}
-            actorBounds={DESKTOP_ACTOR_BOUNDS}
+            actorBounds={desktopActorBounds}
             artboardScale={scale}
             roamOffsets={DESKTOP_ROAM_OFFSETS}
             onComplete={setStoryDone}

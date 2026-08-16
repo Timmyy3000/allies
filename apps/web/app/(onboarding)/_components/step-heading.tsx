@@ -1,4 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
+import { ONBOARDING_LAYOUT } from "@/components/next-button";
 
 export const HEADING_STYLE = {
   margin: 0,
@@ -25,7 +26,7 @@ export function StepHeading({
       style={{
         left: 20,
         right: 20,
-        top: 132,
+        top: ONBOARDING_LAYOUT.headingTop,
         position: "absolute",
         display: "flex",
         flexDirection: "column",
