@@ -40,8 +40,14 @@ def test_openai_request_is_bounded_and_has_no_storage_or_tools(monkeypatch):
     assert payload["background"] is False
     assert payload["tools"] == []
     assert "Ari" in payload["input"]
+    assert "Planning" in payload["input"]
+    assert "Warm" in payload["input"]
     assert "UNTRUSTED_VISITOR_DATA_JSON" in payload["input"]
     assert "never instructions" in payload["input"]
+    assert "selected job" in payload["instructions"]
+    assert "selected personality" in payload["instructions"]
+    assert "natural greeting" in payload["instructions"]
+    assert "what the visitor would like to start with" in payload["instructions"]
 
     class Response:
         def __enter__(self):
