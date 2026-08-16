@@ -1,15 +1,15 @@
 "use client";
 
 import { Artboard } from "@/components/artboard";
-import { AllyAvatar } from "@/components/ally-avatar";
 import { BackButton } from "@/components/back-button";
-import { DEFAULT_ACCENT, NextButton } from "@/components/next-button";
+import { getAccentPalette, NextButton } from "@/components/next-button";
 import { ProgressRing } from "@/components/progress-ring";
 import {
   JOB_LIMIT,
   PERSONALITIES,
   useOnboardingStore,
 } from "../_store/onboarding-store";
+import { PersistentAllyAvatar } from "./persistent-ally";
 import { StepHeading } from "./step-heading";
 
 export function PersonalityScreen() {
@@ -22,18 +22,19 @@ export function PersonalityScreen() {
  const goTo = useOnboardingStore((state) => state.goTo);
   const back = useOnboardingStore((state) => state.back);
   const selected = personalities.length > 0 || personalityNote.trim().length > 0;
+  const palette = getAccentPalette(color);
 
   return (
     <Artboard>
       <div data-testid="personality-page" style={{ position: "absolute", inset: 0 }}>
         <BackButton onClick={back} />
-        <ProgressRing progress={0.9} />
+        <ProgressRing progress={0.9} color={palette.accent} />
         <StepHeading
           mark={
-            <AllyAvatar
+            <PersistentAllyAvatar
               shape={shape}
               state="thinking"
-              color={color ?? "#fd304f"}
+              color={palette.accent}
               size={40}
             />
           }
@@ -47,7 +48,7 @@ export function PersonalityScreen() {
           className="remove-scrollbar"
           style={{
             left: 0,
-            bottom: 388,
+            top: 355,
             width: 375,
             position: "absolute",
             display: "flex",
@@ -63,7 +64,7 @@ export function PersonalityScreen() {
             aria-hidden
             style={{
               borderRadius: 100,
-              backgroundColor: "#f3f3f3",
+              backgroundColor: palette.softStrong,
               width: 36,
               height: 36,
               flexShrink: 0,
@@ -73,22 +74,22 @@ export function PersonalityScreen() {
             }}
           >
             <svg width="20" height="20" viewBox="0 0 19.33 19.33" fill="none">
-              <circle cx="9.67" cy="9.67" r="9.67" fill="rgba(255,45,85,0.4)" />
+              <circle cx="9.67" cy="9.67" r="9.67" fill={palette.muted} />
               <circle
                 cx="9.67"
                 cy="9.67"
                 r="8.67"
-                stroke="#ff2d55"
+                stroke={palette.accent}
                 strokeWidth="2"
               />
               <path
                 d="M6.9 6.49C7.42 5.08 8.63 4.5 9.81 4.5 11 4.5 12.23 5.35 12.23 6.91 12.23 9.29 9.81 8.87 9.44 11"
-                stroke="#ff2d55"
+                stroke={palette.accent}
                 strokeWidth="2"
                 strokeLinecap="round"
                 strokeLinejoin="round"
               />
-              <circle cx="9.39" cy="14.42" r="1.33" fill="#ff2d55" />
+              <circle cx="9.39" cy="14.42" r="1.33" fill={palette.accent} />
             </svg>
           </div>
           {PERSONALITIES.map((trait) => {
@@ -104,8 +105,8 @@ export function PersonalityScreen() {
                 data-selected={on ? "true" : "false"}
                 style={{
                   borderRadius: 100,
-                  backgroundColor: on ? "#ff2d55" : "rgba(255,45,85,0.1)",
-                  color: on ? "#fff" : "#ff2d55",
+                  backgroundColor: on ? palette.accent : palette.soft,
+                  color: on ? "#fff" : palette.accent,
                   border: 0,
                   height: 36,
                   padding: "8px 24px",
@@ -128,8 +129,8 @@ export function PersonalityScreen() {
             borderRadius: 20,
             backgroundColor: "#f3f3f3",
             left: 20,
-            bottom: 126,
-            width: 335,
+            right: 20,
+            top: 403,
             height: 250,
             position: "absolute",
             overflow: "hidden",
@@ -140,7 +141,7 @@ export function PersonalityScreen() {
            data-testid="personality-note"
             value={personalityNote}
             onChange={(event) => setPersonalityNote(event.target.value)}
-            placeholder="What do I handle for you?"
+            placeholder="How should I speak and respond to you?"
             maxLength={JOB_LIMIT}
             style={{
               position: "absolute",
@@ -163,7 +164,7 @@ export function PersonalityScreen() {
         <p
           style={{
             left: "50%",
-            bottom: 90,
+            top: 671,
             transform: "translateX(-50%)",
             position: "absolute",
             margin: 0,
@@ -181,9 +182,9 @@ export function PersonalityScreen() {
             : "200 character limit"}
         </p>
         <NextButton
-         label="Next"
+         label={selected ? "Save" : "Next"}
           active={selected}
-          color={color ?? DEFAULT_ACCENT}
+          color={palette.accent}
           onClick={() => goTo("preview")}
         />
       </div>

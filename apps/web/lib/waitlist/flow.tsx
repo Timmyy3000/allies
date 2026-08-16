@@ -34,6 +34,7 @@ import {
 } from "./catalog";
 
 const WAITLIST_QUERY_KEY = ["waitlist", "draft"] as const;
+const GREETING_RECONCILIATION_DELAYS_MS = [250, 500, 1_000, 2_000] as const;
 
 export type WaitlistAction = "configuration" | "greeting" | "reply" | "join";
 export type WaitlistFlowStatus = "disabled" | "idle" | "loading" | "ready" | "error";
@@ -100,6 +101,23 @@ function decodeAppearance(
   return { shape: fallbackShape, color: fallbackColor };
 }
 
+function greetingReconciliationKey(snapshot: WaitlistSnapshotViewModel): string {
+  return JSON.stringify([
+    snapshot.id,
+    snapshot.configuration.name,
+    snapshot.configuration.job,
+    snapshot.configuration.personality,
+  ]);
+}
+
+function generationOutcomeUnknown(): CloudError {
+  return localError("generation_outcome_unknown", "Your Ally is still preparing a hello. Try again shortly.");
+}
+
+function waitForGreetingReconciliationDelay(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 export function WaitlistFlowProvider({
   featureEnabled,
   consentVersion,
@@ -124,6 +142,11 @@ export function WaitlistFlowProvider({
   const operationCounter = useRef(0);
   const operationKeys = useRef(new Map<string, { fingerprint: string; key: string }>());
   const lastOperationsRef = useRef(new Map<WaitlistAction, () => Promise<unknown>>());
+  const greetingReconciliationRef = useRef<{
+    key: string;
+    authoritativeFirstRead: boolean;
+    promise: Promise<WaitlistSnapshotViewModel>;
+  } | null>(null);
   const hydratedSnapshotRef = useRef<string | null>(null);
   const hasEnteredFlowRef = useRef(false);
 
@@ -188,12 +211,21 @@ export function WaitlistFlowProvider({
   });
   const snapshot = draftQuery.data ?? null;
 
-  const refreshDraft = useCallback(async () => {
-    return queryClient.fetchQuery<WaitlistSnapshotViewModel | null, unknown>({
-      queryKey,
-      queryFn: ({ signal }) => ensureDraft(signal, true),
-    });
-  }, [ensureDraft, queryClient, queryKey]);
+  const fetchDraft = useCallback(
+    async (cancelInFlight: boolean): Promise<WaitlistSnapshotViewModel | null> => {
+      if (cancelInFlight) await queryClient.cancelQueries({ queryKey, exact: true });
+      return queryClient.fetchQuery<WaitlistSnapshotViewModel | null, unknown>({
+        queryKey,
+        queryFn: ({ signal }) => ensureDraft(signal, true),
+        // Mutations need a server-authoritative snapshot, even while the normal query remains fresh.
+        staleTime: 0,
+      });
+    },
+    [ensureDraft, queryClient, queryKey],
+  );
+
+  const refreshDraft = useCallback(() => fetchDraft(true), [fetchDraft]);
+  const refreshDraftForReconciliation = useCallback(() => fetchDraft(false), [fetchDraft]);
 
   useEffect(() => {
     if (active) {
@@ -226,6 +258,88 @@ export function WaitlistFlowProvider({
     if (failureRef.current?.action === action) failureRef.current = null;
     setFailure((current) => (current?.action === action ? null : current));
   }, []);
+
+  const recordFailure = useCallback((action: WaitlistAction, error: CloudError) => {
+    const nextFailure = { action, error };
+    failureRef.current = nextFailure;
+    setFailure(nextFailure);
+  }, []);
+
+  const reconcileGreeting = useCallback(
+    async (
+      seed: WaitlistSnapshotViewModel,
+      authoritativeFirstRead = false,
+    ): Promise<WaitlistSnapshotViewModel> => {
+      const key = greetingReconciliationKey(seed);
+      const current = greetingReconciliationRef.current;
+      if (current?.key === key && (!authoritativeFirstRead || current.authoritativeFirstRead)) {
+        return current.promise;
+      }
+
+      const promise = (async () => {
+        let next = await (authoritativeFirstRead ? refreshDraft() : refreshDraftForReconciliation());
+        for (const delayMs of GREETING_RECONCILIATION_DELAYS_MS) {
+          if (next?.greeting || next?.lifecycle !== "greeting_pending") break;
+          await waitForGreetingReconciliationDelay(delayMs);
+          next = await refreshDraftForReconciliation();
+        }
+        if (!next) throw localError("draft_not_ready", "Your Ally draft could not be restored.");
+        return next;
+      })();
+
+      const entry = { key, authoritativeFirstRead, promise };
+      greetingReconciliationRef.current = entry;
+      try {
+        return await promise;
+      } finally {
+        if (greetingReconciliationRef.current === entry) greetingReconciliationRef.current = null;
+      }
+    },
+    [refreshDraft, refreshDraftForReconciliation],
+  );
+
+  const ensureGreetingOutcome = useCallback((next: WaitlistSnapshotViewModel): WaitlistSnapshotViewModel => {
+    if (!next.greeting) throw generationOutcomeUnknown();
+    return next;
+  }, []);
+
+  const pendingGreetingKey =
+    snapshot && !snapshot.greeting && snapshot.lifecycle === "greeting_pending"
+      ? greetingReconciliationKey(snapshot)
+      : null;
+
+  useEffect(() => {
+    if (!featureEnabled || !active || !pendingGreetingKey) return;
+    const current = queryClient.getQueryData<WaitlistSnapshotViewModel | null>(queryKey);
+    if (!current) return;
+
+    let cancelled = false;
+    void reconcileGreeting(current)
+      .then((next) => {
+        if (cancelled) return;
+        ensureGreetingOutcome(next);
+        clearFailure("greeting");
+        lastOperationsRef.current.delete("greeting");
+      })
+      .catch((candidate) => {
+        if (cancelled) return;
+        recordFailure("greeting", normalizeFlowError(candidate));
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    active,
+    clearFailure,
+    ensureGreetingOutcome,
+    featureEnabled,
+    pendingGreetingKey,
+    queryClient,
+    queryKey,
+    recordFailure,
+    reconcileGreeting,
+  ]);
 
   const runAction = useCallback(
     async <T,>(
@@ -299,22 +413,14 @@ export function WaitlistFlowProvider({
         if (!current) throw localError("draft_not_ready", "Your Ally draft is still loading.");
         const refreshed = await runAction("greeting", "greeting", fingerprint, async (key) => {
           await client.generateWaitlistGreeting({ revision: current.revision, idempotencyKey: key });
-          const next = await refreshDraft();
-          if (!next) throw localError("draft_not_ready", "Your Ally draft could not be restored.");
-          if (!next.greeting && next.lifecycle === "ready_for_greeting") {
-            throw localError(
-              "generation_outcome_unknown",
-              "Your Ally is still preparing a hello. Try again shortly.",
-            );
-          }
-          return next;
+          return ensureGreetingOutcome(await reconcileGreeting(current, true));
         });
         return refreshed;
       };
       lastOperationsRef.current.set("greeting", execute);
       return execute();
     },
-    [client, queryClient, queryKey, refreshDraft, runAction],
+    [client, ensureGreetingOutcome, queryClient, queryKey, reconcileGreeting, runAction],
   );
 
   const recordReply = useCallback(
@@ -362,13 +468,26 @@ export function WaitlistFlowProvider({
 
   const retry = useCallback(async () => {
     const failedAction = failureRef.current?.action;
+    if (failedAction === "greeting") {
+      const current = queryClient.getQueryData<WaitlistSnapshotViewModel | null>(queryKey);
+      if (current && !current.greeting && current.lifecycle === "greeting_pending") {
+        try {
+          ensureGreetingOutcome(await reconcileGreeting(current));
+          clearFailure("greeting");
+          lastOperationsRef.current.delete("greeting");
+        } catch (candidate) {
+          recordFailure("greeting", normalizeFlowError(candidate));
+        }
+        return;
+      }
+    }
     const operation = failedAction ? lastOperationsRef.current.get(failedAction) : undefined;
     if (operation) {
       await operation().then(() => undefined).catch(() => undefined);
       return;
     }
     await draftQuery.refetch().then(() => undefined).catch(() => undefined);
-  }, [draftQuery]);
+  }, [clearFailure, draftQuery, ensureGreetingOutcome, queryClient, queryKey, recordFailure, reconcileGreeting]);
 
   const status: WaitlistFlowStatus = !featureEnabled
     ? "disabled"

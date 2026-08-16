@@ -107,6 +107,26 @@ describe("createCloudClient", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("binds the default global fetch before calling it", async () => {
+    const originalFetch = globalThis.fetch;
+    const fetch = vi.fn(function (this: typeof globalThis) {
+      expect(this).toBe(globalThis);
+      return Promise.resolve(Response.json(accountResponse));
+    }) as typeof globalThis.fetch;
+    globalThis.fetch = fetch;
+
+    try {
+      const client = createCloudClient({ baseUrl: "https://cloud.example.com" });
+
+      await expect(client.getCurrentAccount()).resolves.toMatchObject({
+        userId: "usr_example",
+      });
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it("maps every exported account, avatar, and Workspace success operation", async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(input, init);

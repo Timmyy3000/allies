@@ -1,11 +1,11 @@
 "use client";
 
 import { Artboard } from "@/components/artboard";
-import { AllyAvatar } from "@/components/ally-avatar";
 import { BackButton } from "@/components/back-button";
 import { DEFAULT_ACCENT, NextButton } from "@/components/next-button";
 import { ProgressRing } from "@/components/progress-ring";
 import { JOB_LIMIT, useOnboardingStore } from "../_store/onboarding-store";
+import { PersistentAllyAvatar } from "./persistent-ally";
 import { StepHeading } from "./step-heading";
 
 export function JobDescriptionScreen() {
@@ -15,6 +15,7 @@ export function JobDescriptionScreen() {
   const setJob = useOnboardingStore((state) => state.setJob);
   const goTo = useOnboardingStore((state) => state.goTo);
   const back = useOnboardingStore((state) => state.back);
+  const accent = color ?? DEFAULT_ACCENT;
   const filled = job.trim().length > 0;
   const remaining = JOB_LIMIT - job.length;
 
@@ -22,13 +23,13 @@ export function JobDescriptionScreen() {
     <Artboard>
       <div data-testid="job-description" style={{ position: "absolute", inset: 0 }}>
         <BackButton onClick={back} />
-        <ProgressRing progress={0.7} />
+        <ProgressRing progress={0.7} color={accent} />
         <StepHeading
           mark={
-            <AllyAvatar
+            <PersistentAllyAvatar
               shape={shape}
               state="thinking"
-              color={color ?? "#fd304f"}
+              color={accent}
               size={40}
             />
           }
@@ -43,8 +44,8 @@ export function JobDescriptionScreen() {
             borderRadius: 20,
             backgroundColor: "#f3f3f3",
             left: 20,
-            bottom: 126,
-            width: 335,
+            right: 20,
+            top: 403,
             height: 250,
             position: "absolute",
             overflow: "hidden",
@@ -79,7 +80,7 @@ export function JobDescriptionScreen() {
           data-testid="job-counter"
           style={{
             left: "50%",
-            bottom: 90,
+            top: 671,
             transform: "translateX(-50%)",
             position: "absolute",
             margin: 0,
@@ -97,7 +98,7 @@ export function JobDescriptionScreen() {
         <NextButton
           label="Next"
           active={filled}
-          color={color ?? DEFAULT_ACCENT}
+          color={accent}
           onClick={() => goTo("personality")}
         />
       </div>

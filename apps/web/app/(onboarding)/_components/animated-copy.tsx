@@ -11,6 +11,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { arc, motion, type Transition } from "motion/react";
 import { ClickSpark, type SparkTrigger } from "./click-spark";
 
 export type AllyKind = "red" | "blue" | "yellow" | "green";
@@ -41,6 +42,13 @@ export type StoryBeat = {
 
 type Position = { left: number; top: number };
 
+export type StoryActorBounds = {
+  width: number;
+  height: number;
+  offsetLeft: number;
+  offsetTop: number;
+};
+
 type Phase =
   | { name: "intro" }
   | { name: "approach"; beatIndex: number }
@@ -48,7 +56,7 @@ type Phase =
   | { name: "reveal"; beatIndex: number }
   | { name: "hold"; beatIndex: number }
   | { name: "settle"; beatIndex: number }
-  | { name: "converge" }
+  | { name: "converge"; beatIndex: number; startPosition: Position }
   | { name: "done" };
 
 type ParkedActor = {
@@ -61,19 +69,81 @@ type ParkedActor = {
 };
 
 const INTRO_MS = 520;
-const APPROACH_MS = 920;
+const DESKTOP_APPROACH_MS = 1880;
+const MOBILE_APPROACH_MS = 1540;
 const PRESS_MS = 240;
 const HOLD_MS = 620;
-const SETTLE_MS = 420;
-const CONVERGE_MS = 1050;
-const REVEAL_MIN_MS = 860;
-const REVEAL_MAX_MS = 1900;
-const ROAM_OFFSETS: Record<AllyKind, Position> = {
-  red: { left: 96, top: 46 },
-  blue: { left: -86, top: 66 },
-  yellow: { left: -72, top: -58 },
-  green: { left: 88, top: -52 },
+const DESKTOP_DEPART_MS = 1100;
+const MOBILE_DEPART_MS = 860;
+const DESKTOP_CONVERGE_MS = 1500;
+const MOBILE_CONVERGE_MS = 1180;
+const DESKTOP_CLICK_Y_OFFSET = 36;
+const MOBILE_CLICK_Y_OFFSET = 32;
+const REVEAL_MIN_MS = 1200;
+const REVEAL_MAX_MS = 2800;
+const DEFAULT_ROAM_OFFSETS: Record<AllyKind, Position> = {
+  red: { left: 44, top: 24 },
+  blue: { left: -40, top: 32 },
+  yellow: { left: -34, top: -26 },
+  green: { left: 38, top: -22 },
 };
+
+const ALLY_ANIMATION_DELAYS: Record<AllyKind, string> = {
+  red: "-320ms",
+  blue: "-760ms",
+  yellow: "-1180ms",
+  green: "-1540ms",
+};
+
+const DESKTOP_RESTING_POSITIONS: Position[] = [
+  { left: 84, top: 132 },
+  { left: 1350, top: 198 },
+  { left: 72, top: 352 },
+  { left: 1345, top: 474 },
+  { left: 90, top: 626 },
+  { left: 1335, top: 744 },
+  { left: 180, top: 850 },
+  { left: 1320, top: 866 },
+];
+
+const MOBILE_RESTING_POSITIONS: Position[] = [
+  { left: 340, top: 126 },
+  { left: 340, top: 208 },
+  { left: -14, top: 314 },
+  { left: 340, top: 430 },
+  { left: -14, top: 536 },
+  { left: 340, top: 642 },
+  { left: -14, top: 708 },
+  { left: 340, top: 752 },
+];
+
+// Parked Allies can wander by as much as the largest per-Ally roam offset.
+// Keep that whole visual footprint inside the artboard; the artboard itself
+// still clips deliberate off-canvas entry/exit movement.
+const RESTING_ACTOR_SIZE = 42;
+const RESTING_HORIZONTAL_MARGIN = 4;
+const RESTING_VERTICAL_MARGIN = 4;
+
+function roamingBounds(viewportWidth: number, viewportHeight: number) {
+  const isMobile = viewportWidth <= 500;
+  const horizontalTravel = isMobile ? 32 : 44;
+  const verticalTravel = isMobile ? 26 : 32;
+  const horizontalInset = horizontalTravel + RESTING_HORIZONTAL_MARGIN;
+  const verticalInset = verticalTravel + RESTING_VERTICAL_MARGIN;
+
+  return {
+    minLeft: horizontalInset,
+    maxLeft: Math.max(
+      horizontalInset,
+      viewportWidth - RESTING_ACTOR_SIZE - horizontalInset,
+    ),
+    minTop: verticalInset,
+    maxTop: Math.max(
+      verticalInset,
+      viewportHeight - RESTING_ACTOR_SIZE - verticalInset,
+    ),
+  };
+}
 
 export function plainFrom(parts: CopyPart[]) {
   return parts
@@ -84,7 +154,7 @@ export function plainFrom(parts: CopyPart[]) {
 function revealMsFor(text: string) {
   return Math.min(
     REVEAL_MAX_MS,
-    Math.max(REVEAL_MIN_MS, Array.from(text).length * 34),
+    Math.max(REVEAL_MIN_MS, Array.from(text).length * 48),
   );
 }
 
@@ -118,7 +188,7 @@ function SettledLine({ parts }: { parts: CopyPart[] }) {
     <>
       {parts.map((part, index) =>
         part.type === "text" ? (
-          <span key={index}>{part.text}</span>
+          <WordSafeText key={index} text={part.text} />
         ) : (
           <IconWord
             key={index}
@@ -129,6 +199,31 @@ function SettledLine({ parts }: { parts: CopyPart[] }) {
           />
         ),
       )}
+    </>
+  );
+}
+
+function WordSafeText({ text }: { text: string }) {
+  const tokens = text.match(/\s+|\S+/g) ?? [];
+
+  return (
+    <>
+      {tokens.map((token, index) => {
+        const isWhitespace = /^\s+$/u.test(token);
+        return (
+          <span
+            key={index}
+            style={{
+              display: isWhitespace ? "inline" : "inline-block",
+              whiteSpace: isWhitespace ? "normal" : "nowrap",
+              wordBreak: "keep-all",
+              overflowWrap: "normal",
+            }}
+          >
+            {token}
+          </span>
+        );
+      })}
     </>
   );
 }
@@ -177,38 +272,52 @@ function WipingLine({
       continue;
     }
 
-    const chars = Array.from(part.text);
-    const take = Math.max(0, Math.min(chars.length, revealChars - consumed));
-    const slice = chars.slice(0, take).join("");
-    const isCurrent = take < chars.length;
-
-    if (slice) {
-      nodes.push(
-        <TextLoader
-          key={`${index}-visible`}
-          text={slice}
-          variant="coalesce"
-          speed={1.2}
-          color="currentColor"
-          paused={!isCurrent}
-          className="onboarding-copy-loader"
-        />,
+    const tokens = part.text.match(/\s+|\S+/g) ?? [];
+    for (const [tokenIndex, token] of tokens.entries()) {
+      const chars = Array.from(token);
+      const take = Math.max(
+        0,
+        Math.min(chars.length, revealChars - consumed),
       );
-    }
+      const slice = chars.slice(0, take).join("");
+      const remainder = chars.slice(take).join("");
+      const isWhitespace = /^\s+$/u.test(token);
+      const isCurrent = take < chars.length;
 
-    if (isCurrent) {
       nodes.push(
         <span
-          key={`${index}-reserve`}
-          aria-hidden="true"
-          style={{ visibility: "hidden", whiteSpace: "pre-wrap" }}
+          key={`${index}-${tokenIndex}`}
+          style={{
+            display: isWhitespace ? "inline" : "inline-block",
+            whiteSpace: isWhitespace ? "normal" : "nowrap",
+            wordBreak: "keep-all",
+            overflowWrap: "normal",
+          }}
         >
-          {chars.slice(take).join("")}
+          {slice ? (
+            isWhitespace ? (
+              slice
+            ) : (
+              <TextLoader
+                text={slice}
+                variant="coalesce"
+                speed={1.2}
+                color="currentColor"
+                paused={!isCurrent}
+                className="onboarding-copy-loader"
+              />
+            )
+          ) : null}
+          {remainder ? (
+            <span aria-hidden="true" style={{ visibility: "hidden" }}>
+              {remainder}
+            </span>
+          ) : null}
         </span>,
       );
-    }
 
-    consumed += chars.length;
+      consumed += chars.length;
+    }
   }
 
   return <>{nodes}</>;
@@ -223,7 +332,8 @@ function activeBeatIndex(phase: Phase) {
     phase.name === "press" ||
     phase.name === "reveal" ||
     phase.name === "hold" ||
-    phase.name === "settle"
+    phase.name === "settle" ||
+    phase.name === "converge"
     ? phase.beatIndex
     : null;
 }
@@ -231,25 +341,95 @@ function activeBeatIndex(phase: Phase) {
 function actorEntryPosition(
   target: Position,
   beatIndex: number,
-  hostWidth: number,
-  hostHeight: number,
+  viewportWidth: number,
+  viewportHeight: number,
 ): Position {
   const fromRight = beatIndex % 2 === 1;
   return {
-    left: fromRight ? hostWidth + 88 : -90,
+    left: fromRight ? viewportWidth + 88 : -90,
     top: clamp(
       target.top + (beatIndex % 3 === 0 ? -30 : beatIndex % 3 === 1 ? 22 : -8),
       18,
-      Math.max(18, hostHeight - 72),
+      Math.max(18, viewportHeight - 72),
     ),
   };
 }
 
-function fallbackTarget(index: number, hostWidth: number, hostHeight: number) {
+function fallbackTarget(index: number, viewportWidth: number, viewportHeight: number) {
   return {
-    left: clamp(hostWidth * (0.24 + (index % 3) * 0.24), 12, Math.max(12, hostWidth - 74)),
-    top: clamp(50 + index * 48, 16, Math.max(16, hostHeight - 76)),
+    left: clamp(
+      viewportWidth * (0.24 + (index % 3) * 0.24),
+      12,
+      Math.max(12, viewportWidth - 74),
+    ),
+    top: clamp(50 + index * 48, 16, Math.max(16, viewportHeight - 76)),
   };
+}
+
+function restingPosition(index: number, viewportWidth: number, viewportHeight: number) {
+  const slots = viewportWidth <= 500
+    ? MOBILE_RESTING_POSITIONS
+    : DESKTOP_RESTING_POSITIONS;
+  const slot = slots[index % slots.length];
+  const bounds = roamingBounds(viewportWidth, viewportHeight);
+
+  return {
+    left: clamp(slot.left, bounds.minLeft, bounds.maxLeft),
+    top: clamp(slot.top, bounds.minTop, bounds.maxTop),
+  };
+}
+
+function roamKeyframes(
+  actor: ParkedActor,
+  viewportWidth: number,
+  viewportHeight: number,
+) {
+  const { left, top } = actor.position;
+  const { roamX, roamY } = actor;
+  const bounds = roamingBounds(viewportWidth, viewportHeight);
+  const safeX = (value: number) =>
+    clamp(value, bounds.minLeft, bounds.maxLeft);
+  const safeY = (value: number) => clamp(value, bounds.minTop, bounds.maxTop);
+
+  return {
+    x: [
+      left,
+      left + roamX * 0.35,
+      left + roamX,
+      left + roamX * 0.18,
+      left - roamX * 0.72,
+      left - roamX * 0.28,
+      left,
+    ].map(safeX),
+    y: [
+      top,
+      top - roamY * 0.15,
+      top + roamY * 0.3,
+      top - roamY * 0.55,
+      top + roamY * 0.35,
+      top - roamY * 0.18,
+      top,
+    ].map(safeY),
+    rotate: [0, 0.4, 0.7, -0.45, -0.75, -0.2, 0],
+  };
+}
+
+const TRAVEL_EASE = "easeInOut" as const;
+
+function travelTransition(
+  duration: number,
+  path: ReturnType<typeof arc>,
+  reducedMotion: boolean,
+  curved = true,
+): Transition {
+  return reducedMotion
+    ? { duration: 0 }
+    : {
+        type: "tween",
+        duration: duration / 1000,
+        ease: TRAVEL_EASE,
+        ...(curved ? { path } : {}),
+      };
 }
 
 export function AnimatedCopy({
@@ -257,6 +437,9 @@ export function AnimatedCopy({
   paragraphGap,
   beats,
   initialParagraphs,
+  actorBounds,
+  artboardScale = 1,
+  roamOffsets = DEFAULT_ROAM_OFFSETS,
   renderActor,
   onComplete,
 }: {
@@ -264,7 +447,14 @@ export function AnimatedCopy({
   paragraphGap: number;
   beats?: StoryBeat[];
   initialParagraphs?: number[];
-  renderActor: (ally: AllyKind, state: AllyAnimationState) => ReactNode;
+  actorBounds?: StoryActorBounds;
+  artboardScale?: number;
+  roamOffsets?: Record<AllyKind, Position>;
+  renderActor: (
+    ally: AllyKind,
+    state: AllyAnimationState,
+    options?: { hideCursor?: boolean },
+  ) => ReactNode;
   onComplete?: (done: boolean) => void;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
@@ -278,7 +468,22 @@ export function AnimatedCopy({
   const [parked, setParked] = useState<ParkedActor[]>([]);
   const [completedBeatCount, setCompletedBeatCount] = useState(0);
   const [spark, setSpark] = useState<SparkTrigger | null>(null);
-  const [arrivedBeat, setArrivedBeat] = useState<number | null>(null);
+  const [sparkColor, setSparkColor] = useState("#121212");
+  const [parkedPositions, setParkedPositions] = useState<
+    Partial<Record<AllyKind, Position>>
+  >({});
+  const actorWidth = actorBounds?.width ?? hostSize.width;
+  const actorHeight = actorBounds?.height ?? hostSize.height;
+  const actorOffsetLeft = actorBounds?.offsetLeft ?? 0;
+  const actorOffsetTop = actorBounds?.offsetTop ?? 0;
+  const approachDuration =
+    actorWidth <= 500 ? MOBILE_APPROACH_MS : DESKTOP_APPROACH_MS;
+  const departDuration = actorWidth <= 500 ? MOBILE_DEPART_MS : DESKTOP_DEPART_MS;
+  const convergeDuration =
+    actorWidth <= 500 ? MOBILE_CONVERGE_MS : DESKTOP_CONVERGE_MS;
+  const clickYOffset =
+    actorWidth <= 500 ? MOBILE_CLICK_Y_OFFSET : DESKTOP_CLICK_Y_OFFSET;
+  const convergenceScale = actorWidth <= 500 ? 0.64 : 0.72;
   const initialParagraphSet = useMemo(
     () => new Set(initialParagraphs ?? [0]),
     [initialParagraphs],
@@ -296,6 +501,17 @@ export function AnimatedCopy({
     [beats, paragraphs],
   );
 
+  const travelArcs = useMemo(
+    () => {
+      const strength = actorWidth <= 500 ? 0.18 : 0.24;
+      return [
+        arc({ direction: "cw", rotate: 0.12, strength }),
+        arc({ direction: "ccw", rotate: 0.12, strength }),
+      ];
+    },
+    [actorWidth],
+  );
+
   const beatForParagraph = useMemo(() => {
     const result = new Map<number, number>();
     storyBeats.forEach((beat, beatIndex) => {
@@ -311,13 +527,19 @@ export function AnimatedCopy({
     if (!host) return;
 
     const hostBox = host.getBoundingClientRect();
+    const coordinateScale = artboardScale > 0 ? artboardScale : 1;
     setHostSize({ width: hostBox.width, height: hostBox.height });
     const next = storyBeats.map((beat, index) => {
       const line = lineRefs.current[beat.paragraphs[0]];
       if (!line) {
         return {
-          left: hostBox.width * (0.24 + (index % 3) * 0.24),
-          top: 50 + index * 48,
+          left:
+            actorOffsetLeft +
+            (hostBox.width / coordinateScale) *
+              (0.24 + (index % 3) * 0.24),
+          top:
+            actorOffsetTop +
+            (50 + index * 48) / coordinateScale,
         };
       }
 
@@ -329,33 +551,49 @@ export function AnimatedCopy({
       if (anchorBox) {
         return {
           left: clamp(
-            anchorBox.left - hostBox.left - 6,
+            (anchorBox.left - hostBox.left) / coordinateScale +
+              actorOffsetLeft -
+              6,
             12,
-            Math.max(12, hostBox.width - 74),
+            Math.max(12, actorWidth - 74),
           ),
           top: clamp(
-            anchorBox.top - hostBox.top - 10,
+            (anchorBox.top - hostBox.top) / coordinateScale +
+              actorOffsetTop -
+              10,
             16,
-            Math.max(16, hostBox.height - 76),
+            Math.max(16, actorHeight - 76),
           ),
         };
       }
-      const lineWidth = Math.max(40, lineBox.width);
+      const lineWidth = Math.max(40, lineBox.width / coordinateScale);
       return {
         left: clamp(
-          lineBox.left - hostBox.left + Math.min(lineWidth * 0.62, lineWidth - 36),
+          (lineBox.left - hostBox.left) / coordinateScale +
+            actorOffsetLeft +
+            Math.min(12, lineWidth * 0.06),
           12,
-          Math.max(12, hostBox.width - 74),
+          Math.max(12, actorWidth - 74),
         ),
         top: clamp(
-          lineBox.top - hostBox.top + lineBox.height * 0.08 - 8,
+          (lineBox.top - hostBox.top) / coordinateScale +
+            actorOffsetTop +
+            (lineBox.height / coordinateScale) * 0.08 -
+            8,
           16,
-          Math.max(16, hostBox.height - 76),
+          Math.max(16, actorHeight - 76),
         ),
       };
     });
     setTargets(next);
-  }, [storyBeats]);
+  }, [
+    actorHeight,
+    actorOffsetLeft,
+    actorOffsetTop,
+    actorWidth,
+    artboardScale,
+    storyBeats,
+  ]);
 
   useEffect(() => {
     const query = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -398,7 +636,7 @@ export function AnimatedCopy({
             id: `story-ally-${beat.actor}`,
             ally: beat.actor,
             position:
-              targets[index] ?? fallbackTarget(index, hostSize.width, hostSize.height),
+              targets[index] ?? fallbackTarget(index, actorWidth, actorHeight),
             roamX: 0,
             roamY: 0,
             delay: 0,
@@ -409,7 +647,7 @@ export function AnimatedCopy({
       setCompletedBeatCount(storyBeats.length);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [hostSize.height, hostSize.width, reducedMotion, storyBeats, targets]);
+  }, [actorHeight, actorWidth, reducedMotion, storyBeats, targets]);
 
   useEffect(() => {
     if (reducedMotion || phase.name !== "intro") return;
@@ -425,39 +663,45 @@ export function AnimatedCopy({
 
   useEffect(() => {
     if (reducedMotion || phase.name !== "approach") return;
-    const arrivalFrame = window.requestAnimationFrame(() => {
-      setArrivedBeat(phase.beatIndex);
-    });
     const id = window.setTimeout(
       () => setPhase({ name: "press", beatIndex: phase.beatIndex }),
-      APPROACH_MS,
+      approachDuration,
     );
-    return () => {
-      window.cancelAnimationFrame(arrivalFrame);
-      window.clearTimeout(id);
-    };
-  }, [phase, reducedMotion]);
+    return () => window.clearTimeout(id);
+  }, [approachDuration, phase, reducedMotion]);
 
   useEffect(() => {
     if (reducedMotion || phase.name !== "press") return;
+    const beat = storyBeats[phase.beatIndex];
+    if (!beat) return;
     const target =
       targets[phase.beatIndex] ??
-      fallbackTarget(phase.beatIndex, hostSize.width, hostSize.height);
+      fallbackTarget(phase.beatIndex, actorWidth, actorHeight);
+    const clickTarget = { ...target, top: target.top + clickYOffset };
 
     const id = window.setTimeout(() => {
       sparkIdRef.current += 1;
+      setSparkColor(beat.color);
       setSpark({
         id: sparkIdRef.current,
         // The cursor tip is the thing that lands on the copy, not the Ally's
         // face. Keep the spark on that tip so the click reads clearly.
-        x: target.left + 5,
-        y: target.top + 6,
+        x: clickTarget.left + 5,
+        y: clickTarget.top + 6,
       });
       setRevealChars(0);
       setPhase({ name: "reveal", beatIndex: phase.beatIndex });
     }, PRESS_MS);
     return () => window.clearTimeout(id);
-  }, [hostSize.height, hostSize.width, phase, reducedMotion, targets]);
+  }, [
+    actorHeight,
+    actorWidth,
+    clickYOffset,
+    phase,
+    reducedMotion,
+    storyBeats,
+    targets,
+  ]);
 
   useEffect(() => {
     if (reducedMotion || phase.name !== "reveal") return;
@@ -496,80 +740,106 @@ export function AnimatedCopy({
 
   useEffect(() => {
     if (reducedMotion || phase.name !== "hold") return;
+    const target =
+      targets[phase.beatIndex] ??
+      fallbackTarget(phase.beatIndex, actorWidth, actorHeight);
+    const clickTarget = {
+      left: target.left,
+      top: target.top + clickYOffset,
+    };
+    const nextPhase: Phase =
+      phase.beatIndex === storyBeats.length - 1
+        ? {
+            name: "converge",
+            beatIndex: phase.beatIndex,
+            startPosition: clickTarget,
+          }
+        : { name: "settle", beatIndex: phase.beatIndex };
     const id = window.setTimeout(
-      () => setPhase({ name: "settle", beatIndex: phase.beatIndex }),
+      () => setPhase(nextPhase),
       HOLD_MS,
     );
     return () => window.clearTimeout(id);
-  }, [phase, reducedMotion]);
+  }, [actorHeight, actorWidth, clickYOffset, phase, reducedMotion, storyBeats.length, targets]);
 
   useEffect(() => {
     if (reducedMotion || phase.name !== "settle") return;
     const beat = storyBeats[phase.beatIndex];
-    const target =
-      targets[phase.beatIndex] ??
-      fallbackTarget(phase.beatIndex, hostSize.width, hostSize.height);
     if (!beat) return;
 
     const id = window.setTimeout(() => {
+      const next = phase.beatIndex + 1;
+      const position = restingPosition(
+        phase.beatIndex,
+        actorWidth,
+        actorHeight,
+      );
+      setParkedPositions((current) => ({
+        ...current,
+        [beat.actor]: position,
+      }));
       setParked((current) => [
         ...current.filter((actor) => actor.ally !== beat.actor),
         {
           id: `story-ally-${beat.actor}`,
           ally: beat.actor,
-          position: target,
-          roamX: ROAM_OFFSETS[beat.actor].left,
-          roamY: ROAM_OFFSETS[beat.actor].top,
+          position,
+          roamX: roamOffsets[beat.actor].left,
+          roamY: roamOffsets[beat.actor].top,
           delay: phase.beatIndex * 380,
         },
       ]);
       setCompletedBeatCount((current) =>
         Math.max(current, phase.beatIndex + 1),
       );
-
-      const next = phase.beatIndex + 1;
-      setPhase(
-        next >= storyBeats.length
-          ? { name: "converge" }
-          : { name: "approach", beatIndex: next },
-      );
-    }, SETTLE_MS);
+      setPhase({ name: "approach", beatIndex: next });
+    }, departDuration);
     return () => window.clearTimeout(id);
-  }, [hostSize.height, hostSize.width, phase, reducedMotion, storyBeats, targets]);
+  }, [actorHeight, actorWidth, departDuration, phase, reducedMotion, roamOffsets, storyBeats]);
 
   useEffect(() => {
     if (reducedMotion || phase.name !== "converge") return;
-    const id = window.setTimeout(() => setPhase({ name: "done" }), CONVERGE_MS);
+    const id = window.setTimeout(
+      () => onComplete?.(true),
+      convergeDuration,
+    );
     return () => window.clearTimeout(id);
-  }, [phase, reducedMotion]);
+  }, [convergeDuration, onComplete, phase.name, reducedMotion]);
 
   useEffect(() => {
-    onComplete?.(phase.name === "done");
+    if (phase.name === "done") onComplete?.(true);
   }, [onComplete, phase.name]);
 
   const currentBeat = activeBeatIndex(phase);
-  const hostWidth = hostSize.width;
-  const hostHeight = hostSize.height;
+  const activeAlly =
+    currentBeat == null ? null : storyBeats[currentBeat]?.actor ?? null;
   const activeTarget =
     currentBeat == null
       ? null
       : targets[currentBeat] ??
-        fallbackTarget(currentBeat, hostWidth, hostHeight);
-  const activeParkedActor =
+        fallbackTarget(currentBeat, actorWidth, actorHeight);
+  const activeClickTarget = activeTarget
+    ? { ...activeTarget, top: activeTarget.top + clickYOffset }
+    : null;
+  const activeParkedActor = activeAlly
+    ? parked.find((actor) => actor.ally === activeAlly) ?? null
+    : null;
+  const activeParkedPosition = activeAlly
+    ? activeParkedActor?.position ??
+      parkedPositions[activeAlly] ??
+      null
+    : null;
+  const activePosition =
+    currentBeat == null || !activeTarget || !activeAlly
+      ? null
+      : phase.name === "converge"
+        ? phase.startPosition
+        : activeParkedPosition ??
+          actorEntryPosition(activeTarget, currentBeat, actorWidth, actorHeight);
+  const activeRestingTarget =
     currentBeat == null
       ? null
-      : parked.find((actor) => actor.ally === storyBeats[currentBeat].actor);
-  const activeEntry =
-    currentBeat == null || !activeTarget
-      ? null
-      : activeParkedActor?.position ??
-        actorEntryPosition(activeTarget, currentBeat, hostWidth, hostHeight);
-  const activePosition =
-    currentBeat == null || !activeTarget || !activeEntry
-      ? null
-      : arrivedBeat === currentBeat
-        ? activeTarget
-        : activeEntry;
+      : restingPosition(currentBeat, actorWidth, actorHeight);
 
   const currentRevealChars =
     phase.name === "reveal" || phase.name === "hold" || phase.name === "settle"
@@ -585,17 +855,40 @@ export function AnimatedCopy({
         );
 
   const isConverging = phase.name === "converge" || phase.name === "done";
+  const isStoryFinished = phase.name === "converge" || phase.name === "done";
   const finalTarget =
     storyBeats.length > 0
       ? targets[storyBeats.length - 1] ??
-        fallbackTarget(storyBeats.length - 1, hostWidth, hostHeight)
+        fallbackTarget(storyBeats.length - 1, actorWidth, actorHeight)
       : null;
   const convergenceOffsets: Record<AllyKind, Position> = {
-    red: { left: -14, top: -6 },
-    blue: { left: 4, top: -8 },
-    yellow: { left: -3, top: 8 },
-    green: { left: 15, top: 6 },
+    yellow: { left: -9, top: -9 },
+    blue: { left: 9, top: -9 },
+    green: { left: -9, top: 9 },
+    red: { left: 9, top: 9 },
   };
+
+  const actorEntries =
+    activeAlly == null
+      ? parked
+      : [
+          ...parked.filter((actor) => actor.ally !== activeAlly),
+          activeParkedActor ?? {
+            id: `story-ally-${activeAlly}`,
+            ally: activeAlly,
+            position:
+              activePosition ??
+              actorEntryPosition(
+                activeTarget ?? { left: 0, top: 0 },
+                currentBeat ?? 0,
+                actorWidth,
+                actorHeight,
+              ),
+            roamX: roamOffsets[activeAlly].left,
+            roamY: roamOffsets[activeAlly].top,
+            delay: (currentBeat ?? 0) * 380,
+          },
+        ];
 
   const actorState: AllyAnimationState =
     phase.name === "press" ||
@@ -617,7 +910,7 @@ export function AnimatedCopy({
         const beatIndex = beatForParagraph.get(index);
         const isComplete =
           initialParagraphSet.has(index) ||
-          phase.name === "done" ||
+          isStoryFinished ||
           (beatIndex != null && beatIndex < completedBeatCount);
         const isCurrent = beatIndex === currentBeat;
         const showCurrent =
@@ -628,21 +921,14 @@ export function AnimatedCopy({
 
         let content: ReactNode;
         if (isComplete) {
-          content = initialParagraphSet.has(index) ? (
-            <SettledLine parts={paragraph.parts} />
-          ) : (
+          content = (
             <span
               style={{
                 color: "#121212",
                 transition: "color 520ms ease",
               }}
             >
-              <WipingLine
-                parts={paragraph.parts}
-                revealChars={Array.from(plainFrom(paragraph.parts)).length}
-                color={paragraph.color}
-                preserveIconColor
-              />
+              <SettledLine parts={paragraph.parts} />
             </span>
           );
         } else if (showCurrent && beatIndex != null) {
@@ -721,85 +1007,153 @@ export function AnimatedCopy({
         data-story-actors
         style={{
           position: "absolute",
-          inset: 0,
+          left: -actorOffsetLeft,
+          top: -actorOffsetTop,
+          width: actorWidth,
+          height: actorHeight,
           pointerEvents: "none",
           zIndex: 3,
           overflow: "visible",
         }}
       >
-        {parked.map((actor) => {
-          const isActiveActor =
-            !isConverging &&
-            currentBeat != null &&
-            storyBeats[currentBeat].actor === actor.ally;
-          if (isActiveActor) return null;
-
-          return (
-            <div
-              key={actor.id}
-              data-story-parked={actor.id}
-              data-story-converged={
-                isConverging ? "true" : undefined
+        {actorEntries.map((actor) => {
+          const isActiveActor = !isConverging && activeAlly === actor.ally;
+          const offset = convergenceOffsets[actor.ally];
+          const convergenceTarget = finalTarget
+            ? {
+                left: finalTarget.left + offset.left,
+                top: finalTarget.top + offset.top,
               }
+            : actor.position;
+          const isFinalBeat = currentBeat === storyBeats.length - 1;
+          const isDeparting =
+            isActiveActor && phase.name === "settle" && !isFinalBeat;
+          const convergenceStart =
+            phase.name === "converge" && actor.ally === activeAlly
+              ? phase.startPosition
+              : null;
+          const isFreshActor = isActiveActor && !activeParkedPosition;
+          const isRememberedActor =
+            isActiveActor && !activeParkedActor && !!activeParkedPosition;
+          const activeMotionTarget =
+            isDeparting && activeRestingTarget
+              ? activeRestingTarget
+              : activeClickTarget;
+          const target = isConverging
+            ? convergenceTarget
+            : isActiveActor
+              ? activeMotionTarget
+              : null;
+          const approachStart =
+            isActiveActor && phase.name === "approach"
+              ? activePosition
+              : null;
+          const arcPath =
+            travelArcs[
+              (isActiveActor
+                ? currentBeat ?? 0
+                : Math.round(actor.delay / 380)) % travelArcs.length
+            ];
+          const animation = target
+            ? {
+                x: approachStart
+                  ? [approachStart.left, target.left]
+                  : convergenceStart
+                    ? [convergenceStart.left, target.left]
+                    : target.left,
+                y: approachStart
+                  ? [approachStart.top, target.top]
+                  : convergenceStart
+                    ? [convergenceStart.top, target.top]
+                    : target.top,
+                rotate: 0,
+                scale: isConverging ? convergenceScale : 1,
+              }
+            : roamKeyframes(actor, actorWidth, actorHeight);
+          const transition = target
+            ? travelTransition(
+                isConverging
+                  ? convergeDuration
+                  : isDeparting
+                    ? departDuration
+                    : approachDuration,
+                arcPath,
+                reducedMotion,
+                // The parked actors still have idle keyframes underneath
+                // their travel. Keep the final handoff on Motion's standard
+                // tween so it cancels those keyframes and holds the cluster;
+                // the arc path remains in use for all story visits.
+                !isConverging,
+              )
+            : reducedMotion
+              ? { duration: 0 }
+              : {
+                  delay: (actor.delay % 1400) / 1000,
+                  duration: 7.6 + (actor.delay % 1400) / 1000,
+                  ease: "easeInOut" as const,
+                  repeat: Infinity,
+                  repeatType: "mirror" as const,
+                };
+          return (
+            <motion.div
+              key={actor.id}
+              data-story-actor={isActiveActor ? "true" : undefined}
+              data-story-actor-index={
+                isActiveActor ? currentBeat ?? undefined : undefined
+              }
+              data-story-actor-state={
+                isActiveActor ? actorState : undefined
+              }
+              data-story-parked={isActiveActor ? undefined : actor.id}
+              data-story-converged={isConverging ? "true" : undefined}
               data-ally={actor.ally}
-              className="story-ally story-ally-parked"
-              style={(() => {
-                const offset = convergenceOffsets[actor.ally];
-                const convergencePosition = finalTarget
+              className={`story-ally ${
+                isActiveActor ? "story-ally-active" : "story-ally-parked"
+              }`}
+              initial={
+                isFreshActor && activePosition
                   ? {
-                      left: finalTarget.left + offset.left,
-                      top: finalTarget.top + offset.top,
+                      x: activePosition.left,
+                      y: activePosition.top,
+                      rotate: 0,
+                      scale: 1,
                     }
-                  : actor.position;
-                return {
+                  : isRememberedActor && activePosition
+                    ? {
+                        x: activePosition.left,
+                        y: activePosition.top,
+                        rotate: 0,
+                        scale: 1,
+                      }
+                    : false
+              }
+              animate={animation}
+              transition={transition}
+              style={
+                {
                   position: "absolute",
-                  left: isConverging
-                    ? convergencePosition.left
-                    : actor.position.left,
-                  top: isConverging
-                    ? convergencePosition.top
-                    : actor.position.top,
+                  left: 0,
+                  top: 0,
+                  width: 60,
+                  height: 58,
                   opacity: 1,
-                  animationName: isConverging ? "none" : "story-ally-roam",
-                  animationDelay: `${actor.delay}ms`,
-                  animationDuration: `${5.2 + actor.delay / 1000}s`,
-                  transform: isConverging ? "scale(0.42)" : undefined,
-                  transformOrigin: "12px 22px",
-                  transition: isConverging
-                    ? `left ${CONVERGE_MS}ms cubic-bezier(.22,1,.36,1), top ${CONVERGE_MS}ms cubic-bezier(.22,1,.36,1), transform ${CONVERGE_MS}ms cubic-bezier(.22,1,.36,1), opacity 300ms ease`
-                    : undefined,
-                  "--story-roam-x": `${actor.roamX}px`,
-                  "--story-roam-y": `${actor.roamY}px`,
-                } as CSSProperties;
-              })()}
+                  transformOrigin: isConverging ? "12px 22px" : undefined,
+                  willChange: "transform",
+                  "--ally-animation-delay": ALLY_ANIMATION_DELAYS[actor.ally],
+                } as CSSProperties
+              }
             >
-              {renderActor(actor.ally, "idle")}
-            </div>
+              {renderActor(actor.ally, isActiveActor ? actorState : "idle", {
+                hideCursor: isConverging,
+              })}
+            </motion.div>
           );
         })}
 
-        {currentBeat != null && activePosition && activeTarget ? (
-          <div
-            data-story-actor
-            data-story-actor-index={currentBeat}
-            data-story-actor-state={actorState}
-            className="story-ally story-ally-active"
-            style={{
-              position: "absolute",
-              left: 0,
-              top: 0,
-              transform: `translate3d(${activePosition.left}px, ${activePosition.top}px, 0) rotate(${arrivedBeat === currentBeat ? 0 : currentBeat % 2 === 0 ? -8 : 8}deg)`,
-              transition:
-                arrivedBeat === currentBeat
-                  ? `transform ${APPROACH_MS}ms cubic-bezier(.22,1,.36,1)`
-                  : "none",
-            }}
-          >
-            {renderActor(storyBeats[currentBeat].actor, actorState)}
-          </div>
-        ) : null}
-
-        <ClickSpark trigger={reducedMotion ? null : spark} sparkColor="#121212" />
+        <ClickSpark
+          trigger={reducedMotion ? null : spark}
+          sparkColor={sparkColor}
+        />
       </div>
       <span
         data-story-progress
