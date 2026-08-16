@@ -16,6 +16,7 @@ from waitlist.exceptions import (
 from waitlist.models import DraftLifecycle, OperationStatus, WaitlistDraft
 from waitlist.providers.base import ProviderUnknownError
 from waitlist.providers.fake import FakeGreetingProvider
+from waitlist.providers.openai import POLICY_VERSION
 from waitlist.services.claim import claim_waitlist_draft
 from waitlist.services.cleanup import cleanup_waitlist_drafts
 from waitlist.services.drafts import create_or_resume_draft, update_configuration
@@ -77,6 +78,40 @@ def test_generation_output_policy_and_unknown_recovery():
         )
     with pytest.raises(WaitlistValidationError):
         validate_output("I created your account and sent a file")
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLIES_WAITLIST_PROVIDER_ENABLED=True,
+    ALLIES_WAITLIST_PROVIDER="fake",
+    ALLIES_WAITLIST_CAPABILITY_KEY="k" * 32,
+)
+def test_generation_refreshes_a_greeting_from_an_older_policy():
+    cap, draft = _configured_draft("policy-refresh")
+    generate_greeting(
+        capability_digest=cap,
+        revision=draft.revision,
+        raw_key="generate-old",
+        provider=FakeGreetingProvider(response="Hi there, old greeting."),
+    )
+    draft.refresh_from_db()
+    draft.greeting_policy_version = "waitlist-greeting-v1"
+    draft.save(update_fields=["greeting_policy_version"])
+
+    generate_greeting(
+        capability_digest=cap,
+        revision=draft.revision,
+        raw_key="generate-current",
+        provider=FakeGreetingProvider(
+            response="Ahoy there! I am ready to help. What should we start with?"
+        ),
+    )
+
+    draft.refresh_from_db()
+    assert draft.greeting_text == (
+        "Ahoy there! I am ready to help. What should we start with?"
+    )
+    assert draft.greeting_policy_version == POLICY_VERSION
 
 
 @pytest.mark.django_db
