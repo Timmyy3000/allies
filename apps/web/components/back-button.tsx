@@ -1,3 +1,5 @@
+import { ONBOARDING_LAYOUT } from "./next-button";
+
 export function BackButton({ onClick }: { onClick: () => void }) {
   return (
     <button
@@ -9,7 +11,7 @@ export function BackButton({ onClick }: { onClick: () => void }) {
         borderRadius: 100,
         backgroundColor: "#f3f3f3",
         left: 20,
-        top: 68,
+        top: ONBOARDING_LAYOUT.topPadding,
         width: 40,
         height: 40,
         position: "absolute",

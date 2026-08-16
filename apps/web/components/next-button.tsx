@@ -5,7 +5,12 @@ export const ONBOARDING_COLORS = {
 
 export const ONBOARDING_LAYOUT = {
   inlinePadding: 20,
-  bottomPadding: 100,
+  // Keep the authored 812px frame exact, but reclaim vertical space on
+  // short mobile browser viewports instead of letting the header and CTA
+  // collapse toward the middle of the screen.
+  topPadding: "clamp(52px, 8.375dvh, 68px)",
+  headingTop: "clamp(112px, 16.25dvh, 132px)",
+  bottomPadding: "clamp(58px, 12.315dvh, 100px)",
 } as const;
 
 export const ONBOARDING_CTA = {
@@ -59,7 +64,7 @@ export function NextButton({
   active: boolean;
   color?: string;
   onClick?: () => void;
-  bottom?: number;
+  bottom?: number | string;
 }) {
   return (
     <button

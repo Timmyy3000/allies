@@ -327,10 +327,9 @@ export function LookLikeScreen() {
             style={{
               left: 0,
               right: 0,
-              bottom:
-                ONBOARDING_LAYOUT.bottomPadding +
-                ONBOARDING_CTA.height +
-                COLOR_PICKER_GAP,
+              bottom: `calc(${ONBOARDING_LAYOUT.bottomPadding} + ${
+                ONBOARDING_CTA.height + COLOR_PICKER_GAP
+              }px)`,
               width: "auto",
               position: "absolute",
               display: "flex",
