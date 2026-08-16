@@ -121,6 +121,18 @@ def generation_input_digest(draft: WaitlistDraft) -> str:
     return hashlib.sha256(value.encode()).hexdigest()
 
 
+def _greeting_is_current(draft: WaitlistDraft) -> bool:
+    return bool(draft.greeting_text) and draft.greeting_policy_version == POLICY_VERSION
+
+
+def _requires_policy_refresh(draft: WaitlistDraft) -> bool:
+    return (
+        draft.lifecycle == DraftLifecycle.GREETING_READY
+        and bool(draft.greeting_text)
+        and not _greeting_is_current(draft)
+    )
+
+
 def validate_output(value: Any) -> str:
     max_chars = int(
         getattr(settings, "ALLIES_WAITLIST_GENERATION_MAX_OUTPUT_CHARS", 1200)
@@ -244,11 +256,7 @@ def generate_greeting(
         ensure_active(draft)
         if caller_operation is None and draft.revision != revision:
             raise DraftStale("draft revision is stale")
-        if (
-            caller_operation is None
-            and draft.lifecycle == DraftLifecycle.GREETING_READY
-            and draft.greeting_text
-        ):
+        if caller_operation is None and _greeting_is_current(draft):
             # Retrieving an already-current greeting must not mint a new
             # receipt for every fresh idempotency key.
             return _current_greeting_acknowledgement(draft)
@@ -310,13 +318,13 @@ def generate_greeting(
                     preflight_error = Throttled("generation retry cooldown is active")
         if preflight_error is not None:
             pass
-        elif draft.lifecycle == DraftLifecycle.GREETING_READY and draft.greeting_text:
+        elif _greeting_is_current(draft):
             operation.delete()
             return _current_greeting_acknowledgement(draft)
         elif (
             draft.lifecycle != DraftLifecycle.READY_FOR_GREETING
-            or not configuration_complete(draft)
-        ):
+            and not _requires_policy_refresh(draft)
+        ) or not configuration_complete(draft):
             # Invalid lifecycle is a pre-provider rejection.  Do not retain a
             # failed receipt for it: fresh keys must not be able to exhaust
             # the finite generation receipt quota before the draft is ready.
@@ -329,7 +337,7 @@ def generate_greeting(
                 .values_list("generation_input_digest", flat=True)
                 .first()
             )
-            if previous_attempt == digest and draft.greeting_text:
+            if previous_attempt == digest and _greeting_is_current(draft):
                 operation.delete()
                 return _current_greeting_acknowledgement(draft)
 
@@ -416,7 +424,10 @@ def generate_greeting(
         if (
             locked_draft.revision != revision
             or generation_input_digest(locked_draft) != digest
-            or locked_draft.lifecycle != DraftLifecycle.READY_FOR_GREETING
+            or (
+                locked_draft.lifecycle != DraftLifecycle.READY_FOR_GREETING
+                and not _requires_policy_refresh(locked_draft)
+            )
         ):
             mark_failed(locked_operation, failure_code="waitlist_draft_stale")
             stale_result = True
