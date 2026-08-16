@@ -596,7 +596,9 @@ export function AnimatedCopy({
   ]);
 
   useEffect(() => {
-    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query) return;
+
     const update = () => setReducedMotion(query.matches);
     update();
     query.addEventListener?.("change", update);
@@ -608,11 +610,14 @@ export function AnimatedCopy({
     const host = hostRef.current;
     if (!host) return;
 
-    const observer = new ResizeObserver(getTargets);
-    observer.observe(host);
+    const observer =
+      typeof ResizeObserver === "function"
+        ? new ResizeObserver(getTargets)
+        : null;
+    observer?.observe(host);
     window.addEventListener("resize", getTargets);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       window.removeEventListener("resize", getTargets);
     };
   }, [getTargets]);
