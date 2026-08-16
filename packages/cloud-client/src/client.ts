@@ -288,7 +288,7 @@ function parseReturnPath(value: string): string {
 export function createCloudClient(options: CloudClientOptions) {
   const baseUrl = parsePublicCloudUrl(options.baseUrl);
   const controlledFetch = createControlledFetch({
-    fetch: options.fetch ?? globalThis.fetch,
+    fetch: options.fetch ?? globalThis.fetch.bind(globalThis),
     prepareRequest: options.prepareRequest,
     timeoutMs: options.timeoutMs,
     maxJsonBytes: options.maxJsonBytes,

@@ -114,7 +114,7 @@ function renderFlow(
   options: { consentVersion?: string | null; startActive?: boolean } = {},
 ) {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
   });
   let latestFlow: FlowValue | null = null;
   useCloudClientMock.mockReturnValue(client);
@@ -204,6 +204,112 @@ describe("WaitlistFlowProvider", () => {
     );
   });
 
+  it("uses a server-authoritative refresh after a mutation while the query is still fresh", async () => {
+    const { client, methods } = createMockClient();
+    const rendered = renderFlow(client);
+    await waitForReady();
+
+    const updatedSnapshot = makeSnapshot({
+      revision: 2,
+      configuration: { ...baseSnapshot.configuration, job: "launch the updated notes" },
+    });
+    const readsBeforeMutation = methods.getWaitlistDraft.mock.calls.length;
+    methods.getWaitlistDraft.mockResolvedValue(updatedSnapshot);
+
+    await expect(rendered.flow().saveConfiguration(configurationPayload)).resolves.toMatchObject({
+      revision: 2,
+      configuration: { job: "launch the updated notes" },
+    });
+
+    expect(methods.getWaitlistDraft.mock.calls.length).toBeGreaterThan(readsBeforeMutation);
+    expect(rendered.queryClient.getQueryData(["waitlist", "draft", "flow"])).toMatchObject({ revision: 2 });
+  });
+
+  it("cancels a pre-existing draft read before the post-mutation authoritative refresh", async () => {
+    const { client, methods } = createMockClient();
+    const rendered = renderFlow(client);
+    await waitForReady();
+
+    let resolveStaleRead: ((snapshot: WaitlistSnapshotViewModel) => void) | undefined;
+    const staleRead = new Promise<WaitlistSnapshotViewModel>((resolve) => {
+      resolveStaleRead = resolve;
+    });
+    const updatedSnapshot = makeSnapshot({ revision: 2 });
+    methods.getWaitlistDraft.mockClear();
+    methods.getWaitlistDraft.mockImplementationOnce(() => staleRead).mockResolvedValue(updatedSnapshot);
+
+    const staleRefresh = rendered.flow().refreshDraft().catch(() => undefined);
+    await waitFor(() => expect(methods.getWaitlistDraft).toHaveBeenCalledTimes(1));
+
+    await expect(rendered.flow().saveConfiguration(configurationPayload)).resolves.toMatchObject({ revision: 2 });
+    resolveStaleRead?.(makeSnapshot({ revision: 1 }));
+    await staleRefresh;
+
+    expect(methods.getWaitlistDraft).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not let a greeting poll cancel a mutation's authoritative refresh", async () => {
+    const { client, methods } = createMockClient();
+    const pending = makeSnapshot({ lifecycle: "greeting_pending" });
+    const updated = makeSnapshot({ revision: 2, lifecycle: "ready_for_greeting" });
+    let readCount = 0;
+    let resolvePollingRead: ((snapshot: WaitlistSnapshotViewModel) => void) | undefined;
+    const pollingRead = new Promise<WaitlistSnapshotViewModel>((resolve) => {
+      resolvePollingRead = resolve;
+    });
+    methods.getWaitlistDraft.mockImplementation(async () => {
+      readCount += 1;
+      if (readCount <= 2) return pending;
+      if (readCount === 3) return pollingRead;
+      return updated;
+    });
+
+    const rendered = renderFlow(client);
+    await waitForReady();
+    await waitFor(() => expect(methods.getWaitlistDraft).toHaveBeenCalledTimes(3));
+
+    await expect(rendered.flow().saveConfiguration(configurationPayload)).resolves.toMatchObject({ revision: 2 });
+    resolvePollingRead?.(pending);
+
+    expect(methods.getWaitlistDraft).toHaveBeenCalledTimes(4);
+  });
+
+  it("starts a post-generation authoritative read when a same-key restore poll is already running", async () => {
+    const { client, methods } = createMockClient();
+    const pending = makeSnapshot({ lifecycle: "greeting_pending" });
+    const ready = makeSnapshot({
+      revision: 2,
+      lifecycle: "greeting_ready",
+      greeting: {
+        text: "Hello from Nova.",
+        policyVersion: "v1",
+        generatedAt: "2026-08-15T12:00:01Z",
+      },
+    });
+    let readCount = 0;
+    let resolvePollingRead: ((snapshot: WaitlistSnapshotViewModel) => void) | undefined;
+    const pollingRead = new Promise<WaitlistSnapshotViewModel>((resolve) => {
+      resolvePollingRead = resolve;
+    });
+    methods.getWaitlistDraft.mockImplementation(async () => {
+      readCount += 1;
+      if (readCount <= 2) return pending;
+      if (readCount === 3) return pollingRead;
+      return ready;
+    });
+
+    const rendered = renderFlow(client);
+    await waitForReady();
+    await waitFor(() => expect(methods.getWaitlistDraft).toHaveBeenCalledTimes(3));
+
+    const result = rendered.flow().generateGreeting("greeting-fingerprint");
+    await expect(result).resolves.toMatchObject({ revision: 2, greeting: { text: "Hello from Nova." } });
+    resolvePollingRead?.(pending);
+
+    expect(methods.generateWaitlistGreeting).toHaveBeenCalledTimes(1);
+    expect(methods.getWaitlistDraft).toHaveBeenCalledTimes(4);
+  });
+
   it("retries a failed mutation with the same idempotency key", async () => {
     const { client, methods } = createMockClient();
     methods.updateWaitlistConfiguration
@@ -228,6 +334,73 @@ describe("WaitlistFlowProvider", () => {
     expect(retryInput.idempotencyKey).toBe(firstInput.idempotencyKey);
   });
 
+  it("polls a pending greeting to reconcile the authoritative snapshot", async () => {
+    try {
+      const { client, methods } = createMockClient();
+      const rendered = renderFlow(client);
+      await waitForReady();
+      vi.useFakeTimers();
+
+      const pending = makeSnapshot({ revision: 2, lifecycle: "greeting_pending" });
+      const ready = makeSnapshot({
+        revision: 3,
+        lifecycle: "greeting_ready",
+        greeting: {
+          text: "Hello from Nova.",
+          policyVersion: "v1",
+          generatedAt: "2026-08-15T12:00:01Z",
+        },
+      });
+      methods.getWaitlistDraft.mockResolvedValueOnce(pending).mockResolvedValueOnce(ready);
+
+      const result = rendered.flow().generateGreeting("greeting-fingerprint");
+      expect(methods.generateWaitlistGreeting).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(250);
+
+      await expect(result).resolves.toMatchObject({ revision: 3, greeting: { text: "Hello from Nova." } });
+      expect(methods.generateWaitlistGreeting).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("bounds pending greeting reconciliation and retries with a read instead of regenerating", async () => {
+    try {
+      const { client, methods } = createMockClient();
+      const rendered = renderFlow(client);
+      await waitForReady();
+      vi.useFakeTimers();
+
+      const pending = makeSnapshot({ revision: 2, lifecycle: "greeting_pending" });
+      methods.getWaitlistDraft.mockResolvedValue(pending);
+
+      const result = expect(rendered.flow().generateGreeting("greeting-fingerprint")).rejects.toMatchObject({
+        code: "generation_outcome_unknown",
+      });
+      expect(methods.generateWaitlistGreeting).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(250 + 500 + 1_000 + 2_000);
+      await result;
+
+      const ready = makeSnapshot({
+        revision: 3,
+        lifecycle: "greeting_ready",
+        greeting: {
+          text: "Hello from Nova.",
+          policyVersion: "v1",
+          generatedAt: "2026-08-15T12:00:01Z",
+        },
+      });
+      methods.getWaitlistDraft.mockResolvedValue(ready);
+      await rendered.flow().retry();
+
+      expect(methods.generateWaitlistGreeting).toHaveBeenCalledTimes(1);
+      vi.useRealTimers();
+      await waitFor(() => expect(screen.getByTestId("flow-last-action").textContent).toBe(""));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("keeps greeting recovery available when acknowledgement precedes the greeting snapshot", async () => {
     const { client, methods } = createMockClient();
     const rendered = renderFlow(client);
@@ -239,7 +412,16 @@ describe("WaitlistFlowProvider", () => {
     });
     await waitFor(() => expect(screen.getByTestId("flow-last-action").textContent).toBe("greeting"));
 
-    methods.getWaitlistDraft.mockResolvedValue(makeSnapshot({ lifecycle: "greeting_pending" }));
+    methods.getWaitlistDraft.mockResolvedValue(
+      makeSnapshot({
+        lifecycle: "greeting_ready",
+        greeting: {
+          text: "Hello from Nova.",
+          policyVersion: "v1",
+          generatedAt: "2026-08-15T12:00:01Z",
+        },
+      }),
+    );
     await rendered.flow().retry();
 
     expect(methods.generateWaitlistGreeting).toHaveBeenCalledTimes(2);

@@ -6,7 +6,7 @@ import { WaitlistFlowProvider } from "../../../lib/waitlist/flow";
 export default function OnboardingPage() {
   const environment = getWebEnvironment();
   return (
-    <OnboardingStateProvider>
+    <OnboardingStateProvider initialStep="name">
       <WaitlistFlowProvider
         featureEnabled={environment.waitlistEnabled}
         consentVersion={environment.waitlistConsentVersion}

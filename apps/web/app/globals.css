@@ -19,7 +19,7 @@
 }
 
 body {
-  background: var(--background);
+  background: #ffffff;
   color: var(--foreground);
   font-family: var(--font-open-runde), sans-serif;
 }
@@ -66,6 +66,11 @@ body {
   vertical-align: baseline;
 }
 
+.onboarding-story--desktop,
+.onboarding-story--desktop * {
+  white-space: nowrap !important;
+}
+
 .story-ally {
   transform-origin: 30px 36px;
 }
@@ -77,21 +82,19 @@ body {
 .story-ally-active .ally-face,
 .story-ally-parked .ally-face {
   animation: ally-face-work 1.8s ease-in-out infinite;
+  animation-delay: var(--ally-animation-delay, 0ms);
 }
 
 .story-ally-active .ally-eyes,
 .story-ally-parked .ally-eyes {
   animation: ally-eyes-look 2.4s ease-in-out infinite;
+  animation-delay: var(--ally-animation-delay, 0ms);
 }
 
 .story-ally-active .ally-cursor,
 .story-ally-parked .ally-cursor {
   animation: ally-cursor-tap 1.5s ease-in-out infinite;
-}
-
-.story-ally-parked {
-  animation: story-ally-roam 5.6s ease-in-out infinite alternate;
-  will-change: transform;
+  animation-delay: var(--ally-animation-delay, 0ms);
 }
 
 .story-ally-parked[data-story-converged="true"] > div {
@@ -105,40 +108,6 @@ body {
   }
   50% {
     transform: scale(0.82) rotate(2deg) translateY(-1px);
-  }
-}
-
-@keyframes story-ally-roam {
-  0% {
-    transform: translate3d(0, 0, 0) rotate(-2deg);
-  }
-  28% {
-    transform: translate3d(var(--story-roam-x), var(--story-roam-y), 0)
-      rotate(2deg);
-  }
-  58% {
-    transform: translate3d(
-        calc(var(--story-roam-x) * -0.65),
-        calc(var(--story-roam-y) * 0.55),
-        0
-      )
-      rotate(-1deg);
-  }
-  78% {
-    transform: translate3d(
-        calc(var(--story-roam-x) * 0.42),
-        calc(var(--story-roam-y) * -0.72),
-        0
-      )
-      rotate(3deg);
-  }
-  100% {
-    transform: translate3d(
-        calc(var(--story-roam-x) * -0.35),
-        calc(var(--story-roam-y) * 0.34),
-        0
-      )
-      rotate(-1deg);
   }
 }
 

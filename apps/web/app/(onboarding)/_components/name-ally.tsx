@@ -24,10 +24,9 @@ export function NameAllyScreen() {
           style={{
             ...HEADING_STYLE,
             left: 20,
-            top: 88,
-            width: 247,
+            right: 20,
+            top: 132,
             position: "absolute",
-            letterSpacing: -0.94,
           }}
         >
           What do you want
@@ -35,7 +34,7 @@ export function NameAllyScreen() {
           to name your ally?
         </h1>
        <input
-          className="onboarding-field step-stage"
+          className="onboarding-field"
           aria-label="Ally name"
          data-testid="ally-name-input"
          value={name}
@@ -45,16 +44,20 @@ export function NameAllyScreen() {
           style={{
             position: "absolute",
             left: 20,
-            top: "calc(-17px + 50%)",
-            width: 335,
+            right: 20,
+            top: "50%",
+            transform: "translateY(-50%)",
+            width: "auto",
             border: 0,
             outline: "none",
             background: "transparent",
+            padding: 0,
             textAlign: "center",
+            fontFamily: "var(--font-open-runde), sans-serif",
             fontSize: 28,
             fontWeight: 600,
-            letterSpacing: -0.92,
-            lineHeight: "36px",
+            letterSpacing: -1,
+            lineHeight: "100%",
             color: filled ? "#ff5800" : "#d9d9d9",
           }}
         />

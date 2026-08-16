@@ -87,7 +87,7 @@ const BACK: Record<OnboardingStep, OnboardingStep | null> = {
 const INITIAL_STATE: OnboardingState = {
   step: "welcome",
   name: "",
-  shape: ALLY_SHAPES[0],
+  shape: "ghosty",
   hasSwipedAvatar: false,
   color: null,
   job: "",
@@ -145,8 +145,18 @@ function reduceOnboardingState(state: OnboardingState, action: OnboardingAction)
 
 const OnboardingStoreContext = createContext<OnboardingStore | null>(null);
 
-export function OnboardingStateProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(reduceOnboardingState, INITIAL_STATE);
+export function OnboardingStateProvider({
+  children,
+  initialStep = "welcome",
+}: {
+  children: ReactNode;
+  initialStep?: OnboardingStep;
+}) {
+  const [state, dispatch] = useReducer(
+    reduceOnboardingState,
+    initialStep,
+    (step): OnboardingState => ({ ...INITIAL_STATE, step }),
+  );
   const store = useMemo<OnboardingStore>(
     () => ({
       ...state,

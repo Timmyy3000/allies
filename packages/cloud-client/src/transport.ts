@@ -29,6 +29,20 @@ function applySignal(request: Request, signal: AbortSignal): Request {
   }
 }
 
+async function materializeJsonBody(request: Request): Promise<Request> {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!request.body || !contentType.toLowerCase().startsWith("application/json")) return request;
+
+  const body = await request.clone().text();
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body,
+    credentials: request.credentials,
+    signal: request.signal,
+  });
+}
+
 async function boundResponse(response: Response, maxBytes: number, signal: AbortSignal): Promise<Response> {
   if (!response.body || response.status === 204 || response.status === 205) return response;
 
@@ -99,8 +113,10 @@ export function createControlledFetch(options: TransportOptions): typeof globalT
     try {
       const request = applySignal(originalRequest, controller.signal);
       const prepared = options.prepareRequest ? await options.prepareRequest(request) : request;
-      const controlledRequest = applySignal(prepared, controller.signal);
-      const response = await options.fetch(controlledRequest);
+      const fetchRequest = await materializeJsonBody(prepared);
+      if (callerSignal.aborted) throw transportError("aborted");
+      if (timedOut) throw transportError("timeout");
+      const response = await options.fetch(fetchRequest);
       return await boundResponse(response, maxJsonBytes, controller.signal);
     } catch (error) {
       if (typeof error === "object" && error !== null && "kind" in error) throw error;

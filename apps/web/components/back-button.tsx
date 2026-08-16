@@ -9,7 +9,7 @@ export function BackButton({ onClick }: { onClick: () => void }) {
         borderRadius: 100,
         backgroundColor: "#f3f3f3",
         left: 20,
-        top: 24,
+        top: 68,
         width: 40,
         height: 40,
         position: "absolute",
@@ -19,14 +19,14 @@ export function BackButton({ onClick }: { onClick: () => void }) {
       }}
     >
       <svg
-        width="8"
-        height="14"
-        viewBox="0 0 8 14"
+        width="18"
+        height="18"
+        viewBox="0 0 18 18"
         fill="none"
-        style={{ position: "absolute", left: 15, top: 13 }}
+        style={{ position: "absolute", left: 11, top: 11 }}
       >
         <path
-          d="M6.25 12.5L0 6.25 6.25 0"
+          d="M11.75 3L5.5 9.25L11.75 15.5"
           stroke="#212121"
           strokeWidth="1.5"
           strokeLinecap="round"
