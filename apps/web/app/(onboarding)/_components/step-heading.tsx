@@ -1,11 +1,12 @@
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 
 export const HEADING_STYLE = {
   margin: 0,
+  fontFamily: "var(--font-open-runde), sans-serif",
   fontSize: 24,
   fontWeight: 700,
-  letterSpacing: -0.92,
-  lineHeight: "32px",
+  letterSpacing: -1,
+  lineHeight: "100%",
   color: "#121212",
   whiteSpace: "pre-wrap" as const,
 };
@@ -13,16 +14,18 @@ export const HEADING_STYLE = {
 export function StepHeading({
   mark,
   children,
+  lineHeight,
 }: {
   mark?: ReactNode;
   children: ReactNode;
+  lineHeight?: CSSProperties["lineHeight"];
 }) {
   return (
     <div
       style={{
         left: 20,
-        top: 88,
-        width: 247,
+        right: 20,
+        top: 132,
         position: "absolute",
         display: "flex",
         flexDirection: "column",
@@ -32,7 +35,9 @@ export function StepHeading({
       className="step-title"
     >
       {mark}
-      <h1 style={HEADING_STYLE}>{children}</h1>
+      <h1 style={{ ...HEADING_STYLE, ...(lineHeight ? { lineHeight } : {}) }}>
+        {children}
+      </h1>
     </div>
   );
 }

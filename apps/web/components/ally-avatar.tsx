@@ -253,6 +253,12 @@ export type AllyAvatarProps = {
   motion?: AllyMotionMode;
   color?: string;
   size?: number | string;
+  /** Render the authored artwork without a coloured shell. */
+  transparent?: boolean;
+  /** Render an unselected Ally as the neutral Figma artwork. */
+  neutral?: boolean;
+  /** Use the full authored canvas when a screen owns the artwork scale. */
+  artworkSize?: "default" | "full";
   label?: string;
   className?: string;
 };
@@ -263,6 +269,9 @@ export function AllyAvatar({
   motion = "system",
   color,
   size,
+  transparent = false,
+  neutral = false,
+  artworkSize = "default",
   label,
   className,
 }: AllyAvatarProps) {
@@ -308,21 +317,24 @@ export function AllyAvatar({
     ? getAllyAsset(shape, renderedState, reducedMotion)
     : null;
   const artworkLayout = shape ? ARTWORK_LAYOUT[shape] : null;
+  const hasShell = !transparent && !neutral;
   const rootStyle = useMemo<CSSProperties>(
     () => ({
       width: normalizeSize(size),
       height: normalizeSize(size),
       borderRadius: "50%",
-      backgroundColor: shellColor,
+      backgroundColor: hasShell ? shellColor : "transparent",
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
       flexShrink: 0,
       position: "relative",
-      transition: reducedMotion ? "none" : "background-color 240ms ease",
+      transition: reducedMotion
+        ? "none"
+        : "background-color 240ms ease, filter 240ms ease",
     }),
-    [reducedMotion, shellColor, size],
+    [hasShell, reducedMotion, shellColor, size],
   );
 
   return (
@@ -342,8 +354,8 @@ export function AllyAvatar({
           data-ally-artwork
           data-ally-artwork-state={renderedState}
           style={{
-            width: artworkLayout.width,
-            height: artworkLayout.height,
+            width: artworkSize === "full" ? "100%" : artworkLayout.width,
+            height: artworkSize === "full" ? "100%" : artworkLayout.height,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -369,6 +381,7 @@ export function AllyAvatar({
               objectFit: "contain",
               userSelect: "none",
               pointerEvents: "none",
+              filter: neutral ? "grayscale(1) opacity(0.38)" : undefined,
             }}
           />
         </div>

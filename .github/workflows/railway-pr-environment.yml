@@ -52,7 +52,12 @@ jobs:
         shell: sh
         run: |
           set -eu
-          slug=$(printf '%s' "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-50 | sed 's/^-*//; s/-*$//')
+          # Keep the generated name below Railway's environment-name limit
+          # while retaining the PR number and a readable title prefix.
+          max_name_length=31
+          prefix_length=$((4 + ${#PR_NUMBER}))
+          max_slug_length=$((max_name_length - prefix_length))
+          slug=$(printf '%s' "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-"$max_slug_length" | sed 's/^-*//; s/-*$//')
           if [ -z "$slug" ]; then
             slug=preview
           fi
@@ -100,6 +105,19 @@ jobs:
               --json
           fi
 
+      - name: Remove inherited GitHub source
+        shell: sh
+        run: |
+          set -eu
+          # Duplicating staging copies its connected GitHub source and can
+          # auto-deploy staging's commit over the PR upload. PR previews must
+          # be sourced only from the checked-out pull request.
+          railway service source disconnect \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json
+
       - name: Deploy only the web service
         shell: sh
         run: |
@@ -114,7 +132,27 @@ jobs:
 
       - name: Print preview domains
         shell: sh
-        run: railway domain list --project "$RAILWAY_PROJECT_ID" --environment "$PR_ENVIRONMENT" --service "$RAILWAY_WEB_SERVICE_ID" --json
+        run: |
+          set -eu
+          domain_json=$(railway domain list \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json)
+          printf '%s\n' "$domain_json"
+          preview_domain=$(printf '%s' "$domain_json" | tr ',' '\n' | sed -n 's/.*"domain"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)
+          if [ -z "$preview_domain" ]; then
+            echo "::error::Railway did not return a preview domain"
+            exit 1
+          fi
+          echo "PR_PREVIEW_DOMAIN=$preview_domain" >> "$GITHUB_ENV"
+
+      - name: Verify the onboarding route
+        shell: sh
+        run: |
+          set -eu
+          wget --quiet --output-document=/dev/null --timeout=30 --tries=1 \
+            "https://${PR_PREVIEW_DOMAIN}/onboarding"
 
   cleanup:
     name: Delete web preview

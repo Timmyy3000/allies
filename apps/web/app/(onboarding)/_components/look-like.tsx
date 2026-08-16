@@ -1,17 +1,52 @@
 "use client";
 
-import { useRef, type PointerEvent } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { useState, useSyncExternalStore } from "react";
 import { Artboard } from "@/components/artboard";
 import { AllyAvatar } from "@/components/ally-avatar";
 import { BackButton } from "@/components/back-button";
-import { DEFAULT_ACCENT, NextButton } from "@/components/next-button";
+import {
+  DEFAULT_ACCENT,
+  NextButton,
+  ONBOARDING_CTA,
+  ONBOARDING_LAYOUT,
+} from "@/components/next-button";
 import { ProgressRing } from "@/components/progress-ring";
 import {
   ALLY_COLORS,
-  ALLY_SHAPES,
   useOnboardingStore,
 } from "../_store/onboarding-store";
+import { PersistentAllyAvatar } from "./persistent-ally";
 import { StepHeading } from "./step-heading";
+
+const AVATAR_SHELL_SIZE = 164.2;
+const AVATAR_FRAME_HEIGHT = AVATAR_SHELL_SIZE;
+const FALLBACK_VIEWPORT_WIDTH = 375;
+const CAROUSEL_SHAPES = ["rolly", "ghosty", "boxy", "rocky"] as const;
+const COLOR_PICKER_GAP = 28;
+
+function modulo(value: number, divisor: number) {
+  return ((value % divisor) + divisor) % divisor;
+}
+
+function subscribeToViewport(callback: () => void) {
+  if (typeof window === "undefined") return () => undefined;
+
+  window.addEventListener("resize", callback);
+  return () => window.removeEventListener("resize", callback);
+}
+
+function getViewportWidth() {
+  return typeof window === "undefined" ? FALLBACK_VIEWPORT_WIDTH : window.innerWidth;
+}
+
+function useViewportWidth() {
+  return useSyncExternalStore(
+    subscribeToViewport,
+    getViewportWidth,
+    () => FALLBACK_VIEWPORT_WIDTH,
+  );
+}
 
 function PaintIcon() {
   return (
@@ -49,41 +84,117 @@ export function LookLikeScreen() {
   const setColor = useOnboardingStore((state) => state.setColor);
   const goTo = useOnboardingStore((state) => state.goTo);
   const back = useOnboardingStore((state) => state.back);
-  const startX = useRef<number | null>(null);
+  const prefersReducedMotion = useReducedMotion() ?? false;
+  const viewportWidth = useViewportWidth();
+  const accent = color ?? DEFAULT_ACCENT;
 
-  const shapeIndex = ALLY_SHAPES.indexOf(shape);
+  const shapeIndex = CAROUSEL_SHAPES.findIndex((candidate) => candidate === shape);
+  const shapeCount = CAROUSEL_SHAPES.length;
+  const [carouselIndex, setCarouselIndex] = useState(
+    shapeCount + Math.max(0, shapeIndex),
+  );
+  const [isRebasing, setIsRebasing] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
-  const swipeTo = (next: number) => {
-    if (next === shapeIndex) return;
-    const nextShape = ALLY_SHAPES[next];
+  const setCarouselPage = (nextIndex: number) => {
+    const nextShapeIndex = modulo(nextIndex, shapeCount);
+    const nextShape = CAROUSEL_SHAPES[nextShapeIndex];
     if (!nextShape) return;
+
+    setIsDragging(true);
+    setCarouselIndex(nextIndex);
     setShape(nextShape);
     markSwiped();
   };
 
-  const onPointerDown = (event: PointerEvent) => {
-    startX.current = event.clientX;
+  const swipeTo = (nextShapeIndex: number) => {
+    if (nextShapeIndex === shapeIndex) return;
+
+    let delta = nextShapeIndex - shapeIndex;
+    if (delta > shapeCount / 2) delta -= shapeCount;
+    if (delta < -shapeCount / 2) delta += shapeCount;
+    setCarouselPage(carouselIndex + delta);
   };
 
-  const onPointerUp = (event: PointerEvent) => {
-    if (startX.current == null) return;
-    const delta = event.clientX - startX.current;
-    startX.current = null;
-    if (Math.abs(delta) < 24) return;
-    if (delta < 0) swipeTo(Math.min(ALLY_SHAPES.length - 1, shapeIndex + 1));
-    else swipeTo(Math.max(0, shapeIndex - 1));
+  const swipeBy = (direction: -1 | 1) => {
+    setCarouselPage(carouselIndex + direction);
+  };
+
+  const handleDragEnd = (
+    _event: MouseEvent | TouchEvent | PointerEvent,
+    info: { offset: { x: number }; velocity: { x: number } },
+  ) => {
+    const intent = info.offset.x || info.velocity.x;
+    if (Math.abs(intent) < 36 && Math.abs(info.velocity.x) < 400) {
+      setIsDragging(false);
+      return;
+    }
+
+    swipeBy(intent < 0 ? 1 : -1);
+  };
+
+  const handleAnimationComplete = () => {
+    const isOutsideMiddleCopy = carouselIndex < shapeCount || carouselIndex >= shapeCount * 2;
+    if (isOutsideMiddleCopy) {
+      setIsRebasing(true);
+      setCarouselIndex(shapeCount + modulo(carouselIndex, shapeCount));
+      return;
+    }
+
+    if (isRebasing) setIsRebasing(false);
+    setIsDragging(false);
+  };
+
+  const carouselShapes = Array.from({ length: shapeCount * 3 }, (_, index) => {
+    return CAROUSEL_SHAPES[index % shapeCount];
+  });
+
+  const trackX = -viewportWidth / 2 - carouselIndex * viewportWidth;
+  const trackTransition = prefersReducedMotion || isRebasing
+    ? { duration: 0 }
+    : { type: "spring" as const, stiffness: 280, damping: 32, mass: 0.72 };
+
+  const renderAvatar = (
+    avatarShape: (typeof CAROUSEL_SHAPES)[number],
+    index: number,
+  ) => {
+    const isNearActive = Math.abs(index - carouselIndex) <= 1;
+    return (
+      <div
+        key={`${avatarShape}-${index}`}
+        style={{
+          width: viewportWidth,
+          height: AVATAR_FRAME_HEIGHT,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          flexShrink: 0,
+          opacity: index === carouselIndex || (isDragging && isNearActive) ? 1 : 0,
+          transition: prefersReducedMotion ? "none" : "opacity 120ms ease",
+        }}
+      >
+        <AllyAvatar
+          shape={avatarShape}
+          motion="reduced"
+          transparent
+          size={160}
+        />
+      </div>
+    );
   };
 
   return (
     <Artboard>
       <div data-testid="look-like" style={{ position: "absolute", inset: 0 }}>
         <BackButton onClick={back} />
-        <ProgressRing progress={0.45} />
+        <ProgressRing progress={0.45} color={accent} />
         <StepHeading
+          lineHeight="28px"
           mark={
-            <AllyAvatar
+            <PersistentAllyAvatar
               shape={shape}
-              color={color ?? "#a0a0a0"}
+              color={color ?? undefined}
+              neutral={!color}
               size={40}
             />
           }
@@ -94,28 +205,69 @@ export function LookLikeScreen() {
         </StepHeading>
         <div
           data-testid="avatar-carousel"
-          onPointerDown={onPointerDown}
-          onPointerUp={onPointerUp}
+          role="group"
+          aria-label="Swipe to choose an Ally shape"
           className="step-stage"
           style={{
-            left: "calc(-82.5px + 50%)",
-            top: "calc(-80px + 50%)",
-            width: 164.2,
-            height: 160,
+            left: 0,
+            right: 0,
+            top: `calc(-${AVATAR_FRAME_HEIGHT / 2}px + 50%)`,
+            height: AVATAR_FRAME_HEIGHT,
             position: "absolute",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            overflow: "hidden",
             touchAction: "pan-y",
             cursor: "grab",
+            userSelect: "none",
           }}
         >
-          <AllyAvatar shape={shape} color={color ?? undefined} size={160} />
+          <div
+            data-testid="avatar-color-shell"
+            aria-hidden="true"
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: 0,
+              width: AVATAR_SHELL_SIZE,
+              height: AVATAR_SHELL_SIZE,
+              marginLeft: -AVATAR_SHELL_SIZE / 2,
+              borderRadius: "50%",
+              backgroundColor: color ?? "transparent",
+              transition: prefersReducedMotion
+                ? "none"
+                : "background-color 240ms ease",
+              pointerEvents: "none",
+              zIndex: 0,
+            }}
+          />
+          <motion.div
+            drag="x"
+            dragMomentum={false}
+            dragElastic={0.12}
+            onDragStart={() => setIsDragging(true)}
+            onDragEnd={handleDragEnd}
+            onAnimationComplete={handleAnimationComplete}
+            animate={{ x: trackX }}
+            initial={false}
+            transition={trackTransition}
+            style={{
+              position: "absolute",
+              left: "50%",
+              top: 0,
+              display: "flex",
+              width: "max-content",
+              height: AVATAR_FRAME_HEIGHT,
+              x: trackX,
+              zIndex: 1,
+            }}
+          >
+            {carouselShapes.map(renderAvatar)}
+          </motion.div>
         </div>
         <div
           style={{
-            left: "calc(-24.5px + 50%)",
-            top: 522,
+            left: "50%",
+            marginLeft: -24.5,
+            top: "calc(50% + 100px)",
             width: "min-content",
             position: "absolute",
             display: "flex",
@@ -124,7 +276,7 @@ export function LookLikeScreen() {
             alignItems: "center",
           }}
         >
-          {ALLY_SHAPES.map((_, index) => (
+          {CAROUSEL_SHAPES.map((_, index) => (
             <button
               key={index}
               type="button"
@@ -136,7 +288,7 @@ export function LookLikeScreen() {
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                backgroundColor: index === shapeIndex ? DEFAULT_ACCENT : "#f0f0f0",
+                backgroundColor: index === shapeIndex ? accent : "#f0f0f0",
                 border: 0,
                 padding: 0,
                 cursor: "pointer",
@@ -150,7 +302,7 @@ export function LookLikeScreen() {
             style={{
               left: 0,
               right: 0,
-              bottom: 90,
+              top: 646,
               position: "absolute",
               display: "flex",
               flexDirection: "row",
@@ -174,8 +326,12 @@ export function LookLikeScreen() {
             className="remove-scrollbar"
             style={{
               left: 0,
-              bottom: 90,
-              width: 375,
+              right: 0,
+              bottom:
+                ONBOARDING_LAYOUT.bottomPadding +
+                ONBOARDING_CTA.height +
+                COLOR_PICKER_GAP,
+              width: "auto",
               position: "absolute",
               display: "flex",
               flexDirection: "row",

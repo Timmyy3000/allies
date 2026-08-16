@@ -7,28 +7,62 @@ import {
   useId,
   useRef,
   useState,
+  useCallback,
   type ReactNode,
 } from "react";
-import togetherIcon from "../_images/together.png";
+import { AnimatePresence, LayoutGroup, motion } from "motion/react";
+import Image from "next/image";
+import Link from "next/link";
 import { AllyAvatar } from "@/components/ally-avatar";
 import {
   AnimatedCopy,
   type AllyAnimationState,
   type AllyKind,
   type CopyParagraph,
+  type StoryActorBounds,
   type StoryBeat,
 } from "./animated-copy";
 import OnboardingFlow from "./make-ally";
+import OnboardingDrawer from "./onboarding-drawer";
 import { useOnboardingStore } from "../_store/onboarding-store";
 
 const DESKTOP_ART_W = 1512;
 const DESKTOP_ART_H = 982;
 const MOBILE_ART_W = 375;
 const MOBILE_ART_H = 812;
+const BRAND_ORANGE = "#FF5800";
+
+const DESKTOP_ACTOR_BOUNDS: StoryActorBounds = {
+  width: DESKTOP_ART_W,
+  height: DESKTOP_ART_H,
+  offsetLeft: 387,
+  offsetTop: 208,
+};
+
+const MOBILE_ACTOR_BOUNDS: StoryActorBounds = {
+  width: MOBILE_ART_W,
+  height: MOBILE_ART_H,
+  offsetLeft: 20,
+  offsetTop: 128,
+};
+
+const DESKTOP_ROAM_OFFSETS = {
+  red: { left: 44, top: 24 },
+  blue: { left: -40, top: 32 },
+  yellow: { left: -34, top: -26 },
+  green: { left: 38, top: -22 },
+} satisfies Record<AllyKind, { left: number; top: number }>;
+
+const MOBILE_ROAM_OFFSETS = {
+  red: { left: 32, top: 20 },
+  blue: { left: -28, top: 26 },
+  yellow: { left: -25, top: -21 },
+  green: { left: 30, top: -18 },
+} satisfies Record<AllyKind, { left: number; top: number }>;
 
 const IconSizeContext = createContext(24);
 
-function useArtboardScale(artW: number) {
+function useArtboardScale(artW: number, maxScale = Number.POSITIVE_INFINITY) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
 
@@ -37,47 +71,122 @@ function useArtboardScale(artW: number) {
     if (!host) return;
 
     const update = () => {
-      setScale(host.clientWidth / artW);
+      setScale(Math.min(host.clientWidth / artW, maxScale));
     };
 
     update();
     const observer = new ResizeObserver(update);
     observer.observe(host);
     return () => observer.disconnect();
-  }, [artW]);
+  }, [artW, maxScale]);
 
   return { hostRef, scale };
 }
 
-export default function Onboarding({ waitlistEnabled = false }: { waitlistEnabled?: boolean }) {
+export default function Onboarding({
+  waitlistEnabled = false,
+  ctaHref,
+  presentation = "route",
+}: {
+  waitlistEnabled?: boolean;
+  ctaHref?: string;
+  presentation?: "route" | "drawer";
+}) {
   const step = useOnboardingStore((state) => state.step);
+  const goTo = useOnboardingStore((state) => state.goTo);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const isDrawerPresentation = presentation === "drawer";
 
-  if (step !== "welcome") {
-    return (
-      <div key={step} className="onboarding-step">
-        <OnboardingFlow />
-      </div>
-    );
+  const openDrawer = useCallback(() => {
+    setDrawerOpen(true);
+    goTo("name");
+  }, [goTo]);
+
+  const closeDrawer = useCallback(() => {
+    setDrawerOpen(false);
+  }, []);
+
+  const resetAfterDrawerClose = useCallback(() => {
+    setDrawerOpen(false);
+    goTo("welcome");
+  }, [goTo]);
+
+  if (step !== "welcome" && !isDrawerPresentation) {
+    return <OnboardingStepFlow />;
   }
 
   return (
     <>
-      <div className="hidden min-[768px]:block">
-        <DesktopOnboarding waitlistEnabled={waitlistEnabled} />
+      <div className="hidden min-[1024px]:block">
+        <DesktopOnboarding
+          waitlistEnabled={waitlistEnabled}
+          ctaHref={ctaHref}
+          onOpenOnboarding={isDrawerPresentation ? openDrawer : undefined}
+        />
       </div>
-      <div className="min-[768px]:hidden">
-        <MobileOnboarding waitlistEnabled={waitlistEnabled} />
+      <div className="min-[1024px]:hidden">
+        <MobileOnboarding
+          waitlistEnabled={waitlistEnabled}
+          ctaHref={ctaHref}
+          onOpenOnboarding={isDrawerPresentation ? openDrawer : undefined}
+        />
       </div>
+      {isDrawerPresentation ? (
+        <OnboardingDrawer
+          open={drawerOpen && step !== "welcome"}
+          onClose={closeDrawer}
+          onClosed={resetAfterDrawerClose}
+        >
+          <OnboardingStepFlow />
+        </OnboardingDrawer>
+      ) : null}
     </>
+  );
+}
+
+function OnboardingStepFlow() {
+  const step = useOnboardingStore((state) => state.step);
+
+  return (
+    <LayoutGroup id="onboarding-flow">
+      <div
+        className="onboarding-step"
+        style={{
+          minHeight: "var(--onboarding-artboard-min-height, 100dvh)",
+          width: "100%",
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        <AnimatePresence initial={false} mode="sync">
+          <motion.div
+            key={step}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
+            style={{
+              position: "absolute",
+              inset: 0,
+              overflow: "hidden",
+            }}
+          >
+            <OnboardingFlow />
+          </motion.div>
+        </AnimatePresence>
+      </div>
+    </LayoutGroup>
   );
 }
 
 function FollowAlly({
   ally,
   state,
+  hideCursor = false,
 }: {
   ally: AllyKind;
   state: AllyAnimationState;
+  hideCursor?: boolean;
 }) {
   return (
     <div
@@ -86,40 +195,66 @@ function FollowAlly({
         zIndex: 2,
         width: 60,
         height: 58,
-        transform: "scale(0.72)",
+        transform: "scale(0.64)",
         transformOrigin: "0 0",
       }}
     >
-      {ally === "red" ? <RedAlly left={0} top={0} state={state} /> : null}
+      {ally === "red" ? (
+        <RedAlly left={0} top={0} state={state} showCursor={!hideCursor} />
+      ) : null}
       {ally === "blue" ? (
-        <BlueAlly left={0} top={0} width={58} faceLeft={23} state={state} />
+        <BlueAlly
+          left={0}
+          top={0}
+          width={60}
+          faceLeft={23}
+          state={state}
+          showCursor={!hideCursor}
+        />
       ) : null}
       {ally === "yellow" ? (
         <YellowAlly
           left={0}
           top={0}
-          width={58}
-          faceLeft={0}
-          flipCursor
+          width={64}
+          faceLeft={26}
           state={state}
+          showCursor={!hideCursor}
         />
       ) : null}
-      {ally === "green" ? <GreenAlly left={0} top={0} state={state} /> : null}
+      {ally === "green" ? (
+        <GreenAlly left={0} top={0} state={state} showCursor={!hideCursor} />
+      ) : null}
     </div>
   );
 }
 
-function DesktopOnboarding({ waitlistEnabled }: { waitlistEnabled: boolean }) {
-  const { hostRef, scale } = useArtboardScale(DESKTOP_ART_W);
+function DesktopOnboarding({
+  waitlistEnabled,
+  ctaHref,
+  onOpenOnboarding,
+}: {
+  waitlistEnabled: boolean;
+  ctaHref?: string;
+  onOpenOnboarding?: () => void;
+}) {
+  const { hostRef, scale } = useArtboardScale(DESKTOP_ART_W, 1);
+  const isNativeWidth = scale === 1;
+  const [storyDone, setStoryDone] = useState(false);
 
   return (
-    <div ref={hostRef} className="relative w-full overflow-hidden bg-[#fff]">
+    <div
+      ref={hostRef}
+      className="relative min-h-[100dvh] w-full overflow-hidden bg-[#fff]"
+    >
       <div style={{ height: DESKTOP_ART_H * scale, width: "100%" }} aria-hidden />
       <div
-        className="absolute left-0 top-0 origin-top-left"
+        className="absolute top-0 origin-top-left"
         style={{
           width: DESKTOP_ART_W,
           height: DESKTOP_ART_H,
+          left: isNativeWidth ? "50%" : 0,
+          marginLeft: isNativeWidth ? -DESKTOP_ART_W / 2 : 0,
           transform: `scale(${scale})`,
           borderRadius: "10px 10px 0px 0px",
           backgroundColor: "#fff",
@@ -127,19 +262,21 @@ function DesktopOnboarding({ waitlistEnabled }: { waitlistEnabled: boolean }) {
         }}
       >
         <div
-          className="text"
+          className="text onboarding-story--desktop"
           style={{
             textAlign: "left",
             lineHeight: "49px",
             fontSize: 24,
             fontWeight: 600,
             fontStretch: "100%",
-            letterSpacing: -1.63,
+            letterSpacing: -0.5,
             color: "#121212",
             left: 387,
             top: 208,
-            width: 740,
+            width: 739,
             position: "absolute",
+            overflow: "visible",
+            whiteSpace: "nowrap",
           }}
         >
           <AnimatedCopy
@@ -147,11 +284,27 @@ function DesktopOnboarding({ waitlistEnabled }: { waitlistEnabled: boolean }) {
             paragraphGap={0}
             beats={STORY_BEATS}
             initialParagraphs={[0]}
-            renderActor={(ally, state) => (
-              <FollowAlly ally={ally} state={state} />
+            actorBounds={DESKTOP_ACTOR_BOUNDS}
+            artboardScale={scale}
+            roamOffsets={DESKTOP_ROAM_OFFSETS}
+            onComplete={setStoryDone}
+            renderActor={(ally, state, options) => (
+              <FollowAlly
+                ally={ally}
+                state={state}
+                hideCursor={options?.hideCursor}
+              />
             )}
           />
-          <MeetAllyButton enabled={waitlistEnabled} height={48} fontSize={18} marginTop={36} />
+          {storyDone ? (
+            <MeetAllyButton
+              enabled={waitlistEnabled}
+              href={ctaHref}
+              onOpen={onOpenOnboarding}
+              fontSize={18}
+              marginTop={36}
+            />
+          ) : null}
         </div>
         <FollowUs />
         <LogoMark />
@@ -160,12 +313,24 @@ function DesktopOnboarding({ waitlistEnabled }: { waitlistEnabled: boolean }) {
   );
 }
 
-function MobileOnboarding({ waitlistEnabled }: { waitlistEnabled: boolean }) {
+function MobileOnboarding({
+  waitlistEnabled,
+  ctaHref,
+  onOpenOnboarding,
+}: {
+  waitlistEnabled: boolean;
+  ctaHref?: string;
+  onOpenOnboarding?: () => void;
+}) {
   const { hostRef, scale } = useArtboardScale(MOBILE_ART_W);
+  const [storyDone, setStoryDone] = useState(false);
 
   return (
     <IconSizeContext.Provider value={16}>
-      <div ref={hostRef} className="relative w-full overflow-hidden bg-[#fff]">
+      <div
+        ref={hostRef}
+        className="relative min-h-[100dvh] w-full overflow-hidden bg-[#fff]"
+      >
         <div
           style={{ height: MOBILE_ART_H * scale, width: "100%" }}
           aria-hidden
@@ -205,11 +370,27 @@ function MobileOnboarding({ waitlistEnabled }: { waitlistEnabled: boolean }) {
               paragraphGap={22}
               beats={STORY_BEATS}
               initialParagraphs={[0]}
-              renderActor={(ally, state) => (
-                <FollowAlly ally={ally} state={state} />
+              actorBounds={MOBILE_ACTOR_BOUNDS}
+              artboardScale={scale}
+              roamOffsets={MOBILE_ROAM_OFFSETS}
+              onComplete={setStoryDone}
+              renderActor={(ally, state, options) => (
+                <FollowAlly
+                  ally={ally}
+                  state={state}
+                  hideCursor={options?.hideCursor}
+                />
               )}
             />
-            <MeetAllyButton enabled={waitlistEnabled} fontSize={16} marginTop={36} />
+            {storyDone ? (
+              <MeetAllyButton
+                enabled={waitlistEnabled}
+                href={ctaHref}
+                onOpen={onOpenOnboarding}
+                fontSize={16}
+                marginTop={36}
+              />
+            ) : null}
           </div>
           <FollowUs
             top={71}
@@ -217,7 +398,7 @@ function MobileOnboarding({ waitlistEnabled }: { waitlistEnabled: boolean }) {
             left="auto"
             columnGap={6}
             fontSize={16}
-            letterSpacing={-1.15}
+            letterSpacing={-0.7}
             iconWidth={14.7}
             iconHeight={15}
           />
@@ -230,22 +411,71 @@ function MobileOnboarding({ waitlistEnabled }: { waitlistEnabled: boolean }) {
 
 function MeetAllyButton({
   enabled = true,
+  href,
+  onOpen,
   top,
   right,
-  width,
-  height,
   fontSize,
   marginTop,
 }: {
   enabled?: boolean;
+  href?: string;
+  onOpen?: () => void;
   top?: number;
   right?: number;
-  width?: number;
-  height?: number;
   fontSize: number;
   marginTop?: number;
 }) {
   const startMakeAlly = useOnboardingStore((state) => state.goTo);
+  const label = (
+    <span
+      className="text"
+      style={{
+        display: "inline",
+        textAlign: "left",
+        fontSize,
+        fontWeight: 600,
+        fontStretch: "100%",
+        letterSpacing: -0.7,
+        lineHeight: "100%",
+        color: "#fff",
+        width: "max-content",
+        position: "relative",
+        flexShrink: 0,
+        whiteSpace: "nowrap",
+        overflowWrap: "normal",
+      }}
+    >
+      Meet your first ally
+    </span>
+  );
+  const style = {
+    borderRadius: 60,
+    backgroundColor: "#FF5800",
+    display: "flex",
+    flexDirection: "row" as const,
+    gap: 10,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+    top,
+    right,
+    width: "max-content",
+    position:
+      top != null ? ("absolute" as const) : ("relative" as const),
+    marginTop,
+    padding: 16,
+    border: "none",
+    cursor: "pointer",
+    textDecoration: "none",
+  };
+
+  if (href && enabled && !onOpen) {
+    return (
+      <Link href={href} data-testid="make-first-ally" style={style}>
+        {label}
+      </Link>
+    );
+  }
 
   return (
     <button
@@ -253,45 +483,10 @@ function MeetAllyButton({
       data-testid="make-first-ally"
       aria-disabled={!enabled}
       disabled={!enabled}
-      onClick={enabled ? () => startMakeAlly("name") : undefined}
-      style={{
-        borderRadius: 60,
-        backgroundColor: "#ff5800",
-        display: "flex",
-        flexDirection: "row",
-        columnGap: 10,
-        alignItems: "center",
-        justifyContent: "center",
-        top,
-        right,
-        width: width ?? "min-content",
-        height,
-        position: top != null ? "absolute" : "relative",
-        marginTop,
-        padding: 10,
-        border: "none",
-        cursor: "pointer",
-      }}
+      onClick={enabled ? onOpen ?? (() => startMakeAlly("name")) : undefined}
+      style={style}
     >
-      <span
-        className="text"
-        style={{
-          display: "inline",
-          textAlign: "left",
-          fontSize,
-          fontWeight: 600,
-          fontStretch: "100%",
-          letterSpacing: -0.65,
-          color: "#fff",
-          width: "max-content",
-          position: "relative",
-          flexShrink: 0,
-          whiteSpace: "pre-wrap",
-          overflowWrap: "break-word",
-        }}
-      >
-        Make your first ally
-      </span>
+      {label}
     </button>
   );
 }
@@ -403,7 +598,7 @@ const DESKTOP_PARAGRAPHS: CopyParagraph[] = [
         icon: <AnimatedLineIcon name="lock" accent="yellow" />,
         iconAfter: true,
       },
-      { type: "text", text: " ." },
+      { type: "text", text: "." },
     ],
   },
   {
@@ -452,7 +647,10 @@ const DESKTOP_PARAGRAPHS: CopyParagraph[] = [
     ally: "yellow",
     color: YELLOW,
     parts: [
-      { type: "text", text: "When a job needs more than one of us, we work " },
+      {
+        type: "text",
+        text: "And when a job needs more than one of us, we work ",
+      },
       {
         type: "icon",
         word: "together",
@@ -506,7 +704,7 @@ function useIconBox() {
     height: size,
     position: "relative",
     display: "inline-block",
-    verticalAlign: "-0.2em",
+    verticalAlign: "0.08em",
     marginLeft: isMobile ? 3 : 4,
     marginRight: isMobile ? 2 : 3,
   } as const;
@@ -521,7 +719,7 @@ function AnimatedLineIcon({
 }) {
   const size = useContext(IconSizeContext);
   const isMobile = size < 24;
-  const iconScale = 1.2;
+  const iconScale = 1.28;
 
   return (
     <img
@@ -534,8 +732,8 @@ function AnimatedLineIcon({
         height: size,
         transform: `scale(${iconScale})`,
         transformOrigin: "center center",
-        filter: ICON_ACCENT_FILTERS[accent],
-        verticalAlign: "-0.2em",
+        filter: name === "lock" ? "none" : ICON_ACCENT_FILTERS[accent],
+        verticalAlign: "0.08em",
         marginLeft: isMobile ? 3 : 4,
         marginRight: isMobile ? 2 : 3,
       }}
@@ -596,12 +794,14 @@ function BlueAlly({
   width = 60,
   faceLeft = 0,
   state = "idle",
+  showCursor = true,
 }: {
   left?: number | string;
   top?: number;
   width?: number;
   faceLeft?: number;
   state?: AllyAnimationState;
+  showCursor?: boolean;
 }) {
   return (
     <div
@@ -870,18 +1070,20 @@ function BlueAlly({
           </div>
         </div>
       </div>
-      <div
-        style={{
-          overflow: "hidden",
-          left: 0,
-          top: 0,
-          width: 36,
-          height: 36,
-          position: "absolute",
-        }}
-      >
-        <CursorMark fill="#3446e9" />
-      </div>
+      {showCursor ? (
+        <div
+          style={{
+            overflow: "hidden",
+            left: 0,
+            top: 0,
+            width: 36,
+            height: 36,
+            position: "absolute",
+          }}
+        >
+          <CursorMark fill="#3446e9" />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -940,22 +1142,20 @@ function TimeIcon() {
 function AvatarCluster() {
   const size = useContext(IconSizeContext);
   const isMobile = size < 24;
-  const src = typeof togetherIcon === "string" ? togetherIcon : togetherIcon.src;
 
   return (
-    <img
+    <span
       data-together-icon
-      src={src}
-      alt=""
+      aria-hidden="true"
       style={{
         display: "inline-block",
         height: size,
-        width: "auto",
-        aspectRatio: "32 / 24",
-        verticalAlign: "-0.2em",
-        marginLeft: isMobile ? 3 : 4,
-        marginRight: isMobile ? 2 : 3,
-        objectFit: "contain",
+        width: size * 2.5,
+        aspectRatio: "auto",
+        verticalAlign: "0.08em",
+        marginLeft: isMobile ? 14 : 16,
+        marginRight: isMobile ? 8 : 0,
+        visibility: "hidden",
       }}
     />
   );
@@ -1181,15 +1381,15 @@ function ShopIcon() {
           />
           <path
             d="M2.4137 1.1778C2.8288 0.4503 3.6027 0 4.441 0H16.8903C17.7274 0 18.5033 0.4493 18.9189 1.1778L21.1915 5.1722C21.3509 5.4524 21.3654 5.7923 21.2306 6.0851 20.4419 7.7969 18.7167 9 16.6957 9 15.5537 9 14.5133 8.6106 13.6811 7.9714 12.8493 8.6105 11.8094 9 10.6663 9 9.523 9 8.4824 8.6096 7.6503 7.9702 6.8183 8.6096 5.7777 9 4.6343 9 2.6117 9 0.888 7.7967 0.0994 6.0851-0.0356 5.7921-0.0209 5.452 0.1387 5.1717L2.4137 1.1778Z"
-            style={{ fillRule: "evenodd", fill: "#ff5800" }}
+            style={{ fillRule: "evenodd", fill: BRAND_ORANGE }}
           />
           <path
             d="M7.9998 20V15.3334C7.9998 13.8611 9.1942 12.6667 10.6665 12.6667 12.1388 12.6667 13.3332 13.8611 13.3332 15.3334V20H7.9998Z"
-            style={{ fillRule: "nonzero", fill: "#ff5800" }}
+            style={{ fillRule: "nonzero", fill: BRAND_ORANGE }}
           />
           <path
             d="M-0.0002 20.3334C-0.0002 19.7811 0.4476 19.3334 0.9998 19.3334H20.3332C20.8854 19.3334 21.3332 19.7811 21.3332 20.3334 21.3332 20.8856 20.8854 21.3334 20.3332 21.3334H0.9998C0.4476 21.3334-0.0002 20.8856-0.0002 20.3334Z"
-            style={{ fillRule: "evenodd", fill: "#ff5800" }}
+            style={{ fillRule: "evenodd", fill: BRAND_ORANGE }}
           />
         </g>
       </svg>
@@ -1203,7 +1403,7 @@ function FollowUs({
   right,
   columnGap = 12,
   fontSize = 18,
-  letterSpacing = -1.24,
+  letterSpacing = -0.7,
   iconWidth = 17.6,
   iconHeight = 18,
 }: {
@@ -1217,7 +1417,11 @@ function FollowUs({
   iconHeight?: number;
 }) {
   return (
-    <div
+    <a
+      href="https://x.com/allies_ai"
+      target="_blank"
+      rel="noreferrer"
+      aria-label="Follow Allies on X at @allies_ai"
       style={{
         display: "flex",
         flexDirection: "row",
@@ -1229,6 +1433,9 @@ function FollowUs({
         top,
         width: "min-content",
         position: "absolute",
+        color: "inherit",
+        cursor: "pointer",
+        textDecoration: "none",
       }}
     >
       <span
@@ -1282,7 +1489,7 @@ function FollowUs({
           />
         </svg>
       </div>
-    </div>
+    </a>
   );
 }
 
@@ -1312,7 +1519,7 @@ function LogoMark({
       <div
         style={{
           borderRadius: 6,
-          backgroundColor: "#ff5800",
+          backgroundColor: BRAND_ORANGE,
           overflow: "hidden",
           width: 24.6,
           height: 24,
@@ -1320,9 +1527,19 @@ function LogoMark({
           flexShrink: 0,
         }}
       >
+        <Image
+          src="/allies-icon.svg"
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          width={25}
+          height={24}
+          style={{ display: "block", width: "100%", height: "100%" }}
+        />
         <div
           style={{
             overflow: "hidden",
+            display: "none",
             left: "calc(-7.5px + 50%)",
             top: "calc(-8px + 50%)",
             width: 14.7,
@@ -1378,27 +1595,27 @@ function LogoMark({
         <g style={{ clipPath: `url(#${clipId})` }}>
           <path
             d="M48.2232 8.6198C47.7025 8.6777 47.4215 8.4463 47.1157 8.0083 46.7356 7.4959 46.0827 7.1157 45.1075 7.1157 43.8595 7.1157 42.9091 7.7107 42.9174 8.5702 42.9091 9.3058 43.4215 9.7521 44.7108 10.0413L46.8761 10.5041C49.2728 11.0248 50.438 12.1322 50.4463 13.9421 50.438 16.3471 48.1984 17.9917 45.0248 17.9917 42.3637 17.9917 40.5455 16.9835 39.843 15.2314 39.6033 14.6446 39.9504 14.2397 40.5703 14.1818L41.7025 14.0744C42.2314 14.0248 42.5042 14.2645 42.7934 14.7273 43.2149 15.3967 43.9752 15.7355 45.0166 15.7355 46.438 15.7355 47.3802 15.0826 47.3802 14.2149 47.3802 13.4959 46.8347 13.0248 45.6694 12.7686L43.5042 12.314C41.0661 11.8099 39.9256 10.5868 39.9339 8.7355 39.9256 6.3884 42.0083 4.8843 45.0661 4.8843 47.5703 4.8843 49.1901 5.8595 49.8843 7.4463 50.1323 8.0331 49.8017 8.4463 49.1736 8.5124L48.2232 8.6198Z"
-            style={{ fillRule: "nonzero", fill: "#ff5800" }}
+            style={{ fillRule: "nonzero", fill: BRAND_ORANGE }}
           />
           <path
             d="M33.1285 17.9917C29.302 17.9917 26.9632 15.4545 26.9632 11.4711 26.9632 7.5537 29.3351 4.8843 32.9715 4.8843 36.0954 4.8843 38.7731 6.843 38.7731 11.2975V11.3058C38.7731 11.8926 38.4508 12.2149 37.864 12.2149H29.9301C29.9549 14.3884 31.2359 15.6612 33.1698 15.6612 34.1615 15.6612 34.9797 15.3306 35.4839 14.6859 35.8062 14.2645 36.1037 14.0496 36.6161 14.1074L37.6243 14.2231C38.2607 14.2975 38.5913 14.6446 38.3847 15.1157 37.6078 16.876 35.7235 17.9917 33.1285 17.9917ZM29.9384 10.1983H35.9053C35.8888 8.4711 34.7318 7.2149 33.0128 7.2149 31.2277 7.2149 30.0293 8.5785 29.9384 10.1983Z"
-            style={{ fillRule: "nonzero", fill: "#ff5800" }}
+            style={{ fillRule: "nonzero", fill: BRAND_ORANGE }}
           />
           <path
             d="M24.1083 3.2479C23.1496 3.2479 22.3727 2.5207 22.3727 1.6281 22.3727 0.7273 23.1496 0 24.1083 0 25.0587 0 25.8355 0.7273 25.8355 1.6281 25.8355 2.5207 25.0587 3.2479 24.1083 3.2479ZM22.6041 16.8347V5.9587C22.6041 5.3719 22.9265 5.0496 23.5132 5.0496H24.6868C25.2736 5.0496 25.5959 5.3719 25.5959 5.9587V16.8347C25.5959 17.4215 25.2736 17.7438 24.6868 17.7438H23.5132C22.9265 17.7438 22.6041 17.4215 22.6041 16.8347Z"
-            style={{ fillRule: "nonzero", fill: "#ff5800" }}
+            style={{ fillRule: "nonzero", fill: BRAND_ORANGE }}
           />
           <path
             d="M20.6913 16.8347C20.6913 17.4215 20.3689 17.7438 19.7822 17.7438H18.6086C18.0218 17.7438 17.6995 17.4215 17.6995 16.8347V1.7273C17.6995 1.1405 18.0218 0.8182 18.6086 0.8182H19.7822C20.3689 0.8182 20.6913 1.1405 20.6913 1.7273V16.8347Z"
-            style={{ fillRule: "nonzero", fill: "#ff5800" }}
+            style={{ fillRule: "nonzero", fill: BRAND_ORANGE }}
           />
           <path
             d="M15.7868 16.8347C15.7868 17.4215 15.4645 17.7438 14.8777 17.7438H13.7041C13.1174 17.7438 12.795 17.4215 12.795 16.8347V1.7273C12.795 1.1405 13.1174 0.8182 13.7041 0.8182H14.8777C15.4645 0.8182 15.7868 1.1405 15.7868 1.7273V16.8347Z"
-            style={{ fillRule: "nonzero", fill: "#ff5800" }}
+            style={{ fillRule: "nonzero", fill: BRAND_ORANGE }}
           />
           <path
             d="M4.2479 18C1.8264 18 0 16.6777 0 14.1818 0 11.3223 2.3554 10.5868 4.8182 10.3223 7.0578 10.0826 7.9587 10.0413 7.9587 9.1818V9.1322C7.9587 7.8843 7.1983 7.1735 5.8099 7.1735 4.7438 7.1735 4.0083 7.5702 3.5702 8.1157 3.2479 8.5372 2.9587 8.7521 2.438 8.6777L1.438 8.5372C0.8016 8.4463 0.4959 8.0083 0.8016 7.4297 1.7025 5.7438 3.5207 4.8843 5.7934 4.8843 8.2149 4.8843 10.9504 5.8926 10.9504 9.2479V16.8347C10.9504 17.4215 10.6281 17.7438 10.0413 17.7438H8.9835C8.3967 17.7438 8.0744 17.4298 8.0744 16.8678V16H7.9752C7.4297 17.0661 6.2397 18 4.2479 18ZM2.8843 14.1322C2.8843 15.2314 3.7769 15.8016 5.0248 15.8016 6.8264 15.8016 7.9669 14.6033 7.9669 13.1901V11.6942C7.5785 12.0083 6.0083 12.2066 5.2231 12.314 3.8843 12.5041 2.8843 12.9835 2.8843 14.1322Z"
-            style={{ fillRule: "nonzero", fill: "#ff5800" }}
+            style={{ fillRule: "nonzero", fill: BRAND_ORANGE }}
           />
         </g>
       </svg>
@@ -1532,6 +1749,7 @@ function YellowAlly({
   faceLeft = 26,
   flipCursor = false,
   state = "idle",
+  showCursor = true,
 }: {
   left?: number | string;
   top?: number;
@@ -1539,6 +1757,7 @@ function YellowAlly({
   faceLeft?: number;
   flipCursor?: boolean;
   state?: AllyAnimationState;
+  showCursor?: boolean;
 }) {
   return (
     <div
@@ -1617,20 +1836,22 @@ function YellowAlly({
           </div>
         </div>
       </div>
-      <div
-        style={{
-          overflow: "hidden",
-          transformOrigin: flipCursor ? "0 0" : undefined,
-          transform: flipCursor ? "scale(-1,1)" : undefined,
-          left: flipCursor ? 60 : 0,
-          top: 0,
-          width: 36,
-          height: 36,
-          position: "absolute",
-        }}
-      >
-        <CursorMark fill="#fbe65f" />
-      </div>
+      {showCursor ? (
+        <div
+          style={{
+            overflow: "hidden",
+            transformOrigin: flipCursor ? "0 0" : undefined,
+            transform: flipCursor ? "scale(-1,1)" : undefined,
+            left: flipCursor ? 60 : 0,
+            top: 0,
+            width: 36,
+            height: 36,
+            position: "absolute",
+          }}
+        >
+          <CursorMark fill="#fbe65f" />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1733,10 +1954,12 @@ function GreenAlly({
   left = "calc(-274px + 50%)",
   top = 784,
   state = "idle",
+  showCursor = true,
 }: {
   left?: number | string;
   top?: number;
   state?: AllyAnimationState;
+  showCursor?: boolean;
 }) {
   return (
     <div
@@ -1827,18 +2050,20 @@ function GreenAlly({
           </div>
         </div>
       </div>
-      <div
-        style={{
-          overflow: "hidden",
-          left: 0,
-          top: 0,
-          width: 36,
-          height: 36,
-          position: "absolute",
-        }}
-      >
-        <CursorMark fill="#12c25b" />
-      </div>
+      {showCursor ? (
+        <div
+          style={{
+            overflow: "hidden",
+            left: 0,
+            top: 0,
+            width: 36,
+            height: 36,
+            position: "absolute",
+          }}
+        >
+          <CursorMark fill="#12c25b" />
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1945,10 +2170,12 @@ function RedAlly({
   left = 568,
   top = 211,
   state = "idle",
+  showCursor = true,
 }: {
   left?: number | string;
   top?: number;
   state?: AllyAnimationState;
+  showCursor?: boolean;
 }) {
   return (
     <div
@@ -2040,18 +2267,20 @@ function RedAlly({
           </div>
         </div>
       </div>
-      <div
-        style={{
-          overflow: "hidden",
-          left: 0,
-          top: 0,
-          width: 36,
-          height: 36,
-          position: "absolute",
-        }}
-      >
-        <CursorMark fill="#fd304f" />
-      </div>
+      {showCursor ? (
+        <div
+          style={{
+            overflow: "hidden",
+            left: 0,
+            top: 0,
+            width: 36,
+            height: 36,
+            position: "absolute",
+          }}
+        >
+          <CursorMark fill="#fd304f" />
+        </div>
+      ) : null}
     </div>
   );
 }

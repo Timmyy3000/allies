@@ -59,7 +59,6 @@ export function SignInScreen() {
         <NextButton
           label="Make your first ally"
           active
-          bottom={66}
           onClick={() => goTo("name")}
         />
         <p
@@ -73,7 +72,7 @@ export function SignInScreen() {
             color: "#000",
             left: 0,
             right: 0,
-            bottom: 24,
+            top: 723,
             width: "100%",
             position: "absolute",
             margin: 0,
