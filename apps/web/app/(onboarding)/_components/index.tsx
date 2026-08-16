@@ -76,9 +76,14 @@ function useArtboardScale(artW: number, maxScale = Number.POSITIVE_INFINITY) {
     };
 
     update();
-    const observer = new ResizeObserver(update);
-    observer.observe(host);
-    return () => observer.disconnect();
+    const observer =
+      typeof ResizeObserver === "function" ? new ResizeObserver(update) : null;
+    observer?.observe(host);
+    window.addEventListener("resize", update);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", update);
+    };
   }, [artW, maxScale]);
 
   return { hostRef, scale, hostWidth };
