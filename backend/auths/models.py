@@ -43,13 +43,17 @@ class UserManager(BaseUserManager["User"]):
     use_in_migrations = True
 
     def _create(self, *, is_staff: bool, is_superuser: bool, **extra_fields):
+        password = extra_fields.pop("password", None)
         user = self.model(
             public_id=extra_fields.pop("public_id", new_public_id("usr")),
             is_staff=is_staff,
             is_superuser=is_superuser,
             **extra_fields,
         )
-        user.set_unusable_password()
+        if password:
+            user.set_password(password)
+        else:
+            user.set_unusable_password()
         user.save(using=self._db)
         return user
 
