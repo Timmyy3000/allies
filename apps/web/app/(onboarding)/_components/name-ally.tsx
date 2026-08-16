@@ -2,7 +2,7 @@
 
 import { Artboard } from "@/components/artboard";
 import { BackButton } from "@/components/back-button";
-import { NextButton } from "@/components/next-button";
+import { NextButton, ONBOARDING_LAYOUT } from "@/components/next-button";
 import { ProgressRing } from "@/components/progress-ring";
 import { NAME_LIMIT, useOnboardingStore } from "../_store/onboarding-store";
 import { HEADING_STYLE } from "./step-heading";
@@ -25,7 +25,7 @@ export function NameAllyScreen() {
             ...HEADING_STYLE,
             left: 20,
             right: 20,
-            top: 132,
+            top: ONBOARDING_LAYOUT.headingTop,
             position: "absolute",
           }}
         >

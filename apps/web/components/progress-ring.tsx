@@ -1,3 +1,5 @@
+import { ONBOARDING_LAYOUT } from "./next-button";
+
 export function ProgressRing({ progress, color = "#ff5800" }: { progress: number; color?: string }) {
   const clamped = Math.min(1, Math.max(0, progress));
   const radius = 16.4137;
@@ -11,7 +13,7 @@ export function ProgressRing({ progress, color = "#ff5800" }: { progress: number
       viewBox="0 0 40 40"
       fill="none"
       aria-hidden
-      style={{ right: 20, top: 68, width: 40, height: 40, position: "absolute" }}
+      style={{ right: 20, top: ONBOARDING_LAYOUT.topPadding, width: 40, height: 40, position: "absolute" }}
     >
       <circle cx="20" cy="20" r={radius} fill="none" stroke="#f3f3f3" strokeWidth="3.5863" />
       <circle
