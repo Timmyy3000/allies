@@ -745,7 +745,7 @@ const DESKTOP_PARAGRAPHS: CopyParagraph[] = [
       {
         type: "icon",
         word: "together",
-        color: YELLOW,
+        color: "#121212",
         icon: <AvatarCluster />,
       },
       { type: "text", text: "." },
