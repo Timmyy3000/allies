@@ -149,10 +149,29 @@ def test_duplicate_attempt_generates_only_once_and_excludes_appearance():
     assert second == first
     assert len(provider.requests) == 1
     assert vars(provider.requests[0]) == {
-        "name": "Ari",
         "job": "Planning",
         "personality": "Warm",
     }
+    assert WaitlistEntry.objects.get().name == "Ari"
+
+
+@pytest.mark.django_db
+@override_settings(**SETTINGS)
+def test_generated_greeting_cannot_address_visitor_by_ally_name():
+    cache.clear()
+
+    class MisaddressingProvider:
+        def generate(self, request):
+            return "Hola, Ari!"
+
+    with pytest.raises(GenerationUnavailable, match="generation unavailable"):
+        create_entry(
+            **_entry(),
+            generation_identity="test",
+            provider=MisaddressingProvider(),
+        )
+
+    assert not WaitlistEntry.objects.get().greeting_text
 
 
 @pytest.mark.django_db
