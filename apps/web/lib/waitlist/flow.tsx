@@ -4,6 +4,10 @@ import { isCloudError, type CloudError, type WaitlistCompletionViewModel } from 
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { useCloudClient } from "../session/session-context";
+import {
+  captureWaitlistEvent,
+  identifyWaitlistSubscriber,
+} from "../analytics/waitlist";
 import { greetingFingerprintForSerialized, serializeConfiguration, type WaitlistConfigurationInput, type WaitlistConfigurationPayload, WaitlistMappingError } from "./catalog";
 
 export type WaitlistAction = "configuration" | "join";
@@ -112,6 +116,7 @@ export function WaitlistFlowProvider({ featureEnabled, consentVersion, children 
       join: null,
     };
     setSnapshot(next);
+    captureWaitlistEvent("waitlist_ally_created");
     return next;
   }), [client, run]);
 
@@ -134,6 +139,8 @@ export function WaitlistFlowProvider({ featureEnabled, consentVersion, children 
       consentVersion,
     });
     setSnapshot((current) => ({ ...current, lifecycle: "pending_claim", join: { email: confirmation.email } }));
+    identifyWaitlistSubscriber(attemptId.current, email);
+    captureWaitlistEvent("waitlist_joined");
     return confirmation;
   }), [client, consentVersion, run, snapshot.reply]);
 

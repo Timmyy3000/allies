@@ -1,15 +1,21 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, render } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CloudClient } from "@allies/cloud-client";
 import { useWaitlistFlow, WaitlistFlowProvider } from "./flow";
 
 const useCloudClientMock = vi.hoisted(() => vi.fn());
+const analyticsMock = vi.hoisted(() => ({
+  captureWaitlistEvent: vi.fn(),
+  identifyWaitlistSubscriber: vi.fn(),
+}));
 vi.mock("../session/session-context", () => ({ useCloudClient: useCloudClientMock }));
+vi.mock("../analytics/waitlist", () => analyticsMock);
 
 afterEach(cleanup);
+beforeEach(() => vi.clearAllMocks());
 
 describe("WaitlistFlowProvider", () => {
   it("creates once, keeps the reply local, and completes with email", async () => {
@@ -54,6 +60,18 @@ describe("WaitlistFlowProvider", () => {
       consentVersion: "waitlist-v1",
     });
     expect(flow!.snapshot.join?.email).toBe("p****n@example.com");
+    expect(analyticsMock.captureWaitlistEvent).toHaveBeenNthCalledWith(
+      1,
+      "waitlist_ally_created",
+    );
+    expect(analyticsMock.identifyWaitlistSubscriber).toHaveBeenCalledWith(
+      expect.not.stringMatching("person@example.com"),
+      "person@example.com",
+    );
+    expect(analyticsMock.captureWaitlistEvent).toHaveBeenNthCalledWith(
+      2,
+      "waitlist_joined",
+    );
   });
 
   it("shares an in-flight create request", async () => {
@@ -95,5 +113,9 @@ describe("WaitlistFlowProvider", () => {
       resolveEntry?.({ attemptToken: "token", greeting: "Hello." });
       await Promise.all([first, second]);
     });
+    expect(analyticsMock.captureWaitlistEvent).toHaveBeenCalledTimes(1);
+    expect(analyticsMock.captureWaitlistEvent).toHaveBeenCalledWith(
+      "waitlist_ally_created",
+    );
   });
 });
