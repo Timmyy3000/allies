@@ -50,7 +50,10 @@ def test_openai_request_is_bounded_and_has_no_storage_or_tools(monkeypatch):
     assert "vivid, memorable detail" in payload["instructions"]
     assert "35–60 words" in payload["instructions"]
     assert "warm, easy-to-answer question" in payload["instructions"]
-    assert "never address the visitor by the ally's name" in payload["instructions"].lower()
+    assert (
+        "never address the visitor by the ally's name"
+        in payload["instructions"].lower()
+    )
     assert "do not mention models" in payload["instructions"].lower()
 
     class Response:
