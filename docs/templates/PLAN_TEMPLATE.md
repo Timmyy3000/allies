@@ -37,13 +37,13 @@ when the plan genuinely has no change of that kind; do not leave it blank.
 
 | Location | Symbol | Signature | Inputs and validation | Return value | Side effects / errors |
 | --- | --- | --- | --- | --- | --- |
-| `path/to/file` | `function_name` | `def function_name(input: Input) -> Output:` | `Input` fields and constraints | `Output` shape | Writes, events, and raised/returned errors |
+| `path/to/file` | `functionName` | `function functionName(input: Input): Promise<Output>` | `Input` fields and constraints | `Output` shape | Writes, events, and thrown/returned errors |
 
 ### API and Transport Contracts
 
 | Consumer | Method and path / event | Authentication and authorization | Request schema | Success response schema | Error responses / retry semantics |
 | --- | --- | --- | --- | --- | --- |
-| Web client | `POST /api/v1/resource` | Required role or permission | `CreateResourceRequest` | `SuccessResponse[ResourceResponse]` | `400`, `401`, `403`, `422`, `500`; retry rule |
+| Web client | `POST /api/v1/resource` | Required role or permission | `CreateResourceRequest` | `SuccessResponse<ResourceResponse>` | `400`, `401`, `403`, `422`, `500`; retry rule |
 
 Include a representative JSON request and response for every changed HTTP API,
 webhook, queue message, or streamed event. State pagination, filtering,
@@ -55,9 +55,9 @@ idempotency, versioning, and backwards-compatibility behavior where relevant.
 | --- | --- | --- | --- | --- | --- |
 | `ResourceResponse` | `app/schemas.py` | `id: UUID`, `name: str` | `id` required | Name is trimmed and non-empty | Additive field; existing clients remain compatible |
 
-Cover Pydantic request/response schemas, Django model or migration changes,
-cache entries, Celery task arguments/results, feature-flag payloads, and
-third-party payload mappings when they are in scope.
+Cover request/response DTOs, database model or migration changes, frontend view
+models, cache entries, feature-flag payloads, and third-party payload mappings
+when they are in scope.
 
 ### Frontend Interaction Shapes (if applicable)
 
