@@ -70,6 +70,7 @@ function useArtboardScale(
   const hostRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [hostWidth, setHostWidth] = useState(artW);
+  const [hostHeight, setHostHeight] = useState(artH);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -79,6 +80,7 @@ function useArtboardScale(
       const width = host.clientWidth;
       const height = host.clientHeight;
       setHostWidth(width);
+      setHostHeight(height);
       setScale(Math.min(width / artW, height / artH, maxScale));
     };
 
@@ -93,7 +95,7 @@ function useArtboardScale(
     };
   }, [artH, artW, maxScale]);
 
-  return { hostRef, scale, hostWidth };
+  return { hostRef, scale, hostWidth, hostHeight };
 }
 
 export default function Onboarding({
@@ -357,7 +359,10 @@ function MobileOnboarding({
   ctaHref?: string;
   onboardingHref?: string;
 }) {
-  const { hostRef, scale } = useArtboardScale(MOBILE_ART_W, MOBILE_ART_H);
+  const { hostRef, hostWidth, hostHeight } = useArtboardScale(
+    MOBILE_ART_W,
+    MOBILE_ART_H,
+  );
   const [storyDone, setStoryDone] = useState(false);
   const [skipRequest, setSkipRequest] = useState(0);
   const [skipVisible, setSkipVisible] = useState(true);
@@ -366,14 +371,13 @@ function MobileOnboarding({
     <IconSizeContext.Provider value={16}>
       <div
         ref={hostRef}
-        className="relative h-[100dvh] w-full overflow-hidden bg-[#fff]"
+        className="fixed inset-0 h-[100dvh] w-full overflow-hidden overscroll-none bg-[#fff]"
       >
         <div
-          className="absolute left-0 top-0 origin-top-left"
+          className="absolute inset-0"
           style={{
-            width: MOBILE_ART_W,
-            height: MOBILE_ART_H,
-            transform: `scale(${scale})`,
+            width: "100%",
+            height: "100%",
             backgroundColor: "#fff",
             overflow: "hidden",
           }}
@@ -384,7 +388,7 @@ function MobileOnboarding({
             style={{
               left: 20,
               top: 72,
-              width: 335,
+              width: "calc(100% - 40px)",
               position: "absolute",
               display: "flex",
               flexDirection: "column",
@@ -403,8 +407,12 @@ function MobileOnboarding({
               paragraphGap={14}
               beats={STORY_BEATS}
               initialParagraphs={[0]}
-              actorBounds={MOBILE_ACTOR_BOUNDS}
-              artboardScale={scale}
+              actorBounds={{
+                ...MOBILE_ACTOR_BOUNDS,
+                width: hostWidth,
+                height: hostHeight,
+              }}
+              artboardScale={1}
               roamOffsets={MOBILE_ROAM_OFFSETS}
               onComplete={setStoryDone}
               skipRequest={skipRequest}
