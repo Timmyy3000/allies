@@ -7,6 +7,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Artboard } from "@/components/artboard";
 import { AllyAvatar } from "@/components/ally-avatar";
 import { getAccentPalette, ONBOARDING_CTA } from "@/components/next-button";
+import { ParticleText } from "@/components/text-animations/particle-text";
+import { ShinyText } from "@/components/text-animations/shiny-text";
 import { useOnboardingStore } from "../_store/onboarding-store";
 import { WaitlistMappingError } from "../../../lib/waitlist/catalog";
 import {
@@ -229,23 +231,72 @@ export function WaitlistPreviewScreen() {
               motionMode="system"
               label={`${name || "Your"} Ally`}
             />
-            <motion.p
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.18, duration: 0.32 }}
-              style={{
-                margin: 0,
-                color: "#121212",
-                fontSize: 18,
-                fontWeight: 600,
-                letterSpacing: -0.7,
-                lineHeight: "100%",
-              }}
-            >
-              Coming alive....
-            </motion.p>
+            <ParticleText
+              text="Coming alive...."
+              color="#121212"
+              className="onboarding-coming-alive-text"
+            />
           </motion.div>
         </div>
+      </Artboard>
+    );
+  }
+
+  if (joinedEmail) {
+    const friends = [
+      { shape: "rocky" as const, color: "#12c25b", offset: 12 },
+      { shape: "boxy" as const, color: "#3446e9", offset: 28 },
+      { shape: "ghosty" as const, color: "#fd304f", offset: 0 },
+    ];
+
+    return (
+      <Artboard>
+        <motion.main
+          data-testid="waitlist-complete"
+          className="onboarding-page waitlist-complete-page"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+        >
+          <div className="waitlist-complete-content">
+            <div className="waitlist-complete-friends" aria-hidden="true">
+              {friends.map((ally, index) => (
+                <motion.div
+                  key={ally.shape}
+                  animate={
+                    prefersReducedMotion
+                      ? undefined
+                      : { y: [ally.offset, ally.offset - 5, ally.offset] }
+                  }
+                  transition={{
+                    duration: 2.4,
+                    repeat: Infinity,
+                    delay: index * 0.16,
+                    ease: "easeInOut",
+                  }}
+                >
+                  <AllyAvatar
+                    shape={ally.shape}
+                    color={ally.color}
+                    size={44}
+                    motion="reduced"
+                  />
+                </motion.div>
+              ))}
+            </div>
+            <h1>See you soon</h1>
+            <a
+              className="waitlist-complete-follow"
+              href="https://x.com/allies_ai"
+              target="_blank"
+              rel="noreferrer"
+              style={{ backgroundColor: accent }}
+            >
+              <span>Follow us on</span>
+              <Image src="/ally/icons/x-social.svg" alt="X" width={18} height={18} />
+            </a>
+          </div>
+        </motion.main>
       </Artboard>
     );
   }
@@ -375,7 +426,9 @@ export function WaitlistPreviewScreen() {
                     layoutMode="full"
                     motionMode="system"
                   />
-                  Thinking
+                  <ShinyText color={accent} shineColor="#ffffff">
+                    Thinking
+                  </ShinyText>
                 </motion.div>
               ) : null}
             </AnimatePresence>
@@ -450,7 +503,7 @@ export function WaitlistPreviewScreen() {
               key="save-modal"
               role="dialog"
               aria-modal="true"
-              aria-label={joinedEmail ? "See you soon" : "Save your ally"}
+              aria-label="Save your ally"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -483,121 +536,36 @@ export function WaitlistPreviewScreen() {
                   boxSizing: "border-box",
                 }}
               >
-                {!joinedEmail ? (
-                  <div
+                <div
+                  style={{
+                    display: "flex",
+                    minHeight: 32,
+                    alignItems: "center",
+                    justifyContent: "flex-end",
+                    marginBottom: 8,
+                  }}
+                >
+                  <button
+                    type="button"
+                    aria-label="Close save Ally dialog"
+                    onClick={() => setShowSaveModal(false)}
                     style={{
-                      display: "flex",
-                      minHeight: 32,
-                      alignItems: "center",
-                      justifyContent: "flex-end",
-                      marginBottom: 8,
+                      width: 32,
+                      height: 32,
+                      display: "grid",
+                      placeItems: "center",
+                      border: 0,
+                      borderRadius: "50%",
+                      padding: 0,
+                      background: "#121212",
+                      cursor: "pointer",
                     }}
                   >
-                    <button
-                      type="button"
-                      aria-label="Close save Ally dialog"
-                      onClick={() => setShowSaveModal(false)}
-                      style={{
-                        width: 32,
-                        height: 32,
-                        display: "grid",
-                        placeItems: "center",
-                        border: 0,
-                        borderRadius: "50%",
-                        padding: 0,
-                        background: "#121212",
-                        cursor: "pointer",
-                      }}
-                    >
-                      <Image src="/ally/icons/x.svg" alt="" width={24} height={24} />
-                    </button>
-                  </div>
-                ) : null}
+                    <Image src="/ally/icons/x.svg" alt="" width={24} height={24} />
+                  </button>
+                </div>
 
-                {joinedEmail ? (
-                  <div
-                    style={{
-                      minHeight: 248,
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 22,
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "flex-start",
-                        justifyContent: "center",
-                        columnGap: 8,
-                        width: 144,
-                        height: 78,
-                      }}
-                    >
-                      {[
-                        { shape: "rocky" as const, color: "#12c25b", marginTop: 14 },
-                        { shape: "boxy" as const, color: "#3446e9", marginTop: 34 },
-                        { shape: "ghosty" as const, color: "#fd304f", marginTop: 2 },
-                      ].map((ally, index) => (
-                        <motion.div
-                          key={`${ally.shape}-${ally.color}`}
-                          animate={{ y: [0, -5, 0], rotate: [-3, 3, -3] }}
-                          transition={{
-                            duration: 2.6,
-                            repeat: Infinity,
-                            delay: ally.marginTop / 140,
-                            ease: "easeInOut",
-                          }}
-                          style={{
-                            marginTop: ally.marginTop,
-                            marginLeft: index === 2 ? -4 : 0,
-                          }}
-                        >
-                          <AllyAvatar shape={ally.shape} color={ally.color} size={40} motion="reduced" />
-                        </motion.div>
-                      ))}
-                    </div>
-                    <h2
-                      style={{
-                        margin: 0,
-                        color: "#121212",
-                        fontSize: 24,
-                        fontWeight: 700,
-                        letterSpacing: -1,
-                        lineHeight: "100%",
-                      }}
-                    >
-                      See you soon
-                    </h2>
-                    <a
-                      href="https://x.com/allies_ai"
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{
-                        display: "flex",
-                        width: "100%",
-                        height: ONBOARDING_CTA.height,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        gap: 8,
-                        borderRadius: 60,
-                        background: accent,
-                        color: "#fff",
-                        boxSizing: "border-box",
-                        padding: ONBOARDING_CTA.padding,
-                        textDecoration: "none",
-                        fontSize: 18,
-                        fontWeight: 600,
-                        letterSpacing: -0.7,
-                      }}
-                    >
-                      <span>Follow us on</span>
-                      <Image src="/ally/icons/x.svg" alt="" width={18} height={18} />
-                    </a>
-                  </div>
-                ) : (
-                  <form
+                <form
                     onSubmit={(event) => {
                       event.preventDefault();
                       if (
@@ -719,8 +687,7 @@ export function WaitlistPreviewScreen() {
                     >
                       By joining the waitlist, you consent to us contacting you about our release and availability.
                     </p>
-                  </form>
-                )}
+                </form>
               </motion.div>
             </motion.div>
           ) : null}
