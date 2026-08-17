@@ -36,8 +36,8 @@ The Django project lives under `backend/`. Run Django and uv commands from that 
 
 The repositories have different ownership boundaries:
 
-- **Cloud** owns customer-facing product truth, including users, Workspaces, Allies, conversations, responsibilities, approvals, credentials, billing, and the visible view of work.
-- **Foundry** owns durable runtime and execution truth, including runtime profiles, runtime Workspaces, executions, attempts, leases, events, provider bindings, and runtime adapters.
+- **Cloud** owns customer-facing product truth, including users, Workspaces (the canonical product term; older tenant/organization wording is a legacy alias), Allies, conversations, responsibilities, approvals, credentials, billing, and the visible view of work.
+- **Foundry** owns durable runtime and execution truth, including runtime profiles, workspaces, executions, attempts, leases, events, provider bindings, and runtime adapters.
 
 Cloud and Foundry do not share Django models, databases, migrations, or queues. Cloud speaks to Foundry through a versioned API. Vendor concepts should not leak through every domain module.
 
@@ -69,6 +69,46 @@ Before creating an app, write down:
 - the systems it is allowed to call.
 
 App names and the final domain list remain proposed until the domain work makes them concrete.
+
+### Cloud domain naming (Proposed)
+
+Allies uses `Workspace` as the canonical Cloud product noun and `workspaces`
+as the proposed app home. References to `organization` or generic `tenant` in
+older notes are aliases to reconcile, not additional Cloud domains.
+
+Cloud app names should describe a cohesive product capability, following the
+useful pattern in Docsyde's `auths`, `organizations`, `chat`, and
+`integrations` apps. We adapt that pattern to Allies instead of copying its
+B2B product assumptions.
+
+The proposed first Cloud app homes are:
+
+- `auths` — user identity, authentication, sessions, and actor resolution;
+- `workspaces` — the account/Workspace boundary, membership, and capability
+  context. Team collaboration is not part of the first slice;
+- `allies` — customer-facing Ally identity, lifecycle, and the stable Foundry
+  profile reference;
+- `chat` — `Conversation` and `Message` models, send intent, and message
+  idempotency;
+- `activities` — the user-facing activity timeline, execution projection,
+  replay cursor, and stop/retry intent.
+
+This naming keeps product nouns at the app boundary while leaving precise
+resource nouns available for models and routes. For example, `chat` may expose
+`Conversation` models and `/conversations/` routes. The following names are
+deliberately not Cloud app boundaries:
+
+- `tenancy` is an architectural concern, not a product capability;
+- `conversations` is a resource family that belongs inside `chat`;
+- `work` is too vague and leaks an execution-shaped abstraction;
+- `agents` is a runtime term, while the product object is an Ally.
+
+The Foundry gateway is an adapter boundary, not a fifth product domain or a
+user-facing integration. Keep it in a focused gateway module such as
+`gateways/foundry.py`; reserve a future `integrations` app for
+user-authorized external providers. Add later apps such as `responsibilities`,
+`routines`, `approvals`, `credentials`, or `billing` only when their first
+workflow earns a separate lifecycle.
 
 ### Start compact, but give real capabilities a home
 
