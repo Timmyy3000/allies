@@ -62,21 +62,30 @@ export function WaitlistFlowProvider({ featureEnabled, consentVersion, children 
   const [lastAction, setLastAction] = useState<WaitlistAction | null>(null);
   const [error, setError] = useState<CloudError | null>(null);
   const retryAction = useRef<(() => Promise<unknown>) | null>(null);
+  const inFlightAction = useRef<Promise<unknown> | null>(null);
 
-  const run = useCallback(async <T,>(action: WaitlistAction, operation: () => Promise<T>): Promise<T> => {
-    setPendingAction(action);
-    setLastAction(null);
-    setError(null);
-    retryAction.current = operation;
-    try {
-      return await operation();
-    } catch (candidate) {
-      setError(normalizeFlowError(candidate));
-      setLastAction(action);
-      throw candidate;
-    } finally {
-      setPendingAction(null);
-    }
+  const run = useCallback(<T,>(action: WaitlistAction, operation: () => Promise<T>): Promise<T> => {
+    if (inFlightAction.current) return inFlightAction.current as Promise<T>;
+
+    const promise = (async () => {
+      setPendingAction(action);
+      setLastAction(null);
+      setError(null);
+      retryAction.current = operation;
+      try {
+        return await operation();
+      } catch (candidate) {
+        setError(normalizeFlowError(candidate));
+        setLastAction(action);
+        throw candidate;
+      } finally {
+        setPendingAction(null);
+        inFlightAction.current = null;
+      }
+    })();
+
+    inFlightAction.current = promise;
+    return promise;
   }, []);
 
   const saveConfiguration = useCallback(async (payload: WaitlistConfigurationPayload) => run("configuration", async () => {

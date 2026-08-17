@@ -696,41 +696,273 @@ textarea::placeholder {
   line-height: 1;
 }
 
+.waitlist-save-modal-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  box-sizing: border-box;
+  padding: 12px;
+  background: rgba(0, 0, 0, 0.24);
+}
+
+.waitlist-save-modal-card {
+  display: flex;
+  width: 100%;
+  min-height: 464px;
+  max-height: 100%;
+  flex-direction: column;
+  overflow-y: auto;
+  box-sizing: border-box;
+  padding: 24px 20px 19px;
+  border-radius: 30px;
+  background: #fff;
+}
+
+.waitlist-save-modal-top-row {
+  display: flex;
+  min-height: 72px;
+  align-items: flex-start;
+  justify-content: space-between;
+  box-sizing: border-box;
+  margin-bottom: 15px;
+}
+
+.waitlist-save-modal-mailbox {
+  display: grid;
+  width: 62px;
+  height: 60px;
+  flex: 0 0 auto;
+  place-items: center;
+  box-sizing: border-box;
+  margin: 12px auto 0 0;
+  border-radius: 50%;
+}
+
+.waitlist-save-modal-close {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  place-items: center;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #121212;
+  cursor: pointer;
+}
+
+.waitlist-save-modal-form {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 0;
+  box-sizing: border-box;
+}
+
+.waitlist-save-modal-title {
+  margin: 0 0 18px;
+  color: #121212;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  line-height: 29px;
+}
+
+.waitlist-save-modal-description {
+  margin: 0 0 20px;
+  color: #121212;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
+  line-height: 20px;
+}
+
+.waitlist-save-modal-email {
+  width: 100%;
+  height: 48px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  margin: 0 0 18px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 100px;
+  outline: none;
+  background: #f3f3f3;
+  color: #121212;
+  font: inherit;
+  font-size: 16px;
+  letter-spacing: -1px;
+  line-height: 24px;
+}
+
+.waitlist-save-modal-email::placeholder {
+  color: #8c8c8c;
+  opacity: 1;
+}
+
+.waitlist-save-modal-submit {
+  width: 100%;
+  height: 48px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  margin: 0 0 28px;
+  padding: 10px;
+  border: 0;
+  border-radius: 60px;
+  color: #fff;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
+  line-height: 18px;
+}
+
+.waitlist-save-modal-consent {
+  width: 100%;
+  margin: 0;
+  color: #a0a0a0;
+  font-size: 14px;
+  letter-spacing: -0.5px;
+  line-height: 17px;
+  text-align: center;
+}
+
+.waitlist-save-modal-close img,
+.waitlist-save-modal-mailbox svg {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+@media (min-width: 640px) {
+  .waitlist-save-modal-overlay {
+    padding: 20px;
+  }
+}
+
 .waitlist-complete-page {
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 68px 20px 64px;
   box-sizing: border-box;
 }
 
 .waitlist-complete-content {
   display: flex;
   width: 100%;
-  max-width: 360px;
+  max-width: 335px;
+  min-height: 0;
+  height: 100%;
   flex-direction: column;
   align-items: center;
-  gap: 28px;
+  margin: 0 auto;
 }
 
-.waitlist-complete-friends {
+.waitlist-complete-logo {
   display: flex;
-  height: 76px;
-  align-items: flex-start;
+  flex: 0 0 auto;
+  align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 6px;
+  height: 24px;
+  color: #ff5800;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  line-height: 18px;
 }
 
-.waitlist-complete-content h1 {
+.waitlist-complete-logo img {
+  display: block;
+  width: 25px;
+  height: 24px;
+}
+
+.waitlist-complete-stage {
+  position: relative;
+  display: flex;
+  width: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  align-items: center;
+  justify-content: center;
+  margin: 52px 0 34px;
+}
+
+.waitlist-complete-stage h1 {
+  z-index: 1;
   margin: 0;
   color: #121212;
   font-size: 24px;
   font-weight: 700;
   letter-spacing: -1px;
-  line-height: 100%;
+  line-height: 29px;
+  transform: translateY(-10px);
+}
+
+.waitlist-complete-ally {
+  position: absolute;
+  z-index: 2;
+  width: 62px;
+  height: 60px;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.waitlist-complete-ally-face {
+  position: absolute;
+  top: 24px;
+  left: 24px;
+  width: 36px;
+  height: 36px;
+}
+
+.waitlist-complete-ally-cursor {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 36px;
+  height: 36px;
+  /* Pivot around the Ally's shell center so direction changes feel physical. */
+  transform-origin: 42px 42px;
+  will-change: transform;
+}
+
+.waitlist-complete-ally-cursor svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+.waitlist-complete-ally-green {
+  top: 17%;
+  left: 13%;
+}
+
+.waitlist-complete-ally-red {
+  top: 44%;
+  right: 13%;
+}
+
+.waitlist-complete-ally-yellow {
+  top: 55%;
+  left: 40%;
+}
+
+.waitlist-complete-ally-blue {
+  top: 66%;
+  left: 10%;
 }
 
 .waitlist-complete-follow {
   display: flex;
+  flex: 0 0 auto;
   width: 100%;
   height: 48px;
   align-items: center;
@@ -743,6 +975,34 @@ textarea::placeholder {
   letter-spacing: -0.7px;
   line-height: 100%;
   text-decoration: none;
+}
+
+.waitlist-complete-follow img {
+  display: block;
+  width: 13px;
+  height: 13px;
+}
+
+@media (min-width: 640px) {
+  .waitlist-complete-page {
+    padding: 56px 32px 40px;
+  }
+
+  .waitlist-complete-content {
+    max-width: 520px;
+  }
+
+  .waitlist-complete-stage {
+    margin: 56px 0 40px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .waitlist-complete-ally,
+  .waitlist-complete-ally-cursor {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 .onboarding-footer {
@@ -799,7 +1059,7 @@ textarea::placeholder {
   overflow: hidden;
   pointer-events: auto;
   box-sizing: border-box;
-  border-radius: 24px;
+  border-radius: 30px;
   background: #fff;
   box-shadow: none;
 }
@@ -821,7 +1081,7 @@ textarea::placeholder {
 
   .onboarding-drawer-panel {
     width: 100%;
-    border-radius: 24px 24px 0 0;
+    border-radius: 30px 30px 0 0;
   }
 }
 

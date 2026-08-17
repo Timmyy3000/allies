@@ -32,6 +32,11 @@ const DESKTOP_ART_W = 1512;
 const DESKTOP_ART_H = 982;
 const MOBILE_ART_W = 375;
 const MOBILE_ART_H = 812;
+const MOBILE_COPY_TOP = 84;
+const MOBILE_COPY_WIDTH = 335;
+const MOBILE_COPY_LINE_HEIGHT = 21;
+const MOBILE_PARAGRAPH_GAP = 18;
+const MOBILE_HEADER_TOP = 28;
 const BRAND_ORANGE = "#FF5800";
 
 const DESKTOP_COPY_OFFSET = {
@@ -43,7 +48,7 @@ const MOBILE_ACTOR_BOUNDS: StoryActorBounds = {
   width: MOBILE_ART_W,
   height: MOBILE_ART_H,
   offsetLeft: 20,
-  offsetTop: 72,
+  offsetTop: MOBILE_COPY_TOP,
 };
 
 const DESKTOP_ROAM_OFFSETS = {
@@ -61,6 +66,7 @@ const MOBILE_ROAM_OFFSETS = {
 } satisfies Record<AllyKind, { left: number; top: number }>;
 
 const IconSizeContext = createContext(24);
+const STORY_ALLY_ARTWORK_SCALE = 0.94;
 
 function useArtboardScale(
   artW: number,
@@ -197,10 +203,12 @@ function FollowAlly({
   ally,
   state,
   hideCursor = false,
+  artworkScale = STORY_ALLY_ARTWORK_SCALE,
 }: {
   ally: AllyKind;
   state: AllyAnimationState;
   hideCursor?: boolean;
+  artworkScale?: number;
 }) {
   return (
     <div
@@ -212,7 +220,13 @@ function FollowAlly({
       }}
     >
       {ally === "red" ? (
-        <RedAlly left={0} top={0} state={state} showCursor={!hideCursor} />
+        <RedAlly
+          left={0}
+          top={0}
+          state={state}
+          showCursor={!hideCursor}
+          artworkScale={artworkScale}
+        />
       ) : null}
       {ally === "blue" ? (
         <BlueAlly
@@ -222,6 +236,7 @@ function FollowAlly({
           faceLeft={23}
           state={state}
           showCursor={!hideCursor}
+          artworkScale={artworkScale}
         />
       ) : null}
       {ally === "yellow" ? (
@@ -232,10 +247,17 @@ function FollowAlly({
           faceLeft={26}
           state={state}
           showCursor={!hideCursor}
+          artworkScale={artworkScale}
         />
       ) : null}
       {ally === "green" ? (
-        <GreenAlly left={0} top={0} state={state} showCursor={!hideCursor} />
+        <GreenAlly
+          left={0}
+          top={0}
+          state={state}
+          showCursor={!hideCursor}
+          artworkScale={artworkScale}
+        />
       ) : null}
     </div>
   );
@@ -387,14 +409,14 @@ function MobileOnboarding({
             className="text"
             style={{
               left: 20,
-              top: 72,
-              width: "calc(100% - 40px)",
+              top: MOBILE_COPY_TOP,
+              width: `min(${MOBILE_COPY_WIDTH}px, calc(100% - 40px))`,
               position: "absolute",
               display: "flex",
               flexDirection: "column",
               alignItems: "flex-start",
               textAlign: "left",
-              lineHeight: "20px",
+              lineHeight: `${MOBILE_COPY_LINE_HEIGHT}px`,
               fontSize: 16,
               fontWeight: 600,
               fontStretch: "100%",
@@ -404,7 +426,7 @@ function MobileOnboarding({
           >
             <AnimatedCopy
               paragraphs={MOBILE_PARAGRAPHS}
-              paragraphGap={14}
+              paragraphGap={MOBILE_PARAGRAPH_GAP}
               beats={STORY_BEATS}
               initialParagraphs={[0]}
               actorBounds={{
@@ -444,7 +466,7 @@ function MobileOnboarding({
             />
           ) : null}
           <FollowUs
-            top={23}
+            top={MOBILE_HEADER_TOP + 3}
             right={20.4}
             left="auto"
             columnGap={6}
@@ -453,7 +475,7 @@ function MobileOnboarding({
             iconWidth={14.7}
             iconHeight={15}
           />
-          <LogoMark left={20} top={20} />
+          <LogoMark left={20} top={MOBILE_HEADER_TOP} />
         </div>
       </div>
     </IconSizeContext.Provider>
@@ -894,6 +916,7 @@ function BlueAlly({
   faceLeft = 0,
   state = "idle",
   showCursor = true,
+  artworkScale,
 }: {
   left?: number | string;
   top?: number;
@@ -901,6 +924,7 @@ function BlueAlly({
   faceLeft?: number;
   state?: AllyAnimationState;
   showCursor?: boolean;
+  artworkScale?: number;
 }) {
   return (
     <div
@@ -923,7 +947,13 @@ function BlueAlly({
           position: "absolute",
         }}
       >
-        <AllyAvatar shape="rolly" state={state} color="#3446e9" size={36} />
+        <AllyAvatar
+          shape="rolly"
+          state={state}
+          color="#3446e9"
+          size={36}
+          artworkScale={artworkScale}
+        />
       </div>
       <div
         className="ally-face"
@@ -1849,6 +1879,7 @@ function YellowAlly({
   flipCursor = false,
   state = "idle",
   showCursor = true,
+  artworkScale,
 }: {
   left?: number | string;
   top?: number;
@@ -1857,6 +1888,7 @@ function YellowAlly({
   flipCursor?: boolean;
   state?: AllyAnimationState;
   showCursor?: boolean;
+  artworkScale?: number;
 }) {
   return (
     <div
@@ -1879,7 +1911,13 @@ function YellowAlly({
           position: "absolute",
         }}
       >
-        <AllyAvatar shape="boxy" state={state} color="#fbe65f" size={36} />
+        <AllyAvatar
+          shape="boxy"
+          state={state}
+          color="#fbe65f"
+          size={36}
+          artworkScale={artworkScale}
+        />
       </div>
       <div
         className="ally-face"
@@ -2054,11 +2092,13 @@ function GreenAlly({
   top = 784,
   state = "idle",
   showCursor = true,
+  artworkScale,
 }: {
   left?: number | string;
   top?: number;
   state?: AllyAnimationState;
   showCursor?: boolean;
+  artworkScale?: number;
 }) {
   return (
     <div
@@ -2081,7 +2121,13 @@ function GreenAlly({
           position: "absolute",
         }}
       >
-        <AllyAvatar shape="rocky" state={state} color="#12c25b" size={36} />
+        <AllyAvatar
+          shape="rocky"
+          state={state}
+          color="#12c25b"
+          size={36}
+          artworkScale={artworkScale}
+        />
       </div>
       <div
         className="ally-face"
@@ -2270,11 +2316,13 @@ function RedAlly({
   top = 211,
   state = "idle",
   showCursor = true,
+  artworkScale,
 }: {
   left?: number | string;
   top?: number;
   state?: AllyAnimationState;
   showCursor?: boolean;
+  artworkScale?: number;
 }) {
   return (
     <div
@@ -2297,7 +2345,13 @@ function RedAlly({
           position: "absolute",
         }}
       >
-        <AllyAvatar shape="ghosty" state={state} color="#fd304f" size={36} />
+        <AllyAvatar
+          shape="ghosty"
+          state={state}
+          color="#fd304f"
+          size={36}
+          artworkScale={artworkScale}
+        />
       </div>
       <div
         className="ally-face"
