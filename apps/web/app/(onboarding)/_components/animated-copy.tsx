@@ -117,30 +117,19 @@ const MOBILE_RESTING_POSITIONS: Position[] = [
   { left: 340, top: 752 },
 ];
 
-const MOBILE_FINAL_POSITIONS: Record<AllyKind, Position> = {
-  red: { left: 18, top: 92 },
-  green: { left: 34, top: 612 },
-  blue: { left: 286, top: 420 },
-  yellow: { left: 296, top: 500 },
-};
-
-function finalDesktopPosition(ally: AllyKind, width: number): Position {
-  const center = width / 2;
-  const positions: Record<AllyKind, Position> = {
-    red: { left: center - 245, top: 142 },
-    green: { left: center - 318, top: 790 },
-    blue: { left: center + 284, top: 650 },
-    yellow: { left: center + 328, top: 712 },
-  };
-  return positions[ally];
-}
-
 // Parked Allies can wander by as much as the largest per-Ally roam offset.
 // Keep that whole visual footprint inside the artboard; the artboard itself
 // still clips deliberate off-canvas entry/exit movement.
 const RESTING_ACTOR_SIZE = 60;
 const RESTING_HORIZONTAL_MARGIN = 4;
 const RESTING_VERTICAL_MARGIN = 4;
+
+const CONVERGENCE_OFFSETS: Record<AllyKind, Position> = {
+  yellow: { left: -9, top: -9 },
+  blue: { left: 9, top: -9 },
+  green: { left: -9, top: 9 },
+  red: { left: 9, top: 9 },
+};
 
 function roamingBounds(viewportWidth: number, viewportHeight: number) {
   const isMobile = viewportWidth <= 500;
@@ -479,6 +468,7 @@ export function AnimatedCopy({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<Array<HTMLDivElement | null>>([]);
+  const targetsRef = useRef<Position[]>([]);
   const sparkIdRef = useRef(0);
   const [phase, setPhase] = useState<Phase>({ name: "intro" });
   const [revealChars, setRevealChars] = useState(0);
@@ -605,6 +595,7 @@ export function AnimatedCopy({
         ),
       };
     });
+    targetsRef.current = next;
     setTargets(next);
   }, [
     actorHeight,
@@ -616,19 +607,20 @@ export function AnimatedCopy({
   ]);
 
   const parkAllActors = useCallback(() => {
+    const finalTarget =
+      targetsRef.current[storyBeats.length - 1] ??
+      fallbackTarget(storyBeats.length - 1, actorWidth, actorHeight);
+
     setParked((current) => {
       const byAlly = new Map(current.map((actor) => [actor.ally, actor]));
       storyBeats.forEach((beat) => {
-        const finalPosition =
-          actorWidth <= 500
-            ? MOBILE_FINAL_POSITIONS[beat.actor]
-            : finalDesktopPosition(beat.actor, actorWidth);
+        const offset = CONVERGENCE_OFFSETS[beat.actor];
         byAlly.set(beat.actor, {
           id: `story-ally-${beat.actor}`,
           ally: beat.actor,
           position: {
-            left: clamp(finalPosition.left, 0, actorWidth - RESTING_ACTOR_SIZE),
-            top: clamp(finalPosition.top, 0, actorHeight - RESTING_ACTOR_SIZE),
+            left: finalTarget.left + offset.left,
+            top: finalTarget.top + offset.top,
           },
           roamX: 0,
           roamY: 0,
@@ -890,20 +882,13 @@ export function AnimatedCopy({
         0,
         );
 
-  const isConverging = phase.name === "converge";
+  const isConverging = phase.name === "converge" || phase.name === "done";
   const isStoryFinished = phase.name === "converge" || phase.name === "done";
   const finalTarget =
     storyBeats.length > 0
       ? targets[storyBeats.length - 1] ??
         fallbackTarget(storyBeats.length - 1, actorWidth, actorHeight)
       : null;
-  const convergenceOffsets: Record<AllyKind, Position> = {
-    yellow: { left: -9, top: -9 },
-    blue: { left: 9, top: -9 },
-    green: { left: -9, top: 9 },
-    red: { left: 9, top: 9 },
-  };
-
   const actorEntries =
     activeAlly == null
       ? parked
@@ -1054,7 +1039,7 @@ export function AnimatedCopy({
       >
         {actorEntries.map((actor) => {
           const isActiveActor = !isConverging && activeAlly === actor.ally;
-          const offset = convergenceOffsets[actor.ally];
+          const offset = CONVERGENCE_OFFSETS[actor.ally];
           const convergenceTarget = finalTarget
             ? {
                 left: finalTarget.left + offset.left,
@@ -1077,8 +1062,6 @@ export function AnimatedCopy({
               : activeClickTarget;
           const target = isConverging
             ? convergenceTarget
-            : phase.name === "done"
-              ? actor.position
             : isActiveActor
               ? activeMotionTarget
               : null;
