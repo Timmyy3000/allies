@@ -26,3 +26,15 @@ def emails_match(left: str, right: str) -> bool:
         return normalize_email(left) == normalize_email(right)
     except WaitlistValidationError:
         return False
+
+
+def mask_email(value: str) -> str:
+    normalized = normalize_email(value)
+    local, domain = normalized.split("@", 1)
+    if len(local) <= 1:
+        masked_local = "*"
+    elif len(local) == 2:
+        masked_local = local[0] + "*"
+    else:
+        masked_local = local[0] + "*" * (len(local) - 2) + local[-1]
+    return f"{masked_local}@{domain}"

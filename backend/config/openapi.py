@@ -5,7 +5,6 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any
 
-from django.conf import settings
 from ninja_extra import NinjaExtraAPI
 
 GENERIC_ERROR_RESPONSE_EXAMPLE: dict[str, Any] = {
@@ -78,128 +77,34 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "message": "Service healthy",
         "data": {"state": "healthy"},
     },
-    "SuccessResponse_WaitlistAcknowledgement_": {
+    "SuccessResponse_WaitlistEntryResponse_": {
         "status": "success",
-        "message": "Waitlist updated",
+        "message": "Waitlist greeting ready",
         "data": {
-            "operation": "configure",
-            "result_revision": 2,
-            "result_lifecycle": "ready_for_greeting",
+            "attempt_token": "opaque-attempt-token",
+            "greeting": "Hello! What would you like to start with?",
         },
     },
-    "SuccessResponse_WaitlistSnapshot_": {
+    "SuccessResponse_WaitlistEntryCompletionResponse_": {
         "status": "success",
-        "message": "Waitlist draft restored",
-        "data": {
-            "id": "wld_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
-            "revision": 2,
-            "lifecycle": "ready_for_greeting",
-            "configuration": {
-                "name": "Ari",
-                "appearance_catalog_version": "v1",
-                "appearance_key": "calm-blue",
-                "job": "Planning",
-                "personality": "Warm and concise",
-            },
-            "greeting": None,
-            "reply": None,
-            "join": None,
-            "timestamps": {
-                "created_at": "2026-08-14T12:00:00Z",
-                "updated_at": "2026-08-14T12:00:00Z",
-                "generated_at": None,
-                "replied_at": None,
-                "joined_at": None,
-                "expires_at": "2026-08-21T12:00:00Z",
-            },
-        },
-    },
-    "SuccessResponse_WaitlistJoinConfirmation_": {
-        "status": "success",
-        "message": "Waitlist joined",
-        "data": {
-            "operation": "join",
-            "result_revision": 6,
-            "result_lifecycle": "pending_claim",
-            "email": "a***@example.com",
-        },
+        "message": "Waitlist registration complete",
+        "data": {"email": "a***@example.com"},
     },
 }
 
 WAITLIST_ERROR_CODES: dict[tuple[str, str], dict[int, tuple[str, ...]]] = {
-    ("/api/v1/waitlist/session", "get"): {
+    ("/api/v1/waitlist/entries", "post"): {
         403: ("origin_rejected",),
+        409: ("waitlist_invalid_state",),
+        422: ("validation_error",),
         429: ("throttled",),
-        503: ("waitlist_unavailable",),
+        503: ("generation_unavailable", "waitlist_unavailable"),
     },
-    ("/api/v1/waitlist/draft", "get"): {
+    ("/api/v1/waitlist/entries/complete", "post"): {
         403: ("origin_rejected",),
-        404: ("waitlist_draft_unavailable",),
-        429: ("throttled",),
-        503: ("waitlist_unavailable",),
-    },
-    ("/api/v1/waitlist/draft", "post"): {
-        403: ("origin_rejected", "csrf_rejected"),
-        404: ("waitlist_draft_unavailable",),
-        409: ("idempotency_conflict", "waitlist_operation_in_progress"),
+        404: ("waitlist_entry_unavailable",),
+        409: ("waitlist_invalid_state",),
         422: ("validation_error",),
-        429: ("throttled",),
-        503: ("waitlist_unavailable",),
-    },
-    ("/api/v1/waitlist/draft/configuration", "patch"): {
-        403: ("origin_rejected", "csrf_rejected"),
-        404: ("waitlist_draft_unavailable",),
-        409: (
-            "waitlist_draft_stale",
-            "waitlist_invalid_state",
-            "idempotency_conflict",
-            "waitlist_operation_in_progress",
-        ),
-        422: ("validation_error",),
-        429: ("throttled",),
-        503: ("waitlist_unavailable",),
-    },
-    ("/api/v1/waitlist/draft/greeting", "post"): {
-        403: ("origin_rejected", "csrf_rejected"),
-        404: ("waitlist_draft_unavailable",),
-        409: (
-            "waitlist_draft_stale",
-            "waitlist_invalid_state",
-            "idempotency_conflict",
-            "waitlist_operation_in_progress",
-        ),
-        422: ("validation_error",),
-        429: ("throttled",),
-        503: (
-            "generation_outcome_unknown",
-            "generation_unavailable",
-            "waitlist_unavailable",
-        ),
-    },
-    ("/api/v1/waitlist/draft/reply", "post"): {
-        403: ("origin_rejected", "csrf_rejected"),
-        404: ("waitlist_draft_unavailable",),
-        409: (
-            "waitlist_draft_stale",
-            "waitlist_invalid_state",
-            "idempotency_conflict",
-            "waitlist_operation_in_progress",
-        ),
-        422: ("validation_error",),
-        429: ("throttled",),
-        503: ("waitlist_unavailable",),
-    },
-    ("/api/v1/waitlist/draft/join", "post"): {
-        403: ("origin_rejected", "csrf_rejected"),
-        404: ("waitlist_draft_unavailable",),
-        409: (
-            "waitlist_draft_stale",
-            "waitlist_invalid_state",
-            "idempotency_conflict",
-            "waitlist_operation_in_progress",
-        ),
-        422: ("validation_error",),
-        429: ("throttled",),
         503: ("waitlist_unavailable",),
     },
 }
@@ -248,23 +153,6 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
                 ):
                     content["example"] = deepcopy(GENERIC_ERROR_RESPONSE_EXAMPLE)
 
-    # The waitlist browser contract is credentialed and retry-aware.  Ninja
-    # cannot infer these transport headers from controller helpers, so publish
-    # them explicitly for INT-009's generated client.
-    components = schema.setdefault("components", {})
-    components.setdefault("securitySchemes", {})["WaitlistCapability"] = {
-        "type": "apiKey",
-        "in": "cookie",
-        "name": str(
-            getattr(
-                settings,
-                "ALLIES_WAITLIST_CAPABILITY_COOKIE",
-                "allies_waitlist_capability",
-            )
-        ),
-        "description": "HttpOnly browser capability issued by GET /waitlist/session.",
-    }
-
     for path, path_item in schema.get("paths", {}).items():
         if not path.startswith("/api/v1/waitlist/"):
             continue
@@ -279,10 +167,7 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
             operation["description"] = (
                 f"{operation.get('description', '').rstrip()}\n\n{origin_note}"
             ).strip()
-            if path.endswith("/session"):
-                operation["security"] = []
-            else:
-                operation["security"] = [{"WaitlistCapability": []}]
+            operation["security"] = []
             parameters = operation.setdefault("parameters", [])
             names = {item.get("name") for item in parameters if isinstance(item, dict)}
             for header_name in ("Origin", "Referer"):
@@ -299,33 +184,6 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
                             "schema": {"type": "string"},
                         }
                     )
-            is_restore = path == "/api/v1/waitlist/draft" and method.lower() == "get"
-            if (
-                not path.endswith("/session")
-                and not is_restore
-                and "Idempotency-Key" not in names
-            ):
-                parameters.append(
-                    {
-                        "name": "Idempotency-Key",
-                        "in": "header",
-                        "required": True,
-                        "schema": {"type": "string", "minLength": 1, "maxLength": 200},
-                    }
-                )
-            if (
-                not path.endswith("/session")
-                and not is_restore
-                and "X-CSRFToken" not in names
-            ):
-                parameters.append(
-                    {
-                        "name": "X-CSRFToken",
-                        "in": "header",
-                        "required": True,
-                        "schema": {"type": "string"},
-                    }
-                )
             error_codes = WAITLIST_ERROR_CODES.get((path, method), {})
             for status, codes in error_codes.items():
                 response = operation.get("responses", {}).get(status)
