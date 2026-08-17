@@ -54,6 +54,9 @@ def test_openai_request_is_bounded_and_has_no_storage_or_tools(monkeypatch):
         "never address the visitor by the ally's name"
         in payload["instructions"].lower()
     )
+    assert "speak in first person" in payload["instructions"].lower()
+    assert "personality is quirky or playful" in payload["instructions"].lower()
+    assert "never use the word preview" in payload["instructions"].lower()
     assert "do not mention models" in payload["instructions"].lower()
 
     class Response:
