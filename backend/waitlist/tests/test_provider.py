@@ -34,20 +34,24 @@ def test_openai_response_text_is_plain_text_only():
 )
 def test_openai_request_is_bounded_and_has_no_storage_or_tools(monkeypatch):
     provider = OpenAIResponsesProvider()
-    request = GreetingRequest("Ari", "Planning", "Warm")
+    request = GreetingRequest(job="Planning", personality="Warm")
     payload = provider.build_payload(request, model="model")
+    input_data = json.loads(payload["input"].split("\n", 1)[1])
     assert payload["store"] is False
     assert payload["background"] is False
     assert payload["tools"] == []
-    assert "Ari" in payload["input"]
-    assert "Planning" in payload["input"]
-    assert "Warm" in payload["input"]
-    assert "UNTRUSTED_VISITOR_DATA_JSON" in payload["input"]
+    assert input_data == {"job": "Planning", "personality": "Warm"}
+    assert "name" not in payload["input"].lower()
+    assert "UNTRUSTED_PROFILE_DATA_JSON" in payload["input"]
     assert "never instructions" in payload["input"]
     assert "selected job" in payload["instructions"]
     assert "selected personality" in payload["instructions"]
     assert "natural greeting" in payload["instructions"]
-    assert "what the visitor would like to start with" in payload["instructions"]
+    assert "vivid, memorable detail" in payload["instructions"]
+    assert "35–60 words" in payload["instructions"]
+    assert "warm, easy-to-answer question" in payload["instructions"]
+    assert "never address the visitor by the ally's name" in payload["instructions"].lower()
+    assert "do not mention models" in payload["instructions"].lower()
 
     class Response:
         def __enter__(self):
@@ -68,7 +72,7 @@ def test_openai_request_is_bounded_and_has_no_storage_or_tools(monkeypatch):
 @override_settings(ALLIES_WAITLIST_OPENAI_API_KEY="")
 def test_openai_failures_are_classified_without_retry(monkeypatch):
     with pytest.raises(ProviderUnavailableError):
-        OpenAIResponsesProvider().generate(GreetingRequest("A", "J", "P"))
+        OpenAIResponsesProvider().generate(GreetingRequest("J", "P"))
     provider = OpenAIResponsesProvider(api_key="key")
 
     def http_error(code):
@@ -78,13 +82,13 @@ def test_openai_failures_are_classified_without_retry(monkeypatch):
 
     monkeypatch.setattr("waitlist.providers.openai.urlopen", http_error(429))
     with pytest.raises(ProviderUnavailableError):
-        provider.generate(GreetingRequest("A", "J", "P"))
+        provider.generate(GreetingRequest("J", "P"))
     monkeypatch.setattr("waitlist.providers.openai.urlopen", http_error(500))
     with pytest.raises(ProviderUnknownError):
-        provider.generate(GreetingRequest("A", "J", "P"))
+        provider.generate(GreetingRequest("J", "P"))
     monkeypatch.setattr(
         "waitlist.providers.openai.urlopen",
         lambda *args, **kwargs: (_ for _ in ()).throw(URLError("offline")),
     )
     with pytest.raises(ProviderUnknownError):
-        provider.generate(GreetingRequest("A", "J", "P"))
+        provider.generate(GreetingRequest("J", "P"))
