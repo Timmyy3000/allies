@@ -5,26 +5,31 @@ import { parseWebEnvironment } from "./env";
 describe("web environment", () => {
   it("defaults waitlist enablement off and consent empty", () => {
     const environment = parseWebEnvironment("https://cloud.example.com", {
+      siteUrl: undefined,
       waitlistEnabled: undefined,
       waitlistConsentVersion: undefined,
     });
 
     expect(environment.waitlistEnabled).toBe(false);
+    expect(environment.siteUrl).toBeNull();
     expect(environment.waitlistConsentVersion).toBeNull();
   });
 
   it("accepts explicit waitlist enablement and trims consent", () => {
     const environment = parseWebEnvironment("https://cloud.example.com", {
+      siteUrl: "http://localhost:3000",
       waitlistEnabled: "true",
       waitlistConsentVersion: "  waitlist-v1  ",
     });
 
     expect(environment.waitlistEnabled).toBe(true);
+    expect(environment.siteUrl).toBe("http://localhost:3000");
     expect(environment.waitlistConsentVersion).toBe("waitlist-v1");
   });
 
   it("keeps the static story renderable without a Cloud URL when disabled", () => {
     const environment = parseWebEnvironment(undefined, {
+      siteUrl: undefined,
       waitlistEnabled: false,
       waitlistConsentVersion: undefined,
     });
@@ -36,6 +41,7 @@ describe("web environment", () => {
   it("requires a valid Cloud URL when the waitlist is enabled", () => {
     expect(() =>
       parseWebEnvironment(undefined, {
+        siteUrl: undefined,
         waitlistEnabled: true,
         waitlistConsentVersion: "waitlist-v1",
       }),

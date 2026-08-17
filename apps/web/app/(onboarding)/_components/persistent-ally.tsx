@@ -5,6 +5,7 @@ import { motion, type Transition } from "motion/react";
 import {
   AllyAvatar,
   type AllyAnimationState,
+  type AllyAvatarProps,
   type AllyMotionMode,
   type AllyShape,
 } from "@/components/ally-avatar";
@@ -23,7 +24,10 @@ export function PersistentAllyAvatar({
   color,
   neutral = false,
   size,
+  artworkSize = "default",
+  frameSize,
   layoutId = ONBOARDING_ALLY_LAYOUT_ID,
+  sharedLayout = true,
   layoutMode = "position",
   pulse = false,
   motionMode = "system",
@@ -34,7 +38,10 @@ export function PersistentAllyAvatar({
   color?: string;
   neutral?: boolean;
   size: number | string;
+  artworkSize?: "default" | "full";
+  frameSize?: AllyAvatarProps["frameSize"];
   layoutId?: string;
+  sharedLayout?: boolean;
   layoutMode?: "position" | "full";
   pulse?: boolean;
   motionMode?: AllyMotionMode;
@@ -43,7 +50,7 @@ export function PersistentAllyAvatar({
 }) {
   return (
     <motion.div
-      layoutId={layoutId}
+      layoutId={sharedLayout ? layoutId : undefined}
       layout={layoutMode === "full" ? true : "position"}
       initial={false}
       animate={{ scale: pulse ? [1, 1.025, 1] : 1 }}
@@ -54,10 +61,14 @@ export function PersistentAllyAvatar({
           : { duration: 0.24, ease: "easeOut" },
       }}
       style={{
-        width: size,
-        height: size,
+        width: frameSize?.width ?? size,
+        height: frameSize?.height ?? size,
+        aspectRatio: frameSize ? undefined : 1,
         display: "flex",
         flexShrink: 0,
+        transition: sharedLayout
+          ? undefined
+          : "width 240ms ease, height 240ms ease",
         willChange: pulse ? "transform" : undefined,
       }}
       data-testid="persistent-ally"
@@ -69,6 +80,8 @@ export function PersistentAllyAvatar({
         state={state}
         motion={motionMode}
         size="100%"
+        artworkSize={artworkSize}
+        frameSize={frameSize}
         label={label}
       />
     </motion.div>

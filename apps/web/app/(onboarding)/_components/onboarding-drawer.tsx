@@ -9,9 +9,6 @@ import {
 import { AnimatePresence, motion } from "motion/react";
 
 const PHONE_QUERY = "(max-width: 639px)";
-const DESKTOP_DRAWER_VERTICAL_INSET = 24;
-const DESKTOP_DRAWER_RIGHT = 24;
-const DESKTOP_DRAWER_CONTENT_OFFSET = -32;
 
 function subscribeToPhoneQuery(callback: () => void) {
   if (typeof window === "undefined") return () => undefined;
@@ -72,24 +69,17 @@ export default function OnboardingDrawer({
         <>
           <motion.div
             key="onboarding-drawer-backdrop"
+            className="onboarding-drawer-backdrop"
             aria-hidden="true"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
             onClick={handleBackdropClick}
-            style={{
-              position: "fixed",
-              inset: 0,
-              zIndex: 40,
-              background: "rgba(18, 18, 18, 0.18)",
-            }}
           />
           <motion.div
-            key="onboarding-drawer-panel"
-            role="dialog"
-            aria-modal="true"
-            aria-label="Make your Ally"
+            key="onboarding-drawer-layer"
+            className="onboarding-drawer-layer"
             initial={panelInitial}
             animate={{ x: 0, y: 0 }}
             exit={panelExit}
@@ -99,36 +89,18 @@ export default function OnboardingDrawer({
               damping: 38,
               mass: 0.85,
             }}
-            onClick={(event) => event.stopPropagation()}
-            style={{
-              position: "fixed",
-              top: isPhone ? 0 : DESKTOP_DRAWER_VERTICAL_INSET,
-              right: isPhone ? 0 : DESKTOP_DRAWER_RIGHT,
-              bottom: isPhone ? 0 : DESKTOP_DRAWER_VERTICAL_INSET,
-              left: isPhone ? 0 : "auto",
-              zIndex: 41,
-              width: isPhone ? "100vw" : "min(400px, calc(100vw - 48px))",
-              height: isPhone
-                ? "100dvh"
-                : `calc(100dvh - ${DESKTOP_DRAWER_VERTICAL_INSET * 2}px)`,
-              overflow: "hidden",
-              borderRadius: isPhone ? "24px 24px 0 0" : 24,
-              background: "#fff",
-              boxShadow: "none",
-            }}
           >
             <div
-              style={{
-                height: isPhone
-                  ? "100%"
-                  : `calc(100% + ${-DESKTOP_DRAWER_CONTENT_OFFSET}px)`,
-                transform: isPhone
-                  ? undefined
-                  : `translateY(${DESKTOP_DRAWER_CONTENT_OFFSET}px)`,
-                ["--onboarding-artboard-min-height" as string]: "100%",
-              }}
+              data-testid="onboarding-drawer"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Make your Ally"
+              onClick={(event) => event.stopPropagation()}
+              className="onboarding-drawer-panel"
             >
-              {children}
+              <div className="onboarding-drawer-content">
+                {children}
+              </div>
             </div>
           </motion.div>
         </>

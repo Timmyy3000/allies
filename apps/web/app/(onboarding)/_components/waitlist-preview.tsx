@@ -20,7 +20,7 @@ import {
 } from "./persistent-ally";
 
 const HERO_SHELL_SIZE = 164.2;
-const PREVIEW_SHELL_SIZE = 50;
+const PREVIEW_SHELL_SIZE = 24;
 const THINKING_SHELL_SIZE = 28;
 const SURFACE_INSET = 20;
 
@@ -79,13 +79,11 @@ export function WaitlistPreviewScreen() {
   const personalityRaw = useOnboardingStore((state) => state.personalityRaw);
   const [phase, setPhase] = useState<PreviewPhase>("coming-alive");
   const [replyDraft, setReplyDraft] = useState<string | null>(null);
-  const [pendingReply, setPendingReply] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [showSaveModal, setShowSaveModal] = useState(false);
   const prefersReducedMotion = useReducedMotion() ?? false;
   const savedConfigurationRef = useRef<string | null>(null);
   const failedConfigurationRef = useRef<string | null>(null);
-  const requestedGreetingRef = useRef<string | null>(null);
   const {
     snapshot,
     status,
@@ -93,7 +91,6 @@ export function WaitlistPreviewScreen() {
     pendingAction,
     lastAction,
     saveConfiguration,
-    generateGreeting,
     recordReply,
     join,
     consentVersion,
@@ -189,19 +186,9 @@ export function WaitlistPreviewScreen() {
       return;
     }
 
-    if (
-      configurationMatches &&
-      snapshot.lifecycle === "ready_for_greeting" &&
-      (!snapshot.greeting || !greetingIsCurrent) &&
-      requestedGreetingRef.current !== localGreetingFingerprint
-    ) {
-      requestedGreetingRef.current = localGreetingFingerprint;
-      void generateGreeting(localGreetingFingerprint).catch(() => undefined);
-    }
   }, [
     configuration.payload,
     configurationMatches,
-    generateGreeting,
     greetingIsCurrent,
     localGreetingFingerprint,
     pendingAction,
@@ -225,26 +212,13 @@ export function WaitlistPreviewScreen() {
       <Artboard>
         <div
           data-testid="coming-alive"
-          style={{
-            position: "absolute",
-            inset: 0,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            paddingBottom: 22,
-          }}
+          className="onboarding-page onboarding-coming-alive-page"
         >
           <motion.div
+            className="onboarding-coming-alive-content"
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.46, ease: [0.22, 1, 0.36, 1] }}
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 28,
-            }}
           >
             <PersistentAllyAvatar
               shape={shape}
@@ -280,60 +254,53 @@ export function WaitlistPreviewScreen() {
     <Artboard>
       <div
         data-testid="waitlist-preview"
-        style={{
-          position: "absolute",
-          inset: 0,
-          overflow: "hidden",
-          background: "#fff",
-        }}
+        className="onboarding-page onboarding-overlay-host"
       >
         <header
-          style={{
-            position: "absolute",
-            left: 20,
-            right: 20,
-            top: 68,
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 8,
-          }}
+          className="waitlist-preview-header"
         >
-          <PersistentAllyAvatar
-            shape={shape}
-            color={accent}
-            state="thinking"
-            size={PREVIEW_SHELL_SIZE}
-            layoutMode="full"
-            motionMode="system"
-            label={`${name || "Your"} Ally`}
-          />
-          <motion.h1
-            initial={false}
-            animate={{ opacity: 1, y: 0 }}
-            style={{
-              margin: 0,
-              color: "#121212",
-              fontSize: 14,
-              fontWeight: 600,
-              letterSpacing: -0.45,
-              lineHeight: "18px",
-            }}
-          >
-            {name || "Your Ally"}
-          </motion.h1>
+          <AnimatePresence initial={false}>
+            {shouldShowGreeting ? (
+              <motion.div
+                key="conversation-identity"
+                className="waitlist-preview-identity"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.18, ease: "easeOut" }}
+              >
+                <PersistentAllyAvatar
+                  shape={shape}
+                  color={accent}
+                  state="idle"
+                  size={PREVIEW_SHELL_SIZE}
+                  layoutId={ONBOARDING_ALLY_LAYOUT_ID}
+                  layoutMode="full"
+                  motionMode="system"
+                  label={`${name || "Your"} Ally`}
+                />
+                <motion.h1
+                  initial={{ opacity: 0, x: -4 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ delay: 0.08, duration: 0.2, ease: "easeOut" }}
+                  style={{
+                    margin: 0,
+                    color: "#121212",
+                    fontSize: 14,
+                    fontWeight: 600,
+                    letterSpacing: -0.45,
+                    lineHeight: "18px",
+                  }}
+                >
+                  {name || "Your Ally"}
+                </motion.h1>
+              </motion.div>
+            ) : null}
+          </AnimatePresence>
         </header>
 
         <main
-          style={{
-            position: "absolute",
-            left: 20,
-            right: 20,
-            top: 178,
-            bottom: 138,
-            overflowY: "auto",
-            paddingBottom: 18,
-          }}
+          className="waitlist-preview-main"
         >
           <AnimatePresence initial={false} mode="wait">
             {shouldShowGreeting ? (
@@ -381,64 +348,70 @@ export function WaitlistPreviewScreen() {
         </main>
 
         <div
-          data-testid="thinking-status"
-          aria-live="polite"
-          style={{
-            position: "absolute",
-            left: 20,
-            bottom: 86,
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            color: accent,
-            fontSize: 14,
-            fontWeight: 600,
-            letterSpacing: -0.45,
-            lineHeight: "18px",
-            opacity: shouldShowGreeting ? 0 : 1,
-            pointerEvents: "none",
-          }}
+          className="waitlist-preview-footer"
         >
-          <PersistentAllyAvatar
-            shape={shape}
-            color={accent}
-            state="thinking"
-            size={THINKING_SHELL_SIZE}
-            layoutId={`${ONBOARDING_ALLY_LAYOUT_ID}-thinking`}
-            motionMode="system"
-          />
-          Thinking
-        </div>
+          <div
+            className="waitlist-preview-status-row"
+          >
+            <AnimatePresence initial={false} mode="popLayout">
+              {!shouldShowGreeting ? (
+                <motion.div
+                  key="thinking-status"
+                  data-testid="thinking-status"
+                  aria-live="polite"
+                  className="waitlist-preview-status"
+                  initial={{ opacity: 1 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.18, ease: "easeOut" }}
+                  style={{ color: accent }}
+                >
+                  <PersistentAllyAvatar
+                    shape={shape}
+                    color={accent}
+                    state="thinking"
+                    size={THINKING_SHELL_SIZE}
+                    layoutId={ONBOARDING_ALLY_LAYOUT_ID}
+                    layoutMode="full"
+                    motionMode="system"
+                  />
+                  Thinking
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
+            {lastAction ? (
+              <button
+                type="button"
+                onClick={() => void retry()}
+                disabled={isBusy}
+            style={{
+              color: accent,
+            }}
+            className="waitlist-preview-retry"
+              >
+                Try again
+              </button>
+            ) : null}
+          </div>
 
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (
-              !isBusy &&
-              status === "ready" &&
-              configurationMatches &&
-              replyText.trim() &&
-              !snapshot?.reply
-            ) {
-              setPendingReply(replyText.trim());
-              setShowSaveModal(true);
-            }
-          }}
-          style={{
-            position: "absolute",
-            left: SURFACE_INSET,
-            right: SURFACE_INSET,
-            bottom: SURFACE_INSET,
-            height: ONBOARDING_CTA.height,
-            boxSizing: "border-box",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            padding: "0 6px 0 16px",
-            borderRadius: 999,
-            background: "#f3f3f3",
-          }}
-        >
+          <form
+            className="waitlist-preview-composer"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (
+                !isBusy &&
+                status === "ready" &&
+                configurationMatches &&
+                replyText.trim() &&
+                !snapshot?.reply
+              ) {
+                const reply = replyText.trim();
+                void recordReply(reply)
+                  .then(() => setShowSaveModal(true))
+                  .catch(() => undefined);
+              }
+            }}
+          >
           <input
             aria-label="Reply to your Ally"
             data-testid="waitlist-reply"
@@ -447,18 +420,7 @@ export function WaitlistPreviewScreen() {
             placeholder={`Reply ${name || "your Ally"}`}
             maxLength={4000}
             disabled={isBusy || Boolean(snapshot?.reply)}
-            style={{
-              minWidth: 0,
-              flex: 1,
-              border: 0,
-              outline: "none",
-              background: "transparent",
-              color: "#121212",
-              font: "inherit",
-              fontSize: 14,
-              fontWeight: 500,
-              letterSpacing: -0.45,
-            }}
+            className="waitlist-preview-composer-input"
           />
           <button
             type="submit"
@@ -471,46 +433,16 @@ export function WaitlistPreviewScreen() {
               !snapshot ||
               Boolean(snapshot.reply)
             }
+            className="waitlist-preview-send"
             style={{
-              width: 28,
-              height: 28,
-              flexShrink: 0,
-              border: 0,
-              borderRadius: "50%",
               background: replyText.trim() ? accent : "#a8a8a8",
-              color: "#fff",
               cursor: replyText.trim() ? "pointer" : "default",
-              display: "grid",
-              placeItems: "center",
-              fontSize: 16,
-              lineHeight: 1,
             }}
           >
             <Image src="/ally/icons/send.svg" alt="" width={18} height={18} />
           </button>
-        </form>
-
-        {lastAction ? (
-          <button
-            type="button"
-            onClick={() => void retry()}
-            disabled={isBusy}
-            style={{
-              position: "absolute",
-              right: 20,
-              bottom: 92,
-              border: 0,
-              padding: 0,
-              background: "transparent",
-              color: accent,
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: "pointer",
-            }}
-          >
-            Try again
-          </button>
-        ) : null}
+          </form>
+        </div>
 
         <AnimatePresence initial={false}>
           {showSaveModal ? (
@@ -539,7 +471,8 @@ export function WaitlistPreviewScreen() {
                 exit={{ y: 24, opacity: 0 }}
                 transition={{ type: "spring", stiffness: 260, damping: 26 }}
                 style={{
-                  position: "relative",
+                  display: "flex",
+                  flexDirection: "column",
                   width: "100%",
                   minHeight: 300,
                   maxHeight: "100%",
@@ -551,27 +484,34 @@ export function WaitlistPreviewScreen() {
                 }}
               >
                 {!joinedEmail ? (
-                  <button
-                    type="button"
-                    aria-label="Close save Ally dialog"
-                    onClick={() => setShowSaveModal(false)}
+                  <div
                     style={{
-                      position: "absolute",
-                      right: 16,
-                      top: 16,
-                      width: 32,
-                      height: 32,
-                      display: "grid",
-                      placeItems: "center",
-                      border: 0,
-                      borderRadius: "50%",
-                      padding: 0,
-                      background: "#121212",
-                      cursor: "pointer",
+                      display: "flex",
+                      minHeight: 32,
+                      alignItems: "center",
+                      justifyContent: "flex-end",
+                      marginBottom: 8,
                     }}
                   >
-                    <Image src="/ally/icons/x.svg" alt="" width={24} height={24} />
-                  </button>
+                    <button
+                      type="button"
+                      aria-label="Close save Ally dialog"
+                      onClick={() => setShowSaveModal(false)}
+                      style={{
+                        width: 32,
+                        height: 32,
+                        display: "grid",
+                        placeItems: "center",
+                        border: 0,
+                        borderRadius: "50%",
+                        padding: 0,
+                        background: "#121212",
+                        cursor: "pointer",
+                      }}
+                    >
+                      <Image src="/ally/icons/x.svg" alt="" width={24} height={24} />
+                    </button>
+                  </div>
                 ) : null}
 
                 {joinedEmail ? (
@@ -587,26 +527,32 @@ export function WaitlistPreviewScreen() {
                   >
                     <div
                       style={{
-                        position: "relative",
+                        display: "flex",
+                        alignItems: "flex-start",
+                        justifyContent: "center",
+                        columnGap: 8,
                         width: 144,
                         height: 78,
                       }}
                     >
                       {[
-                        { shape: "rocky" as const, color: "#12c25b", left: 8, top: 14 },
-                        { shape: "boxy" as const, color: "#3446e9", left: 56, top: 34 },
-                        { shape: "ghosty" as const, color: "#fd304f", left: 100, top: 2 },
-                      ].map((ally) => (
+                        { shape: "rocky" as const, color: "#12c25b", marginTop: 14 },
+                        { shape: "boxy" as const, color: "#3446e9", marginTop: 34 },
+                        { shape: "ghosty" as const, color: "#fd304f", marginTop: 2 },
+                      ].map((ally, index) => (
                         <motion.div
                           key={`${ally.shape}-${ally.color}`}
                           animate={{ y: [0, -5, 0], rotate: [-3, 3, -3] }}
                           transition={{
                             duration: 2.6,
                             repeat: Infinity,
-                            delay: ally.left / 140,
+                            delay: ally.marginTop / 140,
                             ease: "easeInOut",
                           }}
-                          style={{ position: "absolute", left: ally.left, top: ally.top }}
+                          style={{
+                            marginTop: ally.marginTop,
+                            marginLeft: index === 2 ? -4 : 0,
+                          }}
                         >
                           <AllyAvatar shape={ally.shape} color={ally.color} size={40} motion="reduced" />
                         </motion.div>
@@ -661,15 +607,8 @@ export function WaitlistPreviewScreen() {
                         email.trim() &&
                         consentVersion
                       ) {
-                        const pending = pendingReply;
-                        const replyPromise =
-                          pending && !snapshot?.reply
-                            ? recordReply(pending)
-                            : Promise.resolve();
-                        void replyPromise
-                          .then(() => join(email.trim()))
+                        void join(email.trim())
                           .then(() => {
-                            setPendingReply(null);
                             setReplyDraft(null);
                           })
                           .catch(() => undefined);
@@ -679,7 +618,6 @@ export function WaitlistPreviewScreen() {
                       display: "flex",
                       flexDirection: "column",
                       gap: 12,
-                      paddingTop: 28,
                     }}
                   >
                     <div

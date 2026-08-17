@@ -20,24 +20,19 @@ describe("browser Cloud request preparation", () => {
     expect(get.headers.has("X-CSRFToken")).toBe(false);
   });
 
-  it("leaves waitlist CSRF to the same-origin facade", () => {
-    document.cookie = "csrftoken=waitlist-csrf; path=/";
-
+  it("sends public waitlist requests directly without cookies or CSRF", () => {
+    document.cookie = "csrf_token=auth-csrf; path=/";
     const request = prepareBrowserCloudRequest(
-      new Request("https://cloud.example.com/api/v1/waitlist/draft", { method: "POST" }),
+      new Request("https://cloud.example.com/api/v1/waitlist/entries", { method: "POST" }),
     );
 
-    expect(new URL(request.url).origin).toBe(window.location.origin);
-    expect(new URL(request.url).pathname).toBe("/api/v1/waitlist/draft");
-    expect(request.credentials).toBe("include");
+    expect(request.url).toBe("https://cloud.example.com/api/v1/waitlist/entries");
+    expect(request.credentials).toBe("same-origin");
     expect(request.headers.has("X-CSRFToken")).toBe(false);
-    expect(request.headers.has("Origin")).toBe(false);
   });
 
   it("keeps auth requests on their existing CSRF cookie branch", () => {
     document.cookie = "csrf_token=auth-csrf; path=/";
-    document.cookie = "csrftoken=waitlist-csrf; path=/";
-
     const request = prepareBrowserCloudRequest(
       new Request("https://cloud.example.com/api/v1/auths/logout", { method: "POST" }),
     );
