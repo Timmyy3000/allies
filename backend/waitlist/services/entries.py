@@ -137,11 +137,9 @@ def create_entry(
     try:
         lease = acquire_generation(generation_identity)
         output = (provider or get_provider()).generate(
-            GreetingRequest(
-                name=name.strip(), job=job.strip(), personality=personality.strip()
-            )
+            GreetingRequest(job=job.strip(), personality=personality.strip())
         )
-        greeting = validate_output(output)
+        greeting = validate_output(output, ally_name=name.strip())
     except (AdmissionUnavailable, GenerationUnavailable, Throttled):
         with transaction.atomic():
             WaitlistEntry.objects.filter(attempt_id_digest=attempt_digest).update(

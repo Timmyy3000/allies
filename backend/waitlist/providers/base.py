@@ -20,7 +20,6 @@ class ProviderBilledError(ProviderUnavailableError):
 
 @dataclass(frozen=True)
 class GreetingRequest:
-    name: str
     job: str
     personality: str
 

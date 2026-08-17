@@ -16,7 +16,7 @@ PROHIBITED_CLAIMS = re.compile(
 )
 
 
-def validate_output(value: Any) -> str:
+def validate_output(value: Any, *, ally_name: str = "") -> str:
     max_chars = int(
         getattr(settings, "ALLIES_WAITLIST_GENERATION_MAX_OUTPUT_CHARS", 1200)
     )
@@ -32,6 +32,13 @@ def validate_output(value: Any) -> str:
     ):
         raise WaitlistValidationError("greeting output is invalid", field="greeting")
     if PROHIBITED_CLAIMS.search(text):
+        raise WaitlistValidationError("greeting output is invalid", field="greeting")
+    normalized_ally_name = ally_name.strip()
+    if normalized_ally_name and re.search(
+        rf"(?<!\w){re.escape(normalized_ally_name)}(?!\w)",
+        text,
+        re.IGNORECASE,
+    ):
         raise WaitlistValidationError("greeting output is invalid", field="greeting")
     return text
 
