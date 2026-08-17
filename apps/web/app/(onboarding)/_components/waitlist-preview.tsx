@@ -1,12 +1,18 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import {
+  AnimatePresence,
+  motion,
+  useAnimationFrame,
+  useMotionValue,
+  useReducedMotion,
+} from "motion/react";
 import Image from "next/image";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Artboard } from "@/components/artboard";
-import { AllyAvatar } from "@/components/ally-avatar";
-import { getAccentPalette, ONBOARDING_CTA } from "@/components/next-button";
+import { AllyAvatar, type AllyShape } from "@/components/ally-avatar";
+import { getAccentPalette } from "@/components/next-button";
 import { ParticleText } from "@/components/text-animations/particle-text";
 import { ShinyText } from "@/components/text-animations/shiny-text";
 import { useOnboardingStore } from "../_store/onboarding-store";
@@ -24,7 +30,140 @@ import {
 const HERO_SHELL_SIZE = 164.2;
 const PREVIEW_SHELL_SIZE = 24;
 const THINKING_SHELL_SIZE = 28;
-const SURFACE_INSET = 20;
+const THINKING_HOLD_MS = 900;
+const GREETING_CHAR_INTERVAL_MS = 18;
+const COMPLETION_BUTTON_COLOR = "#fd304f";
+const COMPLETION_CURSOR_EASE_MS = 1000;
+const COMPLETION_CURSOR_MAX_SPEED_DEG_PER_SEC = 90;
+
+type CompletionAllyConfig = {
+  shape: AllyShape;
+  color: string;
+  positionClass: string;
+  movement: {
+    waypoints: ReadonlyArray<readonly [number, number]>;
+    durationMs: number;
+    phase: number;
+    wiggle: number;
+  };
+};
+
+const COMPLETION_ALLIES: CompletionAllyConfig[] = [
+  {
+    shape: "rocky",
+    color: "#12c25b",
+    positionClass: "waitlist-complete-ally-green",
+    movement: {
+      waypoints: [
+        [0, 0],
+        [22, -16],
+        [34, 8],
+        [12, 28],
+        [-20, 18],
+        [-12, -4],
+      ],
+      durationMs: 9800,
+      phase: 0.04,
+      wiggle: 4,
+    },
+  },
+  {
+    shape: "ghosty",
+    color: "#fd304f",
+    positionClass: "waitlist-complete-ally-red",
+    movement: {
+      waypoints: [
+        [0, 0],
+        [-24, -17],
+        [-31, 7],
+        [-8, 30],
+        [25, 20],
+        [17, -6],
+      ],
+      durationMs: 11200,
+      phase: 0.28,
+      wiggle: 4,
+    },
+  },
+  {
+    shape: "boxy",
+    color: "#fbe65f",
+    positionClass: "waitlist-complete-ally-yellow",
+    movement: {
+      waypoints: [
+        [0, 0],
+        [-19, -19],
+        [10, -28],
+        [29, -5],
+        [8, 25],
+        [-24, 16],
+      ],
+      durationMs: 10300,
+      phase: 0.53,
+      wiggle: 3.5,
+    },
+  },
+  {
+    shape: "rolly",
+    color: "#3446e9",
+    positionClass: "waitlist-complete-ally-blue",
+    movement: {
+      waypoints: [
+        [0, 0],
+        [24, -12],
+        [30, 17],
+        [2, 32],
+        [-27, 14],
+        [-19, -11],
+      ],
+      durationMs: 9000,
+      phase: 0.71,
+      wiggle: 4,
+    },
+  },
+];
+
+function getCompletionPathPoint(
+  waypoints: ReadonlyArray<readonly [number, number]>,
+  progress: number,
+  wiggle: number,
+) {
+  const pointCount = waypoints.length;
+  const scaledProgress = progress * pointCount;
+  const segmentIndex = Math.floor(scaledProgress) % pointCount;
+  const segmentProgress = scaledProgress - Math.floor(scaledProgress);
+  const p0 = waypoints[(segmentIndex - 1 + pointCount) % pointCount];
+  const p1 = waypoints[segmentIndex];
+  const p2 = waypoints[(segmentIndex + 1) % pointCount];
+  const p3 = waypoints[(segmentIndex + 2) % pointCount];
+  const t2 = segmentProgress * segmentProgress;
+  const t3 = t2 * segmentProgress;
+  const x =
+    0.5 *
+    (2 * p1[0] +
+      (-p0[0] + p2[0]) * segmentProgress +
+      (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+      (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3);
+  const y =
+    0.5 *
+    (2 * p1[1] +
+      (-p0[1] + p2[1]) * segmentProgress +
+      (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+      (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3);
+  const segmentX = p2[0] - p1[0];
+  const segmentY = p2[1] - p1[1];
+  const segmentLength = Math.hypot(segmentX, segmentY) || 1;
+  const wiggleEnvelope = Math.sin(segmentProgress * Math.PI);
+  const wiggleOffset =
+    Math.sin(segmentProgress * Math.PI * 2 + segmentIndex * 1.35) *
+    wiggle *
+    wiggleEnvelope;
+
+  return {
+    x: x - (segmentY / segmentLength) * wiggleOffset,
+    y: y + (segmentX / segmentLength) * wiggleOffset,
+  };
+}
 
 type PreviewPhase = "coming-alive" | "thinking" | "ready";
 
@@ -32,8 +171,8 @@ function MailboxIcon({ color }: { color: string }) {
   return (
     <svg
       aria-hidden="true"
-      width="22"
-      height="23"
+      width="24"
+      height="24"
       viewBox="0 0 22 23"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
@@ -61,6 +200,128 @@ function MailboxIcon({ color }: { color: string }) {
   );
 }
 
+function CompletionCursor({ fill }: { fill: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 28.0348 28.0348"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path
+        d="M25.8723 8.1633C28.7683 9.2356 28.7523 13.3397 25.8445 14.3857L17.6873 17.3219C17.5143 17.3847 17.3813 17.519 17.3221 17.6847L14.3844 25.8445C13.3383 28.7519 9.2337 28.7685 8.1614 25.8727L0.2632 4.6066C0.225 4.5034 0.1859 4.4006 0.1532 4.2955C-0.639 1.755 1.7753 -0.6558 4.3218 0.1625C4.4342 0.1986 4.5445 0.2414 4.6553 0.2824L25.8723 8.1633Z"
+        fill={fill}
+      />
+    </svg>
+  );
+}
+
+function CompletionLogo() {
+  return (
+    <div className="waitlist-complete-logo" aria-label="allies">
+      <Image
+        src="/allies-icon.svg"
+        alt=""
+        aria-hidden="true"
+        width={25}
+        height={24}
+      />
+      <span>allies</span>
+    </div>
+  );
+}
+
+function CompletionAlly({
+  ally,
+  prefersReducedMotion,
+}: {
+  ally: CompletionAllyConfig;
+  prefersReducedMotion: boolean;
+}) {
+  const translateX = useMotionValue(0);
+  const translateY = useMotionValue(0);
+  const cursorRotation = useMotionValue(0);
+  const previousDirection = useRef(0);
+  const smoothedDirection = useRef(0);
+  const previousFrameTime = useRef(0);
+
+  useAnimationFrame((elapsed) => {
+    if (prefersReducedMotion) return;
+
+    const { movement } = ally;
+    const progress =
+      (elapsed / movement.durationMs + movement.phase) % 1;
+    const previousProgress = (progress - 0.006 + 1) % 1;
+    const nextProgress = (progress + 0.006) % 1;
+    const point = getCompletionPathPoint(
+      movement.waypoints,
+      progress,
+      movement.wiggle,
+    );
+    const previousPoint = getCompletionPathPoint(
+      movement.waypoints,
+      previousProgress,
+      movement.wiggle,
+    );
+    const nextPoint = getCompletionPathPoint(
+      movement.waypoints,
+      nextProgress,
+      movement.wiggle,
+    );
+    const dx = nextPoint.x - previousPoint.x;
+    const dy = nextPoint.y - previousPoint.y;
+    const rawDirection = (Math.atan2(dy, dx) * 180) / Math.PI;
+    const directionDelta =
+      ((rawDirection - previousDirection.current + 540) % 360) - 180;
+    const direction = previousDirection.current + directionDelta;
+    const frameDelta = previousFrameTime.current
+      ? Math.min(64, Math.max(0, elapsed - previousFrameTime.current))
+      : 16;
+    if (!previousFrameTime.current) {
+      smoothedDirection.current = direction;
+    } else {
+      const ease = 1 - Math.exp(-frameDelta / COMPLETION_CURSOR_EASE_MS);
+      const easedDelta =
+        (direction - smoothedDirection.current) * ease;
+      const maximumStep =
+        (COMPLETION_CURSOR_MAX_SPEED_DEG_PER_SEC * frameDelta) / 1000;
+      smoothedDirection.current += Math.max(
+        -maximumStep,
+        Math.min(maximumStep, easedDelta),
+      );
+    }
+
+    translateX.set(point.x);
+    translateY.set(point.y);
+    cursorRotation.set(smoothedDirection.current + 135);
+    previousDirection.current = direction;
+    previousFrameTime.current = elapsed;
+  });
+
+  return (
+    <motion.div
+      className={`waitlist-complete-ally ${ally.positionClass}`}
+      aria-hidden="true"
+      style={{ x: translateX, y: translateY }}
+    >
+      <div className="waitlist-complete-ally-face">
+        <AllyAvatar
+          shape={ally.shape}
+          color={ally.color}
+          size={36}
+          motion={prefersReducedMotion ? "reduced" : "system"}
+        />
+      </div>
+      <motion.div
+        className="waitlist-complete-ally-cursor"
+        style={{ rotate: cursorRotation }}
+      >
+        <CompletionCursor fill={ally.color} />
+      </motion.div>
+    </motion.div>
+  );
+}
+
 function errorMessage(
   error: { fieldIssues?: Array<{ message?: string }>; code?: string } | null,
 ): string | null {
@@ -80,6 +341,9 @@ export function WaitlistPreviewScreen() {
   const personalityNote = useOnboardingStore((state) => state.personalityNote);
   const personalityRaw = useOnboardingStore((state) => state.personalityRaw);
   const [phase, setPhase] = useState<PreviewPhase>("coming-alive");
+  const [thinkingStartedAt, setThinkingStartedAt] = useState<number | null>(null);
+  const [canRevealGreeting, setCanRevealGreeting] = useState(false);
+  const [visibleGreeting, setVisibleGreeting] = useState({ source: "", text: "" });
   const [replyDraft, setReplyDraft] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [showSaveModal, setShowSaveModal] = useState(false);
@@ -157,9 +421,25 @@ export function WaitlistPreviewScreen() {
 
   useEffect(() => {
     const delay = prefersReducedMotion ? 0 : 2_400;
-    const timer = window.setTimeout(() => setPhase("thinking"), delay);
+    const timer = window.setTimeout(() => {
+      setCanRevealGreeting(prefersReducedMotion);
+      setThinkingStartedAt(window.performance.now());
+      setPhase("thinking");
+    }, delay);
     return () => window.clearTimeout(timer);
   }, [prefersReducedMotion]);
+
+  useEffect(() => {
+    if (phase !== "thinking") return;
+    if (prefersReducedMotion || thinkingStartedAt === null) return;
+
+    const remaining = Math.max(
+      0,
+      thinkingStartedAt + THINKING_HOLD_MS - window.performance.now(),
+    );
+    const timer = window.setTimeout(() => setCanRevealGreeting(true), remaining);
+    return () => window.clearTimeout(timer);
+  }, [phase, prefersReducedMotion, thinkingStartedAt]);
 
   useEffect(() => {
     if (status !== "ready" || !snapshot || !configuration.payload || pendingAction) {
@@ -203,11 +483,38 @@ export function WaitlistPreviewScreen() {
   const isBusy = pendingAction !== null;
   const message =
     errorMessage(error) ?? configuration.mappingError?.message ?? null;
-  const displayPhase = phase === "thinking" && greetingIsCurrent ? "ready" : phase;
+  const displayPhase =
+    phase === "thinking" && canRevealGreeting && greetingIsCurrent ? "ready" : phase;
   const shouldShowGreeting = displayPhase === "ready" && greetingIsCurrent;
+  const greetingText = snapshot?.greeting?.text ?? "";
+  const renderedGreeting =
+    visibleGreeting.source === greetingText ? visibleGreeting.text : "";
   const joinedEmail = snapshot?.join?.email ?? null;
   const palette = getAccentPalette(color);
   const { accent } = palette;
+
+  useEffect(() => {
+    if (!shouldShowGreeting || !greetingText) return;
+    if (prefersReducedMotion) {
+      const timer = window.setTimeout(
+        () => setVisibleGreeting({ source: greetingText, text: greetingText }),
+        0,
+      );
+      return () => window.clearTimeout(timer);
+    }
+
+    let characterIndex = 0;
+    const timer = window.setInterval(() => {
+      characterIndex = Math.min(characterIndex + 1, greetingText.length);
+      setVisibleGreeting({
+        source: greetingText,
+        text: greetingText.slice(0, characterIndex),
+      });
+      if (characterIndex === greetingText.length) window.clearInterval(timer);
+    }, GREETING_CHAR_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
+  }, [greetingText, prefersReducedMotion, shouldShowGreeting]);
 
   if (phase === "coming-alive") {
     return (
@@ -243,12 +550,6 @@ export function WaitlistPreviewScreen() {
   }
 
   if (joinedEmail) {
-    const friends = [
-      { shape: "rocky" as const, color: "#12c25b", offset: 12 },
-      { shape: "boxy" as const, color: "#3446e9", offset: 28 },
-      { shape: "ghosty" as const, color: "#fd304f", offset: 0 },
-    ];
-
     return (
       <Artboard>
         <motion.main
@@ -259,41 +560,26 @@ export function WaitlistPreviewScreen() {
           transition={{ duration: 0.2, ease: "easeOut" }}
         >
           <div className="waitlist-complete-content">
-            <div className="waitlist-complete-friends" aria-hidden="true">
-              {friends.map((ally, index) => (
-                <motion.div
+            <CompletionLogo />
+            <div className="waitlist-complete-stage">
+              <h1>See you soon</h1>
+              {COMPLETION_ALLIES.map((ally) => (
+                <CompletionAlly
                   key={ally.shape}
-                  animate={
-                    prefersReducedMotion
-                      ? undefined
-                      : { y: [ally.offset, ally.offset - 5, ally.offset] }
-                  }
-                  transition={{
-                    duration: 2.4,
-                    repeat: Infinity,
-                    delay: index * 0.16,
-                    ease: "easeInOut",
-                  }}
-                >
-                  <AllyAvatar
-                    shape={ally.shape}
-                    color={ally.color}
-                    size={44}
-                    motion="reduced"
-                  />
-                </motion.div>
+                  ally={ally}
+                  prefersReducedMotion={prefersReducedMotion}
+                />
               ))}
             </div>
-            <h1>See you soon</h1>
             <a
               className="waitlist-complete-follow"
               href="https://x.com/allies_ai"
               target="_blank"
               rel="noreferrer"
-              style={{ backgroundColor: accent }}
+              style={{ backgroundColor: COMPLETION_BUTTON_COLOR }}
             >
               <span>Follow us on</span>
-              <Image src="/ally/icons/x-social.svg" alt="X" width={18} height={18} />
+              <Image src="/ally/icons/x-social.svg" alt="X" width={13} height={13} />
             </a>
           </div>
         </motion.main>
@@ -370,7 +656,7 @@ export function WaitlistPreviewScreen() {
                   whiteSpace: "pre-wrap",
                 }}
               >
-                {snapshot?.greeting?.text}
+                {renderedGreeting}
               </motion.article>
             ) : (
               <motion.div
@@ -507,186 +793,90 @@ export function WaitlistPreviewScreen() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              style={{
-                position: "absolute",
-                inset: 0,
-                zIndex: 5,
-                display: "flex",
-                alignItems: "flex-end",
-                boxSizing: "border-box",
-                padding: SURFACE_INSET,
-                background: "rgba(0, 0, 0, 0.24)",
-              }}
+              className="waitlist-save-modal-overlay"
             >
               <motion.div
                 initial={{ y: 36, opacity: 0 }}
                 animate={{ y: 0, opacity: 1 }}
                 exit={{ y: 24, opacity: 0 }}
                 transition={{ type: "spring", stiffness: 260, damping: 26 }}
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  width: "100%",
-                  minHeight: 300,
-                  maxHeight: "100%",
-                  overflowY: "auto",
-                  padding: "24px 20px 28px",
-                  borderRadius: 24,
-                  background: "#fff",
-                  boxSizing: "border-box",
-                }}
+                className="waitlist-save-modal-card"
               >
-                <div
-                  style={{
-                    display: "flex",
-                    minHeight: 32,
-                    alignItems: "center",
-                    justifyContent: "flex-end",
-                    marginBottom: 8,
-                  }}
-                >
+                <div className="waitlist-save-modal-top-row">
+                  <div
+                    aria-hidden="true"
+                    className="waitlist-save-modal-mailbox"
+                    style={{ background: `${accent}40` }}
+                  >
+                    <MailboxIcon color={accent} />
+                  </div>
                   <button
                     type="button"
                     aria-label="Close save Ally dialog"
                     onClick={() => setShowSaveModal(false)}
-                    style={{
-                      width: 32,
-                      height: 32,
-                      display: "grid",
-                      placeItems: "center",
-                      border: 0,
-                      borderRadius: "50%",
-                      padding: 0,
-                      background: "#121212",
-                      cursor: "pointer",
-                    }}
+                    className="waitlist-save-modal-close"
                   >
                     <Image src="/ally/icons/x.svg" alt="" width={24} height={24} />
                   </button>
                 </div>
 
                 <form
-                    onSubmit={(event) => {
-                      event.preventDefault();
-                      if (
-                        !isBusy &&
-                        status === "ready" &&
-                        configurationMatches &&
-                        email.trim() &&
-                        consentVersion
-                      ) {
-                        void join(email.trim())
-                          .then(() => {
-                            setReplyDraft(null);
-                          })
-                          .catch(() => undefined);
-                      }
-                    }}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (
+                      !isBusy &&
+                      status === "ready" &&
+                      configurationMatches &&
+                      email.trim() &&
+                      consentVersion
+                    ) {
+                      void join(email.trim())
+                        .then(() => {
+                          setReplyDraft(null);
+                        })
+                        .catch(() => undefined);
+                    }
+                  }}
+                  className="waitlist-save-modal-form"
+                >
+                  <h2 className="waitlist-save-modal-title">
+                    Save
+                    <br />
+                    your ally
+                  </h2>
+                  <p className="waitlist-save-modal-description">
+                    allies isn&apos;t live yet. Enter your email to save the ally you&apos;ve shaped and its first message.
+                  </p>
+                  <input
+                    data-testid="waitlist-email"
+                    aria-label="Email address"
+                    type="email"
+                    value={email}
+                    onChange={(event) => setEmail(event.target.value)}
+                    placeholder="Email address"
+                    className="waitlist-save-modal-email"
+                  />
+                  <button
+                    type="submit"
+                    data-testid="waitlist-submit"
+                    disabled={
+                      isBusy ||
+                      status !== "ready" ||
+                      !configurationMatches ||
+                      !email.trim() ||
+                      !consentVersion
+                    }
+                    className="waitlist-save-modal-submit"
                     style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      gap: 12,
+                      background: email.trim() && consentVersion ? accent : "#d9d9d9",
+                      cursor: email.trim() && consentVersion ? "pointer" : "default",
                     }}
                   >
-                    <div
-                      aria-hidden="true"
-                      style={{
-                        width: 40,
-                        height: 40,
-                        display: "grid",
-                        placeItems: "center",
-                        borderRadius: "50%",
-                        background: palette.softStrong,
-                      }}
-                    >
-                      <MailboxIcon color={accent} />
-                    </div>
-                    <h2
-                      style={{
-                        margin: 0,
-                        color: "#121212",
-                        fontSize: 24,
-                        fontWeight: 700,
-                        letterSpacing: -1,
-                        lineHeight: "100%",
-                      }}
-                    >
-                      Save
-                      <br />
-                      your ally
-                    </h2>
-                    <p
-                      style={{
-                        margin: 0,
-                        color: "#121212",
-                        fontSize: 14,
-                        fontWeight: 500,
-                        letterSpacing: -0.35,
-                        lineHeight: "19px",
-                      }}
-                    >
-                      allies isn&apos;t live yet. Enter your email to save the ally you&apos;ve shaped and its first message.
-                    </p>
-                    <input
-                      data-testid="waitlist-email"
-                      aria-label="Email address"
-                      type="email"
-                      value={email}
-                      onChange={(event) => setEmail(event.target.value)}
-                      placeholder="Email address"
-                      style={{
-                        width: "100%",
-                        height: ONBOARDING_CTA.height,
-                        boxSizing: "border-box",
-                        border: 0,
-                        borderRadius: 999,
-                        padding: "0 16px",
-                        background: "#f3f3f3",
-                        outline: "none",
-                        color: "#121212",
-                        font: "inherit",
-                        fontSize: 14,
-                      }}
-                    />
-                    <button
-                      type="submit"
-                      data-testid="waitlist-submit"
-                      disabled={
-                        isBusy ||
-                        status !== "ready" ||
-                        !configurationMatches ||
-                        !email.trim() ||
-                        !consentVersion
-                      }
-                      style={{
-                        width: "100%",
-                        height: ONBOARDING_CTA.height,
-                        border: 0,
-                        borderRadius: 60,
-                        boxSizing: "border-box",
-                        padding: ONBOARDING_CTA.padding,
-                        background: email.trim() && consentVersion ? accent : "#d9d9d9",
-                        color: "#fff",
-                        font: "inherit",
-                        fontSize: 18,
-                        fontWeight: 600,
-                        letterSpacing: -0.7,
-                        cursor: email.trim() && consentVersion ? "pointer" : "default",
-                      }}
-                    >
-                      {pendingAction === "join" ? "Saving…" : "Submit"}
-                    </button>
-                    <p
-                      style={{
-                        margin: 0,
-                        color: "#a0a0a0",
-                        fontSize: 11,
-                        lineHeight: "15px",
-                        textAlign: "center",
-                      }}
-                    >
-                      By joining the waitlist, you consent to us contacting you about our release and availability.
-                    </p>
+                    {pendingAction === "join" ? "Saving…" : "Submit"}
+                  </button>
+                  <p className="waitlist-save-modal-consent">
+                    By joining the waitlist, you consent to us contacting you about our release and availability.
+                  </p>
                 </form>
               </motion.div>
             </motion.div>

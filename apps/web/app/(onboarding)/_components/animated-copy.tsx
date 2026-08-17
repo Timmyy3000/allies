@@ -79,6 +79,10 @@ const DESKTOP_CONVERGE_MS = 1500;
 const MOBILE_CONVERGE_MS = 1180;
 const DESKTOP_CLICK_Y_OFFSET = 36;
 const MOBILE_CLICK_Y_OFFSET = 32;
+const TOGETHER_ANCHOR_LEFT_NUDGE = -10;
+const TOGETHER_ANCHOR_TOP_NUDGE = -14;
+const MOBILE_TOGETHER_ANCHOR_LEFT_NUDGE = -14;
+const MOBILE_TOGETHER_ANCHOR_TOP_NUDGE = -18;
 const REVEAL_MIN_MS = 1200;
 const REVEAL_MAX_MS = 2800;
 const DEFAULT_ROAM_OFFSETS: Record<AllyKind, Position> = {
@@ -125,10 +129,10 @@ const RESTING_HORIZONTAL_MARGIN = 4;
 const RESTING_VERTICAL_MARGIN = 4;
 
 const CONVERGENCE_OFFSETS: Record<AllyKind, Position> = {
-  blue: { left: -30, top: 0 },
-  green: { left: -10, top: 0 },
-  red: { left: 10, top: 0 },
-  yellow: { left: 30, top: 0 },
+  blue: { left: -20, top: 0 },
+  green: { left: -7, top: 0 },
+  red: { left: 7, top: 0 },
+  yellow: { left: 20, top: 0 },
 };
 
 function roamingBounds(viewportWidth: number, viewportHeight: number) {
@@ -559,18 +563,26 @@ export function AnimatedCopy({
       );
       const anchorBox = togetherIcon?.getBoundingClientRect();
       if (anchorBox) {
+        const togetherLeftNudge =
+          actorWidth <= 500
+            ? MOBILE_TOGETHER_ANCHOR_LEFT_NUDGE
+            : TOGETHER_ANCHOR_LEFT_NUDGE;
+        const togetherTopNudge =
+          actorWidth <= 500
+            ? MOBILE_TOGETHER_ANCHOR_TOP_NUDGE
+            : TOGETHER_ANCHOR_TOP_NUDGE;
         return {
           left: clamp(
             (anchorBox.left - hostBox.left) / coordinateScale +
-              actorOffsetLeft -
-              6,
+              actorOffsetLeft +
+              togetherLeftNudge,
             12,
             Math.max(12, actorWidth - 74),
           ),
           top: clamp(
             (anchorBox.top - hostBox.top) / coordinateScale +
-              actorOffsetTop -
-              10,
+              actorOffsetTop +
+              togetherTopNudge,
             16,
             Math.max(16, actorHeight - 76),
           ),

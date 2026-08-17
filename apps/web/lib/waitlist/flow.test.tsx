@@ -55,4 +55,45 @@ describe("WaitlistFlowProvider", () => {
     });
     expect(flow!.snapshot.join?.email).toBe("p****n@example.com");
   });
+
+  it("shares an in-flight create request", async () => {
+    let resolveEntry: ((value: { attemptToken: string; greeting: string }) => void) | undefined;
+    const methods = {
+      createWaitlistEntry: vi.fn(
+        () =>
+          new Promise<{ attemptToken: string; greeting: string }>((resolve) => {
+            resolveEntry = resolve;
+          }),
+      ),
+      completeWaitlistEntry: vi.fn(),
+    };
+    useCloudClientMock.mockReturnValue(methods as unknown as CloudClient);
+    let flow: ReturnType<typeof useWaitlistFlow> | null = null;
+    function Probe() {
+      flow = useWaitlistFlow();
+      return null;
+    }
+    render(
+      <WaitlistFlowProvider featureEnabled consentVersion="waitlist-v1">
+        <Probe />
+      </WaitlistFlowProvider>,
+    );
+
+    const payload = {
+      name: "Ari",
+      appearance_catalog_version: "v1",
+      appearance_key: "ghosty:fd304f",
+      job: "Planning",
+      personality: "Warm",
+    } as const;
+    let first: Promise<unknown>;
+    let second: Promise<unknown>;
+    await act(async () => {
+      first = flow!.saveConfiguration(payload);
+      second = flow!.saveConfiguration(payload);
+      expect(methods.createWaitlistEntry).toHaveBeenCalledTimes(1);
+      resolveEntry?.({ attemptToken: "token", greeting: "Hello." });
+      await Promise.all([first, second]);
+    });
+  });
 });

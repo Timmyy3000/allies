@@ -261,6 +261,8 @@ export type AllyAvatarProps = {
   color?: string;
   size?: number | string;
   frameSize?: { width: number | string; height: number | string };
+  /** Scale the artwork inside its fixed shell without changing the shell size. */
+  artworkScale?: number;
   /** Render the authored artwork without a coloured shell. */
   transparent?: boolean;
   /** Render an unselected Ally as the neutral Figma artwork. */
@@ -278,6 +280,7 @@ export function AllyAvatar({
   color,
   size,
   frameSize,
+  artworkScale,
   transparent = false,
   neutral = false,
   artworkSize = "default",
@@ -371,7 +374,7 @@ export function AllyAvatar({
             justifyContent: "center",
             flexShrink: 0,
             transform: hasColorShell
-              ? `scale(${COLORED_ARTWORK_SCALE})`
+              ? `scale(${artworkScale ?? COLORED_ARTWORK_SCALE})`
               : undefined,
             transformOrigin: "center",
           }}
