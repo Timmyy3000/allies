@@ -15,6 +15,7 @@ import { AllyAvatar, type AllyShape } from "@/components/ally-avatar";
 import { getAccentPalette } from "@/components/next-button";
 import { ParticleText } from "@/components/text-animations/particle-text";
 import { ShinyText } from "@/components/text-animations/shiny-text";
+import { captureWaitlistEvent } from "@/lib/analytics/waitlist";
 import { useOnboardingStore } from "../_store/onboarding-store";
 import { WaitlistMappingError } from "../../../lib/waitlist/catalog";
 import {
@@ -554,7 +555,7 @@ export function WaitlistPreviewScreen() {
       <Artboard>
         <motion.main
           data-testid="waitlist-complete"
-          className="onboarding-page waitlist-complete-page"
+          className="ph-no-capture onboarding-page waitlist-complete-page"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.2, ease: "easeOut" }}
@@ -576,6 +577,11 @@ export function WaitlistPreviewScreen() {
               href="https://x.com/allies_ai"
               target="_blank"
               rel="noreferrer"
+              onClick={() =>
+                captureWaitlistEvent("waitlist_follow_clicked", {
+                  source: "completion",
+                })
+              }
               style={{ backgroundColor: COMPLETION_BUTTON_COLOR }}
             >
               <span>Follow us on</span>
@@ -591,7 +597,7 @@ export function WaitlistPreviewScreen() {
     <Artboard>
       <div
         data-testid="waitlist-preview"
-        className="onboarding-page onboarding-overlay-host"
+        className="ph-no-capture onboarding-page onboarding-overlay-host"
       >
         <header
           className="waitlist-preview-header"
