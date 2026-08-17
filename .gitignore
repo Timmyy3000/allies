@@ -30,3 +30,4 @@ htmlcov/
 # Local agent and review surfaces; durable counterparts belong in docs/.
 .agent/
 .lavish/
+.forest/
