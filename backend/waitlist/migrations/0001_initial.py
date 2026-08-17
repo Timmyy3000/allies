@@ -5,7 +5,11 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
-import waitlist.models
+from common.identifiers import new_public_id
+
+
+def new_draft_public_id() -> str:
+    return new_public_id("wld")
 
 
 class Migration(migrations.Migration):
@@ -31,7 +35,7 @@ class Migration(migrations.Migration):
                 (
                     "public_id",
                     models.CharField(
-                        default=waitlist.models.new_draft_public_id,
+                        default=new_draft_public_id,
                         editable=False,
                         max_length=40,
                         unique=True,
