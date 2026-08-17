@@ -9,10 +9,12 @@ import {
   useState,
   useCallback,
   type ReactNode,
+  type CSSProperties,
 } from "react";
-import { AnimatePresence, LayoutGroup, motion } from "motion/react";
+import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import Image from "next/image";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { AllyAvatar } from "@/components/ally-avatar";
 import {
   AnimatedCopy,
@@ -102,6 +104,7 @@ export default function Onboarding({
   const goTo = useOnboardingStore((state) => state.goTo);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const isDrawerPresentation = presentation === "drawer";
+  const router = useRouter();
 
   const openDrawer = useCallback(() => {
     setDrawerOpen(true);
@@ -117,8 +120,16 @@ export default function Onboarding({
     goTo("welcome");
   }, [goTo]);
 
-  if (step !== "welcome" && !isDrawerPresentation) {
-    return <OnboardingStepFlow />;
+  const exitOnboarding = useCallback(() => {
+    if (isDrawerPresentation) {
+      setDrawerOpen(false);
+      return;
+    }
+    router.push("/");
+  }, [isDrawerPresentation, router]);
+
+  if (!isDrawerPresentation) {
+    return <OnboardingStepFlow onExit={exitOnboarding} />;
   }
 
   return (
@@ -134,7 +145,7 @@ export default function Onboarding({
         <MobileOnboarding
           waitlistEnabled={waitlistEnabled}
           ctaHref={ctaHref}
-          onOpenOnboarding={isDrawerPresentation ? openDrawer : undefined}
+          onboardingHref={isDrawerPresentation ? "/onboarding" : undefined}
         />
       </div>
       {isDrawerPresentation ? (
@@ -143,43 +154,33 @@ export default function Onboarding({
           onClose={closeDrawer}
           onClosed={resetAfterDrawerClose}
         >
-          <OnboardingStepFlow />
+          <OnboardingStepFlow onExit={exitOnboarding} />
         </OnboardingDrawer>
       ) : null}
     </>
   );
 }
 
-function OnboardingStepFlow() {
+function OnboardingStepFlow({ onExit }: { onExit: () => void }) {
   const step = useOnboardingStore((state) => state.step);
+  const prefersReducedMotion = useReducedMotion() ?? false;
 
   return (
     <LayoutGroup id="onboarding-flow">
-      <div
-        className="onboarding-step"
-        style={{
-          minHeight: "var(--onboarding-artboard-min-height, 100dvh)",
-          width: "100%",
-          overflow: "hidden",
-          position: "relative",
-        }}
-      >
-        <AnimatePresence initial={false} mode="sync">
-          <motion.div
-            key={step}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.32, ease: [0.22, 1, 0.36, 1] }}
-            style={{
-              position: "absolute",
-              inset: 0,
-              overflow: "hidden",
-            }}
-          >
-            <OnboardingFlow />
-          </motion.div>
-        </AnimatePresence>
+      <div className="onboarding-step">
+        <motion.div
+          key={step}
+          initial={prefersReducedMotion ? false : { opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={
+            prefersReducedMotion
+              ? { duration: 0 }
+              : { duration: 0.14, ease: [0.22, 1, 0.36, 1] }
+          }
+          className="onboarding-step-panel"
+        >
+          <OnboardingFlow onExit={onExit} />
+        </motion.div>
       </div>
     </LayoutGroup>
   );
@@ -257,6 +258,7 @@ function DesktopOnboarding({
     offsetTop: DESKTOP_COPY_OFFSET.top,
   };
   const [storyDone, setStoryDone] = useState(false);
+  const [skipRequest, setSkipRequest] = useState(0);
 
   return (
     <div
@@ -303,6 +305,7 @@ function DesktopOnboarding({
             artboardScale={scale}
             roamOffsets={DESKTOP_ROAM_OFFSETS}
             onComplete={setStoryDone}
+            skipRequest={skipRequest}
             renderActor={(ally, state, options) => (
               <FollowAlly
                 ally={ally}
@@ -322,6 +325,10 @@ function DesktopOnboarding({
           ) : null}
         </div>
         <FollowUs />
+        <SkipStoryButton
+          onClick={() => setSkipRequest((current) => current + 1)}
+          style={{ right: 387, top: 864 }}
+        />
         <LogoMark />
       </div>
     </div>
@@ -331,14 +338,15 @@ function DesktopOnboarding({
 function MobileOnboarding({
   waitlistEnabled,
   ctaHref,
-  onOpenOnboarding,
+  onboardingHref,
 }: {
   waitlistEnabled: boolean;
   ctaHref?: string;
-  onOpenOnboarding?: () => void;
+  onboardingHref?: string;
 }) {
   const { hostRef, scale } = useArtboardScale(MOBILE_ART_W);
   const [storyDone, setStoryDone] = useState(false);
+  const [skipRequest, setSkipRequest] = useState(0);
 
   return (
     <IconSizeContext.Provider value={16}>
@@ -389,6 +397,7 @@ function MobileOnboarding({
               artboardScale={scale}
               roamOffsets={MOBILE_ROAM_OFFSETS}
               onComplete={setStoryDone}
+              skipRequest={skipRequest}
               renderActor={(ally, state, options) => (
                 <FollowAlly
                   ally={ally}
@@ -401,12 +410,16 @@ function MobileOnboarding({
               <MeetAllyButton
                 enabled={waitlistEnabled}
                 href={ctaHref}
-                onOpen={onOpenOnboarding}
+                onboardingHref={onboardingHref}
                 fontSize={16}
                 marginTop={36}
               />
             ) : null}
           </div>
+          <SkipStoryButton
+            onClick={() => setSkipRequest((current) => current + 1)}
+            style={{ bottom: 110, left: 20 }}
+          />
           <FollowUs
             top={71}
             right={20.4}
@@ -424,10 +437,66 @@ function MobileOnboarding({
   );
 }
 
+function SkipStoryButton({
+  onClick,
+  style,
+}: {
+  onClick: () => void;
+  style: CSSProperties;
+}) {
+  return (
+    <motion.button
+      type="button"
+      data-testid="skip-story"
+      aria-label="Skip story animation"
+      onClick={onClick}
+      whileTap={{ scale: 0.96 }}
+      transition={{ duration: 0.16, ease: "easeOut" }}
+      style={{
+        position: "absolute",
+        zIndex: 5,
+        display: "inline-flex",
+        minWidth: 40,
+        minHeight: 40,
+        padding: 0,
+        alignItems: "center",
+        justifyContent: "center",
+        columnGap: 6,
+        border: 0,
+        background: "transparent",
+        color: "#757575",
+        cursor: "pointer",
+        fontFamily: "inherit",
+        fontSize: 16,
+        fontWeight: 600,
+        letterSpacing: -0.7,
+        lineHeight: "100%",
+        whiteSpace: "nowrap",
+        ...style,
+      }}
+    >
+      <span>Skip</span>
+      <svg
+        aria-hidden="true"
+        focusable="false"
+        width="15"
+        height="15"
+        viewBox="0 0 15 15"
+        fill="none"
+        style={{ color: "#121212", flexShrink: 0 }}
+      >
+        <path d="M1 2.25 6.5 7.5 1 12.75V2.25Z" fill="currentColor" />
+        <path d="M7 2.25 12.5 7.5 7 12.75V2.25Z" fill="currentColor" />
+      </svg>
+    </motion.button>
+  );
+}
+
 function MeetAllyButton({
   enabled = true,
   href,
   onOpen,
+  onboardingHref,
   top,
   right,
   fontSize,
@@ -436,6 +505,7 @@ function MeetAllyButton({
   enabled?: boolean;
   href?: string;
   onOpen?: () => void;
+  onboardingHref?: string;
   top?: number;
   right?: number;
   fontSize: number;
@@ -484,9 +554,11 @@ function MeetAllyButton({
     textDecoration: "none",
   };
 
-  if (href && enabled && !onOpen) {
+  const destination = onboardingHref ?? href;
+
+  if (destination && enabled && !onOpen) {
     return (
-      <Link href={href} data-testid="make-first-ally" style={style}>
+      <Link href={destination} data-testid="make-first-ally" style={style}>
         {label}
       </Link>
     );

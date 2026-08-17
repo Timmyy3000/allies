@@ -25,6 +25,13 @@ export const ALLY_ANIMATION_CYCLE_MS: Record<AllyAnimationState, number> = {
   thinking: 4_502.083,
 };
 
+/**
+ * Colored Allies use the shared shell as the visual container. Keep the
+ * authored 470px animation canvas intact, but give the artwork a consistent
+ * margin inside that shell when a color is present.
+ */
+const COLORED_ARTWORK_SCALE = 0.86;
+
 type AssetSource = {
   animated: string;
   reduced: string;
@@ -253,6 +260,7 @@ export type AllyAvatarProps = {
   motion?: AllyMotionMode;
   color?: string;
   size?: number | string;
+  frameSize?: { width: number | string; height: number | string };
   /** Render the authored artwork without a coloured shell. */
   transparent?: boolean;
   /** Render an unselected Ally as the neutral Figma artwork. */
@@ -269,6 +277,7 @@ export function AllyAvatar({
   motion = "system",
   color,
   size,
+  frameSize,
   transparent = false,
   neutral = false,
   artworkSize = "default",
@@ -318,10 +327,11 @@ export function AllyAvatar({
     : null;
   const artworkLayout = shape ? ARTWORK_LAYOUT[shape] : null;
   const hasShell = !transparent && !neutral;
+  const hasColorShell = !neutral && Boolean(color?.trim());
   const rootStyle = useMemo<CSSProperties>(
     () => ({
-      width: normalizeSize(size),
-      height: normalizeSize(size),
+      width: normalizeSize(frameSize?.width ?? size),
+      height: normalizeSize(frameSize?.height ?? size),
       borderRadius: "50%",
       backgroundColor: hasShell ? shellColor : "transparent",
       display: "flex",
@@ -334,7 +344,7 @@ export function AllyAvatar({
         ? "none"
         : "background-color 240ms ease, filter 240ms ease",
     }),
-    [hasShell, reducedMotion, shellColor, size],
+    [frameSize, hasShell, reducedMotion, shellColor, size],
   );
 
   return (
@@ -360,6 +370,10 @@ export function AllyAvatar({
             alignItems: "center",
             justifyContent: "center",
             flexShrink: 0,
+            transform: hasColorShell
+              ? `scale(${COLORED_ARTWORK_SCALE})`
+              : undefined,
+            transformOrigin: "center",
           }}
         >
           {/* External SVGs keep their authored CSS/SMIL animation only when rendered as an image document. */}

@@ -3,11 +3,12 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const source = "https://cloud.staging.yourallies.io/api/v1/openapi.json";
+const fetchUrl = process.env.ALLIES_CLOUD_OPENAPI_FETCH_URL ?? source;
 const targetDirectory = path.resolve("packages/cloud-client/openapi");
 const schemaPath = path.join(targetDirectory, "allies-cloud-0.1.0.json");
 const metadataPath = path.join(targetDirectory, "metadata.json");
 
-const response = await fetch(source, {
+const response = await fetch(fetchUrl, {
   headers: { accept: "application/json" },
   redirect: "error",
 });

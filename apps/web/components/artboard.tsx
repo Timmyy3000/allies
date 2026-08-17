@@ -16,13 +16,11 @@ export function Artboard({
 }) {
   return (
     <div
-      className="relative min-h-[100dvh] w-full overflow-hidden"
+      className="onboarding-artboard"
       style={{
         background,
-        minHeight: "var(--onboarding-artboard-min-height, 100dvh)",
       }}
     >
-      {/* The onboarding frame follows the viewport; children own their insets. */}
       {children}
     </div>
   );

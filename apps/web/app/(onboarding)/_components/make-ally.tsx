@@ -7,12 +7,12 @@ import { NameAllyScreen } from "./name-ally";
 import { PersonalityScreen } from "./personality";
 import { WaitlistPreviewScreen } from "./waitlist-preview";
 
-export default function OnboardingFlow() {
+export default function OnboardingFlow({ onExit }: { onExit: () => void }) {
   const step = useOnboardingStore((state) => state.step);
 
   if (step === "look") return <LookLikeScreen />;
   if (step === "job") return <JobDescriptionScreen />;
   if (step === "personality") return <PersonalityScreen />;
   if (step === "preview") return <WaitlistPreviewScreen />;
-  return <NameAllyScreen />;
+  return <NameAllyScreen onBack={onExit} />;
 }

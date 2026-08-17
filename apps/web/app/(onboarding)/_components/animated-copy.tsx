@@ -442,6 +442,7 @@ export function AnimatedCopy({
   roamOffsets = DEFAULT_ROAM_OFFSETS,
   renderActor,
   onComplete,
+  skipRequest = 0,
 }: {
   paragraphs: CopyParagraph[];
   paragraphGap: number;
@@ -456,6 +457,7 @@ export function AnimatedCopy({
     options?: { hideCursor?: boolean },
   ) => ReactNode;
   onComplete?: (done: boolean) => void;
+  skipRequest?: number;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<Array<HTMLDivElement | null>>([]);
@@ -595,6 +597,31 @@ export function AnimatedCopy({
     storyBeats,
   ]);
 
+  const parkAllActors = useCallback(() => {
+    setParked((current) => {
+      const byAlly = new Map(current.map((actor) => [actor.ally, actor]));
+      storyBeats.forEach((beat, index) => {
+        byAlly.set(beat.actor, {
+          id: `story-ally-${beat.actor}`,
+          ally: beat.actor,
+          position:
+            targets[index] ?? fallbackTarget(index, actorWidth, actorHeight),
+          roamX: 0,
+          roamY: 0,
+          delay: 0,
+        });
+      });
+      return Array.from(byAlly.values());
+    });
+    setCompletedBeatCount(storyBeats.length);
+  }, [actorHeight, actorWidth, storyBeats, targets]);
+
+  const completeStory = useCallback(() => {
+    setPhase({ name: "done" });
+    setRevealChars(0);
+    parkAllActors();
+  }, [parkAllActors]);
+
   useEffect(() => {
     const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
     if (!query) return;
@@ -624,35 +651,15 @@ export function AnimatedCopy({
 
   useEffect(() => {
     if (!reducedMotion) return;
-    const frame = window.requestAnimationFrame(() => {
-      setPhase({ name: "done" });
-      setRevealChars(0);
-    });
+    const frame = window.requestAnimationFrame(completeStory);
     return () => window.cancelAnimationFrame(frame);
-  }, [reducedMotion]);
+  }, [completeStory, reducedMotion]);
 
   useEffect(() => {
-    if (!reducedMotion) return;
-    const frame = window.requestAnimationFrame(() => {
-      setParked((current) => {
-        const byAlly = new Map(current.map((actor) => [actor.ally, actor]));
-        storyBeats.forEach((beat, index) => {
-          byAlly.set(beat.actor, {
-            id: `story-ally-${beat.actor}`,
-            ally: beat.actor,
-            position:
-              targets[index] ?? fallbackTarget(index, actorWidth, actorHeight),
-            roamX: 0,
-            roamY: 0,
-            delay: 0,
-          });
-        });
-        return Array.from(byAlly.values());
-      });
-      setCompletedBeatCount(storyBeats.length);
-    });
+    if (!skipRequest) return;
+    const frame = window.requestAnimationFrame(completeStory);
     return () => window.cancelAnimationFrame(frame);
-  }, [actorHeight, actorWidth, reducedMotion, storyBeats, targets]);
+  }, [completeStory, skipRequest]);
 
   useEffect(() => {
     if (reducedMotion || phase.name !== "intro") return;

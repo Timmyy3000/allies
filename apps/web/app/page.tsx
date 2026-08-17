@@ -12,7 +12,10 @@ export default function Home() {
         featureEnabled={environment.waitlistEnabled}
         consentVersion={environment.waitlistConsentVersion}
       >
-        <Onboarding presentation="drawer" waitlistEnabled />
+        <Onboarding
+          presentation="drawer"
+          waitlistEnabled={environment.waitlistEnabled}
+        />
       </WaitlistFlowProvider>
     </OnboardingStateProvider>
   );
