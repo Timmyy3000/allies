@@ -11,3 +11,8 @@ def test_validate_output_rejects_ally_name_as_address():
 
 def test_validate_output_does_not_reject_ally_name_as_substring():
     assert validate_output("Hola, Robando!", ally_name="Roban") == "Hola, Robando!"
+
+
+def test_validate_output_rejects_preview_framing():
+    with pytest.raises(WaitlistValidationError):
+        validate_output("Hi there! I am your preview Ally.")

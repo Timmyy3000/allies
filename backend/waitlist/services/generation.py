@@ -14,6 +14,7 @@ PROHIBITED_CLAIMS = re.compile(
     r".{0,80}\b(?:account|workspace|ally|conversation|tool|memory|file|message)\b",
     re.IGNORECASE,
 )
+PROHIBITED_PRODUCT_FRAMING = re.compile(r"\bpreview\b", re.IGNORECASE)
 
 
 def validate_output(value: Any, *, ally_name: str = "") -> str:
@@ -32,6 +33,8 @@ def validate_output(value: Any, *, ally_name: str = "") -> str:
     ):
         raise WaitlistValidationError("greeting output is invalid", field="greeting")
     if PROHIBITED_CLAIMS.search(text):
+        raise WaitlistValidationError("greeting output is invalid", field="greeting")
+    if PROHIBITED_PRODUCT_FRAMING.search(text):
         raise WaitlistValidationError("greeting output is invalid", field="greeting")
     normalized_ally_name = ally_name.strip()
     if normalized_ally_name and re.search(
