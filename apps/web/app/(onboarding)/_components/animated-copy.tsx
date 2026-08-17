@@ -117,10 +117,28 @@ const MOBILE_RESTING_POSITIONS: Position[] = [
   { left: 340, top: 752 },
 ];
 
+const MOBILE_FINAL_POSITIONS: Record<AllyKind, Position> = {
+  red: { left: 18, top: 92 },
+  green: { left: 34, top: 612 },
+  blue: { left: 286, top: 420 },
+  yellow: { left: 296, top: 500 },
+};
+
+function finalDesktopPosition(ally: AllyKind, width: number): Position {
+  const center = width / 2;
+  const positions: Record<AllyKind, Position> = {
+    red: { left: center - 245, top: 142 },
+    green: { left: center - 318, top: 790 },
+    blue: { left: center + 284, top: 650 },
+    yellow: { left: center + 328, top: 712 },
+  };
+  return positions[ally];
+}
+
 // Parked Allies can wander by as much as the largest per-Ally roam offset.
 // Keep that whole visual footprint inside the artboard; the artboard itself
 // still clips deliberate off-canvas entry/exit movement.
-const RESTING_ACTOR_SIZE = 42;
+const RESTING_ACTOR_SIZE = 60;
 const RESTING_HORIZONTAL_MARGIN = 4;
 const RESTING_VERTICAL_MARGIN = 4;
 
@@ -600,12 +618,18 @@ export function AnimatedCopy({
   const parkAllActors = useCallback(() => {
     setParked((current) => {
       const byAlly = new Map(current.map((actor) => [actor.ally, actor]));
-      storyBeats.forEach((beat, index) => {
+      storyBeats.forEach((beat) => {
+        const finalPosition =
+          actorWidth <= 500
+            ? MOBILE_FINAL_POSITIONS[beat.actor]
+            : finalDesktopPosition(beat.actor, actorWidth);
         byAlly.set(beat.actor, {
           id: `story-ally-${beat.actor}`,
           ally: beat.actor,
-          position:
-            targets[index] ?? fallbackTarget(index, actorWidth, actorHeight),
+          position: {
+            left: clamp(finalPosition.left, 0, actorWidth - RESTING_ACTOR_SIZE),
+            top: clamp(finalPosition.top, 0, actorHeight - RESTING_ACTOR_SIZE),
+          },
           roamX: 0,
           roamY: 0,
           delay: 0,
@@ -614,7 +638,7 @@ export function AnimatedCopy({
       return Array.from(byAlly.values());
     });
     setCompletedBeatCount(storyBeats.length);
-  }, [actorHeight, actorWidth, storyBeats, targets]);
+  }, [actorHeight, actorWidth, storyBeats]);
 
   const completeStory = useCallback(() => {
     setPhase({ name: "done" });
@@ -657,8 +681,8 @@ export function AnimatedCopy({
 
   useEffect(() => {
     if (!skipRequest) return;
-    const frame = window.requestAnimationFrame(completeStory);
-    return () => window.cancelAnimationFrame(frame);
+    const timer = window.setTimeout(completeStory, 0);
+    return () => window.clearTimeout(timer);
   }, [completeStory, skipRequest]);
 
   useEffect(() => {
@@ -812,11 +836,11 @@ export function AnimatedCopy({
   useEffect(() => {
     if (reducedMotion || phase.name !== "converge") return;
     const id = window.setTimeout(
-      () => onComplete?.(true),
+      completeStory,
       convergeDuration,
     );
     return () => window.clearTimeout(id);
-  }, [convergeDuration, onComplete, phase.name, reducedMotion]);
+  }, [completeStory, convergeDuration, phase.name, reducedMotion]);
 
   useEffect(() => {
     if (phase.name === "done") onComplete?.(true);
@@ -866,7 +890,7 @@ export function AnimatedCopy({
         0,
         );
 
-  const isConverging = phase.name === "converge" || phase.name === "done";
+  const isConverging = phase.name === "converge";
   const isStoryFinished = phase.name === "converge" || phase.name === "done";
   const finalTarget =
     storyBeats.length > 0
@@ -1053,6 +1077,8 @@ export function AnimatedCopy({
               : activeClickTarget;
           const target = isConverging
             ? convergenceTarget
+            : phase.name === "done"
+              ? actor.position
             : isActiveActor
               ? activeMotionTarget
               : null;
@@ -1082,7 +1108,11 @@ export function AnimatedCopy({
                 scale: isConverging ? convergenceScale : 1,
               }
             : roamKeyframes(actor, actorWidth, actorHeight);
-          const transition = target
+          const transition = phase.name === "done"
+            ? reducedMotion
+              ? { duration: 0 }
+              : { duration: 0.55, ease: "easeOut" as const }
+            : target
             ? travelTransition(
                 isConverging
                   ? convergeDuration
@@ -1108,7 +1138,7 @@ export function AnimatedCopy({
                 };
           return (
             <motion.div
-              key={actor.id}
+              key={`${actor.id}-${phase.name === "done" ? "done" : "story"}`}
               data-story-actor={isActiveActor ? "true" : undefined}
               data-story-actor-index={
                 isActiveActor ? currentBeat ?? undefined : undefined

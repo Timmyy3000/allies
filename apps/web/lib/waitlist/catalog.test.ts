@@ -19,7 +19,7 @@ describe("waitlist v1 mappings", () => {
 
   it("serializes personality in canonical order and omits empty values", () => {
     expect(serializePersonality(["Funny", "Analytical"], "  Keep me moving.  ")).toBe(
-      "Analytical, Funny. Note: Keep me moving.",
+      "Keep me moving.",
     );
     expect(serializePersonality([], "   ")).toBeUndefined();
   });
@@ -46,7 +46,7 @@ describe("waitlist v1 mappings", () => {
     const parsed = parsePersonality("Note: Be kind");
 
     expect(parsed).toEqual({ personalities: [], personalityNote: "Be kind" });
-    expect(serializePersonality(parsed.personalities, parsed.personalityNote)).toBe("Note: Be kind");
+    expect(serializePersonality(parsed.personalities, parsed.personalityNote)).toBe("Be kind");
   });
 
   it("does not let appearance-only changes alter the greeting fingerprint", () => {
@@ -81,7 +81,7 @@ describe("waitlist v1 mappings", () => {
       appearance_catalog_version: "v1",
       appearance_key: "ghosty:fd304f",
       job: "Keep me on track",
-      personality: "Concise, Funny. Note: Be kind",
+      personality: "Be kind",
     });
   });
 

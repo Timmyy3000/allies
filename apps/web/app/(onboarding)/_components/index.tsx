@@ -43,7 +43,7 @@ const MOBILE_ACTOR_BOUNDS: StoryActorBounds = {
   width: MOBILE_ART_W,
   height: MOBILE_ART_H,
   offsetLeft: 20,
-  offsetTop: 128,
+  offsetTop: 72,
 };
 
 const DESKTOP_ROAM_OFFSETS = {
@@ -62,7 +62,11 @@ const MOBILE_ROAM_OFFSETS = {
 
 const IconSizeContext = createContext(24);
 
-function useArtboardScale(artW: number, maxScale = Number.POSITIVE_INFINITY) {
+function useArtboardScale(
+  artW: number,
+  artH: number,
+  maxScale = Number.POSITIVE_INFINITY,
+) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
   const [hostWidth, setHostWidth] = useState(artW);
@@ -73,8 +77,9 @@ function useArtboardScale(artW: number, maxScale = Number.POSITIVE_INFINITY) {
 
     const update = () => {
       const width = host.clientWidth;
+      const height = host.clientHeight;
       setHostWidth(width);
-      setScale(Math.min(width / artW, maxScale));
+      setScale(Math.min(width / artW, height / artH, maxScale));
     };
 
     update();
@@ -86,7 +91,7 @@ function useArtboardScale(artW: number, maxScale = Number.POSITIVE_INFINITY) {
       observer?.disconnect();
       window.removeEventListener("resize", update);
     };
-  }, [artW, maxScale]);
+  }, [artH, artW, maxScale]);
 
   return { hostRef, scale, hostWidth };
 }
@@ -202,8 +207,6 @@ function FollowAlly({
         zIndex: 2,
         width: 60,
         height: 58,
-        transform: "scale(0.64)",
-        transformOrigin: "0 0",
       }}
     >
       {ally === "red" ? (
@@ -245,27 +248,32 @@ function DesktopOnboarding({
   ctaHref?: string;
   onOpenOnboarding?: () => void;
 }) {
-  const { hostRef, scale, hostWidth } = useArtboardScale(DESKTOP_ART_W, 1);
+  const { hostRef, scale, hostWidth } = useArtboardScale(
+    DESKTOP_ART_W,
+    DESKTOP_ART_H,
+    1,
+  );
   const logicalViewportWidth = Math.max(
     DESKTOP_ART_W,
     hostWidth / Math.max(scale, Number.EPSILON),
   );
-  const artboardOffsetLeft = (logicalViewportWidth - DESKTOP_ART_W) / 2;
+  const logicalArtboardGutter = (logicalViewportWidth - DESKTOP_ART_W) / 2;
+  const artboardOffsetLeft = logicalArtboardGutter * scale;
   const desktopActorBounds: StoryActorBounds = {
     width: logicalViewportWidth,
     height: DESKTOP_ART_H,
-    offsetLeft: artboardOffsetLeft + DESKTOP_COPY_OFFSET.left,
+    offsetLeft: logicalArtboardGutter + DESKTOP_COPY_OFFSET.left,
     offsetTop: DESKTOP_COPY_OFFSET.top,
   };
   const [storyDone, setStoryDone] = useState(false);
   const [skipRequest, setSkipRequest] = useState(0);
+  const [skipVisible, setSkipVisible] = useState(true);
 
   return (
     <div
       ref={hostRef}
-      className="relative min-h-[100dvh] w-full overflow-hidden bg-[#fff]"
+      className="relative h-[100dvh] w-full overflow-hidden bg-[#fff]"
     >
-      <div style={{ height: DESKTOP_ART_H * scale, width: "100%" }} aria-hidden />
       <div
         className="absolute top-0 origin-top-left"
         style={{
@@ -325,10 +333,15 @@ function DesktopOnboarding({
           ) : null}
         </div>
         <FollowUs />
-        <SkipStoryButton
-          onClick={() => setSkipRequest((current) => current + 1)}
-          style={{ right: 387, top: 864 }}
-        />
+        {skipVisible && !storyDone ? (
+          <SkipStoryButton
+            onClick={() => {
+              setSkipVisible(false);
+              setSkipRequest((current) => current + 1);
+            }}
+            style={{ left: 1126, top: 864 }}
+          />
+        ) : null}
         <LogoMark />
       </div>
     </div>
@@ -344,20 +357,17 @@ function MobileOnboarding({
   ctaHref?: string;
   onboardingHref?: string;
 }) {
-  const { hostRef, scale } = useArtboardScale(MOBILE_ART_W);
+  const { hostRef, scale } = useArtboardScale(MOBILE_ART_W, MOBILE_ART_H);
   const [storyDone, setStoryDone] = useState(false);
   const [skipRequest, setSkipRequest] = useState(0);
+  const [skipVisible, setSkipVisible] = useState(true);
 
   return (
     <IconSizeContext.Provider value={16}>
       <div
         ref={hostRef}
-        className="relative min-h-[100dvh] w-full overflow-hidden bg-[#fff]"
+        className="relative h-[100dvh] w-full overflow-hidden bg-[#fff]"
       >
-        <div
-          style={{ height: MOBILE_ART_H * scale, width: "100%" }}
-          aria-hidden
-        />
         <div
           className="absolute left-0 top-0 origin-top-left"
           style={{
@@ -373,14 +383,14 @@ function MobileOnboarding({
             className="text"
             style={{
               left: 20,
-              top: 128,
+              top: 72,
               width: 335,
               position: "absolute",
               display: "flex",
               flexDirection: "column",
               alignItems: "flex-start",
               textAlign: "left",
-              lineHeight: "22px",
+              lineHeight: "20px",
               fontSize: 16,
               fontWeight: 600,
               fontStretch: "100%",
@@ -390,7 +400,7 @@ function MobileOnboarding({
           >
             <AnimatedCopy
               paragraphs={MOBILE_PARAGRAPHS}
-              paragraphGap={22}
+              paragraphGap={14}
               beats={STORY_BEATS}
               initialParagraphs={[0]}
               actorBounds={MOBILE_ACTOR_BOUNDS}
@@ -412,16 +422,21 @@ function MobileOnboarding({
                 href={ctaHref}
                 onboardingHref={onboardingHref}
                 fontSize={16}
-                marginTop={36}
+                marginTop={24}
               />
             ) : null}
           </div>
-          <SkipStoryButton
-            onClick={() => setSkipRequest((current) => current + 1)}
-            style={{ bottom: 110, left: 20 }}
-          />
+          {skipVisible && !storyDone ? (
+            <SkipStoryButton
+              onClick={() => {
+                setSkipVisible(false);
+                setSkipRequest((current) => current + 1);
+              }}
+              style={{ bottom: 20, left: 20 }}
+            />
+          ) : null}
           <FollowUs
-            top={71}
+            top={23}
             right={20.4}
             left="auto"
             columnGap={6}
@@ -430,7 +445,7 @@ function MobileOnboarding({
             iconWidth={14.7}
             iconHeight={15}
           />
-          <LogoMark left={20} top={68} />
+          <LogoMark left={20} top={20} />
         </div>
       </div>
     </IconSizeContext.Provider>
@@ -476,18 +491,7 @@ function SkipStoryButton({
       }}
     >
       <span>Skip</span>
-      <svg
-        aria-hidden="true"
-        focusable="false"
-        width="15"
-        height="15"
-        viewBox="0 0 15 15"
-        fill="none"
-        style={{ color: "#121212", flexShrink: 0 }}
-      >
-        <path d="M1 2.25 6.5 7.5 1 12.75V2.25Z" fill="currentColor" />
-        <path d="M7 2.25 12.5 7.5 7 12.75V2.25Z" fill="currentColor" />
-      </svg>
+      <Image src="/ally/icons/skip.svg" alt="" width={18} height={18} />
     </motion.button>
   );
 }

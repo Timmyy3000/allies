@@ -96,6 +96,10 @@ const INITIAL_STATE: OnboardingState = {
   personalityRaw: null,
 };
 
+function personalityPrompt(trait: string) {
+  return `Be ${trait.toLocaleLowerCase()}, `;
+}
+
 function reduceOnboardingState(state: OnboardingState, action: OnboardingAction): OnboardingState {
   switch (action.type) {
     case "setName":
@@ -108,14 +112,20 @@ function reduceOnboardingState(state: OnboardingState, action: OnboardingAction)
       return { ...state, color: action.color };
     case "setJob":
       return { ...state, job: action.job.slice(0, JOB_LIMIT) };
-    case "togglePersonality":
+    case "togglePersonality": {
+      const selected = state.personalities.includes(action.trait);
+      const prompt = personalityPrompt(action.trait);
       return {
         ...state,
         personalityRaw: null,
-        personalities: state.personalities.includes(action.trait)
+        personalities: selected
           ? state.personalities.filter((item) => item !== action.trait)
           : [...state.personalities, action.trait],
+        personalityNote: selected
+          ? state.personalityNote.replace(prompt, "")
+          : `${state.personalityNote}${prompt}`.slice(0, JOB_LIMIT),
       };
+    }
     case "setPersonalityNote":
       return {
         ...state,

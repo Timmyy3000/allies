@@ -82,12 +82,7 @@ export function serializePersonality(
   const selected = new Set(personalities);
   const traits = WAITLIST_PERSONALITIES.filter((trait) => selected.has(trait));
   const trimmedNote = note.trim();
-  const value = [
-    traits.length > 0 ? traits.join(", ") : "",
-    trimmedNote.length > 0 ? `Note: ${trimmedNote}` : "",
-  ]
-    .filter(Boolean)
-    .join(". ");
+  const value = trimmedNote.length > 0 ? trimmedNote : traits.join(", ");
 
   if (value.length === 0) return undefined;
   if (value.length > WAITLIST_CLOUD_TEXT_LIMIT) {
