@@ -544,6 +544,49 @@ textarea::placeholder {
   gap: 28px;
 }
 
+.onboarding-coming-alive-text {
+  width: 220px;
+  height: 32px;
+  color: #121212;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
+  line-height: 100%;
+}
+
+.particle-text {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.particle-text__canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.particle-text__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.shiny-text {
+  display: inline-block;
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
 .onboarding-coming-alive-page {
   align-items: center;
   justify-content: center;
@@ -623,7 +666,7 @@ textarea::placeholder {
   height: 48px;
   padding: 0 6px 0 16px;
   box-sizing: border-box;
-  border-radius: 999px;
+  border-radius: 100px;
   background: #f3f3f3;
 }
 
@@ -644,13 +687,62 @@ textarea::placeholder {
   display: grid;
   flex-shrink: 0;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
   border: 0;
-  border-radius: 50%;
+  border-radius: 24px;
   color: #fff;
   font-size: 16px;
   line-height: 1;
+}
+
+.waitlist-complete-page {
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+.waitlist-complete-content {
+  display: flex;
+  width: 100%;
+  max-width: 360px;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+}
+
+.waitlist-complete-friends {
+  display: flex;
+  height: 76px;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 8px;
+}
+
+.waitlist-complete-content h1 {
+  margin: 0;
+  color: #121212;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  line-height: 100%;
+}
+
+.waitlist-complete-follow {
+  display: flex;
+  width: 100%;
+  height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: 60px;
+  color: #fff;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
+  line-height: 100%;
+  text-decoration: none;
 }
 
 .onboarding-footer {
