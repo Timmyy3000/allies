@@ -8,12 +8,17 @@ import {
   useReducedMotion,
 } from "motion/react";
 import Image from "next/image";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { Artboard } from "@/components/artboard";
 import { AllyAvatar, type AllyShape } from "@/components/ally-avatar";
 import { getAccentPalette } from "@/components/next-button";
-import { ParticleText } from "@/components/text-animations/particle-text";
 import { ShinyText } from "@/components/text-animations/shiny-text";
 import { captureWaitlistEvent } from "@/lib/analytics/waitlist";
 import { useOnboardingStore } from "../_store/onboarding-store";
@@ -333,6 +338,26 @@ function errorMessage(
   );
 }
 
+function WavyText({ text }: { text: string }) {
+  return (
+    <span className="onboarding-coming-alive-text" aria-label={text}>
+      {Array.from(text).map((character, index) => (
+        <span
+          key={`${character}-${index}`}
+          aria-hidden="true"
+          style={
+            {
+              "--wave-delay": `${index * 70}ms`,
+            } as CSSProperties
+          }
+        >
+          {character === " " ? "\u00a0" : character}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function WaitlistPreviewScreen() {
   const name = useOnboardingStore((state) => state.name);
   const shape = useOnboardingStore((state) => state.shape);
@@ -539,11 +564,7 @@ export function WaitlistPreviewScreen() {
               motionMode="system"
               label={`${name || "Your"} Ally`}
             />
-            <ParticleText
-              text="Coming alive...."
-              color="#121212"
-              className="onboarding-coming-alive-text"
-            />
+            <WavyText text="Coming alive...." />
           </motion.div>
         </div>
       </Artboard>
