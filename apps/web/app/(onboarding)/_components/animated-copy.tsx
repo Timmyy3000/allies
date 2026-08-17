@@ -125,10 +125,10 @@ const RESTING_HORIZONTAL_MARGIN = 4;
 const RESTING_VERTICAL_MARGIN = 4;
 
 const CONVERGENCE_OFFSETS: Record<AllyKind, Position> = {
-  yellow: { left: -9, top: -9 },
-  blue: { left: 9, top: -9 },
-  green: { left: -9, top: 9 },
-  red: { left: 9, top: 9 },
+  blue: { left: -30, top: 0 },
+  green: { left: -10, top: 0 },
+  red: { left: 10, top: 0 },
+  yellow: { left: 30, top: 0 },
 };
 
 function roamingBounds(viewportWidth: number, viewportHeight: number) {
