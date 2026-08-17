@@ -22,7 +22,7 @@ A first-ally onboarding flow on **`/onboarding`**. The welcome screen ends with 
 | job-description-2 | Job (filled) | Counter `N characters left`. Next uses selected colour. |
 | personality-page | Personality | Chips: Concise, Quirky, Analytical, Funny. Optional note field. Save opens the Ally handoff. |
 | coming-alive | Ally handoff | The selected Ally grows from the persistent question-screen preview, breathes once, and settles into the conversation header. |
-| conversation | First conversation | The selected Ally stays in the header with its name, shows Thinking while the first hello is prepared, and keeps the reply composer anchored at the bottom. |
+| conversation | First conversation | While the first hello is prepared, the selected Ally appears only beside Thinking. When the greeting is ready, that same Ally moves into the compact top-left name header and the reply composer stays anchored at the bottom. |
 
 ## Copy
 
@@ -70,7 +70,7 @@ A first-ally onboarding flow on **`/onboarding`**. The welcome screen ends with 
 7. `Next` → job (`job-description-1`). Next inactive until the user types.
 8. Typing enables Next in the selected colour (`job-description-2`). 200 character max.
 9. `Next` → personality. Select one or more chips (and/or type a note) to enable Next in the selected colour.
-10. Saving personality opens the coming-alive handoff, then settles into the first conversation view with the Ally name and Thinking state.
+10. Saving personality opens the coming-alive handoff, then shows the Ally only beside Thinking while the first hello is prepared. Once ready, that same Ally moves into the top-left name header.
 11. The save-your-Ally sheet keeps waitlist capture available; a successful join resolves to the See you soon state.
 12. Back from name returns to welcome. Later backs return to the previous step. URL stays `/onboarding`.
 

@@ -1,7 +1,7 @@
 import createOpenApiClient from "openapi-fetch";
 import { z } from "zod";
 
-import type { operations, paths } from "./generated/openapi";
+import type { paths } from "./generated/openapi";
 import { isCloudError, normalizeCloudError, type CloudError } from "./errors";
 import { parsePublicCloudUrl } from "./environment";
 import { toAccountViewModel, type AccountViewModel } from "./mappers/account";
@@ -56,72 +56,15 @@ const returnPathSchema = z
     return false;
   });
 
-const waitlistAcknowledgementSchema = z.object({
-  operation: z.string(),
-  result_lifecycle: z.string(),
-  result_revision: z.number(),
-});
 const maskedEmailSchema = z
   .string()
   .regex(/^[^@\s]+@[^@\s]+$/)
   .refine((value) => value.slice(0, value.indexOf("@")).includes("*"));
-const waitlistConfigurationSchema = z.object({
-  name: z.string().nullable().optional(),
-  appearance_catalog_version: z.string().nullable().optional(),
-  appearance_key: z.string().nullable().optional(),
-  job: z.string().nullable().optional(),
-  personality: z.string().nullable().optional(),
+const waitlistEntrySchema = z.object({
+  attempt_token: z.string().min(32),
+  greeting: z.string().min(1),
 });
-const waitlistGreetingSchema = z.object({
-  text: z.string(),
-  policy_version: z.string(),
-  generated_at: z.string(),
-});
-const waitlistReplySchema = z.object({
-  text: z.string(),
-  status: z.literal("pending"),
-  recorded_at: z.string(),
-});
-const waitlistJoinSnapshotSchema = z.object({
-  email: maskedEmailSchema,
-  joined_at: z.string(),
-});
-const waitlistTimestampsSchema = z.object({
-  created_at: z.string().nullable().optional(),
-  expires_at: z.string().nullable().optional(),
-  generated_at: z.string().nullable().optional(),
-  joined_at: z.string().nullable().optional(),
-  replied_at: z.string().nullable().optional(),
-  updated_at: z.string().nullable().optional(),
-});
-const waitlistSnapshotSchema = z.object({
-  configuration: waitlistConfigurationSchema,
-  greeting: z.unknown().nullable().optional(),
-  id: z.string().min(1),
-  join: z.unknown().nullable().optional(),
-  lifecycle: z.string(),
-  reply: z.unknown().nullable().optional(),
-  revision: z.number(),
-  timestamps: waitlistTimestampsSchema,
-});
-const waitlistJoinConfirmationSchema = z.object({
-  email: maskedEmailSchema.nullable().optional(),
-  operation: z.string(),
-  result_lifecycle: z.string(),
-  result_revision: z.number(),
-});
-
-type WaitlistCreateOperation = operations["waitlist_create_273618b3"];
-type WaitlistMutationHeaders = NonNullable<WaitlistCreateOperation["parameters"]["header"]>;
-
-function waitlistMutationInit(idempotencyKey: string, signal?: AbortSignal) {
-  const headers: WaitlistMutationHeaders = {
-    "Idempotency-Key": idempotencyKey,
-    // The app-owned request preparer replaces this with the readable csrftoken cookie.
-    "X-CSRFToken": "",
-  };
-  return { params: { header: headers }, signal: normalizeRequestSignal(signal) };
-}
+const waitlistCompletionSchema = z.object({ email: maskedEmailSchema });
 
 function normalizeRequestSignal(signal?: AbortSignal): AbortSignal | undefined {
   if (!signal) return undefined;
@@ -158,87 +101,29 @@ export interface WorkspaceViewModel {
   capabilities: string[];
 }
 
-export interface WaitlistConfigurationViewModel {
-  name: string | null;
-  appearanceCatalogVersion: string | null;
-  appearanceKey: string | null;
-  job: string | null;
-  personality: string | null;
+export interface WaitlistEntryInput {
+  attemptId: string;
+  name: string;
+  appearanceCatalogVersion: string;
+  appearanceKey: string;
+  job: string;
+  personality: string;
 }
 
-export interface WaitlistGreetingViewModel {
-  text: string;
-  policyVersion: string;
-  generatedAt: string;
+export interface WaitlistEntryViewModel {
+  attemptToken: string;
+  greeting: string;
 }
 
-export interface WaitlistReplyViewModel {
-  text: string;
-  status: "pending";
-  recordedAt: string;
-}
-
-export interface WaitlistJoinSnapshotViewModel {
-  email: string;
-  joinedAt: string;
-}
-
-export interface WaitlistTimestampsViewModel {
-  createdAt: string | null;
-  expiresAt: string | null;
-  generatedAt: string | null;
-  joinedAt: string | null;
-  repliedAt: string | null;
-  updatedAt: string | null;
-}
-
-export interface WaitlistSnapshotViewModel {
-  id: string;
-  lifecycle: string;
-  revision: number;
-  configuration: WaitlistConfigurationViewModel;
-  greeting: WaitlistGreetingViewModel | null;
-  reply: WaitlistReplyViewModel | null;
-  join: WaitlistJoinSnapshotViewModel | null;
-  timestamps: WaitlistTimestampsViewModel;
-}
-
-export interface WaitlistAcknowledgementViewModel {
-  operation: string;
-  resultLifecycle: string;
-  resultRevision: number;
-}
-
-export interface WaitlistJoinConfirmationViewModel extends WaitlistAcknowledgementViewModel {
-  email: string | null;
-}
-
-export interface WaitlistConfigurationInput {
-  revision: number;
-  idempotencyKey: string;
-  name?: string | null;
-  appearanceCatalogVersion?: string | null;
-  appearanceKey?: string | null;
-  job?: string | null;
-  personality?: string | null;
-}
-
-export interface WaitlistGreetingInput {
-  revision: number;
-  idempotencyKey: string;
-}
-
-export interface WaitlistReplyInput {
-  revision: number;
-  idempotencyKey: string;
-  text: string;
-}
-
-export interface WaitlistJoinInput {
-  revision: number;
-  idempotencyKey: string;
+export interface WaitlistCompletionInput {
+  attemptToken: string;
+  reply: string;
   email: string;
   consentVersion: string;
+}
+
+export interface WaitlistCompletionViewModel {
+  email: string;
 }
 
 export interface CloudClientOptions {
@@ -404,104 +289,46 @@ export function createCloudClient(options: CloudClientOptions) {
       );
     },
 
-    async getWaitlistSession(signal?: AbortSignal): Promise<void> {
-      rejectPreAborted(signal);
-      await noContent(api.GET("/api/v1/waitlist/session", { signal: normalizeRequestSignal(signal) }) as Promise<ApiResult>);
-    },
-
-    async createWaitlistDraft(
-      idempotencyKey: string,
+    async createWaitlistEntry(
+      input: WaitlistEntryInput,
       signal?: AbortSignal,
-    ): Promise<WaitlistAcknowledgementViewModel> {
+    ): Promise<WaitlistEntryViewModel> {
       rejectPreAborted(signal);
       return unwrap(
-        api.POST("/api/v1/waitlist/draft", waitlistMutationInit(idempotencyKey, signal)) as Promise<ApiResult>,
-        mapWaitlistAcknowledgement,
-      );
-    },
-
-    async getWaitlistDraft(signal?: AbortSignal): Promise<WaitlistSnapshotViewModel> {
-      rejectPreAborted(signal);
-      return unwrap(
-        api.GET("/api/v1/waitlist/draft", { signal: normalizeRequestSignal(signal) }) as Promise<ApiResult>,
-        mapWaitlistSnapshot,
-      );
-    },
-
-    async updateWaitlistConfiguration(
-      input: WaitlistConfigurationInput,
-      signal?: AbortSignal,
-    ): Promise<WaitlistAcknowledgementViewModel> {
-      rejectPreAborted(signal);
-      return unwrap(
-        api.PATCH("/api/v1/waitlist/draft/configuration", {
-          ...waitlistMutationInit(input.idempotencyKey, signal),
+        api.POST("/api/v1/waitlist/entries", {
           body: {
-            revision: input.revision,
-            ...(input.name !== undefined ? { name: input.name } : {}),
-            ...(input.appearanceCatalogVersion !== undefined
-              ? { appearance_catalog_version: input.appearanceCatalogVersion }
-              : {}),
-            ...(input.appearanceKey !== undefined ? { appearance_key: input.appearanceKey } : {}),
-            ...(input.job !== undefined ? { job: input.job } : {}),
-            ...(input.personality !== undefined ? { personality: input.personality } : {}),
+            attempt_id: input.attemptId,
+            name: input.name,
+            appearance_catalog_version: input.appearanceCatalogVersion,
+            appearance_key: input.appearanceKey,
+            job: input.job,
+            personality: input.personality,
           },
+          signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
-        mapWaitlistAcknowledgement,
+        (data) => {
+          const entry = successEnvelope(waitlistEntrySchema).parse(data).data;
+          return { attemptToken: entry.attempt_token, greeting: entry.greeting };
+        },
       );
     },
 
-    async generateWaitlistGreeting(
-      input: WaitlistGreetingInput,
+    async completeWaitlistEntry(
+      input: WaitlistCompletionInput,
       signal?: AbortSignal,
-    ): Promise<WaitlistAcknowledgementViewModel> {
+    ): Promise<WaitlistCompletionViewModel> {
       rejectPreAborted(signal);
       return unwrap(
-        api.POST("/api/v1/waitlist/draft/greeting", {
-          ...waitlistMutationInit(input.idempotencyKey, signal),
-          body: { revision: input.revision },
-        }) as Promise<ApiResult>,
-        mapWaitlistAcknowledgement,
-      );
-    },
-
-    async recordWaitlistReply(
-      input: WaitlistReplyInput,
-      signal?: AbortSignal,
-    ): Promise<WaitlistAcknowledgementViewModel> {
-      rejectPreAborted(signal);
-      return unwrap(
-        api.POST("/api/v1/waitlist/draft/reply", {
-          ...waitlistMutationInit(input.idempotencyKey, signal),
-          body: { revision: input.revision, text: input.text },
-        }) as Promise<ApiResult>,
-        mapWaitlistAcknowledgement,
-      );
-    },
-
-    async joinWaitlist(
-      input: WaitlistJoinInput,
-      signal?: AbortSignal,
-    ): Promise<WaitlistJoinConfirmationViewModel> {
-      rejectPreAborted(signal);
-      return unwrap(
-        api.POST("/api/v1/waitlist/draft/join", {
-          ...waitlistMutationInit(input.idempotencyKey, signal),
+        api.POST("/api/v1/waitlist/entries/complete", {
           body: {
-            revision: input.revision,
+            attempt_token: input.attemptToken,
+            reply: input.reply,
             email: input.email,
             consent_version: input.consentVersion,
           },
+          signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
-        (data) => {
-          const confirmation = successEnvelope(waitlistJoinConfirmationSchema).parse(data).data;
-          return {
-            email: confirmation.email ?? null,
-            operation: confirmation.operation,
-            resultLifecycle: confirmation.result_lifecycle,
-            resultRevision: confirmation.result_revision,
-          };
-        },
+        (data) => successEnvelope(waitlistCompletionSchema).parse(data).data,
       );
     },
   };
@@ -513,65 +340,6 @@ function mapAvatar(data: unknown): AvatarViewModel {
     assetId: avatar.asset_id,
     url: avatar.url ?? null,
     expiresAt: avatar.expires_at ?? null,
-  };
-}
-
-function mapWaitlistAcknowledgement(data: unknown): WaitlistAcknowledgementViewModel {
-  const acknowledgement = successEnvelope(waitlistAcknowledgementSchema).parse(data).data;
-  return {
-    operation: acknowledgement.operation,
-    resultLifecycle: acknowledgement.result_lifecycle,
-    resultRevision: acknowledgement.result_revision,
-  };
-}
-
-function parseOptionalWaitlistSection<T>(value: unknown, schema: z.ZodType<T>): T | null {
-  if (value === null || value === undefined) return null;
-  const parsed = schema.safeParse(value);
-  return parsed.success ? parsed.data : null;
-}
-
-function mapWaitlistSnapshot(data: unknown): WaitlistSnapshotViewModel {
-  const snapshot = successEnvelope(waitlistSnapshotSchema).parse(data).data;
-  const greeting = parseOptionalWaitlistSection(snapshot.greeting, waitlistGreetingSchema);
-  const reply = parseOptionalWaitlistSection(snapshot.reply, waitlistReplySchema);
-  const join = parseOptionalWaitlistSection(snapshot.join, waitlistJoinSnapshotSchema);
-  return {
-    id: snapshot.id,
-    lifecycle: snapshot.lifecycle,
-    revision: snapshot.revision,
-    configuration: {
-      name: snapshot.configuration.name ?? null,
-      appearanceCatalogVersion: snapshot.configuration.appearance_catalog_version ?? null,
-      appearanceKey: snapshot.configuration.appearance_key ?? null,
-      job: snapshot.configuration.job ?? null,
-      personality: snapshot.configuration.personality ?? null,
-    },
-    greeting: greeting
-      ? {
-          text: greeting.text,
-          policyVersion: greeting.policy_version,
-          generatedAt: greeting.generated_at,
-        }
-      : null,
-    reply: reply
-      ? {
-          text: reply.text,
-          status: reply.status,
-          recordedAt: reply.recorded_at,
-        }
-      : null,
-    join: join
-      ? { email: join.email, joinedAt: join.joined_at }
-      : null,
-    timestamps: {
-      createdAt: snapshot.timestamps.created_at ?? null,
-      expiresAt: snapshot.timestamps.expires_at ?? null,
-      generatedAt: snapshot.timestamps.generated_at ?? null,
-      joinedAt: snapshot.timestamps.joined_at ?? null,
-      repliedAt: snapshot.timestamps.replied_at ?? null,
-      updatedAt: snapshot.timestamps.updated_at ?? null,
-    },
   };
 }
 
