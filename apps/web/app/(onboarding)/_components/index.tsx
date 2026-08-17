@@ -16,6 +16,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AllyAvatar } from "@/components/ally-avatar";
+import { captureWaitlistEvent } from "@/lib/analytics/waitlist";
 import {
   AnimatedCopy,
   type AllyAnimationState,
@@ -142,7 +143,7 @@ export default function Onboarding({
   }, [isDrawerPresentation, router]);
 
   if (!isDrawerPresentation) {
-    return <OnboardingStepFlow onExit={exitOnboarding} />;
+    return <OnboardingStepFlow onExit={exitOnboarding} presentation="route" />;
   }
 
   return (
@@ -167,16 +168,37 @@ export default function Onboarding({
           onClose={closeDrawer}
           onClosed={resetAfterDrawerClose}
         >
-          <OnboardingStepFlow onExit={exitOnboarding} />
+          <OnboardingStepFlow onExit={exitOnboarding} presentation="drawer" />
         </OnboardingDrawer>
       ) : null}
     </>
   );
 }
 
-function OnboardingStepFlow({ onExit }: { onExit: () => void }) {
+function OnboardingStepFlow({
+  onExit,
+  presentation,
+}: {
+  onExit: () => void;
+  presentation: "drawer" | "route";
+}) {
   const step = useOnboardingStore((state) => state.step);
   const prefersReducedMotion = useReducedMotion() ?? false;
+  const hasTrackedStart = useRef(false);
+  const lastTrackedStep = useRef<typeof step | null>(null);
+
+  useEffect(() => {
+    if (step === "welcome" || lastTrackedStep.current === step) return;
+    if (!hasTrackedStart.current) {
+      captureWaitlistEvent("waitlist_onboarding_started", { presentation });
+      hasTrackedStart.current = true;
+    }
+    captureWaitlistEvent("waitlist_onboarding_step_viewed", {
+      presentation,
+      step,
+    });
+    lastTrackedStep.current = step;
+  }, [presentation, step]);
 
   return (
     <LayoutGroup id="onboarding-flow">
@@ -1551,6 +1573,9 @@ function FollowUs({
       target="_blank"
       rel="noreferrer"
       aria-label="Follow Allies on X at @allies_ai"
+      onClick={() =>
+        captureWaitlistEvent("waitlist_follow_clicked", { source: "landing" })
+      }
       style={{
         display: "flex",
         flexDirection: "row",
