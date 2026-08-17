@@ -274,7 +274,12 @@ CSRF_TRUSTED_ORIGINS = env_list(
     "ALLIES_TRUSTED_ORIGINS",
     "http://localhost:3000,http://127.0.0.1:3000" if DEBUG else "",
 )
-CORS_ALLOWED_ORIGINS = list(CSRF_TRUSTED_ORIGINS)
+CORS_ALLOWED_ORIGINS = [origin for origin in CSRF_TRUSTED_ORIGINS if "*" not in origin]
+CORS_ALLOWED_ORIGIN_REGEXES = [
+    r"^" + re.escape(origin).replace(r"\*", r"[^./:]+") + r"$"
+    for origin in CSRF_TRUSTED_ORIGINS
+    if "*" in origin
+]
 CORS_ALLOW_CREDENTIALS = True
 CORS_EXPOSE_HEADERS = ["X-CSRFToken"]
 
@@ -421,20 +426,7 @@ CELERY_BEAT_SCHEDULE = {
 # CLD-008 Cloud waitlist preview.  The feature is deliberately disabled until
 # staging has explicit provider, consent, origin, and retention decisions.
 ALLIES_WAITLIST_ENABLED = env_bool("ALLIES_WAITLIST_ENABLED", False)
-ALLIES_WAITLIST_CAPABILITY_KEY = os.environ.get("ALLIES_WAITLIST_CAPABILITY_KEY", "")
-ALLIES_WAITLIST_CAPABILITY_COOKIE = os.environ.get(
-    "ALLIES_WAITLIST_CAPABILITY_COOKIE", "allies_waitlist_capability"
-)
-ALLIES_WAITLIST_CAPABILITY_COOKIE_PATH = os.environ.get(
-    "ALLIES_WAITLIST_CAPABILITY_COOKIE_PATH", "/api/v1/waitlist/"
-)
-ALLIES_WAITLIST_CAPABILITY_TTL_SECONDS = env_positive_int(
-    "ALLIES_WAITLIST_CAPABILITY_TTL_SECONDS", 7 * 24 * 60 * 60
-)
-ALLIES_WAITLIST_COOKIE_SECURE = env_bool("ALLIES_WAITLIST_COOKIE_SECURE", not DEBUG)
-ALLIES_WAITLIST_COOKIE_SAMESITE = os.environ.get(
-    "ALLIES_WAITLIST_COOKIE_SAMESITE", "Lax"
-)
+ALLIES_WAITLIST_TOKEN_KEY = os.environ.get("ALLIES_WAITLIST_TOKEN_KEY", "")
 ALLIES_WAITLIST_ABANDONED_RETENTION_SECONDS = env_positive_int(
     "ALLIES_WAITLIST_ABANDONED_RETENTION_SECONDS", 7 * 24 * 60 * 60
 )
@@ -470,59 +462,11 @@ ALLIES_WAITLIST_GENERATION_TIMEOUT_SECONDS = env_positive_float(
 ALLIES_WAITLIST_GENERATION_MAX_OUTPUT_CHARS = env_positive_int(
     "ALLIES_WAITLIST_GENERATION_MAX_OUTPUT_CHARS", 1200
 )
-ALLIES_WAITLIST_GENERATION_ATTEMPT_COOLDOWN_SECONDS = env_positive_int(
-    "ALLIES_WAITLIST_GENERATION_ATTEMPT_COOLDOWN_SECONDS", 60
-)
-ALLIES_WAITLIST_GENERATION_ATTEMPT_CAP = env_positive_int(
-    "ALLIES_WAITLIST_GENERATION_ATTEMPT_CAP", 3
-)
 ALLIES_WAITLIST_GENERATION_GLOBAL_CONCURRENCY = env_positive_int(
     "ALLIES_WAITLIST_GENERATION_GLOBAL_CONCURRENCY", 4
 )
-ALLIES_WAITLIST_GENERATION_GLOBAL_BUDGET_PER_MINUTE = env_positive_int(
-    "ALLIES_WAITLIST_GENERATION_GLOBAL_BUDGET_PER_MINUTE", 100
-)
-ALLIES_WAITLIST_GENERATION_CAPABILITY_BUDGET_PER_MINUTE = env_positive_int(
-    "ALLIES_WAITLIST_GENERATION_CAPABILITY_BUDGET_PER_MINUTE", 5
-)
-ALLIES_WAITLIST_OPERATION_RECEIPT_CAP = env_positive_int(
-    "ALLIES_WAITLIST_OPERATION_RECEIPT_CAP", 64
-)
-ALLIES_WAITLIST_OPERATION_RECEIPT_CAPS = {
-    # Keep reply/join headroom after configuration and generation retries have
-    # consumed their quotas; the total cap remains the hard upper bound.
-    "create": 1,
-    "configure": 16,
-    "generate": 16,
-    "reply": 15,
-    "join": 16,
-}
-ALLIES_WAITLIST_BOOTSTRAP_CAPACITY = env_positive_int(
-    "ALLIES_WAITLIST_BOOTSTRAP_CAPACITY", 30
-)
-ALLIES_WAITLIST_BOOTSTRAP_REFILL_SECONDS = env_positive_float(
-    "ALLIES_WAITLIST_BOOTSTRAP_REFILL_SECONDS", 1.0
-)
-ALLIES_WAITLIST_CREATION_CAPACITY = env_positive_int(
-    "ALLIES_WAITLIST_CREATION_CAPACITY", 120
-)
-ALLIES_WAITLIST_CREATION_REFILL_SECONDS = env_positive_float(
-    "ALLIES_WAITLIST_CREATION_REFILL_SECONDS", 1.0
-)
-# Cleanup removes at most 100 abandoned drafts every 15 minutes.  The global
-# bucket therefore allows one bounded cleanup-sized burst and refills at the
-# same long-run rate, regardless of how many client identities are used.
-ALLIES_WAITLIST_GLOBAL_CREATION_CAPACITY = env_positive_int(
-    "ALLIES_WAITLIST_GLOBAL_CREATION_CAPACITY", 100
-)
-ALLIES_WAITLIST_GLOBAL_CREATION_REFILL_SECONDS = env_positive_float(
-    "ALLIES_WAITLIST_GLOBAL_CREATION_REFILL_SECONDS", 9.0
-)
-ALLIES_WAITLIST_CAPABILITY_CAPACITY = env_positive_int(
-    "ALLIES_WAITLIST_CAPABILITY_CAPACITY", 30
-)
-ALLIES_WAITLIST_CAPABILITY_REFILL_SECONDS = env_positive_float(
-    "ALLIES_WAITLIST_CAPABILITY_REFILL_SECONDS", 1.0
+ALLIES_WAITLIST_GENERATION_ATTEMPT_BUDGET_PER_MINUTE = env_positive_int(
+    "ALLIES_WAITLIST_GENERATION_ATTEMPT_BUDGET_PER_MINUTE", 5
 )
 
 
@@ -542,20 +486,8 @@ if ALLIES_WAITLIST_ENABLED and DEBUG:
     waitlist_debug_missing = []
     if not CACHE_URL:
         waitlist_debug_missing.append("CACHE_URL")
-    if len(ALLIES_WAITLIST_CAPABILITY_KEY.encode()) < 32:
-        waitlist_debug_missing.append(
-            "ALLIES_WAITLIST_CAPABILITY_KEY (at least 32 bytes)"
-        )
-    if not ALLIES_WAITLIST_COOKIE_SECURE:
-        waitlist_debug_missing.append("ALLIES_WAITLIST_COOKIE_SECURE=true")
-    if ALLIES_WAITLIST_CAPABILITY_COOKIE_PATH != "/api/v1/waitlist/":
-        waitlist_debug_missing.append(
-            "ALLIES_WAITLIST_CAPABILITY_COOKIE_PATH=/api/v1/waitlist/"
-        )
-    if ALLIES_WAITLIST_COOKIE_SAMESITE.lower() not in {"lax", "strict", "none"}:
-        waitlist_debug_missing.append(
-            "ALLIES_WAITLIST_COOKIE_SAMESITE must be Lax, Strict, or None"
-        )
+    if len(ALLIES_WAITLIST_TOKEN_KEY.encode()) < 32:
+        waitlist_debug_missing.append("ALLIES_WAITLIST_TOKEN_KEY (at least 32 bytes)")
     if (
         ALLIES_WAITLIST_PROVIDER_ENABLED
         and ALLIES_WAITLIST_PROVIDER == "openai"
@@ -572,38 +504,14 @@ if ALLIES_WAITLIST_ENABLED and DEBUG:
 
 if ALLIES_WAITLIST_ENABLED and not DEBUG:
     waitlist_missing = []
-    if len(ALLIES_WAITLIST_CAPABILITY_KEY.encode()) < 32:
-        waitlist_missing.append("ALLIES_WAITLIST_CAPABILITY_KEY (at least 32 bytes)")
-    if not re.fullmatch(
-        r"[!#$%&'*+\-.^_`|~0-9A-Za-z]{1,128}", ALLIES_WAITLIST_CAPABILITY_COOKIE
-    ):
-        waitlist_missing.append(
-            "ALLIES_WAITLIST_CAPABILITY_COOKIE must be a valid cookie name"
-        )
-    if ALLIES_WAITLIST_COOKIE_SAMESITE.lower() not in {"lax", "strict", "none"}:
-        waitlist_missing.append(
-            "ALLIES_WAITLIST_COOKIE_SAMESITE must be Lax, Strict, or None"
-        )
+    if len(ALLIES_WAITLIST_TOKEN_KEY.encode()) < 32:
+        waitlist_missing.append("ALLIES_WAITLIST_TOKEN_KEY (at least 32 bytes)")
     if not CACHE_URL:
         waitlist_missing.append("CACHE_URL")
     if not ALLIES_WAITLIST_CONSENT_VERSION:
         waitlist_missing.append("ALLIES_WAITLIST_CONSENT_VERSION")
     if ALLIES_WAITLIST_JOINED_RETENTION_SECONDS is None:
         waitlist_missing.append("ALLIES_WAITLIST_JOINED_RETENTION_SECONDS")
-    if not ALLIES_WAITLIST_COOKIE_SECURE:
-        waitlist_missing.append("ALLIES_WAITLIST_COOKIE_SECURE=true")
-    if ALLIES_WAITLIST_CAPABILITY_COOKIE_PATH != "/api/v1/waitlist/":
-        waitlist_missing.append(
-            "ALLIES_WAITLIST_CAPABILITY_COOKIE_PATH=/api/v1/waitlist/"
-        )
-    if (
-        ALLIES_WAITLIST_CAPABILITY_TTL_SECONDS
-        < ALLIES_WAITLIST_ABANDONED_RETENTION_SECONDS
-    ):
-        waitlist_missing.append(
-            "ALLIES_WAITLIST_CAPABILITY_TTL_SECONDS must be at least "
-            "ALLIES_WAITLIST_ABANDONED_RETENTION_SECONDS"
-        )
     if ALLIES_WAITLIST_PROVIDER_ENABLED:
         if ALLIES_WAITLIST_PROVIDER != "openai":
             waitlist_missing.append("ALLIES_WAITLIST_PROVIDER=openai")
@@ -621,9 +529,8 @@ if ALLIES_WAITLIST_ENABLED and not DEBUG:
         )
 
 if ALLIES_WAITLIST_ENABLED:
-    # Keep enabled waitlist cleanup on the existing Cloud queue/scheduler.
-    CELERY_BEAT_SCHEDULE["cleanup-waitlist-drafts"] = {
-        "task": "waitlist.cleanup_waitlist_drafts",
+    CELERY_BEAT_SCHEDULE["cleanup-waitlist-entries"] = {
+        "task": "waitlist.cleanup_waitlist_entries",
         "schedule": 900.0,
         "options": {"queue": "cloud"},
     }

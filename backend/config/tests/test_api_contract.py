@@ -1,15 +1,10 @@
 import json
 import logging
-from copy import deepcopy
 
 from django.test import RequestFactory
 
 from config.api import _unhandled_error, api
-from config.openapi import (
-    GENERIC_ERROR_RESPONSE_EXAMPLE,
-    STANDARD_RESPONSE_EXAMPLES,
-    add_standard_response_examples,
-)
+from config.openapi import GENERIC_ERROR_RESPONSE_EXAMPLE, STANDARD_RESPONSE_EXAMPLES
 
 PROTECTED_OPERATIONS = {
     ("/api/v1/auths/sign-in/{provider}", "post"),
@@ -94,54 +89,21 @@ def test_error_responses_publish_safe_route_examples():
                         assert content["example"] == GENERIC_ERROR_RESPONSE_EXAMPLE
 
 
-def test_waitlist_openapi_declares_cookie_security_and_retry_headers():
+def test_waitlist_openapi_declares_two_public_origin_checked_mutations():
     schema = api.get_openapi_schema()
-    capability = schema["components"]["securitySchemes"]["WaitlistCapability"]
-    assert capability == {
-        "type": "apiKey",
-        "in": "cookie",
-        "name": "allies_waitlist_capability",
-        "description": "HttpOnly browser capability issued by GET /waitlist/session.",
+    waitlist_paths = {path for path in schema["paths"] if "/waitlist/" in path}
+    assert waitlist_paths == {
+        "/api/v1/waitlist/entries",
+        "/api/v1/waitlist/entries/complete",
     }
-    session = schema["paths"]["/api/v1/waitlist/session"]["get"]
-    assert session["security"] == []
-    assert {parameter["name"] for parameter in session["parameters"]} == {
-        "Origin",
-        "Referer",
-    }
-    assert "trusted frontend origin" in session["description"]
-    restore = schema["paths"]["/api/v1/waitlist/draft"]["get"]
-    assert restore["security"] == [{"WaitlistCapability": []}]
-    assert 403 in restore["responses"]
-    assert {parameter["name"] for parameter in restore["parameters"]} == {
-        "Origin",
-        "Referer",
-    }
-    renamed_schema = deepcopy(schema)
-    renamed_restore = renamed_schema["paths"]["/api/v1/waitlist/draft"]["get"]
-    renamed_restore["operationId"] = "get_waitlist_draft"
-    renamed_restore.pop("parameters", None)
-    add_standard_response_examples(renamed_schema)
-    assert {parameter["name"] for parameter in renamed_restore["parameters"]} == {
-        "Origin",
-        "Referer",
-    }
-    configure = schema["paths"]["/api/v1/waitlist/draft/configuration"]["patch"]
-    assert configure["security"] == [{"WaitlistCapability": []}]
-    assert {parameter["name"] for parameter in configure["parameters"]} == {
-        "Idempotency-Key",
-        "Origin",
-        "Referer",
-        "X-CSRFToken",
-    }
-    greeting_errors = schema["paths"]["/api/v1/waitlist/draft/greeting"]["post"][
-        "responses"
-    ][503]["content"]["application/json"]["examples"]
-    assert set(greeting_errors) == {
-        "generation_outcome_unknown",
-        "generation_unavailable",
-        "waitlist_unavailable",
-    }
+    for path in waitlist_paths:
+        operation = schema["paths"][path]["post"]
+        assert operation["security"] == []
+        assert {parameter["name"] for parameter in operation["parameters"]} == {
+            "Origin",
+            "Referer",
+        }
+        assert "trusted frontend origin" in operation["description"]
 
 
 def test_unhandled_error_logs_traceback_and_returns_generic_envelope(caplog):

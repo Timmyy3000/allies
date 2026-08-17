@@ -81,6 +81,26 @@ def test_production_settings_accept_complete_disabled_integrations():
     assert result.returncode == 0, result.stderr
 
 
+def test_trusted_origin_wildcards_become_cors_regexes():
+    result = _settings_subprocess(
+        {
+            "DJANGO_DEBUG": "true",
+            "ALLIES_TRUSTED_ORIGINS": (
+                "https://*.up.railway.app,http://localhost:3000"
+            ),
+        },
+        (
+            "import config.settings as s; "
+            "assert s.CORS_ALLOWED_ORIGINS == ['http://localhost:3000']; "
+            "assert len(s.CORS_ALLOWED_ORIGIN_REGEXES) == 1; "
+            "assert __import__('re').match(s.CORS_ALLOWED_ORIGIN_REGEXES[0], "
+            "'https://preview.up.railway.app')"
+        ),
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_fractional_health_timeout_is_valid_and_separate_from_db_connect_timeout():
     result = _settings_subprocess(
         {
@@ -193,7 +213,7 @@ def test_celery_settings_keep_cleanup_on_the_cloud_queue():
         "schedule": 900.0,
         "options": {"queue": "cloud"},
     }
-    assert "cleanup-waitlist-drafts" not in settings.CELERY_BEAT_SCHEDULE
+    assert "cleanup-waitlist-entries" not in settings.CELERY_BEAT_SCHEDULE
 
 
 def test_cache_and_celery_broker_use_separate_redis_databases():
@@ -298,8 +318,7 @@ def _waitlist_production_settings() -> dict[str, str]:
         "CACHE_URL": "redis://cache.internal:6379/0",
         "DATABASE_URL": "postgresql://allies:secret@database.internal/allies",
         "ALLIES_WAITLIST_ENABLED": "true",
-        "ALLIES_WAITLIST_CAPABILITY_KEY": "w" * 32,
-        "ALLIES_WAITLIST_COOKIE_SECURE": "true",
+        "ALLIES_WAITLIST_TOKEN_KEY": "w" * 32,
         "ALLIES_WAITLIST_CONSENT_VERSION": "consent-v1",
         "ALLIES_WAITLIST_JOINED_RETENTION_SECONDS": "2592000",
         "ALLIES_WAITLIST_PROVIDER_ENABLED": "true",
@@ -314,28 +333,27 @@ def test_production_settings_accept_complete_waitlist_configuration():
         _waitlist_production_settings(),
         (
             "import config.settings as s; "
-            "assert s.ALLIES_WAITLIST_CAPABILITY_TTL_SECONDS == 604800; "
-            "assert s.ALLIES_WAITLIST_GENERATION_CAPABILITY_BUDGET_PER_MINUTE == 5; "
-            "assert s.CELERY_BEAT_SCHEDULE['cleanup-waitlist-drafts']['task'] "
-            "== 'waitlist.cleanup_waitlist_drafts'"
+            "assert s.ALLIES_WAITLIST_GENERATION_ATTEMPT_BUDGET_PER_MINUTE == 5; "
+            "assert s.CELERY_BEAT_SCHEDULE['cleanup-waitlist-entries']['task'] "
+            "== 'waitlist.cleanup_waitlist_entries'"
         ),
     )
 
     assert result.returncode == 0, result.stderr
 
 
-def test_debug_waitlist_requires_explicit_capability_key():
+def test_debug_waitlist_requires_explicit_token_key():
     result = _settings_subprocess(
         {
             "DJANGO_DEBUG": "true",
             "DJANGO_SECRET_KEY": "d" * 32,
             "ALLIES_WAITLIST_ENABLED": "true",
-            "ALLIES_WAITLIST_CAPABILITY_KEY": "",
+            "ALLIES_WAITLIST_TOKEN_KEY": "",
         }
     )
 
     assert result.returncode != 0
-    assert "ALLIES_WAITLIST_CAPABILITY_KEY" in result.stderr
+    assert "ALLIES_WAITLIST_TOKEN_KEY" in result.stderr
 
 
 def test_debug_waitlist_requires_distributed_cache_url():
@@ -344,7 +362,7 @@ def test_debug_waitlist_requires_distributed_cache_url():
             "DJANGO_DEBUG": "true",
             "DJANGO_SECRET_KEY": "d" * 32,
             "ALLIES_WAITLIST_ENABLED": "true",
-            "ALLIES_WAITLIST_CAPABILITY_KEY": "w" * 32,
+            "ALLIES_WAITLIST_TOKEN_KEY": "w" * 32,
         }
     )
 
@@ -358,7 +376,7 @@ def test_debug_waitlist_rejects_unsafe_openai_provider_url():
             "DJANGO_DEBUG": "true",
             "DJANGO_SECRET_KEY": "d" * 32,
             "ALLIES_WAITLIST_ENABLED": "true",
-            "ALLIES_WAITLIST_CAPABILITY_KEY": "w" * 32,
+            "ALLIES_WAITLIST_TOKEN_KEY": "w" * 32,
             "ALLIES_WAITLIST_PROVIDER_ENABLED": "true",
             "ALLIES_WAITLIST_PROVIDER": "openai",
             "ALLIES_WAITLIST_OPENAI_API_KEY": "provider-key",
@@ -371,49 +389,6 @@ def test_debug_waitlist_rejects_unsafe_openai_provider_url():
     assert (
         "ALLIES_WAITLIST_OPENAI_URL=https://api.openai.com/v1/responses"
         in result.stderr
-    )
-
-
-def test_debug_waitlist_rejects_unsafe_capability_cookie_flags():
-    result = _settings_subprocess(
-        {
-            "DJANGO_DEBUG": "true",
-            "DJANGO_SECRET_KEY": "d" * 32,
-            "ALLIES_WAITLIST_ENABLED": "true",
-            "ALLIES_WAITLIST_CAPABILITY_KEY": "w" * 32,
-            "ALLIES_WAITLIST_COOKIE_SECURE": "false",
-            "ALLIES_WAITLIST_CAPABILITY_COOKIE_PATH": "/",
-            "ALLIES_WAITLIST_COOKIE_SAMESITE": "CrossSite",
-        }
-    )
-
-    assert result.returncode != 0
-    assert "ALLIES_WAITLIST_COOKIE_SECURE=true" in result.stderr
-    assert "ALLIES_WAITLIST_CAPABILITY_COOKIE_PATH=/api/v1/waitlist/" in result.stderr
-    assert "ALLIES_WAITLIST_COOKIE_SAMESITE must be Lax, Strict, or None" in (
-        result.stderr
-    )
-
-
-def test_production_settings_accept_valid_waitlist_cookie_name_and_samesite():
-    configured = _waitlist_production_settings()
-    configured.update(
-        {
-            "ALLIES_WAITLIST_CAPABILITY_COOKIE": "preview_capability-v2",
-            "ALLIES_WAITLIST_COOKIE_SAMESITE": "None",
-        }
-    )
-    result = _settings_subprocess(configured)
-
-    assert result.returncode == 0, result.stderr
-
-
-def test_waitlist_capability_ttl_must_be_positive():
-    result = _settings_subprocess({"ALLIES_WAITLIST_CAPABILITY_TTL_SECONDS": "0"})
-
-    assert result.returncode != 0
-    assert "ALLIES_WAITLIST_CAPABILITY_TTL_SECONDS must be a positive integer" in (
-        result.stderr
     )
 
 
@@ -435,12 +410,7 @@ def test_production_settings_reject_unsafe_waitlist_configuration():
     configured = _waitlist_production_settings()
     configured.update(
         {
-            "ALLIES_WAITLIST_CAPABILITY_KEY": "short",
-            "ALLIES_WAITLIST_COOKIE_SECURE": "false",
-            "ALLIES_WAITLIST_CAPABILITY_COOKIE_PATH": "/",
-            "ALLIES_WAITLIST_CAPABILITY_COOKIE": "invalid name",
-            "ALLIES_WAITLIST_COOKIE_SAMESITE": "CrossSite",
-            "ALLIES_WAITLIST_CAPABILITY_TTL_SECONDS": "60",
+            "ALLIES_WAITLIST_TOKEN_KEY": "short",
             "ALLIES_WAITLIST_PROVIDER": "fake",
             "ALLIES_WAITLIST_OPENAI_API_KEY": "",
             "ALLIES_WAITLIST_OPENAI_MODEL": "",
@@ -451,16 +421,7 @@ def test_production_settings_reject_unsafe_waitlist_configuration():
 
     assert result.returncode != 0
     assert "Unsafe CLD-008 production configuration" in result.stderr
-    assert "ALLIES_WAITLIST_CAPABILITY_KEY" in result.stderr
-    assert "ALLIES_WAITLIST_COOKIE_SECURE=true" in result.stderr
-    assert "ALLIES_WAITLIST_CAPABILITY_COOKIE_PATH" in result.stderr
-    assert "ALLIES_WAITLIST_CAPABILITY_COOKIE must be a valid cookie name" in (
-        result.stderr
-    )
-    assert "ALLIES_WAITLIST_COOKIE_SAMESITE must be Lax, Strict, or None" in (
-        result.stderr
-    )
-    assert "ALLIES_WAITLIST_CAPABILITY_TTL_SECONDS must be at least" in result.stderr
+    assert "ALLIES_WAITLIST_TOKEN_KEY" in result.stderr
     assert "ALLIES_WAITLIST_PROVIDER=openai" in result.stderr
     assert (
         "ALLIES_WAITLIST_OPENAI_URL=https://api.openai.com/v1/responses"
