@@ -10,6 +10,7 @@ dependencies = [
     "django>=6.0.7,<6.1",
     "django-cors-headers>=4.7,<5",
     "django-ninja-extra>=0.31.6",
+    "django-unfold>=0.104.1,<0.105",
     "gunicorn>=23,<24",
     "pillow>=11.3,<13",
     "psycopg[binary]>=3.2,<4",

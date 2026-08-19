@@ -17,6 +17,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 from django.core.exceptions import ImproperlyConfigured
+from django.utils.log import DEFAULT_LOGGING
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -139,6 +140,7 @@ ALLOWED_HOSTS = env_list(
 # Application definition
 
 INSTALLED_APPS = [
+    "unfold",
     "django.contrib.admin",
     "django.contrib.auth",
     "django.contrib.contenttypes",
@@ -262,6 +264,37 @@ STORAGES = {
     "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
     "staticfiles": {
         "BACKEND": "whitenoise.storage.CompressedManifestStaticFilesStorage"
+    },
+}
+
+LOGGING = {
+    **DEFAULT_LOGGING,
+    "formatters": {
+        **DEFAULT_LOGGING["formatters"],
+        "allies": {
+            "format": "{levelname} {name} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        **DEFAULT_LOGGING["handlers"],
+        "allies_console": {
+            "class": "logging.StreamHandler",
+            "formatter": "allies",
+        },
+    },
+    "loggers": {
+        **DEFAULT_LOGGING["loggers"],
+        "allies.auth": {
+            "handlers": ["allies_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "allies.waitlist": {
+            "handlers": ["allies_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }
 
