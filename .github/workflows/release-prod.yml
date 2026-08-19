@@ -31,7 +31,7 @@ jobs:
           set -euo pipefail
           if [ "$GITHUB_EVENT_NAME" = "push" ]; then VERSION="$GITHUB_REF_NAME"; else VERSION="$INPUT_VERSION"; fi
           [[ "$VERSION" =~ ^v[0-9]+(\.[0-9]+)*([.-][A-Za-z0-9]+(\.[A-Za-z0-9]+)*)?$ ]] || { echo "Invalid version: $VERSION" >&2; exit 1; }
-          git fetch origin --tags
+          git fetch --force origin "refs/tags/$VERSION:refs/tags/$VERSION"
           git show-ref --verify --quiet "refs/tags/$VERSION" || { echo "Tag does not exist: $VERSION" >&2; exit 1; }
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
