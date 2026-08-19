@@ -68,6 +68,7 @@
       <span class="pill">React Native</span>
       <span class="pill">No API changes</span>
       <span class="pill">Brand orange stays fixed on logo</span>
+      <span class="pill">Shared-checkout handoff</span>
     </div>
 
     <section>
@@ -96,7 +97,7 @@
       <article class="task"><header><span>Task 4</span><h3>Name screen, color preview & flow</h3></header><p>Add the controlled name screen, future color-step screen, local controller, and app-entry integration.</p><ul><li>Next is disabled for blank/whitespace names.</li><li>Valid Next trims the name and advances the step.</li><li>Back preserves name/accent but recalculates progress.</li></ul><pre>const [step, setStep] = useState&lt;OnboardingStep&gt;('welcome');
 const [allyName, setAllyName] = useState('');
 const [accentColor, setAccentColor] = useState('#FF5800');</pre></article>
-      <article class="task"><header><span>Task 5</span><h3>Verification & handoff</h3></header><p>Run focused tests, mobile lint/typecheck, diff checks, and manual Android verification for empty, typed, continued, and backed-up states.</p><ul><li>Record exact command output.</li><li>Confirm safe-area spacing and accessible labels.</li><li>Review only this feature’s diff; preserve other agents’ changes.</li></ul></article>
+      <article class="task"><header><span>Task 5</span><h3>Verification & handoff</h3></header><p>Run focused tests, mobile lint/typecheck, diff checks, and manual Android verification for empty, typed, continued, and backed-up states.</p><ul><li>Record exact command output.</li><li>Confirm safe-area spacing and accessible labels.</li><li>Review only this feature’s diff; preserve other agents’ changes.</li><li>Defer commits that overlap the shared uncommitted baseline.</li></ul></article>
     </section>
 
     <section>

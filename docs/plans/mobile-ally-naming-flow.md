@@ -17,6 +17,9 @@
 - Keep the provided `back-chevron-icon.svg` as the source asset.
 - Do not overwrite or stage unrelated dirty changes from the other agents.
 - Branch and commit subjects for mobile work use the `mobile:` prefix.
+- Because the execution checkout contains uncommitted user/agent files, do not
+  make task-level commits that include overlapping existing files; use a
+  feature handoff diff and commit after the shared baseline is checkpointed.
 
 ## Feature Overview
 
@@ -263,12 +266,11 @@ Run: `bun test apps/mobile/src/features/onboarding/onboarding-state.test.ts`
 
 Expected: 4 tests pass with 0 failures.
 
-- [ ] **Step 5: Commit the isolated state slice**
+- [ ] **Step 5: Record the isolated state slice without staging shared files**
 
-```bash
-git add apps/mobile/src/features/onboarding/onboarding-state.ts apps/mobile/src/features/onboarding/onboarding-state.test.ts
-git commit -m "mobile: add onboarding flow state helpers"
-```
+Keep the new state files in the working tree for the coordinator’s final
+feature commit. Do not stage or commit the shared checkout while the other
+agent’s onboarding files remain uncommitted.
 
 ### Task 2: Add the shared header, progress ring, and supplied asset
 
@@ -301,12 +303,10 @@ Run: `bun --filter mobile typecheck`
 
 Expected: no new errors attributable to the header, ring, or asset.
 
-- [ ] **Step 5: Commit the shared primitives**
+- [ ] **Step 5: Record the shared primitives without staging unrelated files**
 
-```bash
-git add apps/mobile/assets/allies/icons/back-chevron-icon.svg apps/mobile/src/features/onboarding/onboarding-progress.tsx apps/mobile/src/features/onboarding/onboarding-header.tsx
-git commit -m "mobile: add onboarding header and progress ring"
-```
+Keep the new asset and primitive files in the working tree. Do not stage or
+commit the shared checkout until the other agent’s baseline is checkpointed.
 
 ### Task 3: Make the reusable button and welcome screen accent-aware
 
@@ -338,12 +338,10 @@ Run: `bun --filter mobile typecheck`
 
 Expected: no new errors from the button or welcome screen changes.
 
-- [ ] **Step 4: Commit the accent-aware shared UI**
+- [ ] **Step 4: Record the accent-aware shared UI without staging the shared base**
 
-```bash
-git add apps/mobile/src/components/ui/primary-button.tsx apps/mobile/src/features/onboarding/onboarding-screen.tsx
-git commit -m "mobile: support onboarding accent colors"
-```
+The button and welcome screen are currently uncommitted shared files. Leave
+them unstaged and include their exact feature diff in the final handoff.
 
 ### Task 4: Build the name screen, color preview, and local flow
 
@@ -398,12 +396,10 @@ bun test apps/mobile/src/features/onboarding/onboarding-state.test.ts apps/mobil
 
 Expected: all focused state and motion tests pass.
 
-- [ ] **Step 7: Commit the flow implementation**
+- [ ] **Step 7: Record the flow implementation without staging the shared entry file**
 
-```bash
-git add apps/mobile/src/features/onboarding/ally-name-screen.tsx apps/mobile/src/features/onboarding/onboarding-color-preview.tsx apps/mobile/src/features/onboarding/onboarding-flow.tsx apps/mobile/src/app/index.tsx
-git commit -m "mobile: add Ally naming onboarding step"
-```
+The app entry is already modified by the shared onboarding work. Leave it
+unstaged and include the exact feature diff in the final handoff.
 
 ### Task 5: Verify the complete feature and hand off evidence
 
@@ -435,7 +431,9 @@ git diff --stat HEAD~4..HEAD
 git diff --check HEAD~4..HEAD
 ```
 
-Confirm only the feature commits and the pre-existing user/agent changes are present; do not reset, clean, or amend another agent’s work.
+Confirm the feature paths and the pre-existing user/agent changes are present;
+do not reset, clean, or amend another agent’s work. Do not claim a commit until
+the shared baseline has been checkpointed by the coordinator.
 
 - [ ] **Step 4: Prepare the handoff**
 
