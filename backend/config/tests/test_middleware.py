@@ -4,7 +4,10 @@ from django.http import HttpResponse
 from django.middleware.security import SecurityMiddleware
 from django.test import RequestFactory, override_settings
 
-from config.middleware import TrustedProxyHeadersMiddleware
+from config.middleware import (
+    CANONICAL_CLIENT_ADDRESS_META,
+    TrustedProxyHeadersMiddleware,
+)
 
 
 def _header_echo(request):
@@ -51,6 +54,27 @@ def test_trusted_peer_preserves_forwarded_headers():
         "host": "cloud.example",
         "proto": "https",
     }
+
+
+@override_settings(
+    ALLIES_TRUSTED_PROXY_IPS=["10.0.0.8"], ALLIES_TRUST_FORWARDED_FOR=True
+)
+def test_trusted_proxy_establishes_canonical_client_network():
+    seen = {}
+
+    def capture(request):
+        seen["address"] = request.META.get(CANONICAL_CLIENT_ADDRESS_META)
+        return HttpResponse("ok")
+
+    request = RequestFactory().get(
+        "/",
+        REMOTE_ADDR="10.0.0.8",
+        HTTP_X_FORWARDED_FOR="198.51.100.2",
+    )
+
+    TrustedProxyHeadersMiddleware(capture)(request)
+
+    assert seen["address"] == "198.51.100.0/24"
 
 
 @override_settings(ALLIES_RAILWAY_PROXY_MODE=True, ALLIES_TRUSTED_PROXY_IPS=[])
