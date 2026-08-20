@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from contextlib import contextmanager
+from contextvars import ContextVar
 from typing import Protocol
+from uuid import UUID
 
 from .domain import (
     AppRecord,
@@ -13,6 +16,25 @@ from .domain import (
     VolumeRecord,
     VolumeSpec,
 )
+
+_provider_workspace_id: ContextVar[UUID | str | None] = ContextVar(
+    "foundry_provider_workspace_id", default=None
+)
+
+
+@contextmanager
+def provider_workspace_context(workspace_id: UUID | str):
+    """Carry the lifecycle workspace identity across provider calls safely."""
+
+    token = _provider_workspace_id.set(workspace_id)
+    try:
+        yield
+    finally:
+        _provider_workspace_id.reset(token)
+
+
+def current_provider_workspace_id() -> UUID | str | None:
+    return _provider_workspace_id.get()
 
 
 class WorkspaceProvider(Protocol):
@@ -76,4 +98,11 @@ FlyProviderProtocol = WorkspaceProvider
 Provider = WorkspaceProvider
 
 
-__all__ = ["FlyProvider", "FlyProviderProtocol", "Provider", "WorkspaceProvider"]
+__all__ = [
+    "FlyProvider",
+    "FlyProviderProtocol",
+    "Provider",
+    "WorkspaceProvider",
+    "current_provider_workspace_id",
+    "provider_workspace_context",
+]

@@ -13,6 +13,7 @@ from .foundry import (
     FoundryWorker,
 )
 from .hermes import CredentialResolver, HermesClient
+from .observability import configure_runtime_observability
 from .profile_store import ProfileStore
 from .reconciliation import ProfileReconciler
 
@@ -50,6 +51,8 @@ def compose_runtime(
         raise TypeError("runtime settings must be validated RuntimeSettings")
     if not callable(credential_resolver):
         raise TypeError("credential resolver must be callable")
+
+    configure_runtime_observability(config=settings.wide_events)
 
     def resolve_profile_credential(reference: str) -> str:
         return credential_resolver(CredentialReference(reference))

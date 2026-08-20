@@ -11,11 +11,15 @@ from __future__ import annotations
 import base64
 import os
 import re
+import time
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from functools import wraps
 from typing import Any
 from urllib.parse import urlsplit
 from uuid import UUID
+
+from observability.events import build_event, emit_event
 
 from .domain import (
     AppRecord,
@@ -40,6 +44,7 @@ from .errors import (
     ProviderUnsupportedTopologyError,
 )
 from .fly_http import FlyHttpClient, FlyTransport
+from .protocol import current_provider_workspace_id
 
 _WORKSPACE_MARKER = "allies_workspace_id"
 _OPERATION_MARKER = "allies_operation_id"
@@ -47,6 +52,41 @@ _GENERATION_MARKER = "allies_machine_generation"
 _OWNER_MARKER = "allies_owner"
 _OWNER_VALUE = "foundry"
 _EXPECTED_CONTAINERS = frozenset(("hermes", "allies-runtime"))
+_DETERMINISTIC_APP_RE = re.compile(r"^allies-ws-([0-9a-f]{32})$")
+
+
+def _workspace_id_from_value(value: object, *, depth: int = 0) -> UUID | str | None:
+    """Find a workspace identity only from trusted provider boundary shapes."""
+
+    if depth > 2:
+        return None
+    if isinstance(value, UUID):
+        return value
+    if isinstance(value, str):
+        match = _DETERMINISTIC_APP_RE.fullmatch(value)
+        return UUID(hex=match.group(1)) if match else None
+    if isinstance(value, OwnershipMetadata):
+        return value.workspace_id
+    for attribute in ("ownership", "app_name", "name"):
+        nested = getattr(value, attribute, None)
+        if nested is not None and nested is not value:
+            workspace_id = _workspace_id_from_value(nested, depth=depth + 1)
+            if workspace_id is not None:
+                return workspace_id
+    return None
+
+
+def _workspace_id_for_call(
+    args: tuple[object, ...], kwargs: Mapping[str, object]
+) -> UUID | str | None:
+    explicit = kwargs.get("workspace_id")
+    if explicit is not None:
+        return explicit if isinstance(explicit, (UUID, str)) else None
+    for value in (*args, *kwargs.values()):
+        workspace_id = _workspace_id_from_value(value)
+        if workspace_id is not None:
+            return workspace_id
+    return current_provider_workspace_id()
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +101,61 @@ class WorkspaceResourceNames:
         if type(generation) is not int or generation <= 0:
             raise ValueError("machine generation must be a positive integer")
         return deterministic_machine_name(self.workspace_id, generation)
+
+
+def _observed_provider_operation(method):
+    """Emit one lifecycle pair for a direct provider operation.
+
+    Composite reconciliation helpers intentionally remain undecorated. Their
+    direct HTTP operations are observed once, avoiding nested duplicate events.
+    """
+
+    @wraps(method)
+    def observed(self, *args, **kwargs):
+        started_at = time.monotonic()
+        operation = method.__name__
+        workspace_id = _workspace_id_for_call(args, kwargs)
+        fields = {
+            "operation": operation,
+            "provider": "fly",
+            "workspace_id": str(workspace_id) if workspace_id is not None else None,
+            "outcome": "started",
+        }
+        emit_event(build_event("provider.operation.started", **fields))
+        try:
+            result = method(self, *args, **kwargs)
+        except BaseException as error:
+            emit_event(
+                build_event(
+                    "provider.operation.failed",
+                    operation=operation,
+                    provider="fly",
+                    workspace_id=(
+                        str(workspace_id) if workspace_id is not None else None
+                    ),
+                    duration_ms=(time.monotonic() - started_at) * 1000,
+                    outcome="error",
+                    error_type=type(error).__name__,
+                    error_code=getattr(error, "code", None),
+                )
+            )
+            raise
+        emit_event(
+            build_event(
+                "provider.operation.succeeded",
+                operation=operation,
+                provider="fly",
+                workspace_id=(
+                    str(workspace_id) if workspace_id is not None else None
+                ),
+                provider_resource_id=getattr(result, "id", None),
+                duration_ms=(time.monotonic() - started_at) * 1000,
+                outcome="success",
+            )
+        )
+        return result
+
+    return observed
 
 
 def _workspace_text(workspace_id: UUID | str) -> str:
@@ -163,6 +258,7 @@ class FlyProvider:
                 "Fly runtime-container file secrets are not enabled"
             )
 
+    @_observed_provider_operation
     def inspect_app(
         self, name: str, organization: str | None = None
     ) -> AppRecord | None:
@@ -187,6 +283,7 @@ class FlyProvider:
             )
         return app
 
+    @_observed_provider_operation
     def create_app(self, spec: AppSpec) -> AppRecord:
         payload = self.http.post(
             "/apps",
@@ -222,6 +319,7 @@ class FlyProvider:
                 return reconciled
             raise
 
+    @_observed_provider_operation
     def list_volumes(self, app_name: str) -> Sequence[VolumeRecord]:
         payload = self.http.get(
             f"/apps/{_path_segment(app_name)}/volumes",
@@ -240,6 +338,7 @@ class FlyProvider:
             for item in payload
         )
 
+    @_observed_provider_operation
     def create_volume(self, spec: VolumeSpec) -> VolumeRecord:
         payload = self.http.post(
             f"/apps/{_path_segment(spec.app_name)}/volumes",
@@ -289,6 +388,7 @@ class FlyProvider:
                 ) from timeout
             raise
 
+    @_observed_provider_operation
     def inspect_machine(
         self,
         app_name: str,
@@ -328,6 +428,7 @@ class FlyProvider:
             )
         return machine
 
+    @_observed_provider_operation
     def inspect_machine_by_id(
         self, app_name: str, machine_id: str
     ) -> MachineRecord | None:
@@ -343,6 +444,7 @@ class FlyProvider:
             app_name=app_name,
         )
 
+    @_observed_provider_operation
     def create_machine(self, spec: MachineSpec) -> MachineRecord:
         body = self.machine_payload(spec)
         payload = self.http.post(
@@ -553,6 +655,7 @@ class FlyProvider:
             fallback_id=machine_id,
         )
 
+    @_observed_provider_operation
     def start_machine(self, app_name: str, machine_id: str) -> MachineRecord:
         payload = self.http.post(
             f"/apps/{_path_segment(app_name)}/machines/{_path_segment(machine_id)}/start",
@@ -571,6 +674,7 @@ class FlyProvider:
             fallback_state=MachineState.STARTED,
         )
 
+    @_observed_provider_operation
     def stop_machine(self, app_name: str, machine_id: str) -> MachineRecord:
         payload = self.http.post(
             f"/apps/{_path_segment(app_name)}/machines/{_path_segment(machine_id)}/stop",
@@ -585,12 +689,14 @@ class FlyProvider:
             fallback_state=MachineState.STOPPED,
         )
 
+    @_observed_provider_operation
     def destroy_machine(self, app_name: str, machine_id: str) -> None:
         self.http.delete(
             f"/apps/{_path_segment(app_name)}/machines/{_path_segment(machine_id)}",
             operation="destroy_machine",
         )
 
+    @_observed_provider_operation
     def delete_volume(self, app_name: str, volume_id: str) -> None:
         """Delete a smoke-owned Volume; callers classify a 404 as idempotent."""
 
@@ -599,6 +705,7 @@ class FlyProvider:
             operation="delete_volume",
         )
 
+    @_observed_provider_operation
     def delete_app(self, app_name: str) -> None:
         """Delete a smoke-owned App after its Machine and Volume are gone."""
 
@@ -607,6 +714,7 @@ class FlyProvider:
             operation="delete_app",
         )
 
+    @_observed_provider_operation
     def acquire_machine_lease(
         self,
         app_name: str,
@@ -631,6 +739,7 @@ class FlyProvider:
             )
         return nonce
 
+    @_observed_provider_operation
     def release_machine_lease(
         self,
         app_name: str,

@@ -18,6 +18,8 @@ from pathlib import Path
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
 
+from observability.settings import FoundryObservabilitySettings
+
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -70,19 +72,12 @@ ALLOWED_HOSTS = env_list(
     default="localhost,127.0.0.1,[::1]" if DEBUG else "",
 )
 
-railway_public_domain = os.getenv("RAILWAY_PUBLIC_DOMAIN")
-if railway_public_domain and railway_public_domain not in ALLOWED_HOSTS:
-    ALLOWED_HOSTS.append(railway_public_domain)
 if not DEBUG and not ALLOWED_HOSTS:
     raise ImproperlyConfigured(
-        "DJANGO_ALLOWED_HOSTS or RAILWAY_PUBLIC_DOMAIN is required when DJANGO_DEBUG is false"
+        "DJANGO_ALLOWED_HOSTS is required when DJANGO_DEBUG is false"
     )
 
 CSRF_TRUSTED_ORIGINS = env_list("DJANGO_CSRF_TRUSTED_ORIGINS")
-if railway_public_domain:
-    railway_origin = f"https://{railway_public_domain}"
-    if railway_origin not in CSRF_TRUSTED_ORIGINS:
-        CSRF_TRUSTED_ORIGINS.append(railway_origin)
 
 TRUST_PROXY_HEADERS = env_bool("DJANGO_TRUST_PROXY_HEADERS", default=False)
 TRUSTED_PROXY_NETWORKS = (
@@ -92,6 +87,17 @@ if TRUST_PROXY_HEADERS and not TRUSTED_PROXY_NETWORKS:
     raise ImproperlyConfigured(
         "DJANGO_TRUSTED_PROXY_IPS is required when DJANGO_TRUST_PROXY_HEADERS is true"
     )
+
+# Wide events are stdout-first and safe by default.  Keep the six public
+# values available as settings for middleware/tests while retaining one
+# validated object as the runtime configuration boundary.
+FOUNDRY_OBSERVABILITY = FoundryObservabilitySettings.from_env()
+ALLIES_WIDE_EVENTS_ENABLED = FOUNDRY_OBSERVABILITY.enabled
+ALLIES_WIDE_EVENTS_SUCCESS_SAMPLE_RATE = FOUNDRY_OBSERVABILITY.success_sample_rate
+ALLIES_WIDE_EVENTS_SLOW_MS = FOUNDRY_OBSERVABILITY.slow_ms
+ALLIES_WIDE_EVENTS_MAX_BYTES = FOUNDRY_OBSERVABILITY.max_bytes
+ALLIES_WIDE_EVENTS_SINK_ENABLED = FOUNDRY_OBSERVABILITY.sink_enabled
+ALLIES_WIDE_EVENTS_MAX_QUEUE_SIZE = FOUNDRY_OBSERVABILITY.max_queue_size
 
 
 # Application definition
@@ -109,6 +115,7 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     "config.middleware.TrustedProxyHeadersMiddleware",
+    "observability.middleware.WideEventMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",

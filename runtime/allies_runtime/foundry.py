@@ -23,6 +23,7 @@ from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
 from .errors import HermesError, HermesHistoryMismatch, HermesMalformedResponse
 from .hermes import HermesEvent, stable_session_identifiers, validate_stream_message
+from .observability import build_event, emit_runtime_event
 
 MAX_CLAIM_SLOTS = 8
 LEASE_SECONDS = 60.0
@@ -1293,6 +1294,50 @@ class FoundryWorker:
                 await _close_stream(stream)
 
     async def run(
+        self,
+        *,
+        max_turns: int | None = None,
+        idle_cycles: int | None = 1,
+        idle_delay: float = 0.0,
+    ) -> tuple[Any, ...]:
+        """Run the worker loop and emit only low-cardinality lifecycle events."""
+
+        started_at = time.monotonic()
+        emit_runtime_event(
+            build_event(
+                "worker.started",
+                operation="worker_loop",
+                outcome="started",
+            )
+        )
+        try:
+            results = await self._run_loop(
+                max_turns=max_turns,
+                idle_cycles=idle_cycles,
+                idle_delay=idle_delay,
+            )
+        except BaseException as error:
+            emit_runtime_event(
+                build_event(
+                    "worker.failed",
+                    operation="worker_loop",
+                    duration_ms=(time.monotonic() - started_at) * 1000,
+                    outcome="error",
+                    error_type=type(error).__name__,
+                )
+            )
+            raise
+        emit_runtime_event(
+            build_event(
+                "worker.idle",
+                operation="worker_loop",
+                duration_ms=(time.monotonic() - started_at) * 1000,
+                outcome="success",
+            )
+        )
+        return results
+
+    async def _run_loop(
         self,
         *,
         max_turns: int | None = None,

@@ -16,7 +16,7 @@ models or implement a Fly or Hermes client.
 ```text
 Allies Interface
     ↓ Allies Cloud
-Allies Foundry on Railway
+Allies Foundry control plane
     ↓ authenticated outbound claims
 allies-runtime in a tenant Fly Machine
     ↓ localhost HTTP and SSE

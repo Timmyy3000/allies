@@ -23,9 +23,9 @@ The tenant Volume mounts at `/opt/data` in the Hermes container. Any runtime
 mount used for idempotent profile seeding must be scoped and must not become a
 second durable store. Only one active Machine may mount and write the Volume.
 
-Foundry on Railway owns the tenant workspace, Machine lifecycle, claims, leases,
-events, and generation fencing. The runtime calls Foundry over authenticated
-outbound HTTPS. Foundry does not open an inbound port on the tenant Machine.
+Foundry owns the tenant workspace, Machine lifecycle, claims, leases, events,
+and generation fencing. The runtime calls Foundry over authenticated outbound
+HTTPS. Foundry does not open an inbound port on the tenant Machine.
 
 ## Image provenance
 
