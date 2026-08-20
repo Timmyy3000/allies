@@ -1,27 +1,26 @@
 {
   "expo": {
-    "name": "mobile",
+    "name": "allies",
     "slug": "mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/allies/icons/allies-app-icon.png",
     "scheme": "mobile",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/expo.icon"
+      "icon": "./assets/allies/icons/allies-app-icon.png"
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
-        "foregroundImage": "./assets/images/android-icon-foreground.png",
-        "backgroundImage": "./assets/images/android-icon-background.png",
-        "monochromeImage": "./assets/images/android-icon-monochrome.png"
+        "backgroundColor": "#FF5800",
+        "foregroundImage": "./assets/allies/icons/allies-adaptive-foreground.png",
+        "monochromeImage": "./assets/allies/icons/allies-adaptive-monochrome.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/allies/icons/allies-app-icon.png"
     },
     "plugins": [
       "expo-router",
