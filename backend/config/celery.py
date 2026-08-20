@@ -11,3 +11,10 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 app = Celery("allies-cloud")
 app.config_from_object("django.conf:settings", namespace="CELERY")
 app.autodiscover_tasks()
+
+# Importing config.celery is also part of Django web startup. Registration
+# itself checks the process role so web and management processes install no
+# task lifecycle handlers.
+from observability.celery import register_celery_signals
+
+register_celery_signals()

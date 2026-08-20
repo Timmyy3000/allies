@@ -60,6 +60,17 @@ def env_positive_int(name: str, default: int) -> int:
     return value
 
 
+def env_sample_rate(name: str, default: float) -> float:
+    raw = os.environ.get(name, str(default))
+    try:
+        value = float(raw)
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must be between 0 and 1") from exc
+    if not 0 <= value <= 1:
+        raise ImproperlyConfigured(f"{name} must be between 0 and 1")
+    return value
+
+
 ALLIES_HEALTH_OPERATION_TIMEOUT_SECONDS = env_positive_float(
     "ALLIES_HEALTH_OPERATION_TIMEOUT_SECONDS", 2.0
 )
@@ -157,6 +168,23 @@ INSTALLED_APPS = [
 
 ALLIES_RAILWAY_PROXY_MODE = env_bool("ALLIES_RAILWAY_PROXY_MODE", False)
 
+# OBS-001 is stdout-first; routine successes default to 5% to bound normal
+# volume, while errors, retries, and slow events remain retained by contract.
+# The optional sink is deliberately disabled until a collector adapter has its
+# own bounded timeout and retry contract.
+ALLIES_WIDE_EVENTS_ENABLED = env_bool("ALLIES_WIDE_EVENTS_ENABLED", True)
+ALLIES_WIDE_EVENTS_SUCCESS_SAMPLE_RATE = env_sample_rate(
+    "ALLIES_WIDE_EVENTS_SUCCESS_SAMPLE_RATE", 0.05
+)
+ALLIES_WIDE_EVENTS_SLOW_MS = env_positive_int("ALLIES_WIDE_EVENTS_SLOW_MS", 1000)
+ALLIES_WIDE_EVENTS_MAX_BYTES = env_positive_int(
+    "ALLIES_WIDE_EVENTS_MAX_BYTES", 16 * 1024
+)
+ALLIES_WIDE_EVENTS_SINK_ENABLED = env_bool("ALLIES_WIDE_EVENTS_SINK_ENABLED", False)
+ALLIES_WIDE_EVENTS_MAX_QUEUE_SIZE = env_positive_int(
+    "ALLIES_WIDE_EVENTS_MAX_QUEUE_SIZE", 256
+)
+
 _COMMON_MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
@@ -168,11 +196,12 @@ _COMMON_MIDDLEWARE = [
 ]
 MIDDLEWARE = [
     "config.middleware.TrustedProxyHeadersMiddleware",
+    "observability.middleware.WideEventMiddleware",
     "django.middleware.security.SecurityMiddleware",
     *_COMMON_MIDDLEWARE,
 ]
 if not DEBUG:
-    MIDDLEWARE.insert(2, "whitenoise.middleware.WhiteNoiseMiddleware")
+    MIDDLEWARE.insert(3, "whitenoise.middleware.WhiteNoiseMiddleware")
 
 ROOT_URLCONF = "config.urls"
 
@@ -314,7 +343,48 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     if "*" in origin
 ]
 CORS_ALLOW_CREDENTIALS = True
-CORS_EXPOSE_HEADERS = ["X-CSRFToken"]
+CORS_EXPOSE_HEADERS = ["X-CSRFToken", "X-Request-ID"]
+
+LOGGING = {
+    **DEFAULT_LOGGING,
+    "formatters": {
+        **DEFAULT_LOGGING["formatters"],
+        "allies": {
+            "()": "observability.events.AuditEventFormatter",
+        },
+        "wide_event": {"()": "observability.events.WideEventFormatter"},
+    },
+    "handlers": {
+        **DEFAULT_LOGGING["handlers"],
+        "allies_console": {
+            "class": "logging.StreamHandler",
+            "formatter": "allies",
+        },
+        "wide_event_stdout": {
+            "class": "logging.StreamHandler",
+            "formatter": "wide_event",
+            "stream": "ext://sys.stdout",
+        },
+    },
+    "loggers": {
+        **DEFAULT_LOGGING["loggers"],
+        "allies.auth": {
+            "handlers": ["allies_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "allies.waitlist": {
+            "handlers": ["allies_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
+        "allies.observability": {
+            "handlers": ["wide_event_stdout"],
+            "level": "INFO",
+            "propagate": False,
+        },
+    },
+}
 
 SESSION_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
