@@ -594,7 +594,7 @@ textarea::placeholder {
   align-items: flex-start;
   justify-content: flex-start;
   min-height: 24px;
-  padding: 68px var(--onboarding-content-inset) 0;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) var(--onboarding-content-inset) 0;
   box-sizing: border-box;
 }
 
@@ -673,9 +673,10 @@ textarea::placeholder {
   background: transparent;
   color: #121212;
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
-  letter-spacing: -0.45px;
+  letter-spacing: -0.48px;
+  line-height: 22px;
 }
 
 .waitlist-preview-send {
@@ -843,7 +844,7 @@ textarea::placeholder {
   align-items: stretch;
   justify-content: stretch;
   min-height: var(--onboarding-frame-min-height, 100dvh);
-  padding: 68px 20px 64px;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
 }
 
@@ -982,7 +983,7 @@ textarea::placeholder {
 
 @media (min-width: 640px) {
   .waitlist-complete-page {
-    padding: 56px 32px 40px;
+    padding: calc(24px + env(safe-area-inset-top, 0px)) 32px calc(24px + env(safe-area-inset-bottom, 0px));
   }
 
   .waitlist-complete-content {
