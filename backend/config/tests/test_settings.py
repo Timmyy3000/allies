@@ -8,6 +8,20 @@ from django.core.exceptions import ImproperlyConfigured
 from config.settings import database_from_url
 
 
+def test_observability_logging_preserves_existing_audit_loggers():
+    from config import settings
+
+    assert settings.LOGGING["disable_existing_loggers"] is False
+    for logger_name in ("allies.auth", "allies.waitlist"):
+        configured = settings.LOGGING["loggers"][logger_name]
+        assert configured["handlers"] == ["allies_console"]
+        assert configured["level"] == "INFO"
+        assert configured["propagate"] is False
+    assert settings.LOGGING["formatters"]["allies"] == {
+        "()": "observability.events.AuditEventFormatter"
+    }
+
+
 def test_database_from_url_builds_postgresql_configuration():
     configured = database_from_url(
         "postgresql://allies%20user:secret%2Fvalue@database.internal:5433/allies%20cloud"
@@ -263,7 +277,7 @@ def test_railway_mode_lets_the_managed_edge_enforce_https():
             "assert s.SECURE_SSL_REDIRECT is True; "
             "assert s.SECURE_REDIRECT_EXEMPT == [r'^/?api/v1/health$']; "
             "assert s.MIDDLEWARE[:2] == ['config.middleware.TrustedProxyHeadersMiddleware', "
-            "'django.middleware.security.SecurityMiddleware']"
+            "'observability.middleware.WideEventMiddleware']"
         ),
     )
 
