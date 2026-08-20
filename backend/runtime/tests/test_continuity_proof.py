@@ -986,7 +986,9 @@ def test_proof_timeout_after_mutation_is_failed_and_cleaned():
         store,
         token_factory=iter(("bounded-token-one", "bounded-token-two")).__next__,
     )
-    config = proof_config(run_id="fnd008-timeout", timeout_seconds=0.02)
+    # Leave enough wall-clock budget for the provider setup phase; the injected
+    # proof clock still makes the overall timeout deterministic and immediate.
+    config = proof_config(run_id="fnd008-timeout", timeout_seconds=0.1)
     now = [0.0]
 
     def advance(seconds):

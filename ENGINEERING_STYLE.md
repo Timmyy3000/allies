@@ -153,6 +153,13 @@ Do not weaken tests, secret scanning, dependency checks, or review gates to
 make a change pass. Pin or upgrade actions and dependencies deliberately, and
 explain compatibility-impacting changes.
 
+### OSS-07 — Keep the core provider-neutral
+
+Core code, contracts, examples, required CI/workflows, and ordinary setup must
+not depend on or name a hosting or domain vendor. Provider integrations may be
+optional, isolated behind generic core boundaries, and documented separately;
+provider-specific behavior must not become an implicit core contract.
+
 Missing `LICENSE`, `SECURITY.md`, or contributor material remains an open
 project-readiness item until deliberately adopted; policy review must not turn
 that baseline gap into a finding on unrelated files.

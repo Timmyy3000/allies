@@ -11,10 +11,11 @@ from allies_runtime import (
     __main__,
     compose_runtime,
     load_settings,
+    observability,
 )
 from allies_runtime.__main__ import runtime_entrypoint, worker_entrypoint
 from allies_runtime.composition import run_worker
-from allies_runtime.config import CredentialReference
+from allies_runtime.config import CredentialReference, WideEventSettings
 from allies_runtime.fake import FakeHermesClient
 from allies_runtime.foundry import FoundryClient
 
@@ -147,6 +148,25 @@ def test_worker_entrypoint_composes_reconciliation_before_claims(tmp_path):
         / PROFILE_KEY
         / ".allies-profile.json"
     ).exists()
+
+
+def test_compose_runtime_applies_wide_event_settings(tmp_path):
+    settings = replace(
+        load_settings({"HERMES_CREDENTIAL_REF": "vault://hermes/runtime"}),
+        volume_root=str(tmp_path / "volume"),
+        marker_path=str(tmp_path / "volume" / "proof"),
+        wide_events=WideEventSettings(enabled=False),
+    )
+
+    compose_runtime(
+        settings,
+        FoundryClient(runtime_token="runtime-secret", transport=QueueTransport()),
+        lambda _reference: "provider-secret",
+        hermes=FakeHermesClient(),
+    )
+
+    assert observability._CONFIG == settings.wide_events
+    observability.configure_runtime_observability()
 
 
 @pytest.mark.asyncio

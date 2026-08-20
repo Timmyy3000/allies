@@ -20,6 +20,7 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from observability.events import build_event, emit_event
 from runtime.exceptions import RuntimeConflictError, RuntimeValidationError
 from runtime.models import (
     Attempt,
@@ -59,7 +60,7 @@ from runtime.providers import (
     VolumeSpec,
     deterministic_resource_names,
 )
-from runtime.providers.protocol import WorkspaceProvider
+from runtime.providers.protocol import WorkspaceProvider, provider_workspace_context
 
 from .retry import run_with_sqlite_lock_retry
 
@@ -312,8 +313,53 @@ class WorkspaceLifecycle:
         self.phase_deadline_seconds = phase_deadline_seconds
         self.fence_callback = fence_callback
         self._phase_attempts: dict[str, int] = {}
+        self._retry_reasons: dict[str, tuple[UUID, str | None]] = {}
 
     def ensure_workspace(
+        self,
+        workspace_id: UUID | str,
+        spec: WorkspaceSpec,
+        *,
+        before_bind: Callable[[UUID, WorkspaceSpec, _Claim, float], None] | None = None,
+    ) -> WorkspaceBinding:
+        """Ensure a workspace and retain the existing lifecycle semantics."""
+
+        started_at = time.monotonic()
+        safe_workspace_id = str(workspace_id)
+        emit_event(
+            build_event(
+                "runtime.operation.started",
+                operation="workspace_ensure",
+                workspace_id=safe_workspace_id,
+                outcome="started",
+            ),
+        )
+        try:
+            result = self._ensure_workspace(workspace_id, spec, before_bind=before_bind)
+        except BaseException as error:
+            emit_event(
+                build_event(
+                    "runtime.operation.failed",
+                    operation="workspace_ensure",
+                    workspace_id=safe_workspace_id,
+                    duration_ms=(time.monotonic() - started_at) * 1000,
+                    outcome="error",
+                    error_type=type(error).__name__,
+                )
+            )
+            raise
+        emit_event(
+            build_event(
+                "runtime.operation.succeeded",
+                operation="workspace_ensure",
+                workspace_id=safe_workspace_id,
+                duration_ms=(time.monotonic() - started_at) * 1000,
+                outcome="success",
+            )
+        )
+        return result
+
+    def _ensure_workspace(
         self,
         workspace_id: UUID | str,
         spec: WorkspaceSpec,
@@ -334,11 +380,15 @@ class WorkspaceLifecycle:
             if operation is None:
                 self._wait_for_other_operation(deadline)
                 continue
+            self._emit_retry_if_pending(
+                workspace_id, operation, operation_name="workspace_ensure"
+            )
             self._begin_attempt(operation.phase)
             try:
-                result = self._run_ensure_phase(
-                    workspace_id, spec, operation, deadline, before_bind
-                )
+                with provider_workspace_context(workspace_id):
+                    result = self._run_ensure_phase(
+                        workspace_id, spec, operation, deadline, before_bind
+                    )
                 if result is not None:
                     return result
                 self._phase_attempts.pop(operation.phase, None)
@@ -357,6 +407,55 @@ class WorkspaceLifecycle:
             self._backoff(operation.phase)
 
     def replace_machine(
+        self,
+        workspace_id: UUID | str,
+        spec: WorkspaceSpec,
+        expected_source_generation: int,
+        proof_precondition: ReplacementProofPrecondition | None = None,
+    ) -> WorkspaceBinding:
+        """Replace a workspace Machine with lifecycle evidence."""
+
+        started_at = time.monotonic()
+        safe_workspace_id = str(workspace_id)
+        emit_event(
+            build_event(
+                "runtime.operation.started",
+                operation="workspace_replace",
+                workspace_id=safe_workspace_id,
+                outcome="started",
+            )
+        )
+        try:
+            result = self._replace_machine(
+                workspace_id,
+                spec,
+                expected_source_generation,
+                proof_precondition,
+            )
+        except BaseException as error:
+            emit_event(
+                build_event(
+                    "runtime.operation.failed",
+                    operation="workspace_replace",
+                    workspace_id=safe_workspace_id,
+                    duration_ms=(time.monotonic() - started_at) * 1000,
+                    outcome="error",
+                    error_type=type(error).__name__,
+                )
+            )
+            raise
+        emit_event(
+            build_event(
+                "runtime.operation.succeeded",
+                operation="workspace_replace",
+                workspace_id=safe_workspace_id,
+                duration_ms=(time.monotonic() - started_at) * 1000,
+                outcome="success",
+            )
+        )
+        return result
+
+    def _replace_machine(
         self,
         workspace_id: UUID | str,
         spec: WorkspaceSpec,
@@ -382,11 +481,15 @@ class WorkspaceLifecycle:
             if operation is None:
                 self._wait_for_other_operation(deadline)
                 continue
+            self._emit_retry_if_pending(
+                workspace_id, operation, operation_name="workspace_replace"
+            )
             self._begin_attempt(operation.phase)
             try:
-                result = self._run_replace_phase(
-                    workspace_id, spec, operation, deadline
-                )
+                with provider_workspace_context(workspace_id):
+                    result = self._run_replace_phase(
+                        workspace_id, spec, operation, deadline
+                    )
                 if result is not None:
                     return result
                 self._phase_attempts.pop(operation.phase, None)
@@ -1050,7 +1153,16 @@ class WorkspaceLifecycle:
     def _handle_failure(
         self, workspace_id: UUID, claim: _Claim, error: ProviderError
     ) -> None:
+        will_retry = (
+            error.retryable
+            and self._phase_attempts.get(claim.phase, 0) < MAX_ATTEMPTS
+        )
         if error.retryable:
+            if will_retry:
+                self._retry_reasons[claim.phase] = (
+                    claim.operation_id,
+                    getattr(error, "code", None),
+                )
             self._clear_claim(workspace_id, claim)
             return
 
@@ -1074,6 +1186,25 @@ class WorkspaceLifecycle:
                 )
 
         run_with_sqlite_lock_retry(transaction_once)
+
+    def _emit_retry_if_pending(
+        self, workspace_id: UUID, claim: _Claim, *, operation_name: str
+    ) -> None:
+        """Record a retry only after a new claim has actually been acquired."""
+
+        pending = self._retry_reasons.pop(claim.phase, None)
+        if pending is None or pending[0] != claim.operation_id:
+            return
+        _, reason_code = pending
+        emit_event(
+            build_event(
+                "runtime.operation.retried",
+                operation=operation_name,
+                workspace_id=str(workspace_id),
+                reason_code=reason_code,
+                outcome="retry",
+            )
+        )
 
     def _clear_claim(self, workspace_id: UUID, claim: _Claim) -> None:
         @transaction.atomic

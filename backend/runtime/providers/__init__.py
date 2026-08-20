@@ -71,7 +71,13 @@ from .fly_http import (
     TransportResponse,
     UrllibFlyTransport,
 )
-from .protocol import FlyProviderProtocol, Provider, WorkspaceProvider
+from .protocol import (
+    FlyProviderProtocol,
+    Provider,
+    WorkspaceProvider,
+    current_provider_workspace_id,
+    provider_workspace_context,
+)
 
 __all__ = [
     "DEFAULT_API_BASE_URL",
@@ -129,8 +135,10 @@ __all__ = [
     "VolumeSpec",
     "WorkspaceProvider",
     "WorkspaceResourceNames",
+    "current_provider_workspace_id",
     "deterministic_app_name",
     "deterministic_machine_name",
     "deterministic_resource_names",
     "deterministic_volume_name",
+    "provider_workspace_context",
 ]

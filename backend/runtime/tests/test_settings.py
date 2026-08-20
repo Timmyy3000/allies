@@ -28,7 +28,6 @@ def run_settings_probe(**overrides):
         "DJANGO_SECRET_KEY",
         "DJANGO_TRUST_PROXY_HEADERS",
         "DJANGO_TRUSTED_PROXY_IPS",
-        "RAILWAY_PUBLIC_DOMAIN",
     ):
         environment.pop(name, None)
     environment.update(overrides)
@@ -135,7 +134,7 @@ def test_production_mode_requires_allowed_host():
     )
 
     assert result.returncode != 0
-    assert "DJANGO_ALLOWED_HOSTS or RAILWAY_PUBLIC_DOMAIN is required" in result.stderr
+    assert "DJANGO_ALLOWED_HOSTS is required" in result.stderr
 
 
 @pytest.mark.parametrize(

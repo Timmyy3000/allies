@@ -1,11 +1,11 @@
 # Staging verification
 
 The `staging` branch remains the deployment source for the hosted staging
-environment. Railway's built-in deployment healthcheck must be disabled for the
-staging service because that probe runs on the internal service port over HTTP.
-This is a hosted-service setting rather than Foundry application code. The
-repository instead verifies the public HTTPS surface after the branch is
-updated.
+environment. If the hosting platform's built-in deployment healthcheck probes
+an internal service port over HTTP, configure that check to use the public
+HTTPS endpoint instead. This is a hosting-platform setting rather than Foundry
+application code. The repository verifies the public HTTPS surface after the
+branch is updated.
 
 ## Public HTTPS gate
 
@@ -25,20 +25,21 @@ minutes in the worst case—before failing closed.
 The workflow can also be started manually with a URL input when validating a
 different deployment.
 
-Staging must set both trusted-proxy settings. Railway terminates TLS before
-forwarding requests to Foundry; the allowlist covers the Railway edge network
-observed by the service, while the flag enables Django to honor the forwarded
-HTTPS marker and enforce the redirect/HSTS policy at the public edge:
+Staging must set both trusted-proxy settings when a TLS-terminating proxy
+forwards requests to Foundry. The allowlist must contain only the documented
+proxy CIDR(s) observed by the service, while the flag enables Django to honor
+the forwarded HTTPS marker and enforce the redirect/HSTS policy at the public
+edge:
 
 ```text
 DJANGO_TRUST_PROXY_HEADERS=true
-DJANGO_TRUSTED_PROXY_IPS=100.64.0.0/10
+DJANGO_TRUSTED_PROXY_IPS=192.0.2.10/32,2001:db8:1234::/48
 ```
 
-If Railway changes the source range, update the allowlist from the service's
-access logs before deploying. Other hosting platforms must use their own
-documented proxy CIDR(s); never use a catch-all network.
+Replace the example networks with the proxy's documented CIDR(s) before
+deploying. Confirm the source ranges from service access logs when the hosting
+platform changes them; never use a catch-all network.
 
-Other hosting platforms can use the same public HTTPS check with their native
-deployment or uptime tooling; no Railway-specific middleware is required in
+Any hosting platform can use the same public HTTPS check with its native
+deployment or uptime tooling; no hosting-specific middleware is required in
 Foundry.

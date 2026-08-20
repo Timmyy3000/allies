@@ -32,6 +32,7 @@ from runtime.providers import (
     deterministic_app_name,
     deterministic_machine_name,
     deterministic_volume_name,
+    provider_workspace_context,
 )
 
 FIXTURES = Path(__file__).parent / "fixtures" / "providers"
@@ -159,6 +160,84 @@ def test_app_create_timeout_reconciles_by_deterministic_name():
         "app_name": deterministic_app_name(WORKSPACE_ID),
         "org_slug": "allies-pilot",
     }
+
+
+def test_provider_observes_direct_operations_once_and_aliases(monkeypatch):
+    events = []
+    monkeypatch.setenv("ALLIES_OBSERVABILITY_DIGEST_KEY", "test-digest")
+    monkeypatch.setattr(
+        "runtime.providers.fly.emit_event",
+        lambda event: events.append(event),
+    )
+    fake = FakeFlyTransport(
+        [
+            TransportResponse(404, {}),
+            TransportResponse(200, fixture("app.json")),
+        ]
+    )
+    result = provider(fake).ensure_app(
+        AppSpec(deterministic_app_name(WORKSPACE_ID), "allies-pilot", "ams")
+    )
+
+    assert result.id == "app-01"
+    operations = [event["operation"] for event in events]
+    assert operations == ["inspect_app", "inspect_app", "create_app", "create_app"]
+    assert "ensure_app" not in operations
+    assert all(event["workspace_id"].startswith("id_") for event in events)
+
+    machine_fake = FakeFlyTransport(
+        [TransportResponse(200, fixture("machines.json"))]
+    )
+    machine_provider = provider(machine_fake)
+    assert machine_provider.reconcile_machine(
+        deterministic_app_name(WORKSPACE_ID), deterministic_machine_name(WORKSPACE_ID, 1)
+    ) is not None
+    assert events[-2]["operation"] == "inspect_machine"
+    assert events[-1]["operation"] == "inspect_machine"
+    assert all(event["workspace_id"].startswith("id_") for event in events)
+
+
+def test_wait_machine_only_emits_nested_inspection_pair(monkeypatch):
+    events = []
+    monkeypatch.setenv("ALLIES_OBSERVABILITY_DIGEST_KEY", "test-digest")
+    monkeypatch.setattr(
+        "runtime.providers.fly.emit_event",
+        lambda event: events.append(event),
+    )
+    fake = FakeFlyTransport(
+        [
+            TransportResponse(200, {"ok": True}),
+            TransportResponse(200, fixture("machines.json")[0]),
+        ]
+    )
+
+    provider(fake).wait_machine(
+        deterministic_app_name(WORKSPACE_ID), "machine-01", timeout_seconds=10
+    )
+
+    assert [event["operation"] for event in events] == [
+        "inspect_machine_by_id",
+        "inspect_machine_by_id",
+    ]
+    assert all(event["workspace_id"].startswith("id_") for event in events)
+
+
+def test_provider_context_correlates_non_deterministic_call_shapes(monkeypatch):
+    events = []
+    monkeypatch.setenv("ALLIES_OBSERVABILITY_DIGEST_KEY", "test-digest")
+    monkeypatch.setattr(
+        "runtime.providers.fly.emit_event",
+        lambda event: events.append(event),
+    )
+    app_payload = fixture("app.json")
+    app_payload["name"] = "app-01"
+    fake = FakeFlyTransport([TransportResponse(200, app_payload)])
+
+    with provider_workspace_context(WORKSPACE_ID):
+        provider(fake).inspect_app("app-01")
+
+    assert len(events) == 2
+    assert all(event["workspace_id"].startswith("id_") for event in events)
 
 
 def test_machine_payload_has_two_containers_private_mount_and_opaque_ref_only():

@@ -533,9 +533,8 @@ make server
 
 Deployments must set `DJANGO_DEBUG=false`, `DJANGO_SECRET_KEY`, and
 `DATABASE_URL` through the platform's secret/environment configuration. Set
-`DJANGO_ALLOWED_HOSTS` (or provide Railway's `RAILWAY_PUBLIC_DOMAIN`) and opt
-into trusted proxy headers only when a TLS-terminating proxy strips and rewrites
-`X-Forwarded-Proto`:
+`DJANGO_ALLOWED_HOSTS` and opt into trusted proxy headers only when a
+TLS-terminating proxy strips and rewrites `X-Forwarded-Proto`:
 
 ```text
 DJANGO_TRUST_PROXY_HEADERS=true

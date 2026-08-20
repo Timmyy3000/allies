@@ -11,6 +11,7 @@ from typing import Any
 
 from .errors import IdentityIsolationError
 from .hermes import HermesClient, HermesEvent, HermesStreamResult
+from .observability import build_event, emit_runtime_event
 
 EventCallback = Callable[[HermesEvent], Any | Awaitable[Any]]
 
@@ -46,6 +47,59 @@ class ProfileProofCoordinator:
             return self._profile_locks.setdefault(profile_id, asyncio.Lock())
 
     async def run_turn(
+        self,
+        profile_id: str,
+        message: str,
+        *,
+        session_id: str | None = None,
+        event_callback: EventCallback | None = None,
+    ) -> ProfileProofResult:
+        """Run one turn and report lifecycle events without changing errors."""
+
+        effective_session = session_id or f"proof-{profile_id}-session"
+        started_at = time.monotonic()
+        emit_runtime_event(
+            build_event(
+                "runtime.operation.started",
+                operation="profile_turn",
+                profile_id=profile_id,
+                session_id=effective_session,
+                outcome="started",
+            )
+        )
+        try:
+            result = await self._run_turn(
+                profile_id,
+                message,
+                session_id=session_id,
+                event_callback=event_callback,
+            )
+        except BaseException as error:
+            emit_runtime_event(
+                build_event(
+                    "runtime.operation.failed",
+                    operation="profile_turn",
+                    profile_id=profile_id,
+                    session_id=effective_session,
+                    duration_ms=(time.monotonic() - started_at) * 1000,
+                    outcome="error",
+                    error_type=type(error).__name__,
+                )
+            )
+            raise
+        emit_runtime_event(
+            build_event(
+                "runtime.operation.succeeded",
+                operation="profile_turn",
+                profile_id=profile_id,
+                session_id=result.session_id,
+                duration_ms=(time.monotonic() - started_at) * 1000,
+                outcome="success",
+            )
+        )
+        return result
+
+    async def _run_turn(
         self,
         profile_id: str,
         message: str,
