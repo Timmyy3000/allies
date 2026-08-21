@@ -154,17 +154,18 @@ This is the version state verified on 2026-08-21:
 
 | Item | Current value | Meaning |
 | --- | --- | --- |
-| App version | `1.0.0` | `expo.version`; this is also the runtime version because the app uses the `appVersion` policy. |
-| Package version | `1.0.0` | `apps/mobile/package.json` package metadata; it does not replace `expo.version`. |
+| App version | `1.0.1` | `expo.version`; this is also the next runtime version because the app uses the `appVersion` policy. |
+| Package version | `1.0.1` | `apps/mobile/package.json` package metadata; it does not replace `expo.version`. |
 | Expo SDK | SDK 57 (`expo ~57.0.9`; resolved app config `57.0.0`) | Native/runtime baseline for the current mobile app. |
 | React Native | `0.86.2` | Native runtime dependency. |
 | React | `19.2.3` | JavaScript runtime dependency. |
-| `expo-updates` | `~57.0.16` | SDK-compatible OTA client included in the next native build. |
+| `expo-updates` | `~57.0.16` | SDK-compatible OTA client included in the preview native build. |
 | Reanimated | `4.5.1` | Existing motion runtime used by the onboarding UI. |
 | EAS CLI | `22.2.0` | CLI version used for local configuration/authentication checks; it is not an app runtime dependency. |
 | Android application ID | `com.daviddll.allies` | Permanent Android package identity for this app. |
 | Preview build | `FINISHED` — EAS build `d0fc5e35-1a1c-4230-ac69-4078ac2e39cf` | [Installable Android APK](https://expo.dev/artifacts/eas/VAcLE1_CJVuV_jvUH7FQLX5gyPewn_1dBcp8vXGZaqg.apk) on the `preview` channel; device installation may still be pending. |
 | Current build versions | App version `1.0.0`, runtime `1.0.0`, Android build version `1` | Values reported by the completed EAS build. |
+| Next native release | App/runtime `1.0.1`; build pending | Adds the branded native splash and includes the corrected conversation typewriters. |
 | Production profile | `production` channel | Profile exists; no production build or publish has been performed. |
 | EAS project link | Linked | `updates.url` and `extra.eas.projectId` are present in `app.json`; credentials are not stored in the repository. |
 | EAS app version source | `remote` | Future Android build numbers are managed by EAS; `preview` and `production` profiles auto-increment them. |
@@ -218,6 +219,10 @@ boundary.
   `b05609a0-a82e-437e-b492-cdf213322d9b`. The Android update ID is
   `01a02293-ffc8-756e-a1f9-051d1b693720`; the message was `Fix conversation name
   clipping and greeting reveal`.
+- **2026-08-21 — Version 1.0.1 prepared:** replaces the overlapping preview fades
+  with a sequential name-then-greeting typewriter and configures a native Allies
+  splash. The version bump is required because splash plugin changes affect native
+  resources; a new preview APK is required.
 
 ### GitHub merges and installed devices
 
@@ -296,8 +301,8 @@ every local edit. Native changes still require a new APK.
 - `src/features/onboarding/onboarding-preview.ts` — preview timing, structured
   greeting parsing, handoff geometry, and preview typography constants.
 - `src/features/onboarding/ally-entrance-motion.ts` — Ally entrance choreography.
-- `src/features/onboarding/onboarding-focus-text.tsx` — native per-character
-  focus/settle animation modeled on the web generative-loader behavior.
+- `src/features/onboarding/onboarding-typewriter-text.tsx` — structured progressive
+  greeting renderer that preserves paragraph, heading, and hanging-indent bullet layout.
 - `src/components/ui/shiny-text.tsx` — native masked gradient shine used for
   `Thinking`.
 - `src/components/ui/keyboard-dismiss-view.tsx` and
@@ -315,10 +320,21 @@ every local edit. Native changes still require a new APK.
 - `assets/allies/icons/placeholder-rolly.svg`
 - `assets/allies/icons/send.svg`
 - `assets/allies/icons/white-check.svg`
+- `assets/allies/icons/allies-app-icon.png` — shared app icon and native splash mark.
 - `assets/allies/characters/` — SVG Ally idle/thinking artwork and reduced-motion
   variants.
 - `assets/allies/gifs/`, `assets/allies/webp/`, and `assets/allies/sprites/` —
   optimized artwork variants used where the animated/native path needs them.
+
+### Native splash
+
+- `expo-splash-screen` renders the existing Allies app icon at 180px on brand orange
+  `#FF5800` using `contain` scaling.
+- The root layout keeps the native splash visible only while Open Runde loads, then
+  hides it with the platform-supported 350ms fade. There is no artificial timeout.
+- Splash plugin changes are native configuration. Version `1.0.1` therefore requires
+  a new APK; publishing an OTA alone cannot replace the splash in an installed `1.0.0`
+  binary.
 
 ## Implemented onboarding behavior
 
@@ -420,15 +436,16 @@ every local edit. Native changes still require a new APK.
 - The thinking Ally is smaller (24x24) beside the thinking label. When generation
   completes, Reanimated measures the thinking row and header, then springs the Ally
   from its current position into the header instead of removing it and reappearing.
-  The Ally name types in after the handoff settles.
+  The Ally name types in at 55ms per character after the handoff settles. The greeting
+  waits for the name to finish before it starts.
 - The final greeting is represented as structured blocks: paragraphs, a heading row,
   and bullet rows. The sparkle heading has its own row. Bullet markers use a fixed
   column and the text uses a separate flex column, so wrapped lines align under the
   bullet text instead of underneath the marker.
-- Greeting text reveals progressively with a lightweight native typewriter. Short
-  greetings advance one character at a time; longer greetings advance in small
-  chunks so the complete reveal stays within roughly 2.4 seconds. Reduced motion
-  renders the full greeting immediately.
+- Greeting text reveals progressively with a lightweight native typewriter. Only the
+  currently revealed substring is rendered; longer greetings advance in small chunks
+  so the complete reveal stays within roughly 2.4 seconds. Reduced motion renders the
+  full name and greeting immediately.
 - Greeting body text uses Open Runde Medium, 16px, 22px line height, and `-0.5px`
   letter spacing. Bold inline content uses Open Runde Semibold with the same size,
   line height, and letter spacing.
@@ -453,7 +470,7 @@ values include:
 | Carousel nudge | 24px; 300ms delay; 300ms return; repeat every 5000ms until interaction |
 | Preview entrance | 2400ms staged entrance timing |
 | Thinking shine | 1700ms sweep cycle |
-| Greeting focus | 280ms per-character settle, capped 35ms stagger |
+| Ally name typewriter | 55ms per character, after the Ally handoff |
 | Greeting typewriter | 12ms cadence; adaptive chunks with a 2400ms reveal budget |
 | Avatar handoff | Reanimated spring, damping `24`, mass `0.82`, stiffness `190` |
 
@@ -467,7 +484,7 @@ interaction. Every meaningful animation needs a reduced-motion path.
 The latest completed local validation for the onboarding slice was:
 
 ```text
-bun run test:run       # 28 files, 147 tests passed
+bun run test:run       # 29 files, 149 tests passed
 bun --filter mobile lint
 bun --filter mobile typecheck
 git diff --check
