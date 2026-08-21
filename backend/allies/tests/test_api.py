@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass
+
+import pytest
+from django.test import Client, override_settings
+
+from allies.services.onboarding import begin_onboarding
+from auths.config import cookie_name
+from auths.models import User
+from auths.services.sessions import issue_session
+from workspaces.models import Membership, Workspace
+
+
+@dataclass
+class GreetingProvider:
+    def generate(self, _request):
+        return "Hi, I can help you plan a focused study session. What comes first?"
+
+
+def seed():
+    return {
+        "name": "Mira",
+        "job": "Study partner",
+        "personality": "Calm, curious, and specific.",
+        "appearance": {"catalog_version": "v1", "key": "sunrise"},
+    }
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
+    ALLIES_AUTH_DIGEST_KEY="d" * 32,
+    ALLIES_AUTH_JWT_KEY="j" * 32,
+)
+def test_create_retrieve_and_replay_use_workspace_scoped_contract(monkeypatch):
+    user = User.objects.create_user(public_id="usr_ally_api")
+    workspace = Workspace.objects.create(
+        public_id="wsp_ally_api", owner=user, name="Personal Workspace"
+    )
+    Membership.objects.create(
+        workspace=workspace, user=user, role="owner", status="active"
+    )
+    other_user = User.objects.create_user(public_id="usr_ally_api_other")
+    other_workspace = Workspace.objects.create(
+        public_id="wsp_ally_api_other", owner=other_user, name="Other Workspace"
+    )
+    Membership.objects.create(
+        workspace=other_workspace, user=other_user, role="owner", status="active"
+    )
+
+    client = Client(enforce_csrf_checks=True)
+    csrf = client.get("/api/v1/auths/csrf", HTTP_HOST="testserver")["X-CSRFToken"]
+    issued = issue_session(user)
+    client.cookies[cookie_name("access")] = issued.access_token
+    start = begin_onboarding(
+        name="Mira",
+        job="Study partner",
+        personality="Calm, curious, and specific.",
+        appearance_catalog_version="v1",
+        appearance_key="sunrise",
+        browser_binding=client.cookies["csrftoken"].value.encode(),
+        generation_identity="test:api",
+        provider=GreetingProvider(),
+    )
+    monkeypatch.setattr("allies.services.creation._enqueue_dispatch", lambda: None)
+    payload = {
+        **seed(),
+        "onboarding_attempt": start.attempt_token,
+        "reply": "Help me plan tomorrow.",
+    }
+    headers = {
+        "HTTP_HOST": "testserver",
+        "HTTP_ORIGIN": "http://localhost:3000",
+        "HTTP_X_CSRFTOKEN": csrf,
+        "HTTP_IDEMPOTENCY_KEY": "stable-create-key-1",
+    }
+
+    created = client.post(
+        f"/api/v1/workspaces/{workspace.public_id}/allies",
+        json.dumps(payload),
+        content_type="application/json",
+        **headers,
+    )
+    replay = client.post(
+        f"/api/v1/workspaces/{workspace.public_id}/allies",
+        json.dumps(payload),
+        content_type="application/json",
+        **headers,
+    )
+
+    assert created.status_code == 202
+    assert replay.status_code == 202
+    assert replay.json()["data"]["id"] == created.json()["data"]["id"]
+    ally_id = created.json()["data"]["id"]
+    loaded = client.get(
+        f"/api/v1/workspaces/{workspace.public_id}/allies/{ally_id}",
+        HTTP_HOST="testserver",
+    )
+    foreign = client.get(
+        f"/api/v1/workspaces/{other_workspace.public_id}/allies/{ally_id}",
+        HTTP_HOST="testserver",
+    )
+
+    assert loaded.status_code == 200
+    assert loaded.json()["data"]["name"] == "Mira"
+    assert foreign.status_code == 404
+    assert foreign.json()["data"] == {"code": "ally_unavailable"}
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
+)
+def test_onboarding_attempt_route_requires_trusted_csrf_bound_origin():
+    client = Client(enforce_csrf_checks=True)
+    response = client.post(
+        "/api/v1/onboarding/attempts",
+        json.dumps(seed()),
+        content_type="application/json",
+        HTTP_HOST="testserver",
+        HTTP_ORIGIN="https://evil.example",
+    )
+
+    assert response.status_code == 403
+    assert response.json()["data"] == {"code": "origin_rejected"}
+
+
+@pytest.mark.django_db
+def test_retrieve_requires_a_valid_session():
+    client = Client()
+    response = client.get(
+        "/api/v1/workspaces/wsp_missing/allies/ally_missing",
+        HTTP_HOST="testserver",
+    )
+
+    assert response.status_code == 401
+    assert response.json()["data"] == {"code": "session_invalid"}

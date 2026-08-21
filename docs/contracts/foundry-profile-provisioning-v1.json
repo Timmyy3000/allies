@@ -1,0 +1,20 @@
+{
+  "request": {
+    "version": 1,
+    "workspace_id": "workspace_demo",
+    "binding_id": "binding_demo",
+    "ally_ref": "ally_demo",
+    "operation_id": "operation_demo",
+    "request_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "job": "Study partner",
+    "personality": "Calm, curious, and specific."
+  },
+  "receipt": {
+    "version": 1,
+    "binding_id": "binding_demo",
+    "operation_id": "operation_demo",
+    "request_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "status": "pending",
+    "evidence_digest": "aaecf3c2461187c97ce08eea57ab73c264be2e71e846cdd774ccbc384ada2ce5"
+  }
+}

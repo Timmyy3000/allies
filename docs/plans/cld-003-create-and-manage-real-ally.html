@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="CLD-003 implementation plan">
+  <title>CLD-003 · Create and Manage a Real Ally Plan</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#fff; --fg:#171717; --muted:#666; --line:#ddd; --soft:#f6f6f6; --accent:#2457d6; }
+    * { box-sizing:border-box; } body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif; }
+    header, main { max-width:1240px; margin:auto; padding-left:28px; padding-right:28px; } header { border-bottom:1px solid var(--line); padding-top:20px; padding-bottom:20px; } main { padding-top:36px; padding-bottom:80px; }
+    h1 { font-size:clamp(30px,5vw,58px); line-height:1.05; letter-spacing:-.025em; margin:20px 0 36px; } h2 { margin:56px 0 18px; font-size:clamp(24px,3vw,32px); line-height:1.15; } h3 { margin:34px 0 14px; font-size:21px; }
+    p,ul,ol { max-width:82ch; } li { margin:7px 0; } code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.92em; overflow-wrap:anywhere; } pre { overflow:auto; padding:16px; background:var(--soft); border:1px solid var(--line); border-radius:8px; }
+    .meta { font:12px ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--muted); } .table-scroll { overflow-x:auto; margin:18px 0 24px; } table { width:100%; min-width:820px; border-collapse:collapse; font-size:13px; } caption { text-align:left; font-weight:600; padding:0 0 10px; } th,td { padding:10px 9px; text-align:left; vertical-align:baseline; border-bottom:1px solid var(--line); } th { background:var(--soft); vertical-align:bottom; } .note { border-left:3px solid var(--accent); padding-left:16px; color:var(--muted); }
+    .skip { position:absolute; left:-9999px; top:8px; padding:8px 12px; background:var(--bg); color:var(--fg); border:2px solid var(--accent); } .skip:focus { left:8px; z-index:10; }
+    @media (max-width:700px) { header,main { padding-left:18px; padding-right:18px; } } @media (prefers-color-scheme:dark) { :root { --bg:#111; --fg:#eee; --muted:#aaa; --line:#333; --soft:#1b1b1b; --accent:#8eaaff; } }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header><div class="meta">Allies Cloud · CLD-003 implementation plan</div></header>
+  <main id="main"><article>
+    <h1>CLD-003 Create and Manage a Real Ally Plan</h1>
+    <h2>Feature Overview</h2>
+    <ul>
+      <li><strong>Problem:</strong> the official disposable onboarding preview creates no product Ally, Workspace data, conversation, or runtime profile. After authentication, the same route must create one durable Ally without a waitlist claim path.</li>
+      <li><strong>Target users:</strong> authenticated personal-Workspace owners completing onboarding.</li>
+      <li><strong>Source docs/specs:</strong> <code>docs/plans/cld-003-kickoff.md</code>; Nabu CLD-003 and Foundry continuity specifications; <code>ENGINEERING_STYLE.md</code>; Cloud auth, workspace, Celery, and API conventions.</li>
+      <li><strong>Success outcome:</strong> one Cloud-owned Ally, one immutable Foundry binding, truthful derived provisioning state, and the current preview greeting/reply preserved through the existing conversation boundary. A matching idempotent create replays; conflicting and cross-Workspace requests fail closed.</li>
+    </ul>
+    <h2>User Stories</h2>
+    <ol>
+      <li>As an onboarding user, I can edit name, job, exact personality text, and appearance before sign-in so the durable Ally reflects my final choices.</li>
+      <li>As an authenticated Workspace owner, I receive a stable Ally and provisioning outcome so I can repeat the original create safely.</li>
+      <li>As an operator, I can see sanitized operation outcomes so failed provisioning can recover without private provider data.</li>
+    </ol>
+    <h2>Scope</h2>
+    <h3>In Scope</h3>
+    <ul>
+      <li>Cloud <code>allies</code> domain app with Ally, immutable binding, onboarding attempt, and one provisioning operation.</li>
+      <li>Authenticated Workspace-scoped create and retrieve APIs; separate idempotency-key digest and content fingerprint.</li>
+      <li>Versioned Foundry profile-provisioning contract: typed request/receipt schemas, one checked JSON fixture, existing service bearer, and a narrow HTTP function.</li>
+      <li>AuthFlow-style opaque, expiring, single-use DB onboarding attempt associated with the Ally after authentication, retaining the bounded final seed and current greeting/reply.</li>
+      <li>Bounded scheduled cleanup of expired, unconsumed onboarding attempts; consumed handoffs remain attached to their Ally.</li>
+      <li>Existing Celery worker and beat dispatch/retry using lease, attempt, next-attempt, and expiry fields on <code>ProvisioningOperation</code>.</li>
+      <li>Focused model, service, API, contract, and PostgreSQL concurrency tests; migration and rollout documentation.</li>
+    </ul>
+    <h3>Out of Scope</h3>
+    <ul>
+      <li>Waitlist lookup, claim, import, or reconciliation; creation before authentication; anonymous Workspace or Foundry profile.</li>
+      <li>Signed onboarding-token issuer/audience/key/nonce protocol, separate handoff receipt model, or second handoff contract representation.</li>
+      <li><code>ProvisioningOutbox</code>, retry service/schema/route, gateway class, mTLS configuration, new dispatcher or feature-flag framework, synthetic canaries.</li>
+      <li>Post-creation editing/deletion, team Workspaces, frontend layout, product Ally limits, and ongoing conversation/streaming lifecycle.</li>
+      <li>Cloud/Foundry shared models, databases, queues, provider references, credentials, raw provider output, or runtime addresses.</li>
+    </ul>
+    <h3>Dependencies and Assumptions</h3>
+    <ul>
+      <li>AUTH-001 supplies session and Workspace capability helpers. The onboarding attempt follows its opaque-record, digest, expiry, and row-lock conventions.</li>
+      <li>Existing worker and beat run on the <code>cloud</code> queue; a due-operation task and sweep extend that mechanism.</li>
+      <li>Foundry exposes the agreed private endpoint with the existing service bearer. Cloud stores only allowlisted receipt fields.</li>
+      <li>Typed schemas plus one checked fixture are the authoritative Foundry contract representation and are checked in both repositories.</li>
+    </ul>
+    <h2>Contract and Shape Definitions</h2>
+    <h3>Function and Service Shapes</h3>
+    <div class="table-scroll"><table>
+      <caption>Functions and service boundaries introduced by this plan</caption>
+      <thead><tr><th scope="col">Location / symbol</th><th scope="col">Signature</th><th scope="col">Inputs and result</th><th scope="col">Effects / errors</th></tr></thead>
+      <tbody>
+        <tr><td><code>services/onboarding.py</code><br><code>begin_onboarding</code></td><td><code>begin_onboarding(*, payload, browser_binding, generation_identity) -&gt; OnboardingStart</code></td><td>Bounded final seed, trusted browser binding, existing greeting admission and output checks. Returns an opaque token and server-authored greeting.</td><td>Stores one expiring attempt with token/browser digests and bounded handoff content; the raw token is never stored or logged.</td></tr>
+        <tr><td><code>services/onboarding.py</code><br><code>cleanup_expired_onboarding_attempts</code></td><td><code>cleanup_expired_onboarding_attempts(*, now, limit) -&gt; int</code></td><td>Bounded batch of expired attempts that were never consumed. Returns the deleted-row count.</td><td>Existing Celery/beat runtime purges abandoned seed/greeting text; consumed handoffs are retained.</td></tr>
+        <tr><td><code>services/creation.py</code><br><code>create_ally</code></td><td><code>create_ally(*, user, workspace_id, payload, idempotency_key, onboarding_attempt, browser_binding) -&gt; AllyCreationResult</code></td><td>Capability; locked opaque attempt expiry and browser binding; final values must match; nonblank reply; separate key digest and fingerprint. Returns public Ally, operation ID, derived state.</td><td>Transaction creates/replays Ally, binding, operation, and attempt association. Same key/fingerprint replays; changed fingerprint conflicts; invalid/expired/consumed attempt rejects. Normal dispatch starts after commit.</td></tr>
+        <tr><td><code>services/creation.py</code><br><code>retrieve_ally</code></td><td><code>retrieve_ally(*, user, workspace_id, ally_id) -&gt; Ally</code></td><td>Workspace capability and Ally lookup. Returns allowlisted fields and state derived from binding/operation.</td><td>Uses <code>select_related("workspace", "binding", "binding__provisioning_operation")</code>; denied and absent are indistinguishable.</td></tr>
+        <tr><td><code>gateways/foundry.py</code><br><code>provision_profile</code></td><td><code>provision_profile(request: ProfileProvisioningRequest) -&gt; ProfileProvisioningReceipt</code></td><td>Typed versioned binding, operation, fingerprint, job, personality; no appearance or end-user credential. Returns allowlisted receipt.</td><td>Existing service bearer to private HTTP endpoint. Timeout/429/5xx retryable; malformed, incompatible, unauthenticated replies fail closed and are redacted.</td></tr>
+        <tr><td><code>services/provisioning.py</code><br><code>dispatch_due_provisioning</code></td><td><code>dispatch_due_provisioning(*, now, limit) -&gt; DispatchReport</code></td><td>Claims due operations with <code>select_for_update(skip_locked=True)</code>, lease, bounded attempts, expiry. Returns redacted counts/outcomes.</td><td>The wrapper in <code>tasks.py</code> lets existing Celery worker/beat call <code>provision_profile</code>; lease expiry recovers crashes; immutable operation identity tolerates duplicates; expiry becomes repair-required.</td></tr>
+      </tbody>
+    </table></div>
+    <h3>API and Transport Contracts</h3>
+    <div class="table-scroll"><table>
+      <caption>Public and service-to-service transport contracts</caption>
+      <thead><tr><th scope="col">Consumer</th><th scope="col">Method and path</th><th scope="col">Auth / request</th><th scope="col">Response and retry</th></tr></thead>
+      <tbody>
+        <tr><td>Web client</td><td><code>POST /api/v1/onboarding/attempts</code></td><td>Trusted origin and CSRF-bound browser; <code>OnboardingAttemptRequest</code> with final seed fields; no account required.</td><td><code>200 OnboardingAttemptResponse</code> with opaque token and server-authored greeting. Generation/admission failures are structured; no waitlist row is read or written.</td></tr>
+        <tr><td>Web client</td><td><code>POST /api/v1/workspaces/{workspace_id}/allies</code></td><td>Authenticated session and existing Workspace write capability; <code>CreateAllyRequest</code>, <code>Idempotency-Key</code>, opaque onboarding attempt.</td><td><code>201</code> settled; <code>202</code> pending/retryable/repair-required. Same key/fingerprint replays; changed content <code>409</code>; invalid attempt <code>422</code>; retry only by repeating this request with the same key.</td></tr>
+        <tr><td>Web client</td><td><code>GET /api/v1/workspaces/{workspace_id}/allies/{ally_id}</code></td><td>Authenticated session and existing Workspace read capability.</td><td><code>200 AllyResponse</code>; <code>401</code> invalid session; <code>404</code> unavailable or denied.</td></tr>
+        <tr><td>Cloud service</td><td><code>POST /api/v1/internal/profile-provisioning</code></td><td>Existing service bearer; <code>ProfileProvisioningRequest</code>; no end-user credential.</td><td><code>ProfileProvisioningReceipt</code>. Auth/version/identity/malformed failures fail closed; <code>408/429/5xx</code> retry automatically.</td></tr>
+      </tbody>
+    </table></div>
+    <pre><code>{
+  "name": "Mira",
+  "job": "Study partner",
+  "personality": "Calm, curious, and specific.",
+  "appearance": {"catalog_version": "v1", "key": "sunrise"},
+  "onboarding_attempt": "opaque-onboarding-attempt",
+  "reply": "Help me map out tomorrow's study block."
+}</code></pre>
+    <p><code>ProfileProvisioningRequest</code> and <code>ProfileProvisioningReceipt</code> are typed schemas in <code>backend/allies/gateways/foundry.py</code>. Their one authoritative checked example is <code>docs/contracts/foundry-profile-provisioning-v1.json</code>; neither repository keeps a second Markdown schema or ticket-named contract file.</p>
+    <h3>Schema and Data Shapes</h3>
+    <div class="table-scroll"><table>
+      <caption>Durable records and public response shapes</caption>
+      <thead><tr><th scope="col">Model / schema</th><th scope="col">Fields</th><th scope="col">Invariants and migration notes</th></tr></thead>
+      <tbody>
+        <tr><td><code>Ally</code></td><td>public ID, Workspace, seed fields, timestamps</td><td>Bounded seed fields; no persisted lifecycle state; public state derives elsewhere.</td></tr>
+        <tr><td><code>AllyBinding</code></td><td>Ally one-to-one, immutable Cloud binding ID, version, binding status, receipt digest</td><td>Binding ID unique and immutable; store no provider reference unless reconciliation proves it necessary.</td></tr>
+        <tr><td><code>OnboardingAttempt</code></td><td>opaque value digest, browser binding digest, bounded final seed, greeting, nullable reply/user/Ally, expiry, consumption</td><td>Lock before consume; verify browser and final values; atomically retain the nonblank reply and associate the authenticated user and Ally once; raw token is never stored and handoff text is never logged.</td></tr>
+        <tr><td><code>ProvisioningOperation</code></td><td>binding, tenant/user, key digest, fingerprint, status, attempts, next attempt, lease, expiry, safe error/receipt digest</td><td>Unique tenant/key identity; due-operation index; no outbox table.</td></tr>
+        <tr><td><code>AllyResponse</code></td><td>public seed fields, derived provisioning state, operation ID, retry metadata</td><td>No provider IDs, credentials, raw receipt, or handoff receipt.</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Frontend Interaction Shapes (if applicable)</h3>
+    <p>Cloud does not implement layout. The client retains final values through authentication, repeats the original create request with the same <code>Idempotency-Key</code> only when it retries, and retrieves the same Ally on reconnect. No waitlist record is queried.</p>
+    <h2>Phases</h2>
+    <h3>Phase 1 — Durable Cloud records</h3><p><strong>Goal:</strong> add durable ownership and concurrency state before external I/O.</p><p><strong>Work:</strong> create <code>allies</code>; add Ally, immutable binding, AuthFlow-style onboarding attempt, provisioning operation, constraints/indexes, and additive domain-named migration. <strong>Exit:</strong> binding, identity, attempt expiry/consume, state-derivation tests pass; <code>make check</code> has no migration drift.</p>
+    <h3>Phase 2 — Authenticated create and retrieve</h3><p><strong>Goal:</strong> create/replay one tenant-safe Ally while retaining preview exchange through the opaque attempt.</p><p><strong>Work:</strong> schemas/controllers/service transaction; Workspace capability; lock/consume/associate attempt; bounded abandonment cleanup; <code>select_related</code>; create/retrieve routes only. <strong>Exit:</strong> <code>201/202</code>, replay/conflict, cross-Workspace 404, cleanup, and no waitlist import/query tests pass.</p>
+    <h3>Phase 3 — Foundry provisioning and recovery</h3><p><strong>Goal:</strong> call one typed Foundry HTTP contract and recover transient work through existing Celery.</p><p><strong>Work:</strong> <code>provision_profile()</code>, existing bearer, typed mapping, checked fixture, task/beat sweep, bounded leases/backoff, matching Foundry endpoint/fixture check. <strong>Exit:</strong> fixture passes in both repos; all outcomes are truthful and private-data-safe.</p>
+    <h3>Phase 4 — Focused release</h3><p><strong>Goal:</strong> release the smallest proven vertical slice.</p><p><strong>Work:</strong> focused tests/checks; deploy Foundry contract, migrate Cloud, enable route. <strong>Exit:</strong> all checks pass and rollback leaves durable rows intact.</p>
+    <h2>Acceptance Criteria</h2>
+    <ol>
+      <li>One onboarding route serves new and prior preview visitors with no historical waitlist lookup, claim, import, or reconciliation.</li>
+      <li>Fields remain editable before authenticated creation; onboarding attempt is expiring and single-use.</li>
+      <li>Expired, unconsumed attempts are purged in bounded batches; consumed handoff content remains attached to its Ally.</li>
+      <li>One durable Workspace Ally and immutable binding result; public state derives from binding/operation, not a synchronized Ally lifecycle field.</li>
+      <li>Same key/fingerprint replays; changed content returns <code>409</code> without mutation; concurrent creates yield one Ally, binding, and operation.</li>
+      <li>Repeating original create with the same key is the only client retry path; worker/beat retry transient provisioning automatically.</li>
+      <li>Cloud settles success only with allowlisted Foundry evidence; other outcomes are structured and truthful.</li>
+      <li>Tenant denial is non-enumerable; public and diagnostic data excludes provider/private details and preview text.</li>
+      <li>Typed schemas and one checked JSON fixture prove Foundry compatibility.</li>
+    </ol>
+    <h2>Backend Considerations</h2>
+    <h3>Query Optimization Plan</h3>
+    <ul><li>Follow existing <code>select_related("workspace", "user")</code> membership lookup and retrieve with <code>select_related("workspace", "binding", "binding__provisioning_operation")</code>.</li><li>Use short row locks for attempt consumption and operation claims; due-operation sweeps use indexed fields and bounded batches.</li><li>Do not add query-count assertions or N+1 machinery without a measured regression; this scope has no list endpoint.</li></ul>
+    <h3>Detailed Unit Test Cases</h3>
+    <ul><li>Model/service: immutable binding, idempotency/fingerprint, attempt expiry/single-use and abandoned-attempt cleanup, operation lease/expiry, derived state.</li><li>Service/API: authenticated create, replay/conflict, invalid/replayed attempt, tenant-safe 404, retrieve, and original-request retry.</li><li>Contract: fixture, bearer failure, timeout mapping, malformed receipt, and redacted logs.</li><li>PostgreSQL: simultaneous same-key create and duplicate due-operation claims converge on one durable identity.</li></ul>
+    <h2>Test Plan</h2>
+    <ul><li>Focused tests: <code>make test APP=allies</code> covering model, service, API, contract, task, and PostgreSQL concurrency cases.</li><li>Repository checks: <code>make check</code>, <code>make lint</code>, and <code>make test APP=allies</code>.</li><li>Migration check: <code>make migrations APP=allies MIGRATION_NAME=ally_initial</code>, then <code>make check</code>.</li><li>Contract check: Cloud and Foundry tests against <code>docs/contracts/foundry-profile-provisioning-v1.json</code>.</li></ul>
+    <h2>Risks and Mitigations</h2>
+    <ul><li>Duplicate creates/claims: DB uniqueness, short locks, leases, immutable identity, concurrency tests; disable route without deleting rows.</li><li>Timeout after materialization: remain pending/retryable from operation; settle only on matching evidence; pause dispatch without deleting rows.</li><li>Contract drift: typed schemas plus one fixture checked in both repos; do not enable route until it passes.</li><li>Data leakage: allowlisted schemas/redacted errors; disable route/dispatch while preserving safe evidence.</li></ul>
+    <h2>Rollout and Fallback</h2>
+    <ol><li>Deploy and verify Foundry private contract with existing service bearer and checked fixture.</li><li>Deploy additive Cloud migration and worker/beat support.</li><li>Enable create route after focused Cloud and contract checks pass.</li></ol>
+    <p class="note">Disable route and/or dispatch on failure; retain Ally, binding, attempt, and operation rows so recovery resumes from the authoritative operation.</p>
+    <h2>Revision Summary</h2>
+    <ul><li>Replaced signed handoff token/receipt design with an AuthFlow-style opaque onboarding attempt.</li><li>Removed outbox, retry surface, gateway class, mTLS option, provider reference, synchronized lifecycle state, query-count guards, and speculative rollout gates.</li><li>Kept required tenancy, idempotency, lease/retry, contract, privacy, and concurrency protections using existing patterns.</li></ul>
+  </article></main>
+</body>
+</html>
