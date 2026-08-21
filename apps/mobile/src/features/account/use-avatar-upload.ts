@@ -30,33 +30,34 @@ export function useAvatarUpload() {
 
     setState('picking');
     setMessage(null);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setState('error');
-      setMessage('Photo access is needed to choose an avatar.');
-      return false;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      allowsEditing: false,
-      mediaTypes: ['images'],
-      quality: 1,
-    });
-    if (result.canceled || !result.assets[0]) {
-      setState('idle');
-      return false;
-    }
-
-    const asset = result.assets[0];
-    if (asset.fileSize !== undefined && asset.fileSize > MAX_AVATAR_BYTES) {
-      setState('error');
-      setMessage('That image is too large. Choose one under 10 MiB.');
-      return false;
-    }
-    const file = new File(asset.uri);
-    setState('uploading');
-
     try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setState('error');
+        setMessage('Photo access is needed to choose an avatar.');
+        return false;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: false,
+        mediaTypes: ['images'],
+        quality: 1,
+      });
+      if (result.canceled || !result.assets[0]) {
+        setState('idle');
+        return false;
+      }
+
+      const asset = result.assets[0];
+      const file = new File(asset.uri);
+      const fileSize = asset.fileSize ?? file.size;
+      if (fileSize != null && fileSize > MAX_AVATAR_BYTES) {
+        setState('error');
+        setMessage('That image is too large. Choose one under 10 MiB.');
+        return false;
+      }
+      setState('uploading');
+
       const avatar = await uploadAvatar({
         client: {
           completeAvatar: (assetId, signal) =>
@@ -65,6 +66,7 @@ export function useAvatarUpload() {
             session.adapter!.withRefresh(() => session.accountClient!.prepareAvatarUpload(input, signal)),
         },
         contentType: asset.mimeType ?? 'image/jpeg',
+        size: fileSize,
         hash: async (bytes) => {
           const digestInput = new Uint8Array(bytes.byteLength);
           digestInput.set(bytes);
@@ -85,7 +87,7 @@ export function useAvatarUpload() {
       return Boolean(avatar);
     } catch {
       setState('error');
-      setMessage('We could not update your avatar. Try again.');
+      setMessage('We could not choose or update your avatar. Try again.');
       return false;
     }
   }, [queryClient, session.accountClient, session.adapter]);

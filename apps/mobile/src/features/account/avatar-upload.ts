@@ -10,6 +10,7 @@ type AvatarCloudClient = Pick<CloudClient, 'prepareAvatarUpload' | 'completeAvat
 export interface AvatarUploadOptions {
   client: AvatarCloudClient;
   contentType: string;
+  size?: number | null;
   readBytes: () => Promise<Uint8Array>;
   hash: (bytes: Uint8Array) => Promise<string> | string;
   fetch?: typeof globalThis.fetch;
@@ -18,6 +19,9 @@ export interface AvatarUploadOptions {
 
 export async function uploadAvatar(options: AvatarUploadOptions): Promise<AvatarViewModel> {
   const contentType = validateContentType(options.contentType);
+  if (options.size != null && options.size > MAX_AVATAR_BYTES) {
+    throw new RangeError('Avatar file must not exceed 10 MiB');
+  }
   const bytes = await options.readBytes();
 
   if (!(bytes instanceof Uint8Array)) {
