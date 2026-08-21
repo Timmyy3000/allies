@@ -292,6 +292,9 @@ applicable, and EAS update channel/message at the release boundary.
   platform errors while rejecting known oversized files before reading them in
   `c6cf132`. This is JavaScript-only and remains gated behind the compatible `1.0.2`
   native build; no OTA has been published.
+- **2026-08-21 — CI portability follow-up:** corrected the pinned Cloud schema
+  metadata for the LF-normalized repository artifact in `59b922c`; Cloud contract
+  verification now passes on the Linux CI checkout without changing runtime behavior.
 
 ### GitHub merges and installed devices
 
