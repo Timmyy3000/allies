@@ -30,3 +30,4 @@ htmlcov/
 # Local agent planning, review, evidence, and rendered artifacts
 .agent/
 .lavish/
+.forest/
