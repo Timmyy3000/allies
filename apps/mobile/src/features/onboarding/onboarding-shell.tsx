@@ -4,10 +4,17 @@ import { StyleSheet, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { OnboardingHeader } from './onboarding-header';
-import { ONBOARDING_TOP_PADDING } from './onboarding-layout';
+import {
+  ONBOARDING_PAGE_HORIZONTAL_PADDING,
+  ONBOARDING_TOP_PADDING,
+} from './onboarding-layout';
 import type { OnboardingChromeConfig } from './onboarding-shell-config';
 
-export { getOnboardingChrome } from './onboarding-shell-config';
+export {
+  getOnboardingChrome,
+  getOnboardingHeaderAllyVariant,
+  isOnboardingFooterDisabled,
+} from './onboarding-shell-config';
 export type { OnboardingChromeConfig } from './onboarding-shell-config';
 
 type OnboardingShellProps = OnboardingChromeConfig & {
@@ -67,7 +74,7 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-    paddingHorizontal: 14,
+    paddingHorizontal: ONBOARDING_PAGE_HORIZONTAL_PADDING,
     paddingTop: ONBOARDING_TOP_PADDING,
   },
 });

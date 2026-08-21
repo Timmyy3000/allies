@@ -7,6 +7,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
@@ -14,9 +15,17 @@ import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 import { useAnimatedColor } from '@/components/ui/use-animated-color';
 
 import {
-  PERSONALITIES,
-  type Personality,
-} from './onboarding-state';
+  ONBOARDING_PERSONALITY_CHIP_GAP,
+  ONBOARDING_PERSONALITY_EDITOR_BACKGROUND,
+  ONBOARDING_PERSONALITY_HELP_CONTROL_SIZE,
+  ONBOARDING_PERSONALITY_HELP_CARD_MIN_HEIGHT,
+  ONBOARDING_PERSONALITY_HELP_ICON_SIZE,
+  ONBOARDING_PERSONALITY_HELP_OUTER_BACKGROUND,
+  ONBOARDING_PERSONALITY_HELP_TO_CHIP_GAP,
+  ONBOARDING_PERSONALITY_ROW_INSET,
+  getOnboardingEdgeToEdgeStyle,
+} from './onboarding-layout';
+import { PERSONALITIES, type Personality } from './onboarding-state';
 import { getMutedOnboardingColor } from './onboarding-motion';
 
 const AnimatedText = Animated.createAnimatedComponent(Text);
@@ -26,6 +35,7 @@ type OnboardingPersonalityScreenProps = {
   personalityNote: string;
   personalities: readonly Personality[];
   onPersonalityNoteChange: (value: string) => void;
+  onHelpVisibilityChange: (open: boolean) => void;
   onTogglePersonality: (personality: Personality) => void;
 };
 
@@ -70,15 +80,14 @@ export function OnboardingPersonalityScreen({
   accentColor,
   personalityNote,
   personalities,
+  onHelpVisibilityChange,
   onPersonalityNoteChange,
   onTogglePersonality,
 }: OnboardingPersonalityScreenProps) {
+  const { width: windowWidth } = useWindowDimensions();
   const [showHelp, setShowHelp] = useState(false);
+  const edgeToEdgeStyle = getOnboardingEdgeToEdgeStyle(windowWidth);
   const mutedColor = getMutedOnboardingColor(accentColor);
-  const animatedEditorBackground = useAnimatedColor(mutedColor);
-  const editorBackgroundStyle = useAnimatedStyle(() => ({
-    backgroundColor: animatedEditorBackground.value,
-  }));
   const remaining = 200 - personalityNote.length;
   const filled = personalityNote.trim().length > 0;
 
@@ -91,7 +100,10 @@ export function OnboardingPersonalityScreen({
           <Pressable
             accessibilityLabel="Close personality help"
             accessibilityRole="button"
-            onPress={() => setShowHelp(false)}
+            onPress={() => {
+              setShowHelp(false);
+              onHelpVisibilityChange(false);
+            }}
             style={[styles.helpClose, { backgroundColor: mutedColor }]}>
             <Text style={styles.helpCloseText}>×</Text>
           </Pressable>
@@ -109,17 +121,23 @@ export function OnboardingPersonalityScreen({
           <ScrollView
             contentContainerStyle={styles.chipRow}
             horizontal
-            showsHorizontalScrollIndicator={false}>
+            showsHorizontalScrollIndicator={false}
+            style={edgeToEdgeStyle}>
             <Pressable
               accessibilityLabel="Learn about personality"
               accessibilityRole="button"
-              onPress={() => setShowHelp(true)}
+              onPress={() => {
+                setShowHelp(true);
+                onHelpVisibilityChange(true);
+              }}
               style={[
                 styles.helpTrigger,
-                { backgroundColor: mutedColor, borderColor: accentColor },
+                { backgroundColor: ONBOARDING_PERSONALITY_HELP_OUTER_BACKGROUND },
               ]}
             >
-              <Text style={[styles.helpTriggerText, { color: accentColor }]}>?</Text>
+              <View style={[styles.helpTriggerIcon, { borderColor: accentColor }]}>
+                <Text style={[styles.helpTriggerText, { color: accentColor }]}>?</Text>
+              </View>
             </Pressable>
             {PERSONALITIES.map((personality) => (
               <PersonalityChip
@@ -133,7 +151,7 @@ export function OnboardingPersonalityScreen({
             ))}
           </ScrollView>
 
-          <Animated.View style={[styles.editorCard, editorBackgroundStyle]}>
+          <View style={styles.editorCard}>
             <TextInput
               accessibilityLabel="Personality note"
               maxLength={200}
@@ -145,7 +163,7 @@ export function OnboardingPersonalityScreen({
               textAlignVertical="top"
               value={personalityNote}
             />
-          </Animated.View>
+          </View>
           <Text style={styles.counter}>
             {filled ? `${remaining} characters left` : '200 character limit'}
           </Text>
@@ -173,7 +191,8 @@ const styles = StyleSheet.create({
   },
   chipRow: {
     alignItems: 'center',
-    gap: 12,
+    gap: ONBOARDING_PERSONALITY_CHIP_GAP,
+    paddingLeft: ONBOARDING_PERSONALITY_ROW_INSET,
     paddingRight: 20,
   },
   chipText: {
@@ -192,7 +211,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   editorCard: {
-    backgroundColor: '#F3F3F3',
+    backgroundColor: ONBOARDING_PERSONALITY_EDITOR_BACKGROUND,
     borderRadius: 20,
     height: 250,
     marginTop: 12,
@@ -200,7 +219,7 @@ const styles = StyleSheet.create({
   },
   helpCard: {
     borderRadius: 20,
-    minHeight: 233,
+    minHeight: ONBOARDING_PERSONALITY_HELP_CARD_MIN_HEIGHT,
     paddingHorizontal: 16,
     paddingVertical: 18,
   },
@@ -247,16 +266,27 @@ const styles = StyleSheet.create({
   },
   helpTrigger: {
     alignItems: 'center',
-    borderRadius: 18,
-    borderWidth: 2,
-    height: 36,
+    borderRadius: ONBOARDING_PERSONALITY_HELP_CONTROL_SIZE / 2,
+    height: ONBOARDING_PERSONALITY_HELP_CONTROL_SIZE,
     justifyContent: 'center',
-    width: 36,
+    marginRight:
+      ONBOARDING_PERSONALITY_HELP_TO_CHIP_GAP - ONBOARDING_PERSONALITY_CHIP_GAP,
+    width: ONBOARDING_PERSONALITY_HELP_CONTROL_SIZE,
+  },
+  helpTriggerIcon: {
+    alignItems: 'center',
+    borderRadius: ONBOARDING_PERSONALITY_HELP_ICON_SIZE / 2,
+    borderWidth: 2,
+    height: ONBOARDING_PERSONALITY_HELP_ICON_SIZE,
+    justifyContent: 'center',
+    width: ONBOARDING_PERSONALITY_HELP_ICON_SIZE,
   },
   helpTriggerText: {
+    includeFontPadding: false,
     fontFamily: 'OpenRundeSemibold',
-    fontSize: 20,
-    lineHeight: 20,
+    fontSize: 16,
+    lineHeight: 18,
+    textAlign: 'center',
   },
   root: {
     backgroundColor: '#FFFFFF',
