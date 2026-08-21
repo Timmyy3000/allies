@@ -10,19 +10,39 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useEffect, useRef, useState } from 'react';
+import Animated, { ZoomIn, useReducedMotion } from 'react-native-reanimated';
 
 import { OnboardingAllyPreview } from './onboarding-ally-preview';
 import {
   ONBOARDING_LOOK_COLOR_ROW_BOTTOM_MARGIN,
   ONBOARDING_LOOK_COLOR_ROW_HORIZONTAL_PADDING,
+  ONBOARDING_LOOK_CHECKMARK_SIZE,
+  ONBOARDING_LOOK_CAROUSEL_GROUP_STYLE,
   ONBOARDING_LOOK_HINT_ICON_GAP,
   ONBOARDING_LOOK_HINT_ICON_SIZE,
+  getOnboardingEdgeToEdgeStyle,
+  getOnboardingLookArtworkScale,
   getOnboardingLookPreviewLayerScales,
 } from './onboarding-layout';
+import {
+  ONBOARDING_CHECKMARK_POP_SPRING,
+  ONBOARDING_LOOK_SWIPE_HINT_DELAY_MS,
+  ONBOARDING_LOOK_SWIPE_HINT_DURATION_MS,
+  ONBOARDING_LOOK_SWIPE_HINT_INTERVAL_MS,
+  getOnboardingCheckmarkPopInitialScale,
+  getOnboardingLookSwipeHintOffsets,
+} from './onboarding-motion';
 import { ALLY_COLORS, ALLY_SHAPES, type AllyColorValue, type AllyShape } from './onboarding-state';
 
 const CAROUSEL_COPY_COUNT = 3;
 const AVATAR_SIZE = 160;
+const CHECKMARK_POP_ENTERING = ZoomIn.springify()
+  .damping(ONBOARDING_CHECKMARK_POP_SPRING.damping)
+  .stiffness(ONBOARDING_CHECKMARK_POP_SPRING.stiffness)
+  .mass(ONBOARDING_CHECKMARK_POP_SPRING.mass)
+  .withInitialValues({
+    transform: [{ scale: getOnboardingCheckmarkPopInitialScale(false) }],
+  });
 
 type OnboardingLookScreenProps = {
   allyShape: AllyShape;
@@ -46,14 +66,37 @@ export function OnboardingLookScreen({
   onSwipe,
 }: OnboardingLookScreenProps) {
   const { width: windowWidth } = useWindowDimensions();
+  const reducedMotion = useReducedMotion();
+  const edgeToEdgeStyle = getOnboardingEdgeToEdgeStyle(windowWidth);
   const scrollRef = useRef<ScrollView>(null);
   const positionedViewportRef = useRef(0);
+  const swipeHintTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const swipeHintIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const swipeHintFrameRef = useRef<number | null>(null);
+  const swipeHintStoppedRef = useRef(false);
   const [viewportWidth, setViewportWidth] = useState(0);
+  const [swipeHintActive, setSwipeHintActive] = useState(false);
   const shapeIndex = Math.max(0, ALLY_SHAPES.indexOf(allyShape));
   const [carouselIndex, setCarouselIndex] = useState(ALLY_SHAPES.length + shapeIndex);
   const artworkScale = getOnboardingLookPreviewLayerScales(selectedColor !== null).artwork;
-  const pageWidth = viewportWidth || Math.max(1, windowWidth - 28);
+  const pageWidth = viewportWidth || Math.max(1, windowWidth);
   const pageCount = ALLY_SHAPES.length * CAROUSEL_COPY_COUNT;
+  const hasSelectedColor = selectedColor !== null;
+
+  const cancelSwipeHint = () => {
+    swipeHintTimersRef.current.forEach(clearTimeout);
+    swipeHintTimersRef.current = [];
+    if (swipeHintIntervalRef.current !== null) {
+      clearInterval(swipeHintIntervalRef.current);
+      swipeHintIntervalRef.current = null;
+    }
+    if (swipeHintFrameRef.current !== null) {
+      cancelAnimationFrame(swipeHintFrameRef.current);
+      swipeHintFrameRef.current = null;
+    }
+    setSwipeHintActive(false);
+    swipeHintStoppedRef.current = true;
+  };
 
   useEffect(() => {
     if (!viewportWidth || positionedViewportRef.current === viewportWidth) return;
@@ -65,13 +108,65 @@ export function OnboardingLookScreen({
     positionedViewportRef.current = viewportWidth;
   }, [carouselIndex, viewportWidth]);
 
+  useEffect(() => {
+    if (
+      !viewportWidth ||
+      reducedMotion ||
+      hasSwipedAvatar ||
+      swipeHintStoppedRef.current
+    ) {
+      return;
+    }
+
+    const runSwipeHint = () => {
+      if (swipeHintStoppedRef.current) return;
+
+      const baseOffset = carouselIndex * viewportWidth;
+      const { hintOffset, returnOffset } = getOnboardingLookSwipeHintOffsets(baseOffset);
+      setSwipeHintActive(true);
+      swipeHintFrameRef.current = requestAnimationFrame(() => {
+        swipeHintFrameRef.current = null;
+        scrollRef.current?.scrollTo({ animated: true, x: hintOffset });
+      });
+
+      const returnTimer = setTimeout(() => {
+        scrollRef.current?.scrollTo({ animated: true, x: returnOffset });
+        const resetTimer = setTimeout(() => {
+          setSwipeHintActive(false);
+        }, ONBOARDING_LOOK_SWIPE_HINT_DURATION_MS);
+        swipeHintTimersRef.current.push(resetTimer);
+      }, ONBOARDING_LOOK_SWIPE_HINT_DURATION_MS);
+      swipeHintTimersRef.current.push(returnTimer);
+    };
+
+    const firstNudgeTimer = setTimeout(runSwipeHint, ONBOARDING_LOOK_SWIPE_HINT_DELAY_MS);
+    swipeHintIntervalRef.current = setInterval(runSwipeHint, ONBOARDING_LOOK_SWIPE_HINT_INTERVAL_MS);
+    swipeHintTimersRef.current = [firstNudgeTimer];
+
+    return () => {
+      swipeHintTimersRef.current.forEach(clearTimeout);
+      swipeHintTimersRef.current = [];
+      if (swipeHintIntervalRef.current !== null) {
+        clearInterval(swipeHintIntervalRef.current);
+        swipeHintIntervalRef.current = null;
+      }
+      if (swipeHintFrameRef.current !== null) {
+        cancelAnimationFrame(swipeHintFrameRef.current);
+        swipeHintFrameRef.current = null;
+      }
+      setSwipeHintActive(false);
+    };
+  }, [carouselIndex, hasSwipedAvatar, reducedMotion, viewportWidth]);
+
   const setShapeForPage = (rawPage: number, shouldMarkSwipe: boolean) => {
     const nextShapeIndex = modulo(rawPage, ALLY_SHAPES.length);
     const nextShape = ALLY_SHAPES[nextShapeIndex];
     const middlePage = ALLY_SHAPES.length + nextShapeIndex;
 
-    setCarouselIndex(middlePage);
-    onShapeChange(nextShape);
+    if (middlePage !== carouselIndex) {
+      setCarouselIndex(middlePage);
+      onShapeChange(nextShape);
+    }
     if (shouldMarkSwipe) onSwipe();
 
     if (rawPage !== middlePage) {
@@ -92,6 +187,7 @@ export function OnboardingLookScreen({
   };
 
   const jumpToShape = (nextShapeIndex: number) => {
+    cancelSwipeHint();
     const currentShapeIndex = modulo(carouselIndex, ALLY_SHAPES.length);
     let delta = nextShapeIndex - currentShapeIndex;
 
@@ -107,53 +203,58 @@ export function OnboardingLookScreen({
 
   return (
     <View style={styles.root}>
-      <View
-        onLayout={({ nativeEvent }) => setViewportWidth(nativeEvent.layout.width)}
-        style={styles.carouselFrame}>
-        <ScrollView
-          contentContainerStyle={{ width: pageWidth * pageCount }}
-          horizontal
-          onMomentumScrollEnd={handleScrollEnd}
-          pagingEnabled
-          ref={scrollRef}
-          scrollEventThrottle={16}
-          showsHorizontalScrollIndicator={false}
-          style={styles.carousel}
-          bounces={false}>
-          {Array.from({ length: pageCount }, (_, index) => {
-            const pageShape = ALLY_SHAPES[index % ALLY_SHAPES.length];
+      <View style={ONBOARDING_LOOK_CAROUSEL_GROUP_STYLE}>
+        <View
+          onLayout={({ nativeEvent }) => setViewportWidth(nativeEvent.layout.width)}
+          style={[styles.carouselFrame, edgeToEdgeStyle]}>
+          <ScrollView
+            contentContainerStyle={{ width: pageWidth * pageCount }}
+            horizontal
+            onMomentumScrollEnd={handleScrollEnd}
+            onScrollBeginDrag={cancelSwipeHint}
+            pagingEnabled={!swipeHintActive}
+            ref={scrollRef}
+            scrollEventThrottle={16}
+            showsHorizontalScrollIndicator={false}
+            style={styles.carousel}
+            bounces={false}>
+            {Array.from({ length: pageCount }, (_, index) => {
+              const pageShape = ALLY_SHAPES[index % ALLY_SHAPES.length];
+
+              return (
+                <View key={`${pageShape}-${index}`} style={[styles.page, { width: pageWidth }]}>
+                  <OnboardingAllyPreview
+                    accessibilityLabel={`${pageShape} Ally shape`}
+                    color={selectedColor}
+                    identity={pageShape}
+                    size={AVATAR_SIZE}
+                    artworkScale={
+                      artworkScale * getOnboardingLookArtworkScale(pageShape, hasSelectedColor)
+                    }
+                  />
+                </View>
+              );
+            })}
+          </ScrollView>
+        </View>
+
+        <View accessibilityLabel="Ally shape choices" style={styles.dots}>
+          {ALLY_SHAPES.map((shape, index) => {
+            const selected = index === shapeIndex;
 
             return (
-              <View key={`${pageShape}-${index}`} style={[styles.page, { width: pageWidth }]}>
-                <OnboardingAllyPreview
-                  accessibilityLabel={`${pageShape} Ally shape`}
-                  color={selectedColor}
-                  identity={pageShape}
-                  size={AVATAR_SIZE}
-                  artworkScale={artworkScale}
-                />
-              </View>
+              <Pressable
+                accessibilityLabel={`Choose ${shape}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected }}
+                hitSlop={8}
+                key={shape}
+                onPress={() => jumpToShape(index)}
+                style={[styles.dot, selected && { backgroundColor: selectedColor ?? '#FF5800' }]}
+              />
             );
           })}
-        </ScrollView>
-      </View>
-
-      <View accessibilityLabel="Ally shape choices" style={styles.dots}>
-        {ALLY_SHAPES.map((shape, index) => {
-          const selected = index === shapeIndex;
-
-          return (
-            <Pressable
-              accessibilityLabel={`Choose ${shape}`}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              hitSlop={8}
-              key={shape}
-              onPress={() => jumpToShape(index)}
-              style={[styles.dot, selected && { backgroundColor: selectedColor ?? '#FF5800' }]}
-            />
-          );
-        })}
+        </View>
       </View>
 
       {hasSwipedAvatar ? (
@@ -161,7 +262,7 @@ export function OnboardingLookScreen({
           contentContainerStyle={styles.colorRowContent}
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={styles.colorRow}>
+          style={[styles.colorRow, edgeToEdgeStyle]}>
           {ALLY_COLORS.map((color) => {
             const selected = selectedColor === color;
 
@@ -177,7 +278,18 @@ export function OnboardingLookScreen({
                   { backgroundColor: color },
                   pressed && styles.swatchPressed,
                 ]}>
-                {selected ? <View style={styles.checkmark} /> : null}
+                {selected ? (
+                  <Animated.View
+                    entering={reducedMotion ? undefined : CHECKMARK_POP_ENTERING}
+                    style={styles.checkmark}>
+                    <Image
+                      accessibilityLabel=""
+                      contentFit="contain"
+                      source={require('@/assets/allies/icons/white-check.svg')}
+                      style={styles.checkmarkImage}
+                    />
+                  </Animated.View>
+                ) : null}
               </Pressable>
             );
           })}
@@ -208,25 +320,19 @@ const styles = StyleSheet.create({
     flex: 0,
     height: AVATAR_SIZE,
     justifyContent: 'center',
-    marginTop: 48,
     width: '100%',
   },
   checkmark: {
-    borderBottomColor: '#FFFFFF',
-    borderBottomWidth: 3,
-    borderLeftColor: '#FFFFFF',
-    borderLeftWidth: 3,
-    height: 11,
-    transform: [{ rotate: '-45deg' }],
-    width: 19,
+    ...ONBOARDING_LOOK_CHECKMARK_SIZE,
+  },
+  checkmarkImage: {
+    ...ONBOARDING_LOOK_CHECKMARK_SIZE,
   },
   colorRow: {
     backgroundColor: 'transparent',
     borderWidth: 0,
     flexGrow: 0,
     marginBottom: ONBOARDING_LOOK_COLOR_ROW_BOTTOM_MARGIN,
-    marginHorizontal: -14,
-    marginTop: 'auto',
   },
   colorRowContent: {
     alignItems: 'center',
@@ -257,7 +363,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: ONBOARDING_LOOK_HINT_ICON_GAP,
     marginBottom: ONBOARDING_LOOK_COLOR_ROW_BOTTOM_MARGIN,
-    marginTop: 'auto',
   },
   hintText: {
     color: '#121212',
@@ -274,7 +379,6 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: '#FFFFFF',
     flex: 1,
-    overflow: 'hidden',
   },
   swatch: {
     alignItems: 'center',

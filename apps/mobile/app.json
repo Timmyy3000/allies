@@ -3,6 +3,13 @@
     "name": "allies",
     "slug": "mobile",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "checkAutomatically": "ON_LOAD",
+      "url": "https://u.expo.dev/53b77fc0-ec12-40c9-8990-7ed051a1c5dd"
+    },
     "orientation": "portrait",
     "icon": "./assets/allies/icons/allies-app-icon.png",
     "scheme": "mobile",
@@ -16,7 +23,8 @@
         "foregroundImage": "./assets/allies/icons/allies-adaptive-foreground.png",
         "monochromeImage": "./assets/allies/icons/allies-adaptive-monochrome.png"
       },
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.daviddll.allies"
     },
     "web": {
       "output": "static",
@@ -36,6 +44,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "53b77fc0-ec12-40c9-8990-7ed051a1c5dd"
+      }
     }
   }
 }

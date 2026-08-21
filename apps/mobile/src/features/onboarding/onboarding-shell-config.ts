@@ -5,6 +5,8 @@ export type OnboardingChromeConfig = {
   title: string;
 };
 
+export type OnboardingHeaderAllyVariant = 'none' | 'placeholder' | 'selected';
+
 export function getOnboardingChrome(
   step: Exclude<OnboardingStep, 'welcome'>,
 ): OnboardingChromeConfig {
@@ -20,4 +22,20 @@ export function getOnboardingChrome(
     progress: getOnboardingProgress(step),
     title: titles[step],
   };
+}
+
+export function getOnboardingHeaderAllyVariant(
+  step: Exclude<OnboardingStep, 'welcome'>,
+): OnboardingHeaderAllyVariant {
+  if (step === 'name') return 'none';
+  if (step === 'look') return 'placeholder';
+  return 'selected';
+}
+
+export function isOnboardingFooterDisabled(
+  step: OnboardingStep,
+  canContinue: boolean,
+  personalityHelpOpen: boolean,
+) {
+  return !canContinue || (step === 'personality' && personalityHelpOpen);
 }

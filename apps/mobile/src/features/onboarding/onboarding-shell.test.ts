@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { getOnboardingChrome } from './onboarding-shell-config';
+import {
+  getOnboardingChrome,
+  getOnboardingHeaderAllyVariant,
+  isOnboardingFooterDisabled,
+} from './onboarding-shell-config';
 
 describe('onboarding chrome', () => {
   it('keeps header metadata stable and step-driven', () => {
@@ -24,5 +28,18 @@ describe('onboarding chrome', () => {
       progress: 1,
       title: 'Your Ally is ready',
     });
+  });
+
+  it('uses the neutral placeholder until the selected Ally enters the job step', () => {
+    expect(getOnboardingHeaderAllyVariant('name')).toBe('none');
+    expect(getOnboardingHeaderAllyVariant('look')).toBe('placeholder');
+    expect(getOnboardingHeaderAllyVariant('job')).toBe('selected');
+    expect(getOnboardingHeaderAllyVariant('personality')).toBe('selected');
+  });
+
+  it('disables the personality footer while help is open', () => {
+    expect(isOnboardingFooterDisabled('personality', true, true)).toBe(true);
+    expect(isOnboardingFooterDisabled('personality', true, false)).toBe(false);
+    expect(isOnboardingFooterDisabled('personality', false, false)).toBe(true);
   });
 });
