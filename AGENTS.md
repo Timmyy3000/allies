@@ -22,14 +22,41 @@ before changing files in its subtree; nested guidance is additive.
   `docs/templates/PLAN_TEMPLATE.md`. Do not use a generic planning template.
 - Keep plans under `docs/plans/` as matching files:
   `docs/plans/<slug>.md` and `docs/plans/<slug>.html`.
-- Keep Markdown and HTML synchronized. Move misplaced plans into `docs/plans/`
-  rather than creating competing copies elsewhere.
+- Treat Markdown and HTML as two complete presentations of the same plan.
+  Markdown is optimized for agents; HTML is optimized for human review. The
+  HTML may reorganize or visualize material, but it must preserve every claim,
+  requirement, qualifier, contract, phase, acceptance criterion, test, risk,
+  and open decision from the final Markdown. A concise opening summary is
+  welcome, but it does not replace the complete plan below it.
+- Keep both files synchronized after planning-worker, adversarial, simplicity,
+  and user revisions. Build the HTML from the final edited Markdown, not an
+  earlier draft. Move misplaced plans into `docs/plans/` rather than creating
+  competing copies elsewhere; `.lavish/<slug>.html` is only the editable review
+  artifact before the accepted HTML is exported to `docs/plans/<slug>.html`.
 - Keep product/engineering specifications separate from implementation plans.
   Use Nabu's canonical `projects/allies/engineering/specs/spec-template.md`.
+- Before asking for approval, edit the complete Markdown with `better-docs`,
+  preserve a reviewable comparison and clean copy, then run the clean copy
+  through `humanizer` without changing requirements or technical contracts.
 - For plan HTML and other visual review artifacts, read
   `https://vercel.com/design.md` first. Use it for composition, hierarchy,
-  typography, responsive behavior, evidence, and accessibility—not Vercel
-  branding. Apply Allies colors and identity.
+  typography, responsive behavior, evidence, and accessibility only. Never use
+  the Vercel name, wordmark, triangle, logo, authorship shell, or Vercel-specific
+  copy. The artifact must use Allies identity and may use Allies colors where
+  they clarify state, structure, or evidence. The Vercel stylesheet and `vbg-*`
+  primitives are implementation foundations, not permission to import Vercel
+  branding.
+- "No Vercel branding" means remove only identity markers; retain the design
+  reference's visual system. Use the report foundation, `vbg-*` primitives, and
+  page-owned `vbg-custom-*` hooks rather than replacing them with an unrelated
+  minimal stylesheet.
+- Use every matching Lavish playbook before writing HTML. Plans normally need
+  `plan`, `diagram`, and `table`, with `comparison` or `code` when applicable.
+  Dense mappings must be real semantic tables, and flows/lifecycles must be
+  diagrams rather than literal Markdown syntax inside paragraphs.
+- Before handoff, compare the final Markdown and HTML section by section, search
+  the HTML for forbidden external branding, and run the Lavish browser layout
+  audit. Layout success does not replace the content-parity or identity check.
 - Before implementation, inspect this repo's README, Makefile, CI, and test
   configuration. Record the exact checks used in the plan.
 
