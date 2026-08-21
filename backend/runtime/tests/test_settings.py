@@ -28,8 +28,15 @@ def run_settings_probe(**overrides):
         "DJANGO_SECRET_KEY",
         "DJANGO_TRUST_PROXY_HEADERS",
         "DJANGO_TRUSTED_PROXY_IPS",
+        "ALLIES_CLOUD_SERVICE_TOKEN",
+        "PROFILE_PROVISIONING_PROVIDER",
+        "PROFILE_PROVISIONING_MODEL",
+        "PROFILE_PROVISIONING_BASE_URL",
+        "PROFILE_PROVISIONING_CREDENTIAL_NAME",
+        "PROFILE_PROVISIONING_CREDENTIAL_REF",
     ):
         environment.pop(name, None)
+    environment["ALLIES_CLOUD_SERVICE_TOKEN"] = "s" * 32
     environment.update(overrides)
     return subprocess.run(
         [sys.executable, "-c", PROBE],
@@ -76,6 +83,39 @@ def test_production_mode_requires_database_url():
 
     assert result.returncode != 0
     assert "DATABASE_URL is required" in result.stderr
+
+
+def test_production_mode_requires_strong_cloud_service_token():
+    common = {
+        "DJANGO_DEBUG": "false",
+        "DJANGO_SECRET_KEY": "synthetic-test-secret",
+        "DJANGO_ALLOWED_HOSTS": "localhost",
+        "DATABASE_URL": "sqlite:///test-production.sqlite3",
+    }
+
+    missing = run_settings_probe(**common, ALLIES_CLOUD_SERVICE_TOKEN="")
+    weak = run_settings_probe(**common, ALLIES_CLOUD_SERVICE_TOKEN="short")
+
+    assert "ALLIES_CLOUD_SERVICE_TOKEN is required" in missing.stderr
+    assert "ALLIES_CLOUD_SERVICE_TOKEN must be a strong token" in weak.stderr
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("PROFILE_PROVISIONING_PROVIDER", ""),
+        ("PROFILE_PROVISIONING_MODEL", ""),
+        ("PROFILE_PROVISIONING_BASE_URL", ""),
+        ("PROFILE_PROVISIONING_BASE_URL", "api.openai.com/v1"),
+        ("PROFILE_PROVISIONING_CREDENTIAL_NAME", "api-server-key"),
+        ("PROFILE_PROVISIONING_CREDENTIAL_REF", "/run/secrets/provider-key"),
+    ],
+)
+def test_profile_provisioning_settings_fail_fast(setting, value):
+    result = run_settings_probe(DJANGO_DEBUG="true", **{setting: value})
+
+    assert result.returncode != 0
+    assert setting in result.stderr
 
 
 def test_proxy_header_trust_requires_explicit_proxy_networks():
