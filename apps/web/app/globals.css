@@ -358,24 +358,26 @@ textarea::placeholder {
   background: #f3f3f3;
 }
 
-.onboarding-editor-card--personality {
+.onboarding-editor-card--personality,
+.onboarding-editor-card--job {
   margin-top: 12px;
 }
 
 .onboarding-personality-controls,
-.onboarding-personality-help {
+.onboarding-job-controls,
+.onboarding-help {
   display: flex;
   flex-direction: column;
   width: 100%;
 }
 
-.onboarding-personality-help {
+.onboarding-help {
   align-items: flex-start;
   gap: 12px;
 }
 
-.onboarding-personality-help-trigger,
-.onboarding-personality-help-close {
+.onboarding-help-trigger,
+.onboarding-help-close {
   display: grid;
   flex: 0 0 36px;
   place-items: center;
@@ -389,14 +391,14 @@ textarea::placeholder {
   -webkit-tap-highlight-color: transparent;
 }
 
-.onboarding-personality-help-trigger:focus-visible,
-.onboarding-personality-help-close:focus-visible,
+.onboarding-help-trigger:focus-visible,
+.onboarding-help-close:focus-visible,
 .onboarding-chip:focus-visible {
   outline: 2px solid #121212;
   outline-offset: 3px;
 }
 
-.onboarding-personality-help-card {
+.onboarding-help-card {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -411,12 +413,12 @@ textarea::placeholder {
   line-height: 20px;
 }
 
-.onboarding-personality-help-card p {
+.onboarding-help-card p {
   margin: 0;
   text-wrap: pretty;
 }
 
-.onboarding-personality-help-card p + p {
+.onboarding-help-card p + p {
   margin-top: 20px;
 }
 
@@ -594,7 +596,7 @@ textarea::placeholder {
   align-items: flex-start;
   justify-content: flex-start;
   min-height: 24px;
-  padding: 68px var(--onboarding-content-inset) 0;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) var(--onboarding-content-inset) 0;
   box-sizing: border-box;
 }
 
@@ -673,9 +675,10 @@ textarea::placeholder {
   background: transparent;
   color: #121212;
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
-  letter-spacing: -0.45px;
+  letter-spacing: -0.48px;
+  line-height: 22px;
 }
 
 .waitlist-preview-send {
@@ -843,7 +846,7 @@ textarea::placeholder {
   align-items: stretch;
   justify-content: stretch;
   min-height: var(--onboarding-frame-min-height, 100dvh);
-  padding: 68px 20px 64px;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px));
   box-sizing: border-box;
 }
 
@@ -982,7 +985,7 @@ textarea::placeholder {
 
 @media (min-width: 640px) {
   .waitlist-complete-page {
-    padding: 56px 32px 40px;
+    padding: calc(24px + env(safe-area-inset-top, 0px)) 32px calc(24px + env(safe-area-inset-bottom, 0px));
   }
 
   .waitlist-complete-content {

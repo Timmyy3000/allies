@@ -17,6 +17,12 @@ export { ALLY_SHAPES };
 
 export const PERSONALITIES = ["Concise", "Quirky", "Analytical", "Funny"] as const;
 
+export const JOB_SUGGESTIONS = [
+  "Teach me a language",
+  "Track my finances",
+  "Manage my calendar",
+] as const;
+
 export const NAME_LIMIT = 80;
 export const JOB_LIMIT = 200;
 

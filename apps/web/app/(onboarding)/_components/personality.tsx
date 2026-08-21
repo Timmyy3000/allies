@@ -9,6 +9,10 @@ import {
   useOnboardingStore,
 } from "../_store/onboarding-store";
 import { OnboardingLayout } from "./onboarding-layout";
+import {
+  OnboardingHelpTrigger,
+  useOnboardingHelpFocus,
+} from "./onboarding-help";
 import { PersistentAllyAvatar } from "./persistent-ally";
 import { StepHeading } from "./step-heading";
 
@@ -24,6 +28,8 @@ export function PersonalityScreen() {
   const selected = personalities.length > 0 || personalityNote.trim().length > 0;
   const palette = getAccentPalette(color);
   const [showHelp, setShowHelp] = useState(false);
+  const { triggerRef, closeRef, requestRestoreFocus, onExitComplete } =
+    useOnboardingHelpFocus();
 
   return (
     <OnboardingLayout
@@ -52,11 +58,12 @@ export function PersonalityScreen() {
         personality be?
       </StepHeading>
       <div className="onboarding-editor-stack onboarding-personality-stack">
-        <AnimatePresence initial={false} mode="wait">
+        <AnimatePresence initial={false} mode="wait" onExitComplete={onExitComplete}>
           {showHelp ? (
             <motion.div
               key="personality-help"
-              className="onboarding-personality-help"
+              id="personality-help-panel"
+              className="onboarding-help"
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 8 }}
@@ -64,11 +71,16 @@ export function PersonalityScreen() {
             >
               <button
                 type="button"
+                ref={closeRef}
+                autoFocus
                 aria-label="Close personality help"
                 data-testid="personality-help-close"
-                className="onboarding-personality-help-close"
+                className="onboarding-help-close"
                 style={{ backgroundColor: "#f3f3f3" }}
-                onClick={() => setShowHelp(false)}
+                onClick={() => {
+                  requestRestoreFocus();
+                  setShowHelp(false);
+                }}
               >
                 <svg
                   aria-hidden="true"
@@ -86,8 +98,11 @@ export function PersonalityScreen() {
                 </svg>
               </button>
               <div
-                className="onboarding-personality-help-card"
-                style={{ backgroundColor: palette.accent }}
+                className="onboarding-help-card"
+                style={{
+                  backgroundColor: palette.accent,
+                  color: "#fff",
+                }}
               >
                 <p>
                   My personality describes what it feels like to work with me. It
@@ -113,39 +128,17 @@ export function PersonalityScreen() {
                 data-testid="personality-chips"
                 className="remove-scrollbar onboarding-horizontal-scroll onboarding-chip-row"
               >
-                <button
-                  type="button"
-                  aria-label="Learn about personality"
-                  data-testid="personality-help"
-                  className="onboarding-personality-help-trigger"
-                  style={{ backgroundColor: palette.softStrong }}
+                <OnboardingHelpTrigger
+                  ref={triggerRef}
+                  accent={palette.accent}
+                  muted={palette.muted}
+                  softStrong={palette.softStrong}
+                  ariaLabel="Learn about personality"
+                  expanded={showHelp}
+                  controls="personality-help-panel"
+                  testId="personality-help"
                   onClick={() => setShowHelp(true)}
-                >
-                  <svg
-                    aria-hidden="true"
-                    width="20"
-                    height="20"
-                    viewBox="0 0 19.33 19.33"
-                    fill="none"
-                  >
-                    <circle cx="9.67" cy="9.67" r="9.67" fill={palette.muted} />
-                    <circle
-                      cx="9.67"
-                      cy="9.67"
-                      r="8.67"
-                      stroke={palette.accent}
-                      strokeWidth="2"
-                    />
-                    <path
-                      d="M6.9 6.49C7.42 5.08 8.63 4.5 9.81 4.5 11 4.5 12.23 5.35 12.23 6.91 12.23 9.29 9.81 8.87 9.44 11"
-                      stroke={palette.accent}
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <circle cx="9.39" cy="14.42" r="1.33" fill={palette.accent} />
-                  </svg>
-                </button>
+                />
                 {PERSONALITIES.map((trait) => {
                   const on = personalities.includes(trait);
                   return (
