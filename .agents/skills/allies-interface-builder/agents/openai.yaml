@@ -1,4 +1,0 @@
-interface:
-  display_name: "Allies Interface Builder"
-  short_description: "Build Allies web UI from Figma plugin JSON"
-  default_prompt: "Use $allies-interface-builder to implement this Figma plugin JSON as an Allies web feature."
