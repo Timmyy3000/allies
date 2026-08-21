@@ -19,6 +19,221 @@
         "title": "AuthorizationStartResponse",
         "type": "object"
       },
+      "NativeAuthorizationStartRequest": {
+        "properties": {
+          "code_challenge": {
+            "maxLength": 43,
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$",
+            "title": "Code Challenge",
+            "type": "string"
+          },
+          "code_challenge_method": {
+            "const": "S256",
+            "default": "S256",
+            "title": "Code Challenge Method",
+            "type": "string"
+          },
+          "redirect_uri": {
+            "format": "uri",
+            "title": "Redirect Uri",
+            "type": "string"
+          },
+          "state": {
+            "maxLength": 512,
+            "minLength": 1,
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "redirect_uri",
+          "code_challenge",
+          "code_challenge_method",
+          "state"
+        ],
+        "title": "NativeAuthorizationStartRequest",
+        "type": "object"
+      },
+      "NativeAuthorizationStartResponse": {
+        "properties": {
+          "authorization_url": {
+            "format": "uri",
+            "title": "Authorization Url",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorization_url",
+          "expires_at"
+        ],
+        "title": "NativeAuthorizationStartResponse",
+        "type": "object"
+      },
+      "NativeAuthorizationTokenRequest": {
+        "properties": {
+          "code": {
+            "minLength": 1,
+            "title": "Code",
+            "type": "string"
+          },
+          "code_verifier": {
+            "minLength": 43,
+            "title": "Code Verifier",
+            "type": "string"
+          },
+          "grant_type": {
+            "const": "authorization_code",
+            "default": "authorization_code",
+            "title": "Grant Type",
+            "type": "string"
+          },
+          "redirect_uri": {
+            "format": "uri",
+            "title": "Redirect Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_type",
+          "code",
+          "code_verifier",
+          "redirect_uri"
+        ],
+        "title": "NativeAuthorizationTokenRequest",
+        "type": "object"
+      },
+      "NativeRefreshTokenRequest": {
+        "properties": {
+          "grant_type": {
+            "const": "refresh_token",
+            "default": "refresh_token",
+            "title": "Grant Type",
+            "type": "string"
+          },
+          "refresh_token": {
+            "minLength": 1,
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_type",
+          "refresh_token"
+        ],
+        "title": "NativeRefreshTokenRequest",
+        "type": "object"
+      },
+      "NativeLogoutRequest": {
+        "properties": {
+          "refresh_token": {
+            "minLength": 1,
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "refresh_token"
+        ],
+        "title": "NativeLogoutRequest",
+        "type": "object"
+      },
+      "NativeSessionResponse": {
+        "properties": {
+          "access_token": {
+            "minLength": 1,
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "exclusiveMinimum": 0,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "refresh_expires_in": {
+            "exclusiveMinimum": 0,
+            "title": "Refresh Expires In",
+            "type": "integer"
+          },
+          "refresh_token": {
+            "minLength": 1,
+            "title": "Refresh Token",
+            "type": "string"
+          },
+          "session_id": {
+            "minLength": 1,
+            "title": "Session Id",
+            "type": "string"
+          },
+          "token_type": {
+            "const": "Bearer",
+            "default": "Bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token_type",
+          "access_token",
+          "expires_in",
+          "refresh_token",
+          "refresh_expires_in",
+          "session_id"
+        ],
+        "title": "NativeSessionResponse",
+        "type": "object"
+      },
+      "SuccessResponse_NativeAuthorizationStartResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NativeAuthorizationStartResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[NativeAuthorizationStartResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_NativeSessionResponse_": {
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NativeSessionResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[NativeSessionResponse]",
+        "type": "object"
+      },
       "AvatarPrepareRequest": {
         "properties": {
           "content_type": {
@@ -794,6 +1009,68 @@
         "title": "WorkspaceResponse",
         "type": "object"
       }
+    },
+    "responses": {
+      "NativeBadRequest": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+            }
+          }
+        },
+        "description": "Bad Request"
+      },
+      "NativeConflict": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+            }
+          }
+        },
+        "description": "Conflict"
+      },
+      "NativeRateLimited": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+            }
+          }
+        },
+        "description": "Too Many Requests"
+      },
+      "NativeServerError": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+            }
+          }
+        },
+        "description": "Internal Server Error"
+      },
+      "NativeServiceUnavailable": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+            }
+          }
+        },
+        "description": "Service Unavailable"
+      },
+      "NativeUnauthorized": {
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+            }
+          }
+        },
+        "description": "Unauthorized"
+      }
     }
   },
   "info": {
@@ -803,6 +1080,243 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/auths/native/sign-in/google": {
+      "post": {
+        "operationId": "native_authentication_sign_in_google",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeAuthorizationStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_NativeAuthorizationStartResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "$ref": "#/components/responses/NativeBadRequest"
+          },
+          "429": {
+            "$ref": "#/components/responses/NativeRateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/NativeServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/NativeServiceUnavailable"
+          }
+        },
+        "security": [],
+        "summary": "Native Google Sign In Start",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auths/native/callback/google": {
+      "get": {
+        "operationId": "native_authentication_callback_google",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "title": "Error",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "See Other"
+          },
+          "400": {
+            "$ref": "#/components/responses/NativeBadRequest"
+          },
+          "409": {
+            "$ref": "#/components/responses/NativeConflict"
+          },
+          "429": {
+            "$ref": "#/components/responses/NativeRateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/NativeServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/NativeServiceUnavailable"
+          }
+        },
+        "security": [],
+        "summary": "Native Google Callback",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auths/native/token": {
+      "post": {
+        "operationId": "native_authentication_token",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeAuthorizationTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_NativeSessionResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "$ref": "#/components/responses/NativeBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/NativeUnauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/NativeRateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/NativeServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/NativeServiceUnavailable"
+          }
+        },
+        "security": [],
+        "summary": "Native Token Exchange",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auths/native/token/refresh": {
+      "post": {
+        "operationId": "native_authentication_token_refresh",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeRefreshTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_NativeSessionResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "$ref": "#/components/responses/NativeBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/NativeUnauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/NativeRateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/NativeServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/NativeServiceUnavailable"
+          }
+        },
+        "security": [],
+        "summary": "Native Token Refresh",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/api/v1/auths/native/logout": {
+      "post": {
+        "operationId": "native_authentication_logout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeLogoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "400": {
+            "$ref": "#/components/responses/NativeBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/NativeUnauthorized"
+          },
+          "429": {
+            "$ref": "#/components/responses/NativeRateLimited"
+          },
+          "500": {
+            "$ref": "#/components/responses/NativeServerError"
+          },
+          "503": {
+            "$ref": "#/components/responses/NativeServiceUnavailable"
+          }
+        },
+        "security": [],
+        "summary": "Native Logout",
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
     "/api/v1/auths/callback/{provider}": {
       "get": {
         "operationId": "authentication_callback_ddd2379f",

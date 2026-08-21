@@ -2,7 +2,7 @@
   "expo": {
     "name": "allies",
     "slug": "mobile",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "runtimeVersion": {
       "policy": "appVersion"
     },
@@ -40,7 +40,16 @@
           "imageWidth": 180,
           "resizeMode": "contain"
         }
-      ]
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": false,
+          "microphonePermission": false,
+          "photosPermission": "Allow Allies to use your photos for your profile avatar."
+        }
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

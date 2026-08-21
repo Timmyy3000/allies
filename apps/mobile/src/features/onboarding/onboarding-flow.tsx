@@ -1,4 +1,5 @@
 import { Image } from 'expo-image';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet } from 'react-native';
 
@@ -36,6 +37,7 @@ import {
 } from './onboarding-state';
 
 export default function OnboardingFlow() {
+  const router = useRouter();
   const [flow, setFlow] = useState<OnboardingFlowState>(INITIAL_ONBOARDING_FLOW);
   const [personalityHelpOpen, setPersonalityHelpOpen] = useState(false);
 
@@ -64,6 +66,7 @@ export default function OnboardingFlow() {
       <OnboardingScreen
         accentColor={accentColor}
         onStart={() => setFlow((current) => ({ ...current, step: 'name' }))}
+        onSignIn={() => router.push('/sign-in')}
       />
     );
   }
