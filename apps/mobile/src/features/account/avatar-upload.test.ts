@@ -96,6 +96,22 @@ describe('uploadAvatar', () => {
     expect(client.prepareAvatarUpload).not.toHaveBeenCalled();
   });
 
+  it('rejects a known oversized file before reading its bytes', async () => {
+    const client = createClient();
+    const readBytes = vi.fn(async () => new Uint8Array([1]));
+
+    await expect(uploadAvatar({
+      client,
+      contentType: 'image/jpeg',
+      size: MAX_AVATAR_BYTES + 1,
+      readBytes,
+      hash: vi.fn(async () => 'a'.repeat(64)),
+      fetch: vi.fn(),
+    })).rejects.toThrow('10 MiB');
+    expect(readBytes).not.toHaveBeenCalled();
+    expect(client.prepareAvatarUpload).not.toHaveBeenCalled();
+  });
+
   it('rejects an empty file before preparing an upload', async () => {
     const client = createClient();
 
