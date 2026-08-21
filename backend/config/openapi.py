@@ -97,6 +97,29 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "message": "Service healthy",
         "data": {"state": "healthy"},
     },
+    "SuccessResponse_OnboardingAttemptResponse_": {
+        "status": "success",
+        "message": "Onboarding started",
+        "data": {
+            "attempt_token": "opaque-onboarding-attempt",
+            "greeting": "Hello! What should we work on first?",
+        },
+    },
+    "SuccessResponse_AllyResponse_": {
+        "status": "success",
+        "message": "Ally loaded",
+        "data": {
+            "id": "ally_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "binding_id": "bnd_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d77",
+            "operation_id": "op_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d78",
+            "name": "Mira",
+            "job": "Study partner",
+            "personality": "Calm, curious, and specific.",
+            "appearance": {"catalog_version": "v1", "key": "sunrise"},
+            "provisioning_state": "pending",
+            "retryable": False,
+        },
+    },
     "SuccessResponse_WaitlistEntryResponse_": {
         "status": "success",
         "message": "Waitlist greeting ready",

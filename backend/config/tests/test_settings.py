@@ -55,6 +55,17 @@ def _settings_subprocess(
         if not key.startswith(("DJANGO_", "ALLIES_"))
         and key not in {"CACHE_URL", "DATABASE_URL"}
     }
+    if overrides.get("DJANGO_DEBUG") == "false":
+        env.update(
+            {
+                "ALLIES_FOUNDRY_URL": "https://foundry.example.test",
+                "ALLIES_FOUNDRY_SERVICE_TOKEN": "f" * 32,
+                "ALLIES_WAITLIST_PROVIDER_ENABLED": "true",
+                "ALLIES_WAITLIST_PROVIDER": "openai",
+                "ALLIES_WAITLIST_OPENAI_API_KEY": "provider-key",
+                "ALLIES_WAITLIST_OPENAI_MODEL": "approved-model",
+            }
+        )
     env.update(overrides)
     return subprocess.run(
         [sys.executable, "-c", code],
@@ -78,6 +89,45 @@ def test_production_settings_reject_missing_security_configuration():
     assert "PostgreSQL DATABASE_URL" in result.stderr
 
 
+def test_production_settings_require_foundry_service_configuration():
+    result = _settings_subprocess(
+        {
+            "DJANGO_DEBUG": "false",
+            "DJANGO_SECRET_KEY": "d" * 32,
+            "ALLIES_FOUNDRY_URL": "",
+            "ALLIES_FOUNDRY_SERVICE_TOKEN": "",
+        }
+    )
+
+    assert result.returncode != 0
+    assert "HTTPS ALLIES_FOUNDRY_URL" in result.stderr
+    assert "ALLIES_FOUNDRY_SERVICE_TOKEN" in result.stderr
+
+
+def test_production_settings_require_official_greeting_provider():
+    result = _settings_subprocess(
+        {
+            "DJANGO_DEBUG": "false",
+            "DJANGO_SECRET_KEY": "d" * 32,
+            "ALLIES_WAITLIST_PROVIDER_ENABLED": "false",
+            "ALLIES_WAITLIST_PROVIDER": "fake",
+            "ALLIES_WAITLIST_OPENAI_API_KEY": "",
+            "ALLIES_WAITLIST_OPENAI_MODEL": "",
+            "ALLIES_WAITLIST_OPENAI_URL": "http://api.openai.com/v1/responses",
+        }
+    )
+
+    assert result.returncode != 0
+    assert "ALLIES_WAITLIST_PROVIDER_ENABLED=true for onboarding" in result.stderr
+    assert "ALLIES_WAITLIST_PROVIDER=openai" in result.stderr
+    assert (
+        "ALLIES_WAITLIST_OPENAI_URL=https://api.openai.com/v1/responses"
+        in result.stderr
+    )
+    assert "ALLIES_WAITLIST_OPENAI_API_KEY" in result.stderr
+    assert "ALLIES_WAITLIST_OPENAI_MODEL" in result.stderr
+
+
 def test_production_settings_accept_complete_disabled_integrations():
     result = _settings_subprocess(
         {
@@ -87,6 +137,12 @@ def test_production_settings_accept_complete_disabled_integrations():
             "ALLIES_TRUSTED_ORIGINS": "https://app.example.test",
             "ALLIES_AUTH_JWT_KEY": "j" * 32,
             "ALLIES_AUTH_DIGEST_KEY": "h" * 32,
+            "ALLIES_FOUNDRY_URL": "https://foundry.example.test",
+            "ALLIES_FOUNDRY_SERVICE_TOKEN": "f" * 32,
+            "ALLIES_WAITLIST_PROVIDER_ENABLED": "true",
+            "ALLIES_WAITLIST_PROVIDER": "openai",
+            "ALLIES_WAITLIST_OPENAI_API_KEY": "provider-key",
+            "ALLIES_WAITLIST_OPENAI_MODEL": "approved-model",
             "CACHE_URL": "redis://cache.internal:6379/0",
             "DATABASE_URL": "postgresql://allies:secret@database.internal/allies",
         }
@@ -308,6 +364,12 @@ def test_production_settings_enable_whitenoise_static_files():
             "ALLIES_TRUSTED_ORIGINS": "https://app.example.test",
             "ALLIES_AUTH_JWT_KEY": "j" * 32,
             "ALLIES_AUTH_DIGEST_KEY": "h" * 32,
+            "ALLIES_FOUNDRY_URL": "https://foundry.example.test",
+            "ALLIES_FOUNDRY_SERVICE_TOKEN": "f" * 32,
+            "ALLIES_WAITLIST_PROVIDER_ENABLED": "true",
+            "ALLIES_WAITLIST_PROVIDER": "openai",
+            "ALLIES_WAITLIST_OPENAI_API_KEY": "provider-key",
+            "ALLIES_WAITLIST_OPENAI_MODEL": "approved-model",
             "CACHE_URL": "redis://cache.internal:6379/0",
             "DATABASE_URL": "postgresql://allies:secret@database.internal/allies",
         },
@@ -325,6 +387,11 @@ def test_celery_settings_keep_cleanup_on_the_cloud_queue():
     assert settings.CELERY_WORKER_MAX_TASKS_PER_CHILD == 50
     assert settings.CELERY_BEAT_SCHEDULE["cleanup-auth-artifacts"] == {
         "task": "auths.cleanup_auth_artifacts",
+        "schedule": 900.0,
+        "options": {"queue": "cloud"},
+    }
+    assert settings.CELERY_BEAT_SCHEDULE["cleanup-expired-onboarding-attempts"] == {
+        "task": "allies.cleanup_expired_onboarding_attempts",
         "schedule": 900.0,
         "options": {"queue": "cloud"},
     }
@@ -507,20 +574,6 @@ def test_debug_waitlist_rejects_unsafe_openai_provider_url():
     )
 
 
-def test_production_settings_allow_waitlist_generation_kill_switch():
-    configured = _waitlist_production_settings()
-    configured.update(
-        {
-            "ALLIES_WAITLIST_PROVIDER_ENABLED": "false",
-            "ALLIES_WAITLIST_OPENAI_API_KEY": "",
-            "ALLIES_WAITLIST_OPENAI_MODEL": "",
-        }
-    )
-    result = _settings_subprocess(configured)
-
-    assert result.returncode == 0, result.stderr
-
-
 def test_production_settings_reject_unsafe_waitlist_configuration():
     configured = _waitlist_production_settings()
     configured.update(
@@ -537,10 +590,3 @@ def test_production_settings_reject_unsafe_waitlist_configuration():
     assert result.returncode != 0
     assert "Unsafe CLD-008 production configuration" in result.stderr
     assert "ALLIES_WAITLIST_TOKEN_KEY" in result.stderr
-    assert "ALLIES_WAITLIST_PROVIDER=openai" in result.stderr
-    assert (
-        "ALLIES_WAITLIST_OPENAI_URL=https://api.openai.com/v1/responses"
-        in result.stderr
-    )
-    assert "ALLIES_WAITLIST_OPENAI_API_KEY" in result.stderr
-    assert "ALLIES_WAITLIST_OPENAI_MODEL" in result.stderr
