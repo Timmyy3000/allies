@@ -48,6 +48,7 @@ def test_fake_sign_in_callback_and_me_are_cookie_bound():
         HTTP_HOST="testserver",
     )
     assert callback.status_code == 303
+    assert callback["Location"] == "http://localhost:3000/"
     me = client.get("/api/v1/auths/me", HTTP_HOST="testserver")
     assert me.status_code == 200
     assert me.json()["status"] == "success"

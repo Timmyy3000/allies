@@ -200,6 +200,7 @@ def test_profile_refresh_logout_and_link_error_paths():
         HTTP_HOST="testserver",
     )
     assert callback.status_code == 303
+    assert callback["Location"] == "http://localhost:3000/app"
     assert ExternalIdentity.objects.filter(user=user, subject="linked").exists()
     refreshed = client.post(
         "/api/v1/auths/refresh",
@@ -532,7 +533,7 @@ def test_callback_provider_failure_redirects_without_reusing_state():
     csrf = _csrf(client)
     start = client.post(
         "/api/v1/auths/sign-in/fake",
-        {"redirect_to": "/app?from=login"},
+        {"redirect_to": "/app?from=login#fragment"},
         content_type="application/json",
         HTTP_X_CSRFTOKEN=csrf,
         HTTP_ORIGIN="http://localhost:3000",
@@ -545,7 +546,71 @@ def test_callback_provider_failure_redirects_without_reusing_state():
         HTTP_HOST="testserver",
     )
     assert failed.status_code == 303
-    assert failed["Location"].startswith("/app?from=login&auth_error=")
+    assert (
+        failed["Location"]
+        == "http://localhost:3000/app?from=login&auth_error=provider_rejected#fragment"
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "origin",
+    [
+        "https://yourallies.io",
+        "https://staging.yourallies.io",
+        "https://preview-123.yourallies.io",
+        "http://localhost:3000",
+    ],
+)
+@override_settings(ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True, ALLOWED_HOSTS=["testserver"])
+def test_sign_in_callback_returns_to_the_initiating_trusted_origin(origin, settings):
+    settings.CSRF_TRUSTED_ORIGINS = [origin]
+    client = Client(enforce_csrf_checks=True)
+    csrf = _csrf(client)
+    start = client.post(
+        "/api/v1/auths/sign-in/fake",
+        {"redirect_to": "/onboarding?source=google"},
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=csrf,
+        HTTP_ORIGIN=origin,
+        HTTP_HOST="testserver",
+    )
+    state = parse_qs(urlparse(start.json()["data"]["redirect_url"]).query)["state"][0]
+    callback = client.get(
+        "/api/v1/auths/callback/fake",
+        {"state": state, "code": "fake:origin-test"},
+        HTTP_HOST="testserver",
+    )
+    assert callback.status_code == 303
+    assert callback["Location"] == f"{origin}/onboarding?source=google"
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True,
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["https://staging.yourallies.io"],
+)
+def test_sign_in_referer_fallback_binds_the_callback_origin():
+    origin = "https://staging.yourallies.io"
+    client = Client(enforce_csrf_checks=True)
+    csrf = _csrf(client)
+    start = client.post(
+        "/api/v1/auths/sign-in/fake",
+        {"redirect_to": "/onboarding"},
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=csrf,
+        HTTP_REFERER=f"{origin}/sign-in",
+        HTTP_HOST="testserver",
+    )
+    state = parse_qs(urlparse(start.json()["data"]["redirect_url"]).query)["state"][0]
+    callback = client.get(
+        "/api/v1/auths/callback/fake",
+        {"state": state, "code": "fake:referer-origin"},
+        HTTP_HOST="testserver",
+    )
+    assert callback.status_code == 303
+    assert callback["Location"] == f"{origin}/onboarding"
 
 
 @pytest.mark.django_db

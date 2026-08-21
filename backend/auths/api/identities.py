@@ -6,6 +6,7 @@ from ninja_extra import ControllerBase, api_controller, http_post
 from auths.api.common import (
     _csrf_binding,
     _domain_status,
+    _request_origin,
     _require_origin,
     _session,
     _set_flow_cookie,
@@ -38,6 +39,7 @@ class IdentityController(ControllerBase):
         rejected = _require_origin(request)
         if rejected:
             return rejected
+        trusted_origin = _request_origin(request)
         try:
             session = _session(request, expected_client_kind="browser")
             check_rate_limit(
@@ -50,6 +52,7 @@ class IdentityController(ControllerBase):
                 provider=ProviderKey(provider),
                 purpose=FlowPurpose.LINK,
                 redirect_to=payload.redirect_to,
+                trusted_origin=trusted_origin,
                 browser_binding=_csrf_binding(request),
                 user=session.user,
                 family=session.family,

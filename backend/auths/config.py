@@ -136,11 +136,6 @@ def cookie_samesite() -> str:
     return str(setting("ALLIES_AUTH_COOKIE_SAMESITE", "Lax"))
 
 
-def redirect_paths() -> tuple[str, ...]:
-    configured = setting("ALLIES_AUTH_REDIRECT_PATHS", ["/"])
-    return tuple(configured or ["/"])
-
-
 def provider_enabled(provider: str) -> bool:
     if provider == "fake":
         return bool(setting("ALLIES_AUTH_FAKE_PROVIDER_ENABLED", False))
