@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mobile Curved Ally Entrances Implementation Plan</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: Arial, sans-serif;
+        line-height: 1.55;
+        --ink: #171717;
+        --muted: #5f5f5f;
+        --line: #e5e5e5;
+        --orange: #ff5800;
+        --soft-orange: #fff1e9;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: #fff; color: var(--ink); }
+      main { max-width: 900px; margin: 0 auto; padding: 56px 24px 88px; }
+      h1 { margin: 0 0 10px; font-size: 34px; line-height: 1.08; }
+      h2 { margin: 42px 0 12px; font-size: 22px; line-height: 1.2; }
+      h3 { margin: 28px 0 8px; font-size: 17px; line-height: 1.25; }
+      p, li { max-width: 72ch; }
+      .lede { color: var(--muted); margin: 0; }
+      .callout { margin-top: 24px; padding: 16px 18px; background: var(--soft-orange); border-left: 4px solid var(--orange); }
+      .callout p { margin: 0; }
+      ul, ol { padding-left: 22px; }
+      li + li { margin-top: 6px; }
+      table { width: 100%; border-collapse: collapse; margin: 14px 0 24px; font-size: 14px; }
+      th, td { border-bottom: 1px solid var(--line); padding: 10px 8px; text-align: left; vertical-align: top; }
+      th { font-weight: 700; }
+      code { font-family: Consolas, monospace; font-size: .92em; }
+      .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 28px 0 0; }
+      .meta div { border-top: 2px solid var(--ink); padding-top: 8px; }
+      .meta dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      .meta dd { margin: 4px 0 0; }
+      .phase { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 24px; }
+      .phase h3 { margin-top: 0; }
+      @media (max-width: 680px) {
+        main { padding: 36px 18px 64px; }
+        h1 { font-size: 29px; }
+        .meta { grid-template-columns: 1fr; gap: 12px; }
+        table { display: block; overflow-x: auto; white-space: normal; }
+        th, td { min-width: 160px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Mobile Curved Ally Entrances</h1>
+      <p class="lede">A focused mobile motion refinement: replace direct entrance interpolation with four lightweight X/S-shaped curves while preserving the current GIF-backed screen.</p>
+
+      <dl class="meta">
+        <div><dt>Goal</dt><dd>Fluid curved entrances without a new runtime architecture.</dd></div>
+        <div><dt>Platform</dt><dd>Expo 57 / React Native / Reanimated</dd></div>
+        <div><dt>Branch</dt><dd><code>mobile/dev/onboarding</code></dd></div>
+      </dl>
+
+      <div class="callout"><p><strong>Core constraint:</strong> no Remotion motion code, frame table, new dependency, or per-frame JavaScript. The change stays inside the existing Reanimated transform path.</p></div>
+
+      <h2>Scope</h2>
+      <ul>
+        <li>Add one pure, clamped cubic Bézier point helper.</li>
+        <li>Define four local curves with distinct control points.</li>
+        <li>Use the selected curve for actor translation only.</li>
+        <li>Keep timing, landing positions, GIF sizing, cursors, idle float, and reduced motion unchanged.</li>
+      </ul>
+
+      <h2>Motion contract</h2>
+      <table>
+        <thead><tr><th>State</th><th>Behavior</th></tr></thead>
+        <tbody>
+          <tr><td>Offscreen</td><td>Use each Ally’s existing local start offset.</td></tr>
+          <tr><td>Entrance</td><td>Evaluate a color-specific cubic curve with the existing eased entrance progress.</td></tr>
+          <tr><td>Settled</td><td>End at local offset <code>{ x: 0, y: 0 }</code> and preserve the current idle float.</td></tr>
+          <tr><td>Reduced motion</td><td>Skip the entrance and keep the existing cursor-hidden behavior.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Contracts</h2>
+      <table>
+        <thead><tr><th>File</th><th>Contract</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td><code>ally-entrance-motion.ts</code></td><td><code>MotionPoint</code>, <code>CubicPath</code></td><td>Typed local points for the four curves.</td></tr>
+          <tr><td><code>ally-entrance-motion.ts</code></td><td><code>getCubicPoint(path, progress)</code></td><td>Pure worklet-safe math with progress clamped to 0 through 1.</td></tr>
+          <tr><td><code>ally-character.tsx</code></td><td><code>AllyCharacter</code></td><td>Consumes the curve inside the existing Reanimated derived value.</td></tr>
+        </tbody>
+      </table>
+
+      <h2>Implementation phases</h2>
+      <section class="phase">
+        <h3>1. Prove the curve math</h3>
+        <p>Add failing tests for exact endpoints, clamping, and midpoint deviation from the straight line. Run the focused test and confirm the intended missing-helper failure.</p>
+      </section>
+      <section class="phase">
+        <h3>2. Add the minimal helper</h3>
+        <p>Create the pure helper and four distinct curves. Keep the module independent of Remotion and React Native.</p>
+      </section>
+      <section class="phase">
+        <h3>3. Integrate the actor</h3>
+        <p>Replace only the direct entrance position expression. Leave GIFs, artwork proportions, rotation, pointer styles, opacity, idle motion, and cleanup intact.</p>
+      </section>
+      <section class="phase">
+        <h3>4. Validate on Android</h3>
+        <p>Run tests and static checks, install the JS-only diagnostic build if native Gradle remains blocked, then inspect early and settled emulator captures plus frame stats and fatal logcat output.</p>
+      </section>
+
+      <h2>Implementation tasks</h2>
+      <section class="phase">
+        <h3>Task 1: Write the failing contract test</h3>
+        <p>Create <code>apps/mobile/src/features/onboarding/ally-entrance-motion.test.ts</code> and test exact endpoints, clamping, and midpoint deviation for every curve.</p>
+        <pre><code>bun test apps/mobile/src/features/onboarding/ally-entrance-motion.test.ts</code></pre>
+        <p>Expected first result: the test fails because <code>ally-entrance-motion.ts</code> does not exist yet.</p>
+      </section>
+      <section class="phase">
+        <h3>Task 2: Add the minimal helper</h3>
+        <p>Create <code>MotionPoint</code>, <code>CubicPath</code>, <code>ENTRANCE_CURVES</code>, and the worklet-safe helper:</p>
+        <pre><code>export function getCubicPoint(path: CubicPath, progress: number): MotionPoint {
+  'worklet';
+  const t = Math.min(1, Math.max(0, progress));
+  const inverse = 1 - t;
+  const inverseSquared = inverse * inverse;
+  const tSquared = t * t;
+
+  return {
+    x: inverseSquared * inverse * path.start.x
+      + 3 * inverseSquared * t * path.control1.x
+      + 3 * inverse * tSquared * path.control2.x
+      + tSquared * t * path.end.x,
+    y: inverseSquared * inverse * path.start.y
+      + 3 * inverseSquared * t * path.control1.y
+      + 3 * inverse * tSquared * path.control2.y
+      + tSquared * t * path.end.y,
+  };
+}</code></pre>
+        <p>Run the focused test again. It should pass without importing Remotion.</p>
+      </section>
+      <section class="phase">
+        <h3>Task 3: Integrate only the entrance translation</h3>
+        <p>In <code>ally-character.tsx</code>, import the helper, attach the selected curve to the existing color motion config, and replace only the direct-plus-sine position expression:</p>
+        <pre><code>const entrancePoint = getCubicPoint(motion.curve, easedEntrance);
+
+return {
+  positionX: entrancePoint.x + idleX * entrance,
+  positionY: entrancePoint.y + idleY * entrance,
+  rotation: motion.rotation * (1 - easedEntrance) + idleRotation * entrance,
+  cursorOpacity,
+  cursorX: Math.cos(cursorAngle) * pointerRadius,
+  cursorY: Math.sin(cursorAngle) * pointerRadius,
+  cursorScale: 0.75 + easedEntrance * 0.25,
+};</code></pre>
+        <p>Do not change the GIF source, artwork sizes, pointer styles, timing, cleanup, or reduced-motion branch.</p>
+      </section>
+      <section class="phase">
+        <h3>Task 4: Validate the Android result</h3>
+        <p>Run the focused tests, <code>bun run lint:mobile</code>, <code>bun --filter mobile typecheck</code>, and <code>git diff --check</code>. Export and install the JS-only diagnostic build if native Gradle remains blocked. Capture an early frame after 350ms and a settled frame after two seconds, then inspect <code>gfxinfo</code> and fatal logcat output.</p>
+      </section>
+      <section class="phase">
+        <h3>Task 5: Review the focused diff</h3>
+        <p>Confirm only the curve helper, its test, and the entrance position integration changed. Stop after this motion pass and wait for visual approval before adding bumps, task states, or new cursor behavior.</p>
+      </section>
+
+      <h2>Acceptance criteria</h2>
+      <ol>
+        <li>All four curves start at their existing offsets and end exactly at <code>{ x: 0, y: 0 }</code>.</li>
+        <li>Each curve visibly deviates from its straight start/end segment.</li>
+        <li>The existing 850ms entrance and 0/120/240/360ms stagger remain unchanged.</li>
+        <li>GIF assets, Remotion-derived artwork proportions, blob sizes, final placements, cursors, idle float, and reduced motion remain unchanged.</li>
+        <li>Motion uses only Reanimated derived values and transform/opacity styles.</li>
+        <li>Focused tests, mobile lint, mobile typecheck, and <code>git diff --check</code> pass.</li>
+      </ol>
+
+      <h2>Validation commands</h2>
+      <ul>
+        <li><code>bun test apps/mobile/src/features/onboarding/ally-entrance-motion.test.ts</code></li>
+        <li><code>bun run lint:mobile</code></li>
+        <li><code>bun --filter mobile typecheck</code></li>
+        <li><code>git diff --check</code></li>
+      </ul>
+
+      <h2>Risks and rollback</h2>
+      <ul>
+        <li>Too-subtle or excessive curves: adjust only the four local control points after inspecting the emulator.</li>
+        <li>Animation cost: keep all calculations inside Reanimated and retain fixed four-point paths.</li>
+        <li>Native build blockage: use the established temporary JS-bundle APK diagnostic flow without changing build configuration.</li>
+        <li>Rollback: remove the curve helper integration and restore the existing direct-plus-sine position expression.</li>
+      </ul>
+    </main>
+  </body>
+</html>
