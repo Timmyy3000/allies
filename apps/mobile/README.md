@@ -163,20 +163,17 @@ This is the version state verified on 2026-08-21:
 | Reanimated | `4.5.1` | Existing motion runtime used by the onboarding UI. |
 | EAS CLI | `22.2.0` | CLI version used for local configuration/authentication checks; it is not an app runtime dependency. |
 | Android application ID | `com.daviddll.allies` | Permanent Android package identity for this app. |
-| Preview build | `FINISHED` — EAS build `d0fc5e35-1a1c-4230-ac69-4078ac2e39cf` | [Installable Android APK](https://expo.dev/artifacts/eas/VAcLE1_CJVuV_jvUH7FQLX5gyPewn_1dBcp8vXGZaqg.apk) on the `preview` channel; device installation may still be pending. |
-| Current build versions | App version `1.0.0`, runtime `1.0.0`, Android build version `1` | Values reported by the completed EAS build. |
-| Next native release | App/runtime `1.0.1`; build pending | Adds the branded native splash and includes the corrected conversation typewriters. |
+| Previous preview build | `FINISHED` — EAS build `d0fc5e35-1a1c-4230-ac69-4078ac2e39cf` | [Android APK](https://expo.dev/artifacts/eas/VAcLE1_CJVuV_jvUH7FQLX5gyPewn_1dBcp8vXGZaqg.apk) for the superseded `1.0.0` runtime. |
+| Current preview build | `FINISHED` — EAS build `e076bfe1-2846-4872-9a06-a71f9e0c573e` | [Installable Android APK](https://expo.dev/artifacts/eas/EjDEimT7CWWGBHP2tC61OhOzqnh4-KGbHVMSf7YBkfA.apk) on the `preview` channel; includes the branded splash and restored typewriters. |
+| Current build versions | App version `1.0.1`, runtime `1.0.1`, Android build version `2` | Values reported by the completed EAS build for commit `7b776e2`. |
 | Production profile | `production` channel | Profile exists; no production build or publish has been performed. |
 | EAS project link | Linked | `updates.url` and `extra.eas.projectId` are present in `app.json`; credentials are not stored in the repository. |
 | EAS app version source | `remote` | Future Android build numbers are managed by EAS; `preview` and `production` profiles auto-increment them. |
 
-The first preview APK includes `expo-updates`; installing the current development APK
-does not prove OTA is active. The build artifact is ready, but device installation and
-smoke testing are still pending. The build was started before the explicit remote
-version-source config and later documentation edits were added; those changes apply to
-future releases and are not part of this artifact. After the APK is installed, record
-the commit SHA, build ID, artifact URL, and EAS update channel/message at each release
-boundary.
+The preview APK includes `expo-updates`; installing a development build does not prove
+OTA is active. The current `1.0.1` artifact is ready for device installation and smoke
+testing. After each APK or OTA release, record the commit SHA, build ID or update group,
+artifact URL when applicable, and EAS update channel/message at the release boundary.
 
 ### Version and release rules
 
@@ -223,6 +220,11 @@ boundary.
   with a sequential name-then-greeting typewriter and configures a native Allies
   splash. The version bump is required because splash plugin changes affect native
   resources; a new preview APK is required.
+- **2026-08-21 — Preview build 2 completed:** EAS build
+  `e076bfe1-2846-4872-9a06-a71f9e0c573e` finished for app/runtime `1.0.1`, Android
+  build version `2`, and commit `7b776e2`. [Install the APK](https://expo.dev/artifacts/eas/EjDEimT7CWWGBHP2tC61OhOzqnh4-KGbHVMSf7YBkfA.apk).
+  The build includes the native splash and typewriter fixes; no `1.0.1` OTA has been
+  published.
 
 ### GitHub merges and installed devices
 
@@ -333,8 +335,8 @@ every local edit. Native changes still require a new APK.
 - The root layout keeps the native splash visible only while Open Runde loads, then
   hides it with the platform-supported 350ms fade. There is no artificial timeout.
 - Splash plugin changes are native configuration. Version `1.0.1` therefore requires
-  a new APK; publishing an OTA alone cannot replace the splash in an installed `1.0.0`
-  binary.
+  a new APK; the current preview build 2 contains the splash. Publishing an OTA alone
+  cannot replace the splash in an installed `1.0.0` binary.
 
 ## Implemented onboarding behavior
 
