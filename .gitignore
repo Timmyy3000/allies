@@ -31,3 +31,4 @@ htmlcov/
 .agent/
 .lavish/
 .forest/
+/docs/plans/kickoff.yaml
