@@ -38,11 +38,25 @@ function hexToRgba(color: string, alpha: number) {
   return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
 }
 
+function getAccentForeground(color: string) {
+  const normalized = color.replace("#", "");
+  const channels = [0, 2, 4].map((offset) => Number.parseInt(normalized.slice(offset, offset + 2), 16) / 255);
+  const luminance = channels.reduce((total, channel, index) => {
+    const linear = channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    return total + linear * [0.2126, 0.7152, 0.0722][index];
+  }, 0);
+  const lightContrast = 1.05 / (luminance + 0.05);
+  const darkContrast = (luminance + 0.05) / 0.05;
+
+  return lightContrast >= darkContrast ? "#fff" : "#121212";
+}
+
 export function getAccentPalette(color?: string | null) {
   const accent = /^#[\da-f]{6}$/i.test(color ?? "") ? color! : DEFAULT_ACCENT;
 
   return {
     accent,
+    accentForeground: getAccentForeground(accent),
     soft: hexToRgba(accent, 0.1),
     softStrong: hexToRgba(accent, 0.16),
     muted: hexToRgba(accent, 0.4),
@@ -60,6 +74,8 @@ export function NextButton({
   color?: string;
   onClick?: () => void;
 }) {
+  const palette = getAccentPalette(color);
+
   return (
     <button
       type="button"
@@ -70,7 +86,7 @@ export function NextButton({
       className="onboarding-next"
       style={{
         borderRadius: ONBOARDING_CTA.borderRadius,
-        backgroundColor: active ? color : INACTIVE_CTA,
+        backgroundColor: active ? palette.accent : INACTIVE_CTA,
         display: "flex",
         flexDirection: "row",
         gap: ONBOARDING_CTA.gap,

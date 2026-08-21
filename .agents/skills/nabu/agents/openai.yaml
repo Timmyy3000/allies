@@ -1,4 +1,0 @@
-interface:
-  display_name: "Nabu"
-  short_description: "Use Nabu through MCP-first access and secure onboarding"
-  default_prompt: "Use $nabu to connect through native remote MCP, redeem owner connection links or scoped collaborator invites, manage notes, and fall back to HTTP only when needed."
