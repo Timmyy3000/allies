@@ -21,6 +21,16 @@ limited to local development and tests.
   behind a known proxy. Enable the corresponding `ALLIES_TRUST_FORWARDED_*`
   flags and list every direct proxy peer in `ALLIES_TRUSTED_PROXY_IPS`; all
   forwarded headers from other peers are discarded.
+- Railway native auth is the exception: `ALLIES_RAILWAY_PROXY_MODE=true`
+  accepts Railway's single `X-Real-IP` value for native rate limiting without
+  requiring `ALLIES_TRUSTED_PROXY_IPS`. Missing, malformed, and multi-value
+  client addresses still fail closed.
+- Accepted deployment exception (owner: Timi): a caller-controlled value could
+  evade the per-network limit if Railway ever stopped replacing `X-Real-IP`.
+  The shared native global limit is charged before durable or provider work
+  and bounds that work independently of the header. Revisit this exception
+  before adding non-Railway ingress, if abuse is observed, or before the beta
+  security review.
 - When Google is enabled: client ID, client secret, and the exact registered
   HTTPS callback URI through the `ALLIES_AUTH_GOOGLE_*` variables.
 - When avatars are enabled: a private bucket and the complete `ALLIES_R2_*`

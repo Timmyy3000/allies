@@ -728,8 +728,6 @@ if not DEBUG:
     if ALLIES_AUTH_NATIVE_ENABLED:
         if not ALLIES_RAILWAY_PROXY_MODE:
             missing.append("ALLIES_RAILWAY_PROXY_MODE for native auth")
-        if not ALLIES_TRUSTED_PROXY_IPS:
-            missing.append("ALLIES_TRUSTED_PROXY_IPS for native auth identity")
         if not ALLIES_AUTH_GOOGLE_ENABLED:
             missing.append("ALLIES_AUTH_GOOGLE_ENABLED for native auth")
         if not all(

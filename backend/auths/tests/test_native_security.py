@@ -8,10 +8,7 @@ from auths.throttle import ThrottleExceeded, check_rate_limit
 
 def test_native_railway_identity_uses_only_x_real_ip_and_normalizes_prefixes():
     factory = RequestFactory()
-    with override_settings(
-        ALLIES_RAILWAY_PROXY_MODE=True,
-        ALLIES_TRUSTED_PROXY_IPS=["10.0.0.8"],
-    ):
+    with override_settings(ALLIES_RAILWAY_PROXY_MODE=True, ALLIES_TRUSTED_PROXY_IPS=[]):
         request = factory.post(
             "/",
             REMOTE_ADDR="10.0.0.8",
@@ -40,29 +37,10 @@ def test_native_railway_identity_fails_closed_for_missing_or_ambiguous_headers(
     request_kwargs = {"REMOTE_ADDR": "10.0.0.8"}
     if header_value:
         request_kwargs["HTTP_X_REAL_IP"] = header_value
-    with override_settings(
-        ALLIES_RAILWAY_PROXY_MODE=True,
-        ALLIES_TRUSTED_PROXY_IPS=["10.0.0.8"],
-    ):
+    with override_settings(ALLIES_RAILWAY_PROXY_MODE=True, ALLIES_TRUSTED_PROXY_IPS=[]):
         request = RequestFactory().post("/", **request_kwargs)
         with pytest.raises(NativeIdentityUnavailable):
             native_rate_limit_identity(request)
-
-
-def test_native_proxy_identity_rejects_untrusted_direct_peer():
-    request = RequestFactory().post(
-        "/",
-        REMOTE_ADDR="10.0.0.9",
-        HTTP_X_REAL_IP="198.51.100.73",
-    )
-    with (
-        override_settings(
-            ALLIES_RAILWAY_PROXY_MODE=True,
-            ALLIES_TRUSTED_PROXY_IPS=["10.0.0.8"],
-        ),
-        pytest.raises(NativeIdentityUnavailable),
-    ):
-        native_rate_limit_identity(request)
 
 
 def test_native_non_railway_fixture_uses_remote_addr_only():
