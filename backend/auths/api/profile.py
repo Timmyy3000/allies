@@ -65,7 +65,7 @@ class ProfileController(ControllerBase):
         },
     )
     def profile(self, request: HttpRequest, payload: ProfileUpdateRequest):
-        rejected = _require_origin(request)
+        rejected = _require_origin(request, allow_native_bearer=True)
         if rejected:
             return rejected
         try:

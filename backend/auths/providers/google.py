@@ -26,6 +26,41 @@ class GoogleProvider(OIDCProvider):
     discovery_url = "https://accounts.google.com/.well-known/openid-configuration"
 
     @staticmethod
+    def _remaining_timeout(flow: ProviderFlow | None) -> float:
+        if flow is None or flow.deadline_monotonic is None:
+            return 5.0
+        remaining = flow.deadline_monotonic - time.monotonic()
+        if remaining <= 0:
+            raise ProviderRejected("google provider attempt timed out")
+        return remaining
+
+    @staticmethod
+    def _set_response_timeout(response, timeout: float) -> None:
+        for stream in (
+            getattr(getattr(response, "fp", None), "raw", None),
+            getattr(response, "fp", None),
+        ):
+            socket = getattr(stream, "_sock", None)
+            if socket is not None:
+                socket.settimeout(timeout)
+                return
+
+    def _read_response(self, response, flow: ProviderFlow | None) -> bytes:
+        if flow is None or flow.deadline_monotonic is None:
+            return response.read(1_000_001)
+        chunks = []
+        size = 0
+        while size <= 1_000_000:
+            timeout = self._remaining_timeout(flow)
+            self._set_response_timeout(response, timeout)
+            chunk = response.read(1)
+            if not chunk:
+                return b"".join(chunks)
+            chunks.append(chunk)
+            size += len(chunk)
+        return b"".join(chunks)
+
+    @staticmethod
     def _https_url(value: str) -> str:
         parsed = urlparse(value)
         if parsed.scheme != "https" or not parsed.netloc:
@@ -34,11 +69,10 @@ class GoogleProvider(OIDCProvider):
 
     def authorization_url(self, flow: ProviderFlow) -> str:
         client_id = str(setting("ALLIES_AUTH_GOOGLE_CLIENT_ID", ""))
-        redirect_uri = str(
-            setting("ALLIES_AUTH_GOOGLE_REDIRECT_URI", flow.redirect_uri)
-        )
+        redirect_uri = flow.redirect_uri
         if not client_id or not redirect_uri:
             raise ProviderRejected("google provider is incomplete")
+        redirect_uri = self._https_url(redirect_uri)
         endpoint = self._https_url(
             str(
                 setting(
@@ -71,17 +105,29 @@ class GoogleProvider(OIDCProvider):
             )
         )
 
-    def _fetch_json(self, url: str, *, data: bytes | None = None) -> dict:
+    def _fetch_json(
+        self,
+        url: str,
+        *,
+        data: bytes | None = None,
+        flow: ProviderFlow | None = None,
+    ) -> dict:
         headers = {"Accept": "application/json"}
         if data is not None:
             headers["Content-Type"] = "application/x-www-form-urlencoded"
         request = Request(url, data=data, headers=headers)
         try:
-            with urlopen(request, timeout=5) as response:
-                body = response.read(1_000_001)
+            with urlopen(request, timeout=self._remaining_timeout(flow)) as response:
+                body = self._read_response(response, flow)
                 if len(body) > 1_000_000:
                     raise ProviderRejected("google provider response too large")
                 payload = json.loads(body)
+        except ProviderRejected:
+            raise
+        except TimeoutError as exc:
+            if flow is not None and flow.deadline_monotonic is not None:
+                raise ProviderRejected("google provider attempt timed out") from exc
+            raise ProviderRejected("google provider unavailable") from exc
         except (
             Exception
         ) as exc:  # provider outage and malformed JSON are same safe outcome
@@ -90,21 +136,43 @@ class GoogleProvider(OIDCProvider):
             raise ProviderRejected("google provider response malformed")
         return payload
 
-    def _discovery(self) -> dict:
+    def _discovery(self, flow: ProviderFlow | None = None) -> dict:
         configured = self._https_url(
             str(setting("ALLIES_AUTH_GOOGLE_DISCOVERY_URL", self.discovery_url))
         )
-        payload = self._fetch_json(configured)
+        payload = self._fetch_json(configured, flow=flow)
         if payload.get("issuer") not in GOOGLE_ISSUERS:
             raise ProviderRejected("google issuer mismatch")
         return payload
 
-    def _decode_id_token(self, token: str, discovery: dict) -> dict:
+    def _decode_id_token(
+        self,
+        token: str,
+        discovery: dict,
+        flow: ProviderFlow | None = None,
+    ) -> dict:
         try:
             import jwt
+            from jwt.api_jwk import PyJWKSet
 
-            jwks_client = jwt.PyJWKClient(
-                self._https_url(str(discovery["jwks_uri"])), timeout=5
+            provider = self
+
+            class DeadlineJWKClient(jwt.PyJWKClient):
+                def fetch_data(client):
+                    if client.jwk_set_cache is not None:
+                        cached = client.jwk_set_cache.get(client.uri)
+                        if cached is not None:
+                            return cached
+                    jwk_set = PyJWKSet.from_dict(
+                        provider._fetch_json(client.uri, flow=flow)
+                    )
+                    if client.jwk_set_cache is not None:
+                        client.jwk_set_cache.put(client.uri, jwk_set)
+                    return jwk_set
+
+            jwks_client = DeadlineJWKClient(
+                self._https_url(str(discovery["jwks_uri"])),
+                timeout=self._remaining_timeout(flow),
             )
             signing_key = jwks_client.get_signing_key_from_jwt(token).key
             return jwt.decode(
@@ -116,13 +184,15 @@ class GoogleProvider(OIDCProvider):
                 options={"require": ["iss", "aud", "sub", "exp", "iat"]},
                 leeway=60,
             )
+        except ProviderRejected:
+            raise
         except Exception as exc:
             raise ProviderRejected("google id token invalid") from exc
 
     def verify_callback(self, code: str, flow: ProviderFlow) -> VerifiedIdentity:
         if not isinstance(code, str) or not code or len(code) > 4096:
             raise ProviderRejected("authorization code malformed")
-        discovery = self._discovery()
+        discovery = self._discovery(flow)
         token_endpoint = self._https_url(
             str(
                 setting(
@@ -133,11 +203,10 @@ class GoogleProvider(OIDCProvider):
         )
         client_id = str(setting("ALLIES_AUTH_GOOGLE_CLIENT_ID", ""))
         client_secret = str(setting("ALLIES_AUTH_GOOGLE_CLIENT_SECRET", ""))
-        redirect_uri = str(
-            setting("ALLIES_AUTH_GOOGLE_REDIRECT_URI", flow.redirect_uri)
-        )
+        redirect_uri = flow.redirect_uri
         if not token_endpoint or not client_id or not client_secret:
             raise ProviderRejected("google provider is incomplete")
+        redirect_uri = self._https_url(redirect_uri)
         form = urlencode(
             {
                 "code": code,
@@ -148,11 +217,11 @@ class GoogleProvider(OIDCProvider):
                 "code_verifier": flow.pkce_verifier,
             }
         ).encode()
-        payload = self._fetch_json(token_endpoint, data=form)
+        payload = self._fetch_json(token_endpoint, data=form, flow=flow)
         id_token = payload.get("id_token")
         if not isinstance(id_token, str):
             raise ProviderRejected("google callback has no id token")
-        claims = self._decode_id_token(id_token, discovery)
+        claims = self._decode_id_token(id_token, discovery, flow)
         issuer = claims.get("iss")
         if issuer not in GOOGLE_ISSUERS:
             raise ProviderRejected("google issuer mismatch")

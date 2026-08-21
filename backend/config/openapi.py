@@ -20,6 +20,26 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "message": "Authentication started",
         "data": {"redirect_url": "https://provider.example/authorize"},
     },
+    "SuccessResponse_NativeAuthorizationStartResponse_": {
+        "status": "success",
+        "message": "Native sign-in started",
+        "data": {
+            "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth?...",
+            "expires_at": "2026-08-20T16:10:00Z",
+        },
+    },
+    "SuccessResponse_NativeTokenResponse_": {
+        "status": "success",
+        "message": "Native session issued",
+        "data": {
+            "token_type": "Bearer",
+            "access_token": "<short-lived-cloud-jwt>",
+            "expires_in": 600,
+            "refresh_token": "<rotating-opaque-cloud-token>",
+            "refresh_expires_in": 1209600,
+            "session_id": "ses_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+        },
+    },
     "SuccessResponse_MeResponse_": {
         "status": "success",
         "message": "Profile loaded",
@@ -200,6 +220,58 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
                     }
                     for code in codes
                 }
+
+    bearer_paths = {
+        ("/api/v1/auths/me", "get"),
+        ("/api/v1/auths/me/profile", "patch"),
+        ("/api/v1/auths/me/avatar/uploads", "post"),
+        ("/api/v1/auths/me/avatar/{asset_id}/complete", "post"),
+        ("/api/v1/auths/me/avatar/read", "get"),
+        ("/api/v1/auths/me/avatar", "delete"),
+        ("/api/v1/workspaces/{workspace_id}", "get"),
+    }
+    security_schemes = schema.setdefault("components", {}).setdefault(
+        "securitySchemes", {}
+    )
+    security_schemes["BearerAuth"] = {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": (
+            "Native sessions only. The bearer is accepted only on the reviewed "
+            "account, profile, avatar, and Workspace methods."
+        ),
+    }
+    for path, method in bearer_paths:
+        operation = schema.get("paths", {}).get(path, {}).get(method)
+        if isinstance(operation, dict):
+            operation["security"] = [{"BearerAuth": []}]
+    for path, path_item in schema.get("paths", {}).items():
+        if not path.startswith("/api/v1/auths/native/"):
+            continue
+        for method, operation in path_item.items():
+            if not isinstance(operation, dict):
+                continue
+            operation["security"] = (
+                [{}, {"BearerAuth": []}] if path.endswith("/logout") else []
+            )
+            operation["description"] = (
+                f"{operation.get('description', '').rstrip()}\n\n"
+                "Native routes do not use browser cookies or CSRF. Token responses "
+                "are non-cacheable; native logout accepts an optional bearer only "
+                "when it matches the refresh-token family."
+            ).strip()
+            if method in {"post"} and path.endswith(("/token", "/token/refresh")):
+                for response in operation.get("responses", {}).values():
+                    if isinstance(response, dict) and "content" in response:
+                        response.setdefault("headers", {})["Cache-Control"] = {
+                            "schema": {"type": "string"},
+                            "example": "no-store",
+                        }
+                        response["headers"]["Pragma"] = {
+                            "schema": {"type": "string"},
+                            "example": "no-cache",
+                        }
     return schema
 
 

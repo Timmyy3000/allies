@@ -95,6 +95,108 @@ def test_production_settings_accept_complete_disabled_integrations():
     assert result.returncode == 0, result.stderr
 
 
+def test_native_auth_is_disabled_by_default():
+    result = _settings_subprocess(
+        {"DJANGO_DEBUG": "true"},
+        "import config.settings as s; assert s.ALLIES_AUTH_NATIVE_ENABLED is False",
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_production_settings_reject_native_auth_without_explicit_edge_and_redirects():
+    result = _settings_subprocess(
+        {
+            "DJANGO_DEBUG": "false",
+            "DJANGO_SECRET_KEY": "d" * 32,
+            "DJANGO_ALLOWED_HOSTS": "cloud.example.test",
+            "ALLIES_TRUSTED_ORIGINS": "https://app.example.test",
+            "ALLIES_AUTH_JWT_KEY": "j" * 32,
+            "ALLIES_AUTH_DIGEST_KEY": "h" * 32,
+            "ALLIES_AUTH_NATIVE_ENABLED": "true",
+            "CACHE_URL": "redis://cache.internal:6379/0",
+            "DATABASE_URL": "postgresql://allies:secret@database.internal/allies",
+        }
+    )
+
+    assert result.returncode != 0
+    assert "ALLIES_RAILWAY_PROXY_MODE for native auth" in result.stderr
+    assert (
+        "complete native Google callback and app return configuration" in result.stderr
+    )
+
+
+def test_production_settings_accept_native_auth_with_placeholder_contract_values():
+    result = _settings_subprocess(
+        {
+            "DJANGO_DEBUG": "false",
+            "DJANGO_SECRET_KEY": "d" * 32,
+            "DJANGO_ALLOWED_HOSTS": "cloud.example.test",
+            "ALLIES_TRUSTED_ORIGINS": "https://app.example.test",
+            "ALLIES_AUTH_JWT_KEY": "j" * 32,
+            "ALLIES_AUTH_DIGEST_KEY": "h" * 32,
+            "ALLIES_RAILWAY_PROXY_MODE": "true",
+            "ALLIES_TRUSTED_PROXY_IPS": "10.0.0.8",
+            "ALLIES_AUTH_NATIVE_ENABLED": "true",
+            "ALLIES_AUTH_GOOGLE_ENABLED": "true",
+            "ALLIES_AUTH_GOOGLE_CLIENT_ID": "native-client-id",
+            "ALLIES_AUTH_GOOGLE_CLIENT_SECRET": "native-client-secret",
+            "ALLIES_AUTH_GOOGLE_REDIRECT_URI": (
+                "https://cloud.example.test/api/v1/auths/callback/google"
+            ),
+            "ALLIES_AUTH_GOOGLE_NATIVE_REDIRECT_URI": (
+                "https://cloud.example.test/api/v1/auths/native/callback/google"
+            ),
+            "ALLIES_AUTH_NATIVE_REDIRECT_URIS": (
+                "https://app.example.test/auth/callback"
+            ),
+            "CACHE_URL": "redis://cache.internal:6379/0",
+            "DATABASE_URL": "postgresql://allies:secret@database.internal/allies",
+        }
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize("provider_timeout", ["30", "31"])
+def test_production_settings_reject_native_provider_timeout_at_or_above_claim_lease(
+    provider_timeout,
+):
+    result = _settings_subprocess(
+        {
+            "DJANGO_DEBUG": "false",
+            "DJANGO_SECRET_KEY": "d" * 32,
+            "DJANGO_ALLOWED_HOSTS": "cloud.example.test",
+            "ALLIES_TRUSTED_ORIGINS": "https://app.example.test",
+            "ALLIES_AUTH_JWT_KEY": "j" * 32,
+            "ALLIES_AUTH_DIGEST_KEY": "h" * 32,
+            "ALLIES_RAILWAY_PROXY_MODE": "true",
+            "ALLIES_AUTH_NATIVE_ENABLED": "true",
+            "ALLIES_AUTH_GOOGLE_ENABLED": "true",
+            "ALLIES_AUTH_GOOGLE_CLIENT_ID": "native-client-id",
+            "ALLIES_AUTH_GOOGLE_CLIENT_SECRET": "native-client-secret",
+            "ALLIES_AUTH_GOOGLE_REDIRECT_URI": (
+                "https://cloud.example.test/api/v1/auths/callback/google"
+            ),
+            "ALLIES_AUTH_GOOGLE_NATIVE_REDIRECT_URI": (
+                "https://cloud.example.test/api/v1/auths/native/callback/google"
+            ),
+            "ALLIES_AUTH_NATIVE_REDIRECT_URIS": (
+                "https://app.example.test/auth/callback"
+            ),
+            "ALLIES_AUTH_NATIVE_PROVIDER_TIMEOUT_SECONDS": provider_timeout,
+            "ALLIES_AUTH_NATIVE_CLAIM_LEASE_SECONDS": "30",
+            "CACHE_URL": "redis://cache.internal:6379/0",
+            "DATABASE_URL": "postgresql://allies:secret@database.internal/allies",
+        }
+    )
+
+    assert result.returncode != 0
+    assert (
+        "native provider timeout must be less than native claim lease" in result.stderr
+    )
+
+
 def test_trusted_origin_wildcards_become_cors_regexes():
     result = _settings_subprocess(
         {

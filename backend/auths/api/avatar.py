@@ -37,7 +37,7 @@ class AvatarController(ControllerBase):
         },
     )
     def prepare(self, request: HttpRequest, payload: AvatarPrepareRequest):
-        rejected = _require_origin(request)
+        rejected = _require_origin(request, allow_native_bearer=True)
         if rejected:
             return rejected
         try:
@@ -84,7 +84,7 @@ class AvatarController(ControllerBase):
         },
     )
     def complete(self, request: HttpRequest, asset_id: str):
-        rejected = _require_origin(request)
+        rejected = _require_origin(request, allow_native_bearer=True)
         if rejected:
             return rejected
         try:
@@ -141,7 +141,7 @@ class AvatarController(ControllerBase):
         response={204: None, **error_responses(401, 403, 404, 409, 500, 503)},
     )
     def delete(self, request: HttpRequest):
-        rejected = _require_origin(request)
+        rejected = _require_origin(request, allow_native_bearer=True)
         if rejected:
             return rejected
         try:

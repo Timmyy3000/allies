@@ -128,6 +128,10 @@ jobs:
         working-directory: backend
         run: uv run python manage.py migrate --check
 
+      - name: Verify AUTH-002 forward upgrade
+        working-directory: backend
+        run: uv run pytest auths/tests/test_auth_002_migrations.py::test_auth_002_forward_upgrade_preserves_browser_refresh
+
       - name: Run PostgreSQL concurrency tests
         working-directory: backend
         run: uv run pytest -m postgresql

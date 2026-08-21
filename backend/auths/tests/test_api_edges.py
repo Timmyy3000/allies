@@ -5,6 +5,7 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from django.test import Client, override_settings
 from django.test.client import RequestFactory
+from django.utils import timezone
 from PIL import Image
 
 from auths.api.common import (
@@ -14,10 +15,10 @@ from auths.api.common import (
 )
 from auths.api.controllers import _client_identity, _domain_status, _origin_allowed
 from auths.exceptions import AvatarConflict, AvatarStorageUnavailable
-from auths.models import ExternalIdentity
+from auths.models import ExternalIdentity, SessionClientKind
 from auths.providers.base import VerifiedIdentity
 from auths.services.accounts import resolve_or_create_user
-from auths.services.sessions import issue_session
+from auths.services.sessions import _decode_jwt, _encode_jwt, issue_session
 from auths.storage.avatars import InMemoryAvatarObjectStore, set_avatar_store
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable
 
@@ -417,6 +418,111 @@ def test_all_mutating_routes_reject_missing_origin_and_referer():
     )
 
     assert [request().status_code for request in requests] == [403] * len(requests)
+
+
+@pytest.mark.django_db
+def test_browser_session_routes_keep_origin_checks_with_native_bearer_header():
+    user = resolve_or_create_user(
+        VerifiedIdentity(provider="fake", subject="browser-csrf-boundary")
+    ).user
+    browser = issue_session(user)
+    native = issue_session(user, client_kind=SessionClientKind.NATIVE)
+    client = Client(enforce_csrf_checks=True)
+    client.cookies["allies_refresh"] = browser.refresh_token
+    headers = {
+        "HTTP_AUTHORIZATION": f"Bearer {native.access_token}",
+        "HTTP_HOST": "testserver",
+    }
+
+    refreshed = client.post("/api/v1/auths/refresh", **headers)
+    logged_out = client.post("/api/v1/auths/logout", **headers)
+
+    assert refreshed.status_code == 403
+    assert refreshed.json()["data"]["code"] == "origin_rejected"
+    assert logged_out.status_code == 403
+    assert logged_out.json()["data"]["code"] == "origin_rejected"
+    browser.family.refresh_from_db()
+    assert browser.family.revoked_at is None
+
+
+@pytest.mark.parametrize(
+    ("method", "path", "payload"),
+    [
+        (
+            "patch",
+            "/api/v1/auths/me/profile",
+            {"display_name": "Native User"},
+        ),
+        (
+            "post",
+            "/api/v1/auths/me/avatar/uploads",
+            {"content_type": "image/png", "size": 1, "sha256": "0" * 64},
+        ),
+        ("post", "/api/v1/auths/me/avatar/avt_missing/complete", None),
+        ("delete", "/api/v1/auths/me/avatar", None),
+    ],
+)
+def test_invalid_native_bearer_on_mutating_routes_returns_session_invalid(
+    method, path, payload
+):
+    client = Client()
+    request = getattr(client, method)
+    headers = {
+        "HTTP_AUTHORIZATION": "Bearer invalid-native-access",
+        "HTTP_HOST": "testserver",
+        "REMOTE_ADDR": "198.51.100.8",
+    }
+    if payload is None:
+        response = request(path, **headers)
+    else:
+        response = request(path, payload, content_type="application/json", **headers)
+
+    assert response.status_code == 401
+    assert response.json()["data"]["code"] == "session_invalid"
+
+
+@pytest.mark.django_db
+def test_native_bearer_workspace_scope_is_tenant_isolated():
+    owner = resolve_or_create_user(
+        VerifiedIdentity(provider="fake", subject="native-workspace-owner")
+    ).user
+    foreign = resolve_or_create_user(
+        VerifiedIdentity(provider="fake", subject="native-workspace-foreign")
+    ).user
+    issued = issue_session(owner, client_kind=SessionClientKind.NATIVE)
+    client = Client()
+    headers = {
+        "HTTP_AUTHORIZATION": f"Bearer {issued.access_token}",
+        "HTTP_HOST": "testserver",
+    }
+
+    own_workspace = owner.owned_workspaces.first()
+    foreign_workspace = foreign.owned_workspaces.first()
+    own = client.get(f"/api/v1/workspaces/{own_workspace.public_id}", **headers)
+    denied = client.get(f"/api/v1/workspaces/{foreign_workspace.public_id}", **headers)
+
+    assert own.status_code == 200
+    assert own.json()["data"]["id"] == own_workspace.public_id
+    assert denied.status_code == 404
+    assert denied.json()["data"]["code"] == "workspace_denied"
+
+    expired_claims = _decode_jwt(issued.access_token)
+    expired_claims["exp"] = int(timezone.now().timestamp()) - 1
+    expired = client.get(
+        f"/api/v1/workspaces/{own_workspace.public_id}",
+        HTTP_AUTHORIZATION=f"Bearer {_encode_jwt(expired_claims)}",
+        HTTP_HOST="testserver",
+    )
+    assert expired.status_code == 401
+    assert expired.json()["data"]["code"] == "session_invalid"
+
+    invalid = client.get(
+        f"/api/v1/workspaces/{own_workspace.public_id}",
+        HTTP_AUTHORIZATION="Bearer invalid-native-access",
+        HTTP_HOST="testserver",
+    )
+    assert invalid.status_code == 401
+    assert invalid.json()["data"]["code"] == "session_invalid"
 
 
 @pytest.mark.django_db

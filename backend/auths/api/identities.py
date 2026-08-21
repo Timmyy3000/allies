@@ -39,7 +39,7 @@ class IdentityController(ControllerBase):
         if rejected:
             return rejected
         try:
-            session = _session(request)
+            session = _session(request, expected_client_kind="browser")
             check_rate_limit(
                 scope="link",
                 identity=f"{session.user.public_id}:{provider}",
