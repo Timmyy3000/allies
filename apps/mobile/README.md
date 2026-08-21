@@ -1,7 +1,8 @@
 # Allies mobile
 
 Expo / React Native client for Allies. The current mobile implementation includes
-the local onboarding UI slice on branch `mobile/dev/onboarding`.
+the local onboarding UI slice and the INT-008 native auth/account boundary on branch
+`mobile/int-008-google-auth-account`.
 
 This file is an agent handoff and a living mirror of the mobile implementation. The
 full implementation record is maintained in Nabu at:
@@ -29,6 +30,8 @@ Before changing code, an agent must read:
    - `projects/allies/engineering/specs/waitlist/INT-009-responsive-waitlist-preview.md`
    - `projects/allies/engineering/specs/waitlist/proposed-copy-and-experience.md`
    - `projects/allies/engineering/specs/interface/mobile-onboarding-implementation.md`
+   - `projects/allies/engineering/specs/interface/INT-008-mobile-google-auth-and-account.md`
+   - `projects/allies/engineering/specs/interface/AUTH-002-cloud-native-session-contract.md`
 
 Use Nabu's native MCP tools first. Search before assuming that a product decision,
 asset, contract, or implementation note does not already exist. Never expose Nabu
@@ -87,16 +90,57 @@ Implemented here is the mobile presentation and local interaction slice for:
 
 `welcome -> name -> look -> job -> personality -> preview`
 
-The flow is intentionally local for now. `apps/mobile/src/app/index.tsx` renders
-`OnboardingFlow`; the flow owns local state and generates a static local greeting.
+The onboarding creation flow is intentionally local for now. `apps/mobile/src/app/index.tsx`
+renders `OnboardingFlow`; it owns local state and generates a static local greeting.
 This slice does **not** yet create an Ally in Cloud, call a greeting-generation API,
-persist onboarding progress, complete the waitlist flow, or implement mobile auth.
-Do not describe those integrations as complete. Future Cloud/auth work must follow
-the relevant Nabu contracts, especially the waitlist handoff and AUTH-002/INT-008.
+persist onboarding progress, or complete the waitlist flow. The initial INT-008
+native session/account boundary is now implemented separately; live Cloud sign-in
+remains disabled until the accepted native routes are deployed and enabled.
 
 The current mobile onboarding implementation is a UI handoff, not a replacement for
 the accepted web/waitlist contract. Final copy and choreography remain subject to
 the canonical product/design notes.
+
+## INT-008 native Google auth and personal account
+
+The accepted implementation handoff is maintained in Nabu at
+`projects/allies/engineering/specs/interface/INT-008-mobile-google-auth-and-account.md`.
+The local implementation is deliberately thin around the shared Cloud client:
+
+- `src/features/auth/google-sign-in.ts` runs one in-memory PKCE S256 attempt through
+  the system browser, verifies the returned state and exact redirect, and exchanges
+  only the one-time Cloud code.
+- `src/lib/session/native-session-adapter.ts` owns access-token memory, serialized
+  refresh rotation, restore, revocation, logout uncertainty, and terminal cleanup.
+- `src/lib/session/secure-session-store.ts` persists only the current opaque refresh
+  token in Expo SecureStore. Access tokens, verifiers, state, exchange codes, URLs,
+  and account DTOs are not persisted.
+- `src/lib/cloud/native-cloud-client.ts` reuses the shared transport and injects a
+  bearer only for `/api/v1/auths/me/*` and `/api/v1/workspaces/*`. Native auth and
+  direct object-storage requests remain cookie-free and bearer-free where required.
+- `src/app/sign-in.tsx`, `src/app/auth/return.tsx`, and `src/app/account.tsx` provide
+  the public sign-in entry, safe cold-return fallback, guarded account surface,
+  profile-name editing, personal Workspace details, and avatar controls.
+- `src/features/account/avatar-upload.ts` bounds avatar files at 10 MiB, hashes the
+  actual bytes, uses the exact signed upload URL/headers, and completes only after a
+  successful direct upload. It never adds a Cloud bearer to object storage.
+
+### Local configuration
+
+Copy `apps/mobile/.env.example` to an ignored local environment file and replace the
+placeholder return URL with the exact HTTPS URL registered with Cloud and the mobile
+platform. The current Nabu handoff records that the native routes are merged in Cloud
+but are not yet present in live staging/production schemas; therefore an unconfigured
+build truthfully shows sign-in as unavailable rather than falling back to browser
+cookies or a WebView. `app.config.ts` derives Android App Links and iOS Associated
+Domains from that same exact URL when it is supplied at build time. The domain's
+Android `assetlinks.json`, iOS `apple-app-site-association`, platform registration,
+and Cloud enablement gate must still be completed before device proof.
+
+The auth/account dependency and config changes are native. They require a new EAS
+binary with app/runtime version `1.0.2`; the installed `1.0.1` APK cannot receive the
+new SecureStore/ImagePicker/auth configuration through OTA. After the compatible APK
+exists, later JavaScript-only account/UI changes can use the normal preview OTA path.
 
 ## EAS build and OTA workflow
 
@@ -163,8 +207,8 @@ This is the version state verified on 2026-08-21:
 
 | Item | Current value | Meaning |
 | --- | --- | --- |
-| App version | `1.0.1` | `expo.version`; this is also the next runtime version because the app uses the `appVersion` policy. |
-| Package version | `1.0.1` | `apps/mobile/package.json` package metadata; it does not replace `expo.version`. |
+| App version | `1.0.2` | `expo.version`; this is also the next runtime version because the app uses the `appVersion` policy. A new native build is pending. |
+| Package version | `1.0.2` | `apps/mobile/package.json` package metadata; it does not replace `expo.version`. |
 | Expo SDK | SDK 57 (`expo ~57.0.9`; resolved app config `57.0.0`) | Native/runtime baseline for the current mobile app. |
 | React Native | `0.86.2` | Native runtime dependency. |
 | React | `19.2.3` | JavaScript runtime dependency. |
@@ -173,16 +217,17 @@ This is the version state verified on 2026-08-21:
 | EAS CLI | `22.2.0` | CLI version used for local configuration/authentication checks; it is not an app runtime dependency. |
 | Android application ID | `com.daviddll.allies` | Permanent Android package identity for this app. |
 | Previous preview build | `FINISHED` — EAS build `d0fc5e35-1a1c-4230-ac69-4078ac2e39cf` | [Android APK](https://expo.dev/artifacts/eas/VAcLE1_CJVuV_jvUH7FQLX5gyPewn_1dBcp8vXGZaqg.apk) for the superseded `1.0.0` runtime. |
-| Current preview build | `FINISHED` — EAS build `e076bfe1-2846-4872-9a06-a71f9e0c573e` | [Installable Android APK](https://expo.dev/artifacts/eas/EjDEimT7CWWGBHP2tC61OhOzqnh4-KGbHVMSf7YBkfA.apk) on the `preview` channel; includes the branded splash and restored typewriters. |
-| Current build versions | App version `1.0.1`, runtime `1.0.1`, Android build version `2` | Values reported by the completed EAS build for commit `7b776e2`. |
+| Last completed preview build | `FINISHED` — EAS build `e076bfe1-2846-4872-9a06-a71f9e0c573e` | [Installable Android APK](https://expo.dev/artifacts/eas/EjDEimT7CWWGBHP2tC61OhOzqnh4-KGbHVMSf7YBkfA.apk) on the `preview` channel; this is the `1.0.1` binary and does not contain INT-008 native modules. |
+| Last completed build versions | App version `1.0.1`, runtime `1.0.1`, Android build version `2` | Values reported by the completed EAS build for commit `7b776e2`; `1.0.2` is the next required native runtime. |
 | Production profile | `production` channel | Profile exists; no production build or publish has been performed. |
-| EAS project link | Linked | `updates.url` and `extra.eas.projectId` are present in `app.json`; credentials are not stored in the repository. |
+| EAS project link | Linked | `updates.url` and `extra.eas.projectId` are present in the Expo app config; credentials are not stored in the repository. |
 | EAS app version source | `remote` | Future Android build numbers are managed by EAS; `preview` and `production` profiles auto-increment them. |
 
 The preview APK includes `expo-updates`; installing a development build does not prove
-OTA is active. The current `1.0.1` artifact is ready for device installation and smoke
-testing. After each APK or OTA release, record the commit SHA, build ID or update group,
-artifact URL when applicable, and EAS update channel/message at the release boundary.
+OTA is active. The last completed `1.0.1` artifact is ready for device installation
+and smoke testing, while `1.0.2` is the next native build for INT-008. After each APK
+or OTA release, record the commit SHA, build ID or update group, artifact URL when
+applicable, and EAS update channel/message at the release boundary.
 
 ### Version and release rules
 
@@ -234,6 +279,11 @@ artifact URL when applicable, and EAS update channel/message at the release boun
   build version `2`, and commit `7b776e2`. [Install the APK](https://expo.dev/artifacts/eas/EjDEimT7CWWGBHP2tC61OhOzqnh4-KGbHVMSf7YBkfA.apk).
   The build includes the native splash and typewriter fixes; no `1.0.1` OTA has been
   published.
+- **2026-08-21 — INT-008 native auth/account implementation prepared:** adds the
+  Cloud native contract adapter, SecureStore session lifecycle, PKCE browser return,
+  profile/Workspace/avatar surface, environment-driven Android/iOS app-link config,
+  and SDK-compatible native dependencies. Version `1.0.2` is set because a new APK is
+  required; no `1.0.2` build or OTA publish has occurred.
 
 ### GitHub merges and installed devices
 
@@ -271,6 +321,12 @@ every local edit. Native changes still require a new APK.
 ### Flow and state
 
 - `src/app/index.tsx` — mobile entry point for the current onboarding surface.
+- `src/app/_layout.tsx` — fonts, splash lifecycle, providers, and signed-in route
+  redirection.
+- `app.config.ts` — derives native App Links/Associated Domains from the exact
+  registered HTTPS return URL when build-time configuration is present.
+- `src/lib/native-link-config.test.ts` — validates the native link allowlist shape
+  and rejects unsafe return URLs.
 - `src/features/onboarding/onboarding-flow.tsx` — owns the flow, local state,
   forward/back navigation, validation, accent color, and screen composition.
 - `src/features/onboarding/onboarding-state.ts` — step, Ally shape/color,
@@ -302,6 +358,14 @@ every local edit. Native changes still require a new APK.
 - `src/features/onboarding/onboarding-ally-preview.tsx` and
   `src/features/onboarding/ally-character.tsx` — reusable Ally artwork and
   selected-color rendering.
+- `src/app/sign-in.tsx`, `src/app/auth/return.tsx`, and `src/app/account.tsx` —
+  native sign-in, cold-return fallback, and guarded personal account surface.
+- `src/features/auth/` — in-memory PKCE/state flow and system-browser return parsing.
+- `src/features/account/` — profile validation, account queries, and signed avatar
+  upload lifecycle.
+- `src/lib/session/` — SecureStore refresh port and serialized native session adapter.
+- `src/lib/cloud/native-cloud-client.ts` — shared Cloud transport with an explicit
+  authenticated route allowlist.
 
 ### Motion and reusable UI
 
@@ -343,9 +407,10 @@ every local edit. Native changes still require a new APK.
   `#FF5800` using `contain` scaling.
 - The root layout keeps the native splash visible only while Open Runde loads, then
   hides it with the platform-supported 350ms fade. There is no artificial timeout.
-- Splash plugin changes are native configuration. Version `1.0.1` therefore requires
-  a new APK; the current preview build 2 contains the splash. Publishing an OTA alone
-  cannot replace the splash in an installed `1.0.0` binary.
+- Splash plugin changes are native configuration. The current app/runtime version is
+  `1.0.2` because this INT-008 wave also adds native auth, SecureStore, ImagePicker,
+  and build-time link configuration. The installed `1.0.1` binary cannot receive
+  these changes through OTA alone.
 
 ## Implemented onboarding behavior
 
@@ -524,9 +589,10 @@ than marking the app healthy based only on the eventual log line.
   adding a dependency.
 - Keep user-facing copy, timing, spacing, and asset decisions in the owning feature
   modules with tests for stable values.
-- Do not add Cloud calls, authentication, durable persistence, or conversation
-  streaming to this local UI slice without reading and updating the relevant Nabu
-  contract first.
+- Keep future Cloud creation, durable onboarding persistence, and conversation
+  streaming behind their accepted Nabu contracts; the INT-008 auth/account boundary
+  is already implemented and remains gated by Cloud deployment/enablement and
+  platform return-link registration.
 - Run mobile lint, typecheck, targeted tests, and the full test suite before handoff.
 - Update Nabu and this README together after meaningful changes, following the sync
   contract above.
