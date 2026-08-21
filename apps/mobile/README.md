@@ -70,7 +70,16 @@ If Nabu is unreachable:
 - Do not invent Nabu content, claim that a remote update succeeded, or put credentials
   into a local fallback.
 - Retry Nabu when it becomes available, reconcile conflicts against the latest
-  revision, then remove the pending entry only after both records have been verified.
+revision, then remove the pending entry only after both records have been verified.
+
+## Reusable release handoff skill
+
+The repository includes `$allies-mobile-release-handoff` at
+`.agents/skills/allies-mobile-release-handoff/`. Use it when a mobile change is ready
+to release. It guides agents through validation, the OTA-versus-native-build decision,
+README and Nabu synchronization, focused commits, EAS metadata capture, and final
+verification. It does not grant permission to commit, push, publish an OTA, or create
+a build when the current request has not authorized those actions.
 
 ## Current scope and boundary
 
