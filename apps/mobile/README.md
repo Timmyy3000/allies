@@ -116,8 +116,10 @@ The local implementation is deliberately thin around the shared Cloud client:
   token in Expo SecureStore. Access tokens, verifiers, state, exchange codes, URLs,
   and account DTOs are not persisted.
 - `src/lib/cloud/native-cloud-client.ts` reuses the shared transport and injects a
-  bearer only for `/api/v1/auths/me/*` and `/api/v1/workspaces/*`. Native auth and
-  direct object-storage requests remain cookie-free and bearer-free where required.
+  bearer only for the exact authenticated routes `GET /api/v1/auths/me`, `PATCH
+  /api/v1/auths/me/profile`, the avatar prepare/complete/read/delete routes, and
+  `GET /api/v1/workspaces/{workspace_id}`. Native auth and direct object-storage
+  requests remain cookie-free and bearer-free where required.
 - `src/app/sign-in.tsx`, `src/app/auth/return.tsx`, and `src/app/account.tsx` provide
   the public sign-in entry, safe cold-return fallback, guarded account surface,
   profile-name editing, personal Workspace details, and avatar controls.
@@ -283,7 +285,8 @@ applicable, and EAS update channel/message at the release boundary.
   Cloud native contract adapter, SecureStore session lifecycle, PKCE browser return,
   profile/Workspace/avatar surface, environment-driven Android/iOS app-link config,
   and SDK-compatible native dependencies. Version `1.0.2` is set because a new APK is
-  required; no `1.0.2` build or OTA publish has occurred.
+  required; no `1.0.2` build or OTA publish has occurred. Implementation commit:
+  `8d791a9`.
 
 ### GitHub merges and installed devices
 
@@ -557,13 +560,16 @@ interaction. Every meaningful animation needs a reduced-motion path.
 
 ## Validation
 
-The latest completed local validation for the onboarding slice was:
+The latest completed local validation for the INT-008/mobile implementation was:
 
 ```text
-bun run test:run       # 29 files, 149 tests passed
-bun --filter mobile lint
-bun --filter mobile typecheck
-git diff --check
+bun run test:run       # 39 test files, 197 tests passed
+bun run typecheck      # cloud-client, web, and mobile passed
+bun run lint           # 0 errors; 8 existing web warnings
+bun run build:web      # passed
+bun run bundle:mobile  # Expo iOS export passed
+bun run cloud:check    # OpenAPI snapshot verification/generation passed
+git diff --cached --check
 ```
 
 Focused onboarding tests cover state transitions, layout constants, motion values,
@@ -602,5 +608,7 @@ than marking the app healthy based only on the eventual log line.
 Keep this section short and current. It is for operational visibility, not a second
 decision log.
 
-- 2026-08-21 — Nabu handoff and this README aligned for the current local onboarding
-  UI slice. No `Nabu sync pending` item is open.
+- 2026-08-21 — Nabu INT-008 spec, delivery ticket, and mobile handoff were
+  synchronized with implementation commit `8d791a9`; the handoff records the
+  `1.0.2` native-build gate and remaining Cloud/platform/device evidence. No
+  `Nabu sync pending` item is open.
