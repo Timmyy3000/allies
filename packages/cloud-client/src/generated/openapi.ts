@@ -4,6 +4,91 @@
  */
 
 export interface paths {
+    "/api/v1/auths/native/sign-in/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Native Google Sign In Start */
+        post: operations["native_authentication_sign_in_google"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auths/native/callback/google": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Native Google Callback */
+        get: operations["native_authentication_callback_google"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auths/native/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Native Token Exchange */
+        post: operations["native_authentication_token"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auths/native/token/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Native Token Refresh */
+        post: operations["native_authentication_token_refresh"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auths/native/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Native Logout */
+        post: operations["native_authentication_logout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auths/callback/{provider}": {
         parameters: {
             query?: never;
@@ -295,6 +380,114 @@ export interface components {
         AuthorizationStartResponse: {
             /** Redirect Url */
             redirect_url: string;
+        };
+        /** NativeAuthorizationStartRequest */
+        NativeAuthorizationStartRequest: {
+            /** Code Challenge */
+            code_challenge: string;
+            /**
+             * Code Challenge Method
+             * @default S256
+             * @constant
+             */
+            code_challenge_method: "S256";
+            /**
+             * Redirect Uri
+             * Format: uri
+             */
+            redirect_uri: string;
+            /** State */
+            state: string;
+        };
+        /** NativeAuthorizationStartResponse */
+        NativeAuthorizationStartResponse: {
+            /**
+             * Authorization Url
+             * Format: uri
+             */
+            authorization_url: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /** NativeAuthorizationTokenRequest */
+        NativeAuthorizationTokenRequest: {
+            /** Code */
+            code: string;
+            /** Code Verifier */
+            code_verifier: string;
+            /**
+             * Grant Type
+             * @default authorization_code
+             * @constant
+             */
+            grant_type: "authorization_code";
+            /**
+             * Redirect Uri
+             * Format: uri
+             */
+            redirect_uri: string;
+        };
+        /** NativeRefreshTokenRequest */
+        NativeRefreshTokenRequest: {
+            /**
+             * Grant Type
+             * @default refresh_token
+             * @constant
+             */
+            grant_type: "refresh_token";
+            /** Refresh Token */
+            refresh_token: string;
+        };
+        /** NativeLogoutRequest */
+        NativeLogoutRequest: {
+            /** Refresh Token */
+            refresh_token: string;
+        };
+        /** NativeSessionResponse */
+        NativeSessionResponse: {
+            /** Access Token */
+            access_token: string;
+            /** Expires In */
+            expires_in: number;
+            /** Refresh Expires In */
+            refresh_expires_in: number;
+            /** Refresh Token */
+            refresh_token: string;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Token Type
+             * @default Bearer
+             * @constant
+             */
+            token_type: "Bearer";
+        };
+        /** SuccessResponse[NativeAuthorizationStartResponse] */
+        SuccessResponse_NativeAuthorizationStartResponse_: {
+            data: components["schemas"]["NativeAuthorizationStartResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /** SuccessResponse[NativeSessionResponse] */
+        SuccessResponse_NativeSessionResponse_: {
+            data: components["schemas"]["NativeSessionResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
         };
         /** AvatarPrepareRequest */
         AvatarPrepareRequest: {
@@ -720,7 +913,62 @@ export interface components {
             role: string;
         };
     };
-    responses: never;
+    responses: {
+        /** @description Bad Request */
+        NativeBadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+            };
+        };
+        /** @description Conflict */
+        NativeConflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+            };
+        };
+        /** @description Too Many Requests */
+        NativeRateLimited: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+            };
+        };
+        /** @description Internal Server Error */
+        NativeServerError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+            };
+        };
+        /** @description Service Unavailable */
+        NativeServiceUnavailable: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+            };
+        };
+        /** @description Unauthorized */
+        NativeUnauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+            };
+        };
+    };
     parameters: never;
     requestBodies: never;
     headers: never;
@@ -728,6 +976,146 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    native_authentication_sign_in_google: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeAuthorizationStartRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_NativeAuthorizationStartResponse_"];
+                };
+            };
+            400: components["responses"]["NativeBadRequest"];
+            429: components["responses"]["NativeRateLimited"];
+            500: components["responses"]["NativeServerError"];
+            503: components["responses"]["NativeServiceUnavailable"];
+        };
+    };
+    native_authentication_callback_google: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description See Other */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["NativeBadRequest"];
+            409: components["responses"]["NativeConflict"];
+            429: components["responses"]["NativeRateLimited"];
+            500: components["responses"]["NativeServerError"];
+            503: components["responses"]["NativeServiceUnavailable"];
+        };
+    };
+    native_authentication_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeAuthorizationTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_NativeSessionResponse_"];
+                };
+            };
+            400: components["responses"]["NativeBadRequest"];
+            401: components["responses"]["NativeUnauthorized"];
+            429: components["responses"]["NativeRateLimited"];
+            500: components["responses"]["NativeServerError"];
+            503: components["responses"]["NativeServiceUnavailable"];
+        };
+    };
+    native_authentication_token_refresh: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeRefreshTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_NativeSessionResponse_"];
+                };
+            };
+            400: components["responses"]["NativeBadRequest"];
+            401: components["responses"]["NativeUnauthorized"];
+            429: components["responses"]["NativeRateLimited"];
+            500: components["responses"]["NativeServerError"];
+            503: components["responses"]["NativeServiceUnavailable"];
+        };
+    };
+    native_authentication_logout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeLogoutRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: components["responses"]["NativeBadRequest"];
+            401: components["responses"]["NativeUnauthorized"];
+            429: components["responses"]["NativeRateLimited"];
+            500: components["responses"]["NativeServerError"];
+            503: components["responses"]["NativeServiceUnavailable"];
+        };
+    };
     authentication_callback_ddd2379f: {
         parameters: {
             query?: {
