@@ -245,6 +245,35 @@ Let `ship-it` own bounded implementation delegation, integration, validation, `c
 
 Kickoff is complete only when `ship-it` reports the PR ready to merge, merged, explicitly canceled, or blocked by a concrete external condition - not merely when a PR is opened.
 
+## Allies Repository Handoff Rules
+
+When this skill runs in the Allies repository:
+
+- Read `AGENTS.md`, `ENGINEERING_STYLE.md`, `apps/mobile/AGENTS.md` when mobile
+  paths are involved, and the relevant Nabu notes before planning or reviewing.
+  Nabu is the source of truth for Allies product and contract decisions; use
+  revision-aware reads and writes and never expose Nabu credentials or private
+  note contents.
+- Reuse an accepted implementation plan and its evidence when the requested
+  kickoff is for an already-built change. Record execution and PR state in the
+  existing plan or handoff instead of creating a duplicate plan.
+- Keep `apps/mobile/README.md` and the canonical Nabu handoff synchronized at
+  meaningful commit boundaries. Record exact implementation/docs commits, app
+  version, runtime/build or OTA classification, validation evidence, and
+  remaining external gates.
+- For mobile changes, classify native-module, app-link, SecureStore, config,
+  and runtime-version changes as native-build work; do not describe them as OTA
+  eligible until a compatible binary exists. Keep live Cloud enablement,
+  platform association files, and device evidence explicit when pending.
+- Preserve unrelated dirty or untracked user work. Stage only files in the
+  current task and stop before PR creation if unrelated staged changes appear.
+- Apply the repository's Ponytail discipline during implementation. Run the
+  requested Ponytail over-engineering review before PR creation; report its
+  one-line findings and `net` metric separately from correctness/security
+  review, and do not apply complexity cuts without checking behavior and tests.
+- Material AI-assisted commits include the repository-required
+  `Co-authored-by: Codex <codex@openai.com>` trailer.
+
 ## Phase Updates
 
 At each phase transition, report the current phase, brief path, planning mode and reason, implementation delegation/source, resolved worker selectors/source, plan path and artifact type, open decisions, and the next skill being invoked.
