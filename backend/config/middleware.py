@@ -36,7 +36,7 @@ def canonical_client_address(request: HttpRequest) -> str | None:
 
 
 class TrustedProxyHeadersMiddleware:
-    """Remove proxy-controlled headers unless the direct peer is trusted."""
+    """Normalize proxy headers at the configured deployment trust boundary."""
 
     forwarded_headers = (
         "HTTP_X_FORWARDED_FOR",
@@ -50,14 +50,11 @@ class TrustedProxyHeadersMiddleware:
     def __call__(self, request: HttpRequest) -> HttpResponse:
         if getattr(settings, "ALLIES_RAILWAY_PROXY_MODE", False):
             # Railway has no public TCP ingress; only preserve the exact HTTPS
-            # signal from its managed edge. Never trust identity or host data.
+            # and client-address signals from its managed edge.
             forwarded_proto = request.META.get("HTTP_X_FORWARDED_PROTO", "")
             for header in self.forwarded_headers:
                 if header != "HTTP_X_FORWARDED_PROTO":
                     request.META.pop(header, None)
-            trusted = set(getattr(settings, "ALLIES_TRUSTED_PROXY_IPS", ()))
-            if request.META.get("REMOTE_ADDR", "") not in trusted:
-                request.META.pop("HTTP_X_REAL_IP", None)
             if forwarded_proto != "https":
                 # Keep a concrete non-HTTPS value for SecurityMiddleware. If
                 # the header were removed, Django's request handling could

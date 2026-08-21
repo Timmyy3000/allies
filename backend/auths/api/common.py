@@ -189,9 +189,6 @@ def native_rate_limit_identity(request: HttpRequest) -> str:
     """Return the only non-cookie identity accepted by native auth."""
 
     if getattr(settings, "ALLIES_RAILWAY_PROXY_MODE", False):
-        trusted = set(getattr(settings, "ALLIES_TRUSTED_PROXY_IPS", ()))
-        if request.META.get("REMOTE_ADDR", "") not in trusted:
-            raise NativeIdentityUnavailable("native requester identity unavailable")
         raw = request.headers.get("X-Real-IP", "")
         if not isinstance(raw, str) or not raw.strip() or "," in raw:
             raise NativeIdentityUnavailable("native requester identity unavailable")

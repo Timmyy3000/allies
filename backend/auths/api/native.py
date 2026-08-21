@@ -91,14 +91,13 @@ class NativeAuthenticationController(ControllerBase):
         if payload.code_challenge_method != "S256":
             return error_json("pkce_required", "S256 PKCE is required", 400)
         try:
-            check_native_rate_limit(request, "sign_in", include_global=False)
+            check_native_rate_limit(request, "sign_in")
             start = begin_native_sign_in(
                 provider=provider,
                 redirect_uri=payload.redirect_uri,
                 code_challenge=payload.code_challenge,
                 state=payload.state,
             )
-            check_native_global_rate_limit(request)
         except ThrottleExceeded:
             return error_json("throttled", "try again later", 429)
         except ThrottleUnavailable:
@@ -136,7 +135,7 @@ class NativeAuthenticationController(ControllerBase):
         if not _no_bearer(request):
             return error_json("auth_unavailable", "authentication unavailable", 503)
         try:
-            check_native_rate_limit(request, "callback", include_global=False)
+            check_native_rate_limit(request, "callback")
             result = complete_native_callback(
                 provider=provider,
                 provider_state=state,
