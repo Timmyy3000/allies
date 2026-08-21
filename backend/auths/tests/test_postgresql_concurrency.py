@@ -105,6 +105,7 @@ def test_same_callback_state_is_consumed_once_under_postgresql_race():
         provider=ProviderKey.FAKE,
         purpose=FlowPurpose.SIGN_IN,
         redirect_to="/app",
+        trusted_origin="http://localhost:3000",
         browser_binding=b"postgres-browser",
     )
     state = parse_qs(urlparse(start.authorization_url).query)["state"][0]

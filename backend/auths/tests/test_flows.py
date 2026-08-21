@@ -19,14 +19,20 @@ from auths.services.flows import (
 )
 from auths.services.sessions import issue_session, revoke_family
 
+TRUSTED_ORIGIN = "http://localhost:3000"
+
 
 @pytest.mark.django_db
-@override_settings(ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True)
+@override_settings(
+    ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True,
+    CSRF_TRUSTED_ORIGINS=[TRUSTED_ORIGIN],
+)
 def test_fake_flow_requires_both_bindings_and_consumes_on_provider_failure():
     start = begin_auth_flow(
         provider="fake",
         purpose=FlowPurpose.SIGN_IN,
         redirect_to="/app",
+        trusted_origin=TRUSTED_ORIGIN,
         browser_binding=b"csrf-cookie",
     )
     state = parse_qs(urlparse(start.authorization_url).query)["state"][0]
@@ -49,27 +55,50 @@ def test_fake_flow_requires_both_bindings_and_consumes_on_provider_failure():
 
 
 @pytest.mark.django_db
-@override_settings(ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True)
+@override_settings(
+    ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True,
+    CSRF_TRUSTED_ORIGINS=[
+        "https://yourallies.io",
+        "https://staging.yourallies.io",
+        "https://preview-123.yourallies.io",
+        TRUSTED_ORIGIN,
+    ],
+)
 def test_flow_validation_rejects_bad_redirect_bindings_and_link_sessions():
     assert flow_redirect_for_state(None) is None
     assert flow_redirect_for_state("missing") is None
-    with pytest.raises(InvalidRedirect):
-        _safe_redirect("https://evil.example/")
-    for malformed in ("/\\evil.example/path", "\\evil.example/path", "///evil/path"):
-        with pytest.raises(InvalidRedirect):
-            _safe_redirect(malformed)
-    with pytest.raises(InvalidRedirect):
-        _safe_redirect("/app\x00")
-    with (
-        override_settings(ALLIES_AUTH_REDIRECT_PATHS=["/app"]),
-        pytest.raises(InvalidRedirect),
+    for origin in (
+        "https://yourallies.io",
+        "https://staging.yourallies.io",
+        "https://preview-123.yourallies.io",
+        TRUSTED_ORIGIN,
     ):
-        _safe_redirect("/other")
+        assert _safe_redirect("/nested?source=google#fragment", origin) == (
+            f"{origin}/nested?source=google#fragment"
+        )
+    with pytest.raises(InvalidRedirect):
+        _safe_redirect("https://evil.example/", TRUSTED_ORIGIN)
+    for malformed in (
+        "/\\evil.example/path",
+        "\\evil.example/path",
+        "//evil.example/path",
+        "///evil/path",
+    ):
+        with pytest.raises(InvalidRedirect):
+            _safe_redirect(malformed, TRUSTED_ORIGIN)
+    for malformed in ("/app\x00", "/app\x7f"):
+        with pytest.raises(InvalidRedirect):
+            _safe_redirect(malformed, TRUSTED_ORIGIN)
+    with pytest.raises(InvalidRedirect):
+        _safe_redirect("/app", "https://evil.example")
+    with pytest.raises(InvalidRedirect):
+        _safe_redirect("/" + "a" * 500, TRUSTED_ORIGIN)
     with pytest.raises(InvalidFlow):
         begin_auth_flow(
             provider="unknown",
             purpose=FlowPurpose.SIGN_IN,
             redirect_to="/app",
+            trusted_origin=TRUSTED_ORIGIN,
             browser_binding=b"csrf",
         )
     with pytest.raises(InvalidFlow):
@@ -77,6 +106,7 @@ def test_flow_validation_rejects_bad_redirect_bindings_and_link_sessions():
             provider=ProviderKey.FAKE,
             purpose=FlowPurpose.SIGN_IN,
             redirect_to="/app",
+            trusted_origin=TRUSTED_ORIGIN,
             browser_binding=b"",
         )
 
@@ -89,6 +119,7 @@ def test_flow_validation_rejects_bad_redirect_bindings_and_link_sessions():
             provider=ProviderKey.FAKE,
             purpose=FlowPurpose.LINK,
             redirect_to="/app",
+            trusted_origin=TRUSTED_ORIGIN,
             browser_binding=b"csrf",
         )
     with pytest.raises(InvalidFlow):
@@ -96,6 +127,7 @@ def test_flow_validation_rejects_bad_redirect_bindings_and_link_sessions():
             provider=ProviderKey.FAKE,
             purpose=FlowPurpose.SIGN_IN,
             redirect_to="/app",
+            trusted_origin=TRUSTED_ORIGIN,
             browser_binding=b"csrf",
             user=user,
             family=issued.family,
@@ -105,8 +137,10 @@ def test_flow_validation_rejects_bad_redirect_bindings_and_link_sessions():
         provider=ProviderKey.FAKE,
         purpose=FlowPurpose.SIGN_IN,
         redirect_to="/app",
+        trusted_origin=TRUSTED_ORIGIN,
         browser_binding=b"csrf",
     )
+    assert start.redirect_to == f"{TRUSTED_ORIGIN}/app"
     state = parse_qs(urlparse(start.authorization_url).query)["state"][0]
     with pytest.raises(InvalidFlow):
         complete_auth_flow(
@@ -167,7 +201,10 @@ def test_flow_validation_rejects_bad_redirect_bindings_and_link_sessions():
 
 
 @pytest.mark.django_db
-@override_settings(ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True)
+@override_settings(
+    ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True,
+    CSRF_TRUSTED_ORIGINS=[TRUSTED_ORIGIN],
+)
 def test_flow_protection_and_link_state_and_provider_identity_mismatch(monkeypatch):
     monkeypatch.setattr(
         flow_service,
@@ -188,6 +225,7 @@ def test_flow_protection_and_link_state_and_provider_identity_mismatch(monkeypat
         provider=ProviderKey.FAKE,
         purpose=FlowPurpose.LINK,
         redirect_to="/app",
+        trusted_origin=TRUSTED_ORIGIN,
         browser_binding=b"csrf",
         user=user,
         family=issued.family,
@@ -205,7 +243,10 @@ def test_flow_protection_and_link_state_and_provider_identity_mismatch(monkeypat
 
 
 @pytest.mark.django_db
-@override_settings(ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True)
+@override_settings(
+    ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True,
+    CSRF_TRUSTED_ORIGINS=[TRUSTED_ORIGIN],
+)
 def test_link_rechecks_session_after_provider_io(monkeypatch):
     user = resolve_or_create_user(
         VerifiedIdentity(provider="fake", subject="link-race-owner")
@@ -215,6 +256,7 @@ def test_link_rechecks_session_after_provider_io(monkeypatch):
         provider=ProviderKey.FAKE,
         purpose=FlowPurpose.LINK,
         redirect_to="/app",
+        trusted_origin=TRUSTED_ORIGIN,
         browser_binding=b"csrf",
         user=user,
         family=issued.family,
@@ -244,6 +286,7 @@ def test_link_rechecks_session_after_provider_io(monkeypatch):
         provider=ProviderKey.FAKE,
         purpose=FlowPurpose.SIGN_IN,
         redirect_to="/app",
+        trusted_origin=TRUSTED_ORIGIN,
         browser_binding=b"csrf",
     )
     state = parse_qs(urlparse(start.authorization_url).query)["state"][0]
