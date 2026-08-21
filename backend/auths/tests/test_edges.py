@@ -86,12 +86,14 @@ def test_flow_binding_redirect_and_expiry_fail_closed():
             provider=ProviderKey.FAKE,
             purpose=FlowPurpose.SIGN_IN,
             redirect_to="https://evil.example/",
+            trusted_origin="http://localhost:3000",
             browser_binding=b"csrf",
         )
     start = begin_auth_flow(
         provider=ProviderKey.FAKE,
         purpose=FlowPurpose.SIGN_IN,
         redirect_to="/app?next=1",
+        trusted_origin="http://localhost:3000",
         browser_binding=b"csrf",
     )
     flow = AuthFlow.objects.get(state_digest__isnull=False)

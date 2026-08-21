@@ -1,5 +1,7 @@
 """Authentication start and provider callback routes."""
 
+from urllib.parse import urlencode, urlsplit, urlunsplit
+
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.middleware.csrf import get_token
@@ -10,6 +12,7 @@ from auths.api.common import (
     _csrf_binding,
     _domain_status,
     _railway_auth_admission_allowed,
+    _request_origin,
     _require_origin,
     _set_auth_throttle_cookie,
     _set_flow_cookie,
@@ -57,6 +60,7 @@ class AuthenticationController(ControllerBase):
         rejected = _require_origin(request)
         if rejected:
             return rejected
+        trusted_origin = _request_origin(request)
         if not _railway_auth_admission_allowed(request):
             return error_json("throttled", "try again later", 429)
         try:
@@ -77,6 +81,7 @@ class AuthenticationController(ControllerBase):
                 provider=ProviderKey(provider),
                 purpose=FlowPurpose.SIGN_IN,
                 redirect_to=payload.redirect_to,
+                trusted_origin=trusted_origin,
                 browser_binding=_csrf_binding(request),
             )
         except (AuthDomainError, ValueError) as exc:
@@ -114,9 +119,19 @@ class AuthenticationController(ControllerBase):
             error_code = getattr(exc, "code", "flow_invalid")
             target = flow_redirect_for_state(state)
             if target:
-                separator = "&" if "?" in target else "?"
+                parsed = urlsplit(target)
+                error_query = urlencode({"auth_error": error_code})
+                query = f"{parsed.query}&{error_query}" if parsed.query else error_query
                 response = HttpResponse(status=303)
-                response["Location"] = f"{target}{separator}auth_error={error_code}"
+                response["Location"] = urlunsplit(
+                    (
+                        parsed.scheme,
+                        parsed.netloc,
+                        parsed.path,
+                        query,
+                        parsed.fragment,
+                    )
+                )
                 response.delete_cookie(cookie_name("flow"), path=cookie_path("flow"))
                 return response
             return error_json(

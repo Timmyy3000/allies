@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlsplit
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
@@ -101,13 +102,26 @@ def _domain_status(code: str, default: int = 400) -> int:
     }.get(code, default)
 
 
-def _origin_allowed(request: HttpRequest) -> bool:
+def _request_origin(request: HttpRequest) -> str | None:
     origin = request.headers.get("Origin")
+    if origin:
+        return origin
+    referer = request.headers.get("Referer")
+    if not referer:
+        return None
+    try:
+        parsed = urlsplit(referer)
+    except ValueError:
+        return None
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+def _origin_allowed(request: HttpRequest) -> bool:
+    origin = _request_origin(request)
     if not origin:
-        referer = request.headers.get("Referer")
-        if not referer:
-            return False
-        origin = "/".join(referer.split("/", 3)[:3])
+        return False
     allowed = set(getattr(settings, "CSRF_TRUSTED_ORIGINS", ()))
     return origin in allowed
 

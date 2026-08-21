@@ -10,12 +10,13 @@ from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlsplit
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from auths.audit import emit_auth_event
-from auths.config import digest_key, flow_ttl_seconds, redirect_paths, setting
+from auths.config import digest_key, flow_ttl_seconds, setting
 from auths.exceptions import (
     FlowReplay,
     InvalidFlow,
@@ -93,15 +94,22 @@ def _unseal(value: str, *, max_age: int) -> str:
         raise InvalidFlow("flow verifier invalid") from exc
 
 
-def _safe_redirect(value: str) -> str:
+def _safe_redirect(value: str, trusted_origin: str | None) -> str:
     if (
-        not isinstance(value, str)
-        or len(value) > 500
-        or any(ord(char) < 32 for char in value)
-        or "\\" in value
+        not isinstance(trusted_origin, str)
+        or trusted_origin not in set(getattr(settings, "CSRF_TRUSTED_ORIGINS", ()))
+        or not isinstance(value, str)
+        or len(trusted_origin) > 500
+        or any(ord(char) < 32 or ord(char) == 127 for char in trusted_origin)
+        or "\\" in trusted_origin
     ):
         raise InvalidRedirect("redirect is invalid")
-    parsed = urlsplit(value)
+    if any(ord(char) < 32 or ord(char) == 127 for char in value) or "\\" in value:
+        raise InvalidRedirect("redirect is invalid")
+    try:
+        parsed = urlsplit(value)
+    except ValueError as exc:
+        raise InvalidRedirect("redirect is invalid") from exc
     if (
         parsed.scheme
         or parsed.netloc
@@ -112,12 +120,10 @@ def _safe_redirect(value: str) -> str:
         )
     ):
         raise InvalidRedirect("redirect is invalid")
-    allowed = redirect_paths()
-    if not any(
-        value == path or value.startswith(path.rstrip("/") + "/") for path in allowed
-    ):
+    target = f"{trusted_origin.rstrip('/')}{value}"
+    if len(target) > 500:
         raise InvalidRedirect("redirect is invalid")
-    return value
+    return target
 
 
 def _browser_callback_uri(provider: ProviderKey) -> str:
@@ -132,6 +138,7 @@ def begin_auth_flow(
     provider: ProviderKey | str,
     purpose: FlowPurpose,
     redirect_to: str,
+    trusted_origin: str | None,
     browser_binding: bytes,
     user: User | None = None,
     family: SessionFamily | None = None,
@@ -140,7 +147,7 @@ def begin_auth_flow(
         provider_key = ProviderKey(str(provider))
     except ValueError as exc:
         raise InvalidFlow("provider is invalid") from exc
-    redirect = _safe_redirect(redirect_to)
+    redirect = _safe_redirect(redirect_to, trusted_origin)
     if not browser_binding:
         raise InvalidFlow("browser binding is required")
     if purpose == FlowPurpose.LINK:
