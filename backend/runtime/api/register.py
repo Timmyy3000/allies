@@ -1,21 +1,28 @@
-from uuid import UUID
+import secrets
+from uuid import NAMESPACE_URL, UUID, uuid5
 
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from ninja.errors import ValidationError as NinjaValidationError
 from ninja_extra import NinjaExtraAPI
 
 from runtime.exceptions import (
     RuntimeAuthorizationError,
+    RuntimeConflictError,
     RuntimeDomainError,
+    RuntimeIdempotencyConflictError,
     RuntimeValidationError,
 )
+from runtime.models import Workspace
 from runtime.services.attempts import complete_attempt, fail_attempt
 from runtime.services.claims import claim_next_execution
 from runtime.services.events import append_runtime_event
 from runtime.services.leases import acknowledge_stopped, renew_lease
 from runtime.services.profiles import (
+    ProfileSeed,
     accept_cleanup_receipt,
     accept_materialization_receipt,
+    ensure_runtime_profile,
     list_profile_reconciliation,
 )
 from runtime.services.runtime_auth import authenticate_runtime_token
@@ -28,11 +35,13 @@ from .schemas import (
     EventRequest,
     FailRequest,
     MaterializationReceiptRequest,
+    ProfileProvisioningRequest,
     SessionBindingRequest,
     StoppedRequest,
 )
+from .schemas import ProfileProvisioningReceipt as ProfileProvisioningReceiptSchema
 
-
+_PROFILE_ID_NAMESPACE = uuid5(NAMESPACE_URL, "allies-foundry-profile-v1")
 def register(api: NinjaExtraAPI) -> None:
     api.add_exception_handler(NinjaValidationError, _validation_error)
 
@@ -116,6 +125,43 @@ def register(api: NinjaExtraAPI) -> None:
             return JsonResponse(_profile_receipt_json(receipt), status=200)
         except RuntimeDomainError as exc:
             return _error(exc)
+
+    @api.post("/internal/profile-provisioning", auth=None)
+    def profile_provisioning(
+        request: HttpRequest,
+        payload: ProfileProvisioningRequest,
+    ):
+        try:
+            _authenticate_cloud_service(request)
+            workspace = Workspace.objects.filter(
+                tenant_ref=payload.workspace_id
+            ).first()
+            if workspace is None:
+                raise RuntimeValidationError("workspace does not exist")
+            profile = ensure_runtime_profile(
+                workspace.id,
+                _profile_id_for_binding(payload.binding_id),
+                payload.ally_ref,
+                ProfileSeed(
+                    personality=payload.personality,
+                    provider=settings.PROFILE_PROVISIONING_PROVIDER,
+                    model=settings.PROFILE_PROVISIONING_MODEL,
+                    base_url=settings.PROFILE_PROVISIONING_BASE_URL,
+                    first_chat_instruction=_first_chat_instruction(payload.job),
+                    credential_refs=settings.PROFILE_PROVISIONING_CREDENTIAL_REFS,
+                ),
+            )
+            receipt = ProfileProvisioningReceiptSchema(
+                version=payload.version,
+                binding_id=payload.binding_id,
+                operation_id=payload.operation_id,
+                request_fingerprint=payload.request_fingerprint,
+                status=profile.state,
+                evidence_digest=profile.seed_fingerprint,
+            )
+            return JsonResponse(receipt.model_dump(), status=200)
+        except RuntimeDomainError as exc:
+            return _profile_provisioning_error(exc)
 
     @api.post("/runtime/attempts/{attempt_id}/lease/renew", auth=None)
     def renew(request: HttpRequest, attempt_id):
@@ -247,6 +293,52 @@ def _bearer(request: HttpRequest) -> str:
     if not token:
         raise RuntimeAuthorizationError("invalid runtime credential")
     return token
+
+
+def _authenticate_cloud_service(request: HttpRequest) -> None:
+    token = _bearer(request)
+    configured = getattr(settings, "ALLIES_CLOUD_SERVICE_TOKEN", None)
+    if not configured or not secrets.compare_digest(
+        token.encode(), configured.encode()
+    ):
+        raise RuntimeAuthorizationError("invalid service credential")
+
+
+def _profile_id_for_binding(binding_id: str) -> UUID:
+    return uuid5(_PROFILE_ID_NAMESPACE, binding_id)
+
+
+def _first_chat_instruction(job: str) -> str:
+    return (
+        "Start the first chat by asking one useful question that helps with the "
+        f"user's job. Job: {job}"
+    )
+
+
+def _profile_provisioning_error(exc: RuntimeDomainError) -> JsonResponse:
+    if isinstance(exc, RuntimeAuthorizationError):
+        return JsonResponse(
+            {
+                "code": "INVALID_CREDENTIAL",
+                "message": "request is not authorized",
+            },
+            status=401,
+        )
+    if isinstance(exc, RuntimeValidationError):
+        return JsonResponse(
+            {"code": "INVALID_REQUEST", "message": "request is invalid"},
+            status=422,
+        )
+    if isinstance(exc, RuntimeIdempotencyConflictError):
+        code = "IDEMPOTENCY_CONFLICT"
+    elif isinstance(exc, RuntimeConflictError):
+        code = "CONFLICT"
+    else:
+        code = "PROFILE_UNAVAILABLE"
+    return JsonResponse(
+        {"code": code, "message": "profile provisioning conflicts with existing state"},
+        status=409,
+    )
 
 
 def _lease_token(request: HttpRequest) -> str:

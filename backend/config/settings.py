@@ -11,13 +11,13 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 import os
+import re
 import secrets
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
-
 from observability.settings import FoundryObservabilitySettings
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -53,8 +53,73 @@ def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
     return tuple(networks)
 
 
+def env_profile_text(name: str, default: str, *, max_length: int) -> str:
+    value = os.getenv(name, default)
+    if not value or len(value) > max_length or "\x00" in value or "\r" in value:
+        raise ImproperlyConfigured(f"{name} is invalid")
+    return value
+
+
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 database_url = os.getenv("DATABASE_URL")
+
+ALLIES_CLOUD_SERVICE_TOKEN = os.getenv("ALLIES_CLOUD_SERVICE_TOKEN")
+if not DEBUG and not ALLIES_CLOUD_SERVICE_TOKEN:
+    raise ImproperlyConfigured(
+        "ALLIES_CLOUD_SERVICE_TOKEN is required when DJANGO_DEBUG is false"
+    )
+if not DEBUG and (
+    len(ALLIES_CLOUD_SERVICE_TOKEN) < 32
+    or any(character.isspace() for character in ALLIES_CLOUD_SERVICE_TOKEN)
+):
+    raise ImproperlyConfigured(
+        "ALLIES_CLOUD_SERVICE_TOKEN must be a strong token outside debug"
+    )
+
+PROFILE_PROVISIONING_PROVIDER = env_profile_text(
+    "PROFILE_PROVISIONING_PROVIDER", "openai", max_length=128
+)
+PROFILE_PROVISIONING_MODEL = env_profile_text(
+    "PROFILE_PROVISIONING_MODEL", "gpt-5.6-luna", max_length=255
+)
+PROFILE_PROVISIONING_BASE_URL = env_profile_text(
+    "PROFILE_PROVISIONING_BASE_URL", "https://api.openai.com/v1", max_length=512
+)
+if not re.fullmatch(
+    r"[a-z][a-z0-9+.-]{1,31}://[^\s]{1,507}",
+    PROFILE_PROVISIONING_BASE_URL,
+    re.IGNORECASE,
+):
+    raise ImproperlyConfigured("PROFILE_PROVISIONING_BASE_URL is not absolute")
+profile_credential_name = env_profile_text(
+    "PROFILE_PROVISIONING_CREDENTIAL_NAME", "OPENAI_API_KEY", max_length=64
+)
+profile_credential_ref = env_profile_text(
+    "PROFILE_PROVISIONING_CREDENTIAL_REF",
+    "file:///run/secrets/openai-api-key",
+    max_length=224,
+)
+if not (
+    re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", profile_credential_name)
+    or re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", profile_credential_name)
+):
+    raise ImproperlyConfigured("PROFILE_PROVISIONING_CREDENTIAL_NAME is invalid")
+profile_credential_name = profile_credential_name.upper().replace("-", "_")
+if profile_credential_name == "API_SERVER_KEY":
+    raise ImproperlyConfigured("PROFILE_PROVISIONING_CREDENTIAL_NAME is reserved")
+if not re.fullmatch(
+    r"[a-z][a-z0-9+.-]{1,31}://[^\s]{1,191}",
+    profile_credential_ref,
+    re.IGNORECASE,
+):
+    raise ImproperlyConfigured("PROFILE_PROVISIONING_CREDENTIAL_REF is invalid")
+if profile_credential_ref.lower().startswith(
+    ("bearer ", "token=", "key=", "sk-", "api_key=")
+):
+    raise ImproperlyConfigured("PROFILE_PROVISIONING_CREDENTIAL_REF is invalid")
+PROFILE_PROVISIONING_CREDENTIAL_REFS = {
+    profile_credential_name: profile_credential_ref
+}
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 if not SECRET_KEY:

@@ -531,10 +531,16 @@ make migrate
 make server
 ```
 
-Deployments must set `DJANGO_DEBUG=false`, `DJANGO_SECRET_KEY`, and
-`DATABASE_URL` through the platform's secret/environment configuration. Set
-`DJANGO_ALLOWED_HOSTS` and opt into trusted proxy headers only when a
-TLS-terminating proxy strips and rewrites `X-Forwarded-Proto`:
+Deployments must set `DJANGO_DEBUG=false`, `DJANGO_SECRET_KEY`, `DATABASE_URL`,
+and a shared `ALLIES_CLOUD_SERVICE_TOKEN` of at least 32 non-whitespace
+characters through the platform's secret/environment configuration. Profile
+provisioning defaults can be overridden with `PROFILE_PROVISIONING_PROVIDER`,
+`PROFILE_PROVISIONING_MODEL`, `PROFILE_PROVISIONING_BASE_URL`,
+`PROFILE_PROVISIONING_CREDENTIAL_NAME`, and
+`PROFILE_PROVISIONING_CREDENTIAL_REF`; the credential reference must be an
+opaque URI such as `file:///run/secrets/provider-key`, never a credential
+value. Set `DJANGO_ALLOWED_HOSTS` and opt into trusted proxy headers only when
+a TLS-terminating proxy strips and rewrites `X-Forwarded-Proto`:
 
 ```text
 DJANGO_TRUST_PROXY_HEADERS=true
