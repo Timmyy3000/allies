@@ -63,7 +63,7 @@ def test_google_callback_normalizes_verified_identity_and_rejects_claim_failures
         "token_endpoint": "https://accounts.google.com/token",
         "jwks_uri": "https://www.googleapis.com/oauth2/v3/certs",
     }
-    monkeypatch.setattr(provider, "_discovery", lambda: discovery)
+    monkeypatch.setattr(provider, "_discovery", lambda flow=None: discovery)
     monkeypatch.setattr(
         provider, "_fetch_json", lambda *args, **kwargs: {"id_token": "signed"}
     )
@@ -80,7 +80,7 @@ def test_google_callback_normalizes_verified_identity_and_rejects_claim_failures
     monkeypatch.setattr(
         provider,
         "_decode_id_token",
-        lambda token, payload: {
+        lambda token, payload, flow=None: {
             "iss": "https://accounts.google.com",
             "aud": "client-id",
             "sub": "google-sub",
@@ -98,7 +98,7 @@ def test_google_callback_normalizes_verified_identity_and_rejects_claim_failures
     monkeypatch.setattr(
         provider,
         "_decode_id_token",
-        lambda token, payload: {"sub": "x", "nonce": "wrong"},
+        lambda token, payload, flow=None: {"sub": "x", "nonce": "wrong"},
     )
     with pytest.raises(ProviderRejected):
         provider.verify_callback("authorization-code", flow)
@@ -155,6 +155,125 @@ def test_google_fetch_json_bounds_and_decode_fail_closed(monkeypatch):
         )
 
 
+def test_google_jwks_cache_is_populated_with_uri_and_value(monkeypatch):
+    import jwt
+
+    cache_calls = []
+    jwk_set = object()
+
+    class Cache:
+        def get(self, key):
+            del key
+
+        def put(self, *args):
+            cache_calls.append(args)
+
+    def init(client, uri, **kwargs):
+        client.uri = uri
+        client.jwk_set_cache = Cache()
+
+    def get_signing_key(client, token):
+        del token
+        assert client.fetch_data() is jwk_set
+        raise RuntimeError("stop after cache write")
+
+    monkeypatch.setattr(jwt.PyJWKClient, "__init__", init)
+    monkeypatch.setattr(jwt.PyJWKClient, "get_signing_key_from_jwt", get_signing_key)
+    monkeypatch.setattr(jwt.api_jwk.PyJWKSet, "from_dict", lambda payload: jwk_set)
+    provider = GoogleProvider()
+    monkeypatch.setattr(
+        provider,
+        "_fetch_json",
+        lambda *args, **kwargs: {"keys": [{"kid": "test"}]},
+    )
+
+    with pytest.raises(ProviderRejected, match="id token invalid"):
+        provider._decode_id_token(
+            "signed-token", {"jwks_uri": "https://example.test/jwks"}
+        )
+
+    assert cache_calls == [("https://example.test/jwks", jwk_set)]
+
+
+def test_google_provider_bounds_http_timeout_by_flow_deadline(monkeypatch):
+    class Response:
+        def __init__(self):
+            self.body = b'{"ok": true}'
+            self.offset = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, size):
+            chunk = self.body[self.offset : self.offset + size]
+            self.offset += len(chunk)
+            return chunk
+
+    observed = []
+    monkeypatch.setattr(
+        "auths.providers.google.urlopen",
+        lambda request, timeout: observed.append(timeout) or Response(),
+    )
+    flow = ProviderFlow(
+        ProviderKey.GOOGLE,
+        "state",
+        "nonce",
+        "https://cloud.example/callback",
+        "verifier",
+        deadline_monotonic=time.monotonic() + 1,
+    )
+
+    assert GoogleProvider()._fetch_json("https://example.test", flow=flow) == {
+        "ok": True
+    }
+    assert 0 < observed[0] <= 1
+
+    expired_flow = ProviderFlow(
+        ProviderKey.GOOGLE,
+        "state",
+        "nonce",
+        "https://cloud.example/callback",
+        "verifier",
+        deadline_monotonic=time.monotonic() - 1,
+    )
+    with pytest.raises(ProviderRejected, match="timed out"):
+        GoogleProvider()._fetch_json("https://example.test", flow=expired_flow)
+
+
+def test_google_provider_stops_slow_stream_at_absolute_deadline(monkeypatch):
+    class SlowResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def read(self, size):
+            time.sleep(0.02)
+            return b"x"
+
+    monkeypatch.setattr(
+        "auths.providers.google.urlopen",
+        lambda request, timeout: SlowResponse(),
+    )
+    flow = ProviderFlow(
+        ProviderKey.GOOGLE,
+        "state",
+        "nonce",
+        "https://cloud.example/callback",
+        "verifier",
+        deadline_monotonic=time.monotonic() + 0.05,
+    )
+
+    started = time.monotonic()
+    with pytest.raises(ProviderRejected, match="timed out"):
+        GoogleProvider()._fetch_json("https://example.test", flow=flow)
+    assert time.monotonic() - started < 0.5
+
+
 @pytest.mark.parametrize(
     "claims",
     [
@@ -173,7 +292,7 @@ def test_google_callback_claim_rejection_matrix(monkeypatch, claims):
     monkeypatch.setattr(
         provider,
         "_discovery",
-        lambda: {
+        lambda flow=None: {
             "issuer": "https://accounts.google.com",
             "token_endpoint": "https://accounts.google.com/token",
             "jwks_uri": "https://www.googleapis.com/certs",
@@ -182,7 +301,11 @@ def test_google_callback_claim_rejection_matrix(monkeypatch, claims):
     monkeypatch.setattr(
         provider, "_fetch_json", lambda *args, **kwargs: {"id_token": "signed"}
     )
-    monkeypatch.setattr(provider, "_decode_id_token", lambda token, discovery: claims)
+    monkeypatch.setattr(
+        provider,
+        "_decode_id_token",
+        lambda token, discovery, flow=None: claims,
+    )
     flow = ProviderFlow(
         ProviderKey.GOOGLE,
         "state",
@@ -207,7 +330,7 @@ def test_google_accepts_both_documented_issuers(monkeypatch, issuer):
     monkeypatch.setattr(
         provider,
         "_discovery",
-        lambda: {
+        lambda flow=None: {
             "issuer": issuer,
             "token_endpoint": "https://accounts.google.com/token",
             "jwks_uri": "https://www.googleapis.com/certs",
@@ -219,7 +342,7 @@ def test_google_accepts_both_documented_issuers(monkeypatch, issuer):
     monkeypatch.setattr(
         provider,
         "_decode_id_token",
-        lambda token, discovery: {
+        lambda token, discovery, flow=None: {
             "iss": issuer,
             "aud": "client-id",
             "sub": "subject",
@@ -261,7 +384,7 @@ def test_google_rejects_ambiguous_or_mismatched_audience(
     monkeypatch.setattr(
         provider,
         "_discovery",
-        lambda: {
+        lambda flow=None: {
             "issuer": "https://accounts.google.com",
             "token_endpoint": "https://accounts.google.com/token",
             "jwks_uri": "https://www.googleapis.com/certs",
@@ -273,7 +396,7 @@ def test_google_rejects_ambiguous_or_mismatched_audience(
     monkeypatch.setattr(
         provider,
         "_decode_id_token",
-        lambda token, discovery: {
+        lambda token, discovery, flow=None: {
             "iss": "https://accounts.google.com",
             "aud": audience,
             "azp": authorized_party,

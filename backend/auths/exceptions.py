@@ -25,6 +25,30 @@ class ProviderRejected(AuthDomainError):
     code = "provider_rejected"
 
 
+class NativeUnavailable(AuthDomainError):
+    code = "auth_unavailable"
+
+
+class NativeConfigurationInvalid(NativeUnavailable):
+    code = "auth_unavailable"
+
+
+class NativeIdentityUnavailable(NativeUnavailable):
+    code = "auth_unavailable"
+
+
+class NativeExchangeInvalid(AuthDomainError):
+    code = "exchange_invalid"
+
+
+class NativeExchangeReplay(NativeExchangeInvalid):
+    code = "exchange_replayed"
+
+
+class NativeCallbackInProgress(AuthDomainError):
+    code = "flow_in_progress"
+
+
 class IdentityConflict(AuthDomainError):
     code = "already_linked_elsewhere"
 

@@ -15,7 +15,7 @@ from django.utils import timezone
 from django.utils.http import url_has_allowed_host_and_scheme
 
 from auths.audit import emit_auth_event
-from auths.config import digest_key, flow_ttl_seconds, redirect_paths
+from auths.config import digest_key, flow_ttl_seconds, redirect_paths, setting
 from auths.exceptions import (
     FlowReplay,
     InvalidFlow,
@@ -120,6 +120,13 @@ def _safe_redirect(value: str) -> str:
     return value
 
 
+def _browser_callback_uri(provider: ProviderKey) -> str:
+    route = f"/api/v1/auths/callback/{provider.value}"
+    if provider is ProviderKey.GOOGLE:
+        return str(setting("ALLIES_AUTH_GOOGLE_REDIRECT_URI", "")) or route
+    return route
+
+
 def begin_auth_flow(
     *,
     provider: ProviderKey | str,
@@ -153,7 +160,7 @@ def begin_auth_flow(
     pkce_verifier = secrets.token_urlsafe(32)
     now = timezone.now()
     expires_at = now + timedelta(seconds=flow_ttl_seconds())
-    callback = f"/api/v1/auths/callback/{provider_key.value}"
+    callback = _browser_callback_uri(provider_key)
     flow = AuthFlow.objects.create(
         state_digest=_digest(state),
         flow_cookie_digest=_digest(flow_cookie),

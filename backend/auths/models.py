@@ -31,6 +31,19 @@ class FlowPurpose(models.TextChoices):
     LINK = "link", "Link identity"
 
 
+class NativeTransactionStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    CLAIMED = "claimed", "Claimed"
+    COMPLETED = "completed", "Completed"
+    DENIED = "denied", "Denied"
+    FAILED = "failed", "Failed"
+
+
+class SessionClientKind(models.TextChoices):
+    BROWSER = "browser", "Browser"
+    NATIVE = "native", "Native"
+
+
 class AvatarStatus(models.TextChoices):
     PENDING = "pending", "Pending"
     READY = "ready", "Ready"
@@ -228,6 +241,96 @@ class AuthFlow(models.Model):
         ]
 
 
+class NativeAuthorizationTransaction(models.Model):
+    state_digest = models.CharField(max_length=64, unique=True, editable=False)
+    provider = models.CharField(max_length=32, choices=Provider.choices)
+    callback_uri = models.CharField(max_length=500)
+    redirect_uri = models.CharField(max_length=500)
+    app_state_sealed = models.TextField(editable=False)
+    code_challenge = models.CharField(max_length=128, editable=False)
+    nonce_digest = models.CharField(max_length=64, editable=False)
+    nonce_sealed = models.TextField(editable=False)
+    pkce_verifier_sealed = models.TextField(editable=False)
+    status = models.CharField(
+        max_length=16,
+        choices=NativeTransactionStatus.choices,
+        default=NativeTransactionStatus.PENDING,
+    )
+    claim_digest = models.CharField(max_length=64, blank=True, editable=False)
+    claimed_at = models.DateTimeField(null=True, blank=True)
+    claim_expires_at = models.DateTimeField(null=True, blank=True)
+    terminal_at = models.DateTimeField(null=True, blank=True)
+    error_code = models.CharField(max_length=64, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        status=NativeTransactionStatus.PENDING,
+                        terminal_at__isnull=True,
+                    )
+                    | Q(
+                        status=NativeTransactionStatus.CLAIMED,
+                        claimed_at__isnull=False,
+                        claim_expires_at__isnull=False,
+                        terminal_at__isnull=True,
+                    )
+                    | Q(
+                        status__in=(
+                            NativeTransactionStatus.COMPLETED,
+                            NativeTransactionStatus.DENIED,
+                            NativeTransactionStatus.FAILED,
+                        ),
+                        terminal_at__isnull=False,
+                    )
+                ),
+                name="auth_native_tx_status_coherent",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("status", "expires_at"), name="auth_native_tx_state_exp_idx"
+            ),
+            models.Index(
+                fields=("status", "claim_expires_at"),
+                name="auth_native_tx_claim_exp_idx",
+            ),
+            models.Index(
+                fields=("status", "terminal_at"),
+                name="auth_native_tx_terminal_idx",
+            ),
+        ]
+
+
+class NativeExchangeCode(models.Model):
+    transaction = models.OneToOneField(
+        NativeAuthorizationTransaction,
+        on_delete=models.PROTECT,
+        related_name="exchange_code",
+    )
+    code_digest = models.CharField(max_length=64, unique=True, editable=False)
+    code_sealed = models.TextField(editable=False)
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="native_exchange_codes"
+    )
+    redirect_uri = models.CharField(max_length=500)
+    code_challenge = models.CharField(max_length=128, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=("expires_at", "consumed_at"),
+                name="auth_native_code_exp_cons_idx",
+            ),
+        ]
+
+
 class SessionFamily(models.Model):
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="session_families"
@@ -239,6 +342,11 @@ class SessionFamily(models.Model):
     absolute_expires_at = models.DateTimeField()
     revoked_at = models.DateTimeField(null=True, blank=True)
     revoke_reason = models.CharField(max_length=64, blank=True)
+    client_kind = models.CharField(
+        max_length=16,
+        choices=SessionClientKind.choices,
+        default=SessionClientKind.BROWSER,
+    )
 
     class Meta:
         indexes = [

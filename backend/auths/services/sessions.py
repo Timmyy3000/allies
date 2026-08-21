@@ -26,7 +26,12 @@ from auths.config import (
     refresh_idle_seconds,
 )
 from auths.exceptions import SessionInvalid
-from auths.models import RefreshToken, SessionFamily, User
+from auths.models import (
+    RefreshToken,
+    SessionClientKind,
+    SessionFamily,
+    User,
+)
 from common.identifiers import new_public_id
 
 
@@ -144,10 +149,17 @@ def _new_refresh() -> tuple[str, str]:
 
 @transaction.atomic
 def issue_session(
-    user: User, *, context: SessionContext | None = None
+    user: User,
+    *,
+    context: SessionContext | None = None,
+    client_kind: SessionClientKind | str = SessionClientKind.BROWSER,
 ) -> IssuedSession:
     if not user.is_active:
         raise SessionInvalid("user inactive")
+    try:
+        resolved_client_kind = SessionClientKind(str(client_kind))
+    except ValueError as exc:
+        raise SessionInvalid("session client kind invalid") from exc
     now = timezone.now()
     idle = now + timedelta(seconds=refresh_idle_seconds())
     absolute = now + timedelta(seconds=refresh_absolute_seconds())
@@ -157,6 +169,7 @@ def issue_session(
         last_used_at=now,
         idle_expires_at=idle,
         absolute_expires_at=absolute,
+        client_kind=resolved_client_kind,
     )
     raw_refresh, digest = _new_refresh()
     RefreshToken.objects.create(family=family, token_digest=digest, expires_at=idle)
@@ -165,7 +178,9 @@ def issue_session(
     return IssuedSession(family, access, raw_refresh, access_expires, idle)
 
 
-def authenticate_access(raw_jwt: str) -> AuthenticatedSession:
+def authenticate_access(
+    raw_jwt: str, *, expected_client_kind: SessionClientKind | str | None = None
+) -> AuthenticatedSession:
     claims = _decode_jwt(raw_jwt)
     try:
         family = SessionFamily.objects.select_related("user").get(
@@ -173,6 +188,13 @@ def authenticate_access(raw_jwt: str) -> AuthenticatedSession:
         )
     except SessionFamily.DoesNotExist as exc:
         raise SessionInvalid("session not found") from exc
+    if expected_client_kind is not None:
+        try:
+            resolved_client_kind = SessionClientKind(str(expected_client_kind))
+        except ValueError as exc:
+            raise SessionInvalid("session client kind invalid") from exc
+        if family.client_kind != resolved_client_kind:
+            raise SessionInvalid("session transport mismatch")
     if not family.is_active() or family.user.public_id != claims["sub"]:
         raise SessionInvalid("session inactive")
     return AuthenticatedSession(user=family.user, family=family, claims=claims)
@@ -195,7 +217,10 @@ def refresh_family_public_id(raw_token: str) -> str:
 
 @transaction.atomic
 def _rotate_refresh(
-    raw_token: str, *, request_context: SessionContext | None = None
+    raw_token: str,
+    *,
+    request_context: SessionContext | None = None,
+    expected_client_kind: SessionClientKind | str | None = None,
 ) -> IssuedSession:
     if not isinstance(raw_token, str) or len(raw_token) > 512:
         raise SessionInvalid("refresh token invalid")
@@ -212,6 +237,13 @@ def _rotate_refresh(
         .select_related("user")
         .get(pk=token.family_id)
     )
+    if expected_client_kind is not None:
+        try:
+            resolved_client_kind = SessionClientKind(str(expected_client_kind))
+        except ValueError as exc:
+            raise SessionInvalid("session client kind invalid") from exc
+        if family.client_kind != resolved_client_kind:
+            raise SessionInvalid("session transport mismatch")
     now = timezone.now()
     if token.used_at is not None:
         family.revoked_at = now
@@ -240,10 +272,17 @@ def _rotate_refresh(
 
 
 def rotate_refresh(
-    raw_token: str, *, request_context: SessionContext | None = None
+    raw_token: str,
+    *,
+    request_context: SessionContext | None = None,
+    expected_client_kind: SessionClientKind | str | None = None,
 ) -> IssuedSession:
     try:
-        return _rotate_refresh(raw_token, request_context=request_context)
+        return _rotate_refresh(
+            raw_token,
+            request_context=request_context,
+            expected_client_kind=expected_client_kind,
+        )
     except _RefreshReuse as reuse:
         # The rotation transaction deliberately rolls back on the sentinel;
         # revocation is committed in its own transaction before returning 401.
@@ -264,7 +303,10 @@ def rotate_refresh(
 
 @transaction.atomic
 def logout_session(
-    *, access: AuthenticatedSession | None = None, refresh: str | None = None
+    *,
+    access: AuthenticatedSession | None = None,
+    refresh: str | None = None,
+    expected_client_kind: SessionClientKind | str | None = None,
 ) -> None:
     family: SessionFamily | None = access.family if access else None
     if family is None and refresh:
@@ -277,6 +319,13 @@ def logout_session(
             return
     if family is None:
         return
+    if expected_client_kind is not None:
+        try:
+            resolved_client_kind = SessionClientKind(str(expected_client_kind))
+        except ValueError as exc:
+            raise SessionInvalid("session client kind invalid") from exc
+        if family.client_kind != resolved_client_kind:
+            return
     locked = SessionFamily.objects.select_for_update().filter(pk=family.pk).first()
     if locked and locked.revoked_at is None:
         locked.revoked_at = timezone.now()

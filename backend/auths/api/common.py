@@ -29,9 +29,12 @@ from auths.config import (
     cookie_secure,
     digest_key,
     flow_ttl_seconds,
+    native_global_rate_limit,
+    native_rate_limit,
+    native_rate_limit_period_seconds,
 )
-from auths.exceptions import SessionInvalid
-from auths.services.sessions import authenticate_access
+from auths.exceptions import NativeIdentityUnavailable, SessionInvalid
+from auths.throttle import check_rate_limit
 
 
 def _as_json(value: Any) -> Any:
@@ -86,6 +89,11 @@ def _domain_status(code: str, default: int = 400) -> int:
         "already_linked_elsewhere": 409,
         "storage_unavailable": 503,
         "throttle_unavailable": 503,
+        "auth_unavailable": 503,
+        "exchange_invalid": 400,
+        "exchange_replayed": 409,
+        "pkce_required": 400,
+        "flow_in_progress": 409,
         "avatar_absent": 404,
         "invalid_state": 409,
         "workspace_denied": 404,
@@ -104,7 +112,22 @@ def _origin_allowed(request: HttpRequest) -> bool:
     return origin in allowed
 
 
-def _require_origin(request: HttpRequest) -> JsonResponse | None:
+def _require_origin(
+    request: HttpRequest, *, allow_native_bearer: bool = False
+) -> JsonResponse | None:
+    if (
+        allow_native_bearer
+        and request.headers.get("Authorization")
+        and not request.COOKIES.get(cookie_name("access"))
+    ):
+        from auths.authentication import resolve_request_session
+
+        try:
+            resolve_request_session(request)
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        else:
+            return None
     if not _origin_allowed(request):
         return error_json("origin_rejected", "origin rejected", 403)
     csrf_name = getattr(settings, "CSRF_COOKIE_NAME", "csrftoken")
@@ -123,11 +146,16 @@ def _require_origin(request: HttpRequest) -> JsonResponse | None:
     return None
 
 
-def _session(request: HttpRequest):
-    raw = request.COOKIES.get(cookie_name("access"))
-    if not raw:
-        raise SessionInvalid("session invalid")
-    return authenticate_access(raw)
+def _session(request: HttpRequest, *, expected_client_kind: str | None = None):
+    from auths.authentication import resolve_request_session
+
+    session = resolve_request_session(request)
+    if (
+        expected_client_kind is not None
+        and session.family.client_kind != expected_client_kind
+    ):
+        raise SessionInvalid("session transport mismatch")
+    return session
 
 
 def _csrf_binding(request: HttpRequest) -> bytes:
@@ -155,6 +183,61 @@ def _client_identity(request: HttpRequest) -> str:
         return str(ipaddress.ip_network(f"{address}/{prefix}", strict=False))
     except ValueError:
         return "unknown"
+
+
+def native_rate_limit_identity(request: HttpRequest) -> str:
+    """Return the only non-cookie identity accepted by native auth."""
+
+    if getattr(settings, "ALLIES_RAILWAY_PROXY_MODE", False):
+        trusted = set(getattr(settings, "ALLIES_TRUSTED_PROXY_IPS", ()))
+        if request.META.get("REMOTE_ADDR", "") not in trusted:
+            raise NativeIdentityUnavailable("native requester identity unavailable")
+        raw = request.headers.get("X-Real-IP", "")
+        if not isinstance(raw, str) or not raw.strip() or "," in raw:
+            raise NativeIdentityUnavailable("native requester identity unavailable")
+    else:
+        raw = request.META.get("REMOTE_ADDR", "")
+    try:
+        address = ipaddress.ip_address(raw.strip())
+    except (AttributeError, ValueError) as exc:
+        raise NativeIdentityUnavailable(
+            "native requester identity unavailable"
+        ) from exc
+    prefix = 24 if address.version == 4 else 64
+    return str(ipaddress.ip_network(f"{address}/{prefix}", strict=False))
+
+
+def check_native_rate_limit(
+    request: HttpRequest, operation: str, *, include_global: bool = True
+) -> str:
+    """Apply native requester throttling, optionally including the global ceiling."""
+
+    identity = native_rate_limit_identity(request)
+    check_rate_limit(
+        scope=f"native-{operation}",
+        identity=identity,
+        limit=native_rate_limit(operation),
+        period=native_rate_limit_period_seconds(),
+        global_limit=native_global_rate_limit() if include_global else None,
+        global_period=native_rate_limit_period_seconds() if include_global else None,
+        global_scope="native-global" if include_global else None,
+    )
+    return identity
+
+
+def check_native_global_rate_limit(request: HttpRequest) -> None:
+    """Charge the shared native ceiling after cheap request validation."""
+
+    native_rate_limit_identity(request)
+    check_rate_limit(
+        scope="native-global-admission",
+        identity="all",
+        limit=None,
+        period=native_rate_limit_period_seconds(),
+        global_limit=native_global_rate_limit(),
+        global_period=native_rate_limit_period_seconds(),
+        global_scope="native-global",
+    )
 
 
 def _auth_rate_limit_identity(request: HttpRequest) -> str:

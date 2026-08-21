@@ -454,6 +454,47 @@ ALLIES_AUTH_GOOGLE_CLIENT_SECRET = os.environ.get(
 )
 ALLIES_AUTH_GOOGLE_REDIRECT_URI = os.environ.get("ALLIES_AUTH_GOOGLE_REDIRECT_URI", "")
 ALLIES_AUTH_GOOGLE_ENABLED = env_bool("ALLIES_AUTH_GOOGLE_ENABLED", False)
+ALLIES_AUTH_GOOGLE_NATIVE_REDIRECT_URI = os.environ.get(
+    "ALLIES_AUTH_GOOGLE_NATIVE_REDIRECT_URI", ""
+)
+ALLIES_AUTH_NATIVE_ENABLED = env_bool("ALLIES_AUTH_NATIVE_ENABLED", False)
+ALLIES_AUTH_NATIVE_REDIRECT_URIS = env_list("ALLIES_AUTH_NATIVE_REDIRECT_URIS")
+ALLIES_AUTH_NATIVE_TRANSACTION_TTL_SECONDS = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_TRANSACTION_TTL_SECONDS", "600")
+)
+ALLIES_AUTH_NATIVE_EXCHANGE_TTL_SECONDS = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_EXCHANGE_TTL_SECONDS", "60")
+)
+ALLIES_AUTH_NATIVE_PROVIDER_TIMEOUT_SECONDS = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_PROVIDER_TIMEOUT_SECONDS", "15")
+)
+ALLIES_AUTH_NATIVE_CLAIM_LEASE_SECONDS = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_CLAIM_LEASE_SECONDS", "30")
+)
+ALLIES_AUTH_NATIVE_TERMINAL_RETENTION_SECONDS = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_TERMINAL_RETENTION_SECONDS", "86400")
+)
+ALLIES_AUTH_NATIVE_SIGN_IN_LIMIT = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_SIGN_IN_LIMIT", "10")
+)
+ALLIES_AUTH_NATIVE_CALLBACK_LIMIT = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_CALLBACK_LIMIT", "10")
+)
+ALLIES_AUTH_NATIVE_EXCHANGE_LIMIT = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_EXCHANGE_LIMIT", "10")
+)
+ALLIES_AUTH_NATIVE_REFRESH_LIMIT = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_REFRESH_LIMIT", "20")
+)
+ALLIES_AUTH_NATIVE_LOGOUT_LIMIT = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_LOGOUT_LIMIT", "30")
+)
+ALLIES_AUTH_NATIVE_RATE_LIMIT_PERIOD_SECONDS = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_RATE_LIMIT_PERIOD_SECONDS", "60")
+)
+ALLIES_AUTH_NATIVE_GLOBAL_LIMIT = int(
+    os.environ.get("ALLIES_AUTH_NATIVE_GLOBAL_LIMIT", "1000")
+)
 
 ALLIES_AVATAR_MAX_BYTES = int(
     os.environ.get("ALLIES_AVATAR_MAX_BYTES", str(5 * 1024 * 1024))
@@ -674,8 +715,88 @@ if not DEBUG:
         missing.append("complete Google provider configuration")
     if ALLIES_AUTH_GOOGLE_ENABLED:
         google_redirect = urlparse(ALLIES_AUTH_GOOGLE_REDIRECT_URI)
-        if google_redirect.scheme != "https" or not google_redirect.netloc:
+        if (
+            google_redirect.scheme != "https"
+            or not google_redirect.netloc
+            or google_redirect.username
+            or google_redirect.password
+            or google_redirect.params
+            or google_redirect.query
+            or google_redirect.fragment
+        ):
             missing.append("HTTPS ALLIES_AUTH_GOOGLE_REDIRECT_URI")
+    if ALLIES_AUTH_NATIVE_ENABLED:
+        if not ALLIES_RAILWAY_PROXY_MODE:
+            missing.append("ALLIES_RAILWAY_PROXY_MODE for native auth")
+        if not ALLIES_TRUSTED_PROXY_IPS:
+            missing.append("ALLIES_TRUSTED_PROXY_IPS for native auth identity")
+        if not ALLIES_AUTH_GOOGLE_ENABLED:
+            missing.append("ALLIES_AUTH_GOOGLE_ENABLED for native auth")
+        if not all(
+            [
+                ALLIES_AUTH_GOOGLE_CLIENT_ID,
+                ALLIES_AUTH_GOOGLE_CLIENT_SECRET,
+                ALLIES_AUTH_GOOGLE_REDIRECT_URI,
+                ALLIES_AUTH_GOOGLE_NATIVE_REDIRECT_URI,
+                ALLIES_AUTH_NATIVE_REDIRECT_URIS,
+            ]
+        ):
+            missing.append(
+                "complete native Google callback and app return configuration"
+            )
+        browser_callback = urlparse(ALLIES_AUTH_GOOGLE_REDIRECT_URI)
+        native_callback = urlparse(ALLIES_AUTH_GOOGLE_NATIVE_REDIRECT_URI)
+        if (
+            browser_callback.scheme != "https"
+            or native_callback.scheme != "https"
+            or not native_callback.netloc
+            or native_callback.username
+            or native_callback.password
+            or native_callback.params
+            or native_callback.query
+            or native_callback.fragment
+            or ALLIES_AUTH_GOOGLE_NATIVE_REDIRECT_URI == ALLIES_AUTH_GOOGLE_REDIRECT_URI
+            or native_callback.path != "/api/v1/auths/native/callback/google"
+        ):
+            missing.append("exact HTTPS native Google callback URI")
+        for app_redirect in ALLIES_AUTH_NATIVE_REDIRECT_URIS:
+            parsed = urlparse(app_redirect)
+            if (
+                not parsed.scheme
+                or not parsed.netloc
+                or parsed.username
+                or parsed.password
+                or parsed.params
+                or parsed.query
+                or parsed.fragment
+                or "*" in app_redirect
+                or parsed.scheme != "https"
+            ):
+                missing.append("exact HTTPS ALLIES_AUTH_NATIVE_REDIRECT_URIS")
+                break
+        native_lifetimes = (
+            ALLIES_AUTH_NATIVE_TRANSACTION_TTL_SECONDS,
+            ALLIES_AUTH_NATIVE_EXCHANGE_TTL_SECONDS,
+            ALLIES_AUTH_NATIVE_PROVIDER_TIMEOUT_SECONDS,
+            ALLIES_AUTH_NATIVE_CLAIM_LEASE_SECONDS,
+            ALLIES_AUTH_NATIVE_TERMINAL_RETENTION_SECONDS,
+            ALLIES_AUTH_NATIVE_SIGN_IN_LIMIT,
+            ALLIES_AUTH_NATIVE_CALLBACK_LIMIT,
+            ALLIES_AUTH_NATIVE_EXCHANGE_LIMIT,
+            ALLIES_AUTH_NATIVE_REFRESH_LIMIT,
+            ALLIES_AUTH_NATIVE_LOGOUT_LIMIT,
+            ALLIES_AUTH_NATIVE_RATE_LIMIT_PERIOD_SECONDS,
+            ALLIES_AUTH_NATIVE_GLOBAL_LIMIT,
+        )
+        if any(value <= 0 for value in native_lifetimes):
+            missing.append("positive native auth lifetimes and rate limits")
+        if (
+            ALLIES_AUTH_NATIVE_PROVIDER_TIMEOUT_SECONDS
+            >= ALLIES_AUTH_NATIVE_CLAIM_LEASE_SECONDS
+        ):
+            missing.append(
+                "native provider timeout must be less than native claim lease"
+            )
     if ALLIES_R2_ENABLED and not all(
         [
             ALLIES_R2_ENDPOINT_URL,
