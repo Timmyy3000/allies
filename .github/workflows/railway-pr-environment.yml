@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: railway-pr-${{ github.event.pull_request.number }}
@@ -153,6 +154,40 @@ jobs:
           set -eu
           wget --quiet --output-document=/dev/null --timeout=30 --tries=1 \
             "https://${PR_PREVIEW_DOMAIN}/onboarding"
+
+      - name: Write preview URL to the pull request
+        uses: actions/github-script@v7
+        env:
+          PR_PREVIEW_URL: https://${{ env.PR_PREVIEW_DOMAIN }}
+        with:
+          script: |
+            const marker = "<!-- railway-pr-preview -->";
+            const body = `${marker}\nRailway preview: ${process.env.PR_PREVIEW_URL}`;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previous = comments.find(
+              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
 
   cleanup:
     name: Delete web preview
