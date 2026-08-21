@@ -163,6 +163,7 @@ INSTALLED_APPS = [
     "auths",
     "workspaces",
     "waitlist",
+    "allies",
     "devtools",
 ]
 
@@ -566,6 +567,31 @@ CELERY_BEAT_SCHEDULE = {
     }
 }
 
+ALLIES_ONBOARDING_ATTEMPT_TTL_SECONDS = env_positive_int(
+    "ALLIES_ONBOARDING_ATTEMPT_TTL_SECONDS", 1800
+)
+ALLIES_FOUNDRY_URL = os.environ.get("ALLIES_FOUNDRY_URL", "")
+ALLIES_FOUNDRY_SERVICE_TOKEN = os.environ.get("ALLIES_FOUNDRY_SERVICE_TOKEN", "")
+ALLIES_FOUNDRY_TIMEOUT_SECONDS = env_positive_float(
+    "ALLIES_FOUNDRY_TIMEOUT_SECONDS", 5.0
+)
+ALLIES_PROVISIONING_LEASE_SECONDS = env_positive_int(
+    "ALLIES_PROVISIONING_LEASE_SECONDS", 60
+)
+ALLIES_PROVISIONING_MAX_BACKOFF_SECONDS = env_positive_int(
+    "ALLIES_PROVISIONING_MAX_BACKOFF_SECONDS", 300
+)
+CELERY_BEAT_SCHEDULE["dispatch-due-provisioning"] = {
+    "task": "allies.dispatch_due_provisioning",
+    "schedule": 15.0,
+    "options": {"queue": "cloud"},
+}
+CELERY_BEAT_SCHEDULE["cleanup-expired-onboarding-attempts"] = {
+    "task": "allies.cleanup_expired_onboarding_attempts",
+    "schedule": 900.0,
+    "options": {"queue": "cloud"},
+}
+
 # CLD-008 Cloud waitlist preview.  The feature is deliberately disabled until
 # staging has explicit provider, consent, origin, and retention decisions.
 ALLIES_WAITLIST_ENABLED = env_bool("ALLIES_WAITLIST_ENABLED", False)
@@ -655,17 +681,6 @@ if ALLIES_WAITLIST_ENABLED and not DEBUG:
         waitlist_missing.append("ALLIES_WAITLIST_CONSENT_VERSION")
     if ALLIES_WAITLIST_JOINED_RETENTION_SECONDS is None:
         waitlist_missing.append("ALLIES_WAITLIST_JOINED_RETENTION_SECONDS")
-    if ALLIES_WAITLIST_PROVIDER_ENABLED:
-        if ALLIES_WAITLIST_PROVIDER != "openai":
-            waitlist_missing.append("ALLIES_WAITLIST_PROVIDER=openai")
-        if not _is_allowed_waitlist_provider_url(ALLIES_WAITLIST_OPENAI_URL):
-            waitlist_missing.append(
-                "ALLIES_WAITLIST_OPENAI_URL=https://api.openai.com/v1/responses"
-            )
-        if not ALLIES_WAITLIST_OPENAI_API_KEY:
-            waitlist_missing.append("ALLIES_WAITLIST_OPENAI_API_KEY")
-        if not _waitlist_model_configured:
-            waitlist_missing.append("ALLIES_WAITLIST_OPENAI_MODEL")
     if waitlist_missing:
         raise ImproperlyConfigured(
             "Unsafe CLD-008 production configuration: " + ", ".join(waitlist_missing)
@@ -694,6 +709,23 @@ if not DEBUG:
         missing.append("CACHE_URL")
     if not DATABASE_URL:
         missing.append("PostgreSQL DATABASE_URL")
+    if not ALLIES_WAITLIST_PROVIDER_ENABLED:
+        missing.append("ALLIES_WAITLIST_PROVIDER_ENABLED=true for onboarding")
+    if ALLIES_WAITLIST_PROVIDER != "openai":
+        missing.append("ALLIES_WAITLIST_PROVIDER=openai")
+    if not _is_allowed_waitlist_provider_url(ALLIES_WAITLIST_OPENAI_URL):
+        missing.append("ALLIES_WAITLIST_OPENAI_URL=https://api.openai.com/v1/responses")
+    if not ALLIES_WAITLIST_OPENAI_API_KEY:
+        missing.append("ALLIES_WAITLIST_OPENAI_API_KEY")
+    if not _waitlist_model_configured:
+        missing.append("ALLIES_WAITLIST_OPENAI_MODEL")
+    foundry_url = urlparse(ALLIES_FOUNDRY_URL)
+    if foundry_url.scheme != "https" or not foundry_url.netloc:
+        missing.append("HTTPS ALLIES_FOUNDRY_URL")
+    if len(ALLIES_FOUNDRY_SERVICE_TOKEN) < 32 or any(
+        character.isspace() for character in ALLIES_FOUNDRY_SERVICE_TOKEN
+    ):
+        missing.append("ALLIES_FOUNDRY_SERVICE_TOKEN (at least 32 bytes)")
     if (
         (
             ALLIES_TRUST_FORWARDED_PROTO

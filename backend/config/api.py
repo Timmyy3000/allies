@@ -2,6 +2,7 @@ import logging
 
 from ninja.errors import ValidationError
 
+from allies.api.register import register as register_allies_api
 from auths.api.common import error_json
 from auths.api.register import register as register_auths_api
 from config.health import HealthController
@@ -82,6 +83,7 @@ def register_all_apis() -> None:
     register_auths_api(api)
     register_workspaces_api(api)
     register_waitlist_api(api)
+    register_allies_api(api)
 
 
 register_all_apis()

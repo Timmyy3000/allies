@@ -1,0 +1,1 @@
+"""Ally HTTP adapters."""
