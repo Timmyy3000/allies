@@ -6,10 +6,18 @@ import {
   ALLY_NAME_PLACEHOLDER,
   ONBOARDING_COLOR_TRANSITION_DURATION,
   ONBOARDING_COLOR_TRANSITION_EASING,
+  ONBOARDING_CHECKMARK_POP_INITIAL_SCALE,
+  ONBOARDING_CHECKMARK_POP_SPRING,
+  ONBOARDING_COMING_ALIVE_WAVE_AMPLITUDE,
+  ONBOARDING_COMING_ALIVE_WAVE_DURATION_MS,
+  ONBOARDING_COMING_ALIVE_WAVE_STEP_MS,
+  ONBOARDING_LOOK_SWIPE_HINT_INTERVAL_MS,
   WELCOME_CTA_LABEL,
   getColorTransitionDuration,
   getMutedOnboardingColor,
+  getOnboardingCheckmarkPopInitialScale,
   getPrimaryButtonColor,
+  getOnboardingLookSwipeHintOffsets,
 } from './onboarding-motion';
 
 describe('onboarding polish contract', () => {
@@ -38,7 +46,36 @@ describe('onboarding polish contract', () => {
     expect(getColorTransitionDuration(true)).toBe(0);
   });
 
+  it('uses a restrained checkmark pop with a reduced-motion fallback', () => {
+    expect(ONBOARDING_CHECKMARK_POP_INITIAL_SCALE).toBe(0.84);
+    expect(ONBOARDING_CHECKMARK_POP_SPRING).toEqual({
+      damping: 18,
+      stiffness: 300,
+      mass: 0.7,
+    });
+    expect(getOnboardingCheckmarkPopInitialScale(false)).toBe(0.84);
+    expect(getOnboardingCheckmarkPopInitialScale(true)).toBe(1);
+  });
+
+  it('keeps the coming-alive wave aligned with the web motion contract', () => {
+    expect(ONBOARDING_COMING_ALIVE_WAVE_DURATION_MS).toBe(1350);
+    expect(ONBOARDING_COMING_ALIVE_WAVE_STEP_MS).toBe(70);
+    expect(ONBOARDING_COMING_ALIVE_WAVE_AMPLITUDE).toBe(4);
+  });
+
   it('derives a washed-out surface from the active Ally color', () => {
     expect(getMutedOnboardingColor('#A3F06F')).toBe('rgba(163, 240, 111, 0.12)');
+  });
+
+  it('nudges the look carousel left and returns to its original offset', () => {
+    expect(ONBOARDING_LOOK_SWIPE_HINT_INTERVAL_MS).toBe(5000);
+    expect(getOnboardingLookSwipeHintOffsets(1200, 24)).toEqual({
+      hintOffset: 1224,
+      returnOffset: 1200,
+    });
+    expect(getOnboardingLookSwipeHintOffsets(10, 24)).toEqual({
+      hintOffset: 34,
+      returnOffset: 10,
+    });
   });
 });

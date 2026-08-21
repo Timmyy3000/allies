@@ -1,3 +1,4 @@
+import { Image } from 'expo-image';
 import { useFonts } from 'expo-font';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -11,7 +12,13 @@ import { OnboardingLookScreen } from './onboarding-look-screen';
 import { OnboardingPersonalityScreen } from './onboarding-personality-screen';
 import { OnboardingAllyPreview } from './onboarding-ally-preview';
 import { OnboardingPreviewScreen } from './onboarding-preview-screen';
-import { getOnboardingChrome, OnboardingShell } from './onboarding-shell';
+import {
+  getOnboardingChrome,
+  getOnboardingHeaderAllyVariant,
+  isOnboardingFooterDisabled,
+  OnboardingShell,
+} from './onboarding-shell';
+import { ONBOARDING_HEADER_ALLY_ARTWORK_SCALE } from './onboarding-layout';
 import {
   INITIAL_ONBOARDING_FLOW,
   getNextOnboardingStep,
@@ -31,6 +38,7 @@ import {
 
 export default function OnboardingFlow() {
   const [flow, setFlow] = useState<OnboardingFlowState>(INITIAL_ONBOARDING_FLOW);
+  const [personalityHelpOpen, setPersonalityHelpOpen] = useState(false);
   const [fontsLoaded] = useFonts({
     OpenRundeMedium: require('@/assets/allies/fonts/OpenRunde-Medium.otf'),
     OpenRundeSemibold: require('@/assets/allies/fonts/OpenRunde-Semibold.otf'),
@@ -41,6 +49,7 @@ export default function OnboardingFlow() {
   }
 
   const handleNext = () => {
+    setPersonalityHelpOpen(false);
     setFlow((current) => ({
       ...current,
       allyName: current.step === 'name' ? current.allyName.trim() : current.allyName,
@@ -49,6 +58,7 @@ export default function OnboardingFlow() {
   };
 
   const handleBack = () => {
+    setPersonalityHelpOpen(false);
     setFlow((current) => ({
       ...current,
       step: getPreviousOnboardingStep(current.step),
@@ -78,6 +88,7 @@ export default function OnboardingFlow() {
   }
 
   const chrome = getOnboardingChrome(step);
+  const headerAllyVariant = getOnboardingHeaderAllyVariant(step);
   const canContinue =
     step === 'name'
       ? isAllyNameReady(flow.allyName)
@@ -96,7 +107,7 @@ export default function OnboardingFlow() {
           <PrimaryButton
             accentColor={accentColor}
             bottomMargin={0}
-            disabled={!canContinue}
+            disabled={isOnboardingFooterDisabled(step, canContinue, personalityHelpOpen)}
             label={step === 'personality' && canContinue ? 'Save' : 'Next'}
             onPress={handleNext}
           />
@@ -105,12 +116,20 @@ export default function OnboardingFlow() {
       progress={chrome.progress}
       title={chrome.title}
       titleAccessory={
-        step === 'name' ? undefined : (
+        headerAllyVariant === 'none' ? undefined : headerAllyVariant === 'placeholder' ? (
+          <Image
+            accessibilityLabel="Placeholder Ally"
+            contentFit="contain"
+            source={require('@/assets/allies/icons/placeholder-rolly.svg')}
+            style={styles.headerPlaceholder}
+          />
+        ) : (
           <OnboardingAllyPreview
             accessibilityLabel={`${flow.allyName || 'Your'} Ally preview`}
             color={flow.selectedColor}
             identity={flow.allyShape}
             size={40}
+            artworkScale={ONBOARDING_HEADER_ALLY_ARTWORK_SCALE}
             state={step === 'personality' ? 'thinking' : 'idle'}
           />
         )
@@ -149,6 +168,7 @@ export default function OnboardingFlow() {
       ) : step === 'personality' ? (
         <OnboardingPersonalityScreen
           accentColor={accentColor}
+          onHelpVisibilityChange={setPersonalityHelpOpen}
           personalityNote={flow.personalityNote}
           personalities={flow.personalities}
           onPersonalityNoteChange={(personalityNote) =>
@@ -177,6 +197,10 @@ export default function OnboardingFlow() {
 }
 
 const styles = StyleSheet.create({
+  headerPlaceholder: {
+    height: 40,
+    width: 40,
+  },
   loading: {
     backgroundColor: '#FFFFFF',
     flex: 1,

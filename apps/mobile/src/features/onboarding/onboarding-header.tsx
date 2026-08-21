@@ -3,7 +3,10 @@ import { type ReactNode } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { OnboardingProgress } from './onboarding-progress';
-import { ONBOARDING_HEADER_LINE_HEIGHT } from './onboarding-layout';
+import {
+  ONBOARDING_HEADER_LINE_HEIGHT,
+  ONBOARDING_HEADER_ROW_TO_ACCESSORY_GAP,
+} from './onboarding-layout';
 
 type OnboardingHeaderProps = {
   accentColor: string;
@@ -83,7 +86,7 @@ const styles = StyleSheet.create({
     maxWidth: '78%',
   },
   titleAccessory: {
-    marginTop: 12,
+    marginTop: ONBOARDING_HEADER_ROW_TO_ACCESSORY_GAP,
   },
   titleWithAccessory: {
     marginTop: 16,
