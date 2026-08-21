@@ -11,6 +11,8 @@ before changing files in its subtree; nested guidance is additive.
 - Use the installed Nabu skill and authenticated API. If Nabu is unavailable,
   do not silently substitute local notes; report the blocker.
 - Never expose Nabu credentials, cookies, tokens, invite URLs, or private data.
+- Keep authored Codex skills user-wide under `$HOME/.agents/skills`; do not add
+  or install repository-local skills under `.agents/skills`.
 - Read `ENGINEERING_STYLE.md` before changing code, writing a plan, or reviewing
   a change.
 - If Nabu, local documents, and code disagree, identify the mismatch and do not
