@@ -287,6 +287,11 @@ applicable, and EAS update channel/message at the release boundary.
   and SDK-compatible native dependencies. Version `1.0.2` is set because a new APK is
   required; no `1.0.2` build or OTA publish has occurred. Implementation commit:
   `8d791a9`.
+- **2026-08-21 — INT-008 follow-up hardened:** removed the unused direct
+  `expo-auth-session` dependency in `320d0bb` and made avatar picking recover from
+  platform errors while rejecting known oversized files before reading them in
+  `c6cf132`. This is JavaScript-only and remains gated behind the compatible `1.0.2`
+  native build; no OTA has been published.
 
 ### GitHub merges and installed devices
 
@@ -563,7 +568,7 @@ interaction. Every meaningful animation needs a reduced-motion path.
 The latest completed local validation for the INT-008/mobile implementation was:
 
 ```text
-bun run test:run       # 39 test files, 197 tests passed
+  bun run test:run       # 39 test files, 198 tests passed
 bun run typecheck      # cloud-client, web, and mobile passed
 bun run lint           # 0 errors; 8 existing web warnings
 bun run build:web      # passed
@@ -612,3 +617,7 @@ decision log.
   synchronized with implementation commit `8d791a9`; the handoff records the
   `1.0.2` native-build gate and remaining Cloud/platform/device evidence. No
   `Nabu sync pending` item is open.
+- 2026-08-21 — Avatar upload follow-up commit `c6cf132` and dependency cleanup
+  `320d0bb` were validated with 39 test files/198 tests, typecheck, lint, web build,
+  mobile export, and Cloud OpenAPI verification. No native contract or runtime
+  version changed; the `1.0.2` build and Cloud/platform/device gates remain open.
