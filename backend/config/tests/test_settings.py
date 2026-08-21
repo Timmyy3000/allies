@@ -136,7 +136,6 @@ def test_production_settings_accept_native_auth_with_placeholder_contract_values
             "ALLIES_AUTH_JWT_KEY": "j" * 32,
             "ALLIES_AUTH_DIGEST_KEY": "h" * 32,
             "ALLIES_RAILWAY_PROXY_MODE": "true",
-            "ALLIES_TRUSTED_PROXY_IPS": "10.0.0.8",
             "ALLIES_AUTH_NATIVE_ENABLED": "true",
             "ALLIES_AUTH_GOOGLE_ENABLED": "true",
             "ALLIES_AUTH_GOOGLE_CLIENT_ID": "native-client-id",

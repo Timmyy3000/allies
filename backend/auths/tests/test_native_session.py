@@ -590,6 +590,76 @@ def test_native_http_contract_has_no_cookie_dependency_and_rejects_cross_transpo
 
 
 @pytest.mark.django_db
+def test_native_global_limit_precedes_sign_in_persistence_when_ip_rotates(
+    fixture_provider, settings
+):
+    settings.ALLIES_RAILWAY_PROXY_MODE = True
+    settings.ALLIES_TRUSTED_PROXY_IPS = []
+    settings.ALLIES_AUTH_NATIVE_GLOBAL_LIMIT = 1
+    client = Client()
+    _, challenge = _pkce()
+    payload = {
+        "redirect_uri": APP_REDIRECT,
+        "code_challenge": challenge,
+        "code_challenge_method": "S256",
+        "state": "first-state",
+    }
+
+    first = client.post(
+        "/api/v1/auths/native/sign-in/google",
+        payload,
+        content_type="application/json",
+        HTTP_HOST="testserver",
+        HTTP_X_REAL_IP="198.51.100.8",
+    )
+    second = client.post(
+        "/api/v1/auths/native/sign-in/google",
+        {**payload, "state": "second-state"},
+        content_type="application/json",
+        HTTP_HOST="testserver",
+        HTTP_X_REAL_IP="203.0.113.8",
+    )
+
+    assert first.status_code == 200
+    assert second.status_code == 429
+    assert NativeAuthorizationTransaction.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_native_global_limit_precedes_callback_processing_when_ip_rotates(
+    monkeypatch, settings
+):
+    settings.ALLIES_RAILWAY_PROXY_MODE = True
+    settings.ALLIES_TRUSTED_PROXY_IPS = []
+    settings.ALLIES_AUTH_NATIVE_GLOBAL_LIMIT = 1
+    calls = []
+
+    def reject_callback(**kwargs):
+        calls.append(kwargs)
+        raise InvalidFlow("invalid callback")
+
+    monkeypatch.setattr(native_api, "complete_native_callback", reject_callback)
+    client = Client()
+
+    first = client.get(
+        "/api/v1/auths/native/callback/google",
+        {"state": "first-state", "code": "first-code"},
+        HTTP_HOST="testserver",
+        HTTP_X_REAL_IP="198.51.100.8",
+    )
+    second = client.get(
+        "/api/v1/auths/native/callback/google",
+        {"state": "second-state", "code": "second-code"},
+        HTTP_HOST="testserver",
+        HTTP_X_REAL_IP="203.0.113.8",
+    )
+
+    assert first.status_code == 400
+    assert second.status_code == 429
+    assert len(calls) == 1
+
+
+@pytest.mark.django_db
 def test_native_public_routes_are_disabled_and_reject_plain_pkce(
     fixture_provider, settings
 ):
