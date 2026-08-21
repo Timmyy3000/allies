@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import { useEffect } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   cancelAnimation,
@@ -23,6 +23,7 @@ import { DEFAULT_ONBOARDING_ACCENT } from './onboarding-state';
 type OnboardingScreenProps = {
   accentColor?: string;
   onStart?: () => void;
+  onSignIn?: () => void;
 };
 
 const LOGO_WIDTH = 100;
@@ -32,6 +33,7 @@ const SIGN_IN_BOTTOM_OFFSET = 60;
 export default function OnboardingScreen({
   accentColor = DEFAULT_ONBOARDING_ACCENT,
   onStart,
+  onSignIn,
 }: OnboardingScreenProps) {
   const { bottom: bottomInset } = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
@@ -78,9 +80,12 @@ export default function OnboardingScreen({
             onPress={onStart}
           />
 
-          <Text style={styles.signInPrompt}>
-            Not new to this? <Text style={[styles.signIn, { color: accentColor }]}>Sign in</Text>
-          </Text>
+          <View style={styles.signInRow}>
+            <Text style={styles.signInPrompt}>Not new to this?</Text>
+            <Pressable accessibilityRole="link" onPress={onSignIn} style={styles.signInButton}>
+              <Text style={[styles.signIn, { color: accentColor }]}>Sign in</Text>
+            </Pressable>
+          </View>
         </View>
       </SafeAreaView>
 
@@ -116,6 +121,10 @@ const styles = StyleSheet.create({
   signIn: {
     fontFamily: 'OpenRundeSemibold',
   },
+  signInButton: {
+    minHeight: 20,
+    paddingLeft: 4,
+  },
   signInPrompt: {
     color: '#111111',
     fontFamily: 'OpenRundeSemibold',
@@ -123,6 +132,11 @@ const styles = StyleSheet.create({
     letterSpacing: -0.7,
     lineHeight: 20,
     textAlign: 'center',
+  },
+  signInRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
   },
   visualArea: {
     flex: 1,
