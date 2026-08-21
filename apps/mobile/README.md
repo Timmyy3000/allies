@@ -213,6 +213,11 @@ boundary.
   descender-safe Ally-name layout and adds a fast, capped greeting typewriter reveal.
   Full validation passed with 28 test files and 147 tests; no OTA publish has occurred
   yet.
+- **2026-08-21 — Preview OTA published:** commit `040b82f` was published to the
+  `preview` channel for runtime `1.0.0` with update group
+  `b05609a0-a82e-437e-b492-cdf213322d9b`. The Android update ID is
+  `01a02293-ffc8-756e-a1f9-051d1b693720`; the message was `Fix conversation name
+  clipping and greeting reveal`.
 
 ### GitHub merges and installed devices
 
