@@ -15,7 +15,7 @@
     },
     "apps/mobile": {
       "name": "mobile",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "dependencies": {
         "@allies/cloud-client": "workspace:*",
         "@expo/ui": "~57.0.8",

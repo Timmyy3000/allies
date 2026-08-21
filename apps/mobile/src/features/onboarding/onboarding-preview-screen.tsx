@@ -7,6 +7,7 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
+  Text,
   TextInput,
   View,
   type LayoutChangeEvent,
@@ -32,7 +33,7 @@ import { useAnimatedColor } from '@/components/ui/use-animated-color';
 
 import { OnboardingAllyPreview } from './onboarding-ally-preview';
 import { ONBOARDING_TOP_PADDING } from './onboarding-layout';
-import { OnboardingFocusText } from './onboarding-focus-text';
+import { OnboardingTypewriterText } from './onboarding-typewriter-text';
 import {
   ONBOARDING_COMING_ALIVE_WAVE_AMPLITUDE,
   ONBOARDING_COMING_ALIVE_WAVE_DURATION_MS,
@@ -47,6 +48,7 @@ import {
   ONBOARDING_PREVIEW_HEADER_AVATAR_SIZE,
   ONBOARDING_PREVIEW_HEADER_NAME_GAP,
   ONBOARDING_PREVIEW_HEADER_NAME_TEXT_STYLE,
+  ONBOARDING_PREVIEW_NAME_CHAR_INTERVAL_MS,
   ONBOARDING_PREVIEW_GREETING_TOP_GAP,
   ONBOARDING_PREVIEW_THINKING_SHINE_DURATION_MS,
   ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE,
@@ -257,7 +259,9 @@ function ConversationPreview({
   const accentColor = selectedColor ?? '#FF5800';
   const isThinking = phase === 'thinking';
   const avatarSettled = reducedMotion && phase === 'ready' ? true : avatarSettledState;
-  const shouldRevealGreeting = phase === 'ready' && avatarSettled;
+  const shouldRevealName = phase === 'ready' && avatarSettled;
+  const nameRevealComplete = Boolean(reducedMotion) || visibleNameLength >= displayName.length;
+  const shouldRevealGreeting = shouldRevealName && nameRevealComplete;
   const canSend = phase === 'ready' && Boolean(draft.trim()) && !replySubmitted;
   const displayedGreetingLength = reducedMotion ? greeting.length : visibleGreetingLength;
   const displayedName = reducedMotion
@@ -394,7 +398,7 @@ function ConversationPreview({
       setVisibleNameLength(nextLength);
 
       if (nextLength === displayName.length) clearInterval(interval);
-    }, ONBOARDING_PREVIEW_GREETING_CHAR_INTERVAL_MS);
+    }, ONBOARDING_PREVIEW_NAME_CHAR_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [avatarSettled, displayName, phase, reducedMotion]);
@@ -433,18 +437,13 @@ function ConversationPreview({
         <View style={styles.conversationContent}>
           <View onLayout={captureHeaderAvatarLayout} style={styles.conversationHeader}>
             <View style={styles.conversationAvatarSlot} />
-            {phase === 'ready' && avatarSettled && displayedName ? (
-              <Animated.Text
+            {shouldRevealName && displayedName ? (
+              <Text
                 accessibilityLabel={displayName}
-                entering={
-                  reducedMotion
-                    ? undefined
-                    : FadeIn.delay(80).duration(200).easing(Easing.out(Easing.cubic))
-                }
                 numberOfLines={1}
                 style={styles.conversationName}>
                 {displayedName}
-              </Animated.Text>
+              </Text>
             ) : null}
           </View>
 
@@ -454,20 +453,12 @@ function ConversationPreview({
             showsVerticalScrollIndicator={false}
             style={styles.greetingScroll}>
             {shouldRevealGreeting ? (
-              <Animated.View
-                entering={
-                  reducedMotion
-                    ? undefined
-                    : FadeIn.duration(300).easing(Easing.bezier(...PREVIEW_EASING))
-                }>
-                <OnboardingFocusText
-                  boldStyle={styles.greetingTextBold}
-                  characterCount={displayedGreetingLength}
-                  greeting={greeting}
-                  reducedMotion={Boolean(reducedMotion)}
-                  style={styles.greetingText}
-                />
-              </Animated.View>
+              <OnboardingTypewriterText
+                boldStyle={styles.greetingTextBold}
+                characterCount={displayedGreetingLength}
+                greeting={greeting}
+                style={styles.greetingText}
+              />
             ) : null}
           </ScrollView>
 
