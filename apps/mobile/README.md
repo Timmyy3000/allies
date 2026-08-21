@@ -92,7 +92,7 @@ the canonical product/design notes.
 ## EAS build and OTA workflow
 
 The repository is configured for Expo EAS Update and is now linked to the Allies EAS
-project. The first preview build is currently in progress. The current setup is:
+project. The first preview build has completed. The current setup is:
 
 - `expo-updates` installed at the SDK-compatible version;
 - `runtimeVersion` using the `appVersion` policy;
@@ -146,7 +146,7 @@ native runtime already installed on the device.
 
 The `preview` channel is for device testing. Production releases should use a separate
 production build/channel and should not be published to `preview`. The EAS project is
-now linked; the remaining first-install step is waiting for the preview APK artifact.
+now linked and the first preview APK artifact is available for installation.
 
 ### Current release metadata
 
@@ -163,8 +163,8 @@ This is the version state verified on 2026-08-21:
 | Reanimated | `4.5.1` | Existing motion runtime used by the onboarding UI. |
 | EAS CLI | `22.2.0` | CLI version used for local configuration/authentication checks; it is not an app runtime dependency. |
 | Android application ID | `com.daviddll.allies` | Permanent Android package identity for this app. |
-| Preview build | `FINISHED` — EAS build `d0fc5e35-1a1c-4230-ac69-4078ac2e39cf` | [Installable Android APK](https://expo.dev/artifacts/eas/VAcLE1_CJVuV_jvUH7FQLX5gyPewn_1dBcp8vXGZaqg.apk) on the `preview` channel; device installation is pending. |
-| Current build versions | App version `1.0.0`, runtime `1.0.0`, Android build version `1` | Values reported by the in-progress EAS build. |
+| Preview build | `FINISHED` — EAS build `d0fc5e35-1a1c-4230-ac69-4078ac2e39cf` | [Installable Android APK](https://expo.dev/artifacts/eas/VAcLE1_CJVuV_jvUH7FQLX5gyPewn_1dBcp8vXGZaqg.apk) on the `preview` channel; device installation may still be pending. |
+| Current build versions | App version `1.0.0`, runtime `1.0.0`, Android build version `1` | Values reported by the completed EAS build. |
 | Production profile | `production` channel | Profile exists; no production build or publish has been performed. |
 | EAS project link | Linked | `updates.url` and `extra.eas.projectId` are present in `app.json`; credentials are not stored in the repository. |
 | EAS app version source | `remote` | Future Android build numbers are managed by EAS; `preview` and `production` profiles auto-increment them. |
@@ -202,13 +202,17 @@ boundary.
   `appVersion` runtime policy, launch-time update checks, and preview/production EAS
   profiles.
 - **2026-08-21 — EAS project linked:** configured the EAS update URL/project ID and
-  permanent Android application ID `com.daviddll.allies`; the first preview APK is in
-  progress. No OTA publish has occurred yet.
+  permanent Android application ID `com.daviddll.allies`; the first preview APK
+  completed. No OTA publish has occurred yet.
 - **2026-08-21 — Preview build completed:** EAS build
   `d0fc5e35-1a1c-4230-ac69-4078ac2e39cf` finished for app/runtime `1.0.0` and Android
   build version `1`. EAS recorded repository HEAD `66a3d955`; the build was initiated
   from a dirty working tree, so the final release must be committed and reconciled
   before it is treated as a reproducible handoff. Device installation is pending.
+- **2026-08-21 — Conversation preview polish:** commit `f992d15` fixes Android
+  descender-safe Ally-name layout and adds a fast, capped greeting typewriter reveal.
+  Full validation passed with 28 test files and 147 tests; no OTA publish has occurred
+  yet.
 
 ### GitHub merges and installed devices
 
@@ -416,11 +420,16 @@ every local edit. Native changes still require a new APK.
   and bullet rows. The sparkle heading has its own row. Bullet markers use a fixed
   column and the text uses a separate flex column, so wrapped lines align under the
   bullet text instead of underneath the marker.
+- Greeting text reveals progressively with a lightweight native typewriter. Short
+  greetings advance one character at a time; longer greetings advance in small
+  chunks so the complete reveal stays within roughly 2.4 seconds. Reduced motion
+  renders the full greeting immediately.
 - Greeting body text uses Open Runde Medium, 16px, 22px line height, and `-0.5px`
   letter spacing. Bold inline content uses Open Runde Semibold with the same size,
   line height, and letter spacing.
 - The preview header Ally is 24x24, the name has a 12px gap from the Ally, and the
-  greeting starts 18px below the header row.
+  greeting starts 18px below the header row. The name uses a 24px line box with
+  Android font padding enabled so descenders such as `y` remain visible.
 - The composer starts with a 100px radius and uses Open Runde Medium at 16px with
   16px line height and `-0.5px` letter spacing. It becomes less rounded as its
   content grows. Tapping outside it dismisses the keyboard. The send control uses
@@ -440,6 +449,7 @@ values include:
 | Preview entrance | 2400ms staged entrance timing |
 | Thinking shine | 1700ms sweep cycle |
 | Greeting focus | 280ms per-character settle, capped 35ms stagger |
+| Greeting typewriter | 12ms cadence; adaptive chunks with a 2400ms reveal budget |
 | Avatar handoff | Reanimated spring, damping `24`, mass `0.82`, stiffness `190` |
 
 Animate only the properties that need motion, prefer UI-thread Reanimated work for
@@ -452,7 +462,7 @@ interaction. Every meaningful animation needs a reduced-motion path.
 The latest completed local validation for the onboarding slice was:
 
 ```text
-bun run test:run       # 28 files, 146 tests passed
+bun run test:run       # 28 files, 147 tests passed
 bun --filter mobile lint
 bun --filter mobile typecheck
 git diff --check
