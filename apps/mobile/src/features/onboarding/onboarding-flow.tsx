@@ -1,7 +1,6 @@
 import { Image } from 'expo-image';
-import { useFonts } from 'expo-font';
 import { useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet } from 'react-native';
 
 import { PrimaryButton } from '@/components/ui/primary-button';
 
@@ -39,14 +38,6 @@ import {
 export default function OnboardingFlow() {
   const [flow, setFlow] = useState<OnboardingFlowState>(INITIAL_ONBOARDING_FLOW);
   const [personalityHelpOpen, setPersonalityHelpOpen] = useState(false);
-  const [fontsLoaded] = useFonts({
-    OpenRundeMedium: require('@/assets/allies/fonts/OpenRunde-Medium.otf'),
-    OpenRundeSemibold: require('@/assets/allies/fonts/OpenRunde-Semibold.otf'),
-  });
-
-  if (!fontsLoaded) {
-    return <View style={styles.loading} />;
-  }
 
   const handleNext = () => {
     setPersonalityHelpOpen(false);
@@ -200,9 +191,5 @@ const styles = StyleSheet.create({
   headerPlaceholder: {
     height: 40,
     width: 40,
-  },
-  loading: {
-    backgroundColor: '#FFFFFF',
-    flex: 1,
   },
 });
