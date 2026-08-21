@@ -17,7 +17,7 @@ class WorkspaceController(ControllerBase):
         "/{workspace_id}",
         response={
             200: SuccessResponse[WorkspaceContextResponse],
-            **error_responses(404, 500),
+            **error_responses(401, 404, 500),
         },
     )
     def context(self, request: HttpRequest, workspace_id: str):
@@ -28,7 +28,9 @@ class WorkspaceController(ControllerBase):
                 workspace_id=workspace_id,
                 capability=Capability.WORKSPACE_READ,
             )
-        except (KeyError, SessionInvalid, WorkspaceAccessDenied, ValueError):
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        except (KeyError, WorkspaceAccessDenied, ValueError):
             return error_json("workspace_denied", "workspace unavailable", 404)
         return success_json(
             WorkspaceContextResponse(

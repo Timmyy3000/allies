@@ -43,6 +43,67 @@ def flow_ttl_seconds() -> int:
     return int(setting("ALLIES_AUTH_FLOW_TTL_SECONDS", 600))
 
 
+def native_enabled() -> bool:
+    return bool(setting("ALLIES_AUTH_NATIVE_ENABLED", False))
+
+
+def native_transaction_ttl_seconds() -> int:
+    return int(setting("ALLIES_AUTH_NATIVE_TRANSACTION_TTL_SECONDS", 600))
+
+
+def native_exchange_ttl_seconds() -> int:
+    return int(setting("ALLIES_AUTH_NATIVE_EXCHANGE_TTL_SECONDS", 60))
+
+
+def native_provider_timeout_seconds() -> int:
+    return int(setting("ALLIES_AUTH_NATIVE_PROVIDER_TIMEOUT_SECONDS", 15))
+
+
+def native_claim_lease_seconds() -> int:
+    return int(setting("ALLIES_AUTH_NATIVE_CLAIM_LEASE_SECONDS", 30))
+
+
+def native_terminal_retention_seconds() -> int:
+    return int(setting("ALLIES_AUTH_NATIVE_TERMINAL_RETENTION_SECONDS", 24 * 60 * 60))
+
+
+def native_app_redirect_uris() -> tuple[str, ...]:
+    configured = setting("ALLIES_AUTH_NATIVE_REDIRECT_URIS", [])
+    if isinstance(configured, str):
+        configured = configured.split(",")
+    return tuple(value.strip() for value in (configured or ()) if value.strip())
+
+
+def native_google_redirect_uri() -> str:
+    return str(setting("ALLIES_AUTH_GOOGLE_NATIVE_REDIRECT_URI", ""))
+
+
+def native_rate_limit(operation: str) -> int:
+    defaults = {
+        "sign_in": 10,
+        "callback": 10,
+        "exchange": 10,
+        "refresh": 20,
+        "logout": 30,
+    }
+    if operation not in defaults:
+        raise ValueError("unknown native rate-limit operation")
+    return int(
+        setting(
+            f"ALLIES_AUTH_NATIVE_{operation.upper()}_LIMIT",
+            defaults[operation],
+        )
+    )
+
+
+def native_rate_limit_period_seconds() -> int:
+    return int(setting("ALLIES_AUTH_NATIVE_RATE_LIMIT_PERIOD_SECONDS", 60))
+
+
+def native_global_rate_limit() -> int:
+    return int(setting("ALLIES_AUTH_NATIVE_GLOBAL_LIMIT", 1000))
+
+
 def refresh_idle_seconds() -> int:
     return int(setting("ALLIES_AUTH_REFRESH_IDLE_SECONDS", 14 * 24 * 60 * 60))
 

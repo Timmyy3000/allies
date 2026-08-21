@@ -16,6 +16,7 @@ from auths.api.common import (
 )
 from auths.config import cookie_name
 from auths.exceptions import SessionInvalid
+from auths.models import SessionClientKind
 from auths.services.sessions import (
     authenticate_access,
     logout_session,
@@ -63,7 +64,7 @@ class SessionController(ControllerBase):
         except SessionInvalid:
             return error_json("session_invalid", "session invalid", 401)
         try:
-            issued = rotate_refresh(raw)
+            issued = rotate_refresh(raw, expected_client_kind=SessionClientKind.BROWSER)
         except SessionInvalid:
             return error_json("session_invalid", "session invalid", 401)
         response = HttpResponse(status=204)
@@ -84,11 +85,15 @@ class SessionController(ControllerBase):
         try:
             raw_access = request.COOKIES.get(cookie_name("access"))
             if raw_access:
-                access = authenticate_access(raw_access)
+                access = authenticate_access(
+                    raw_access, expected_client_kind=SessionClientKind.BROWSER
+                )
         except SessionInvalid:
             access = None
         logout_session(
-            access=access, refresh=request.COOKIES.get(cookie_name("refresh"))
+            access=access,
+            refresh=request.COOKIES.get(cookie_name("refresh")),
+            expected_client_kind=SessionClientKind.BROWSER,
         )
         response = HttpResponse(status=204)
         _clear_auth_cookies(response)

@@ -55,6 +55,9 @@ class TrustedProxyHeadersMiddleware:
             for header in self.forwarded_headers:
                 if header != "HTTP_X_FORWARDED_PROTO":
                     request.META.pop(header, None)
+            trusted = set(getattr(settings, "ALLIES_TRUSTED_PROXY_IPS", ()))
+            if request.META.get("REMOTE_ADDR", "") not in trusted:
+                request.META.pop("HTTP_X_REAL_IP", None)
             if forwarded_proto != "https":
                 # Keep a concrete non-HTTPS value for SecurityMiddleware. If
                 # the header were removed, Django's request handling could

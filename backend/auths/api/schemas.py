@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from ninja import Schema
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 
 class SuccessResponse[DataT](Schema):
@@ -57,6 +57,69 @@ class AuthorizationStartResponse(Schema):
         json_schema_extra={
             "examples": [
                 {"redirect_url": "https://provider.example/authorize?state=example"}
+            ]
+        }
+    )
+
+
+class NativeSignInRequest(Schema):
+    redirect_uri: str
+    code_challenge: str
+    code_challenge_method: str = Field(json_schema_extra={"enum": ["S256"]})
+    state: str
+
+
+class NativeAuthorizationStartResponse(Schema):
+    authorization_url: str
+    expires_at: datetime
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth?...",
+                    "expires_at": "2026-08-20T16:10:00Z",
+                }
+            ]
+        }
+    )
+
+
+class NativeTokenExchangeRequest(Schema):
+    grant_type: str = Field(json_schema_extra={"enum": ["authorization_code"]})
+    code: str
+    code_verifier: str
+    redirect_uri: str
+
+
+class NativeRefreshRequest(Schema):
+    grant_type: str = Field(json_schema_extra={"enum": ["refresh_token"]})
+    refresh_token: str
+
+
+class NativeLogoutRequest(Schema):
+    refresh_token: str
+
+
+class NativeTokenResponse(Schema):
+    token_type: Literal["Bearer"]
+    access_token: str
+    expires_in: int
+    refresh_token: str
+    refresh_expires_in: int
+    session_id: str
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "token_type": "Bearer",
+                    "access_token": "<short-lived-cloud-jwt>",
+                    "expires_in": 600,
+                    "refresh_token": "<rotating-opaque-cloud-token>",
+                    "refresh_expires_in": 1209600,
+                    "session_id": "ses_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+                }
             ]
         }
     )

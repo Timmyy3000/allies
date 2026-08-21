@@ -22,6 +22,7 @@ class ProviderFlow:
     nonce: str
     redirect_uri: str
     pkce_verifier: str
+    deadline_monotonic: float | None = None
 
 
 @dataclass(frozen=True)
