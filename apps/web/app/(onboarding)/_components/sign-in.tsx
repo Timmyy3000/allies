@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { NextButton } from "@/components/next-button";
 import { Artboard } from "@/components/artboard";
 import { MiniAlly } from "./mini-ally";
@@ -78,7 +79,7 @@ export function SignInScreen() {
             margin: 0,
           }}
         >
-          Not new to this? <span style={{ color: "#ff5800" }}>Sign in</span>
+          Not new to this? <Link href="/sign-in" style={{ color: "#ff5800", textDecoration: "none" }}>Sign in</Link>
         </p>
       </div>
     </Artboard>

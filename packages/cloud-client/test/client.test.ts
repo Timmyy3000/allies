@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { createCloudClient } from "../src/client";
+import { createCloudClient, parseSafeReturnPath } from "../src/client";
 import { defineApiFixture } from "./fixtures";
 
 const accountResponse = defineApiFixture("/api/v1/auths/me", "get", 200, {
@@ -138,14 +138,19 @@ describe("createCloudClient", () => {
       if (path.endsWith("/avatar/read")) return Response.json(readAvatarResponse);
       if (request.method === "DELETE") return new Response(null, { status: deleteAvatarSuccess.status });
       if (path.startsWith("/api/v1/workspaces/")) return Response.json(workspaceResponse);
-      if (path.endsWith("/csrf")) return new Response(null, { status: csrfSuccess.status });
+      if (path.endsWith("/csrf")) {
+        return new Response(null, {
+          status: csrfSuccess.status,
+          headers: { "X-CSRFToken": "a".repeat(32) },
+        });
+      }
       if (path.endsWith("/refresh")) return new Response(null, { status: refreshSuccess.status });
       if (path.endsWith("/logout")) return new Response(null, { status: logoutSuccess.status });
       throw new Error(`Unexpected request: ${request.method} ${path}`);
     });
     const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch });
 
-    await expect(client.getCsrf()).resolves.toBeUndefined();
+    await expect(client.getCsrf()).resolves.toBe("a".repeat(32));
     await expect(client.beginSignIn("/account")).resolves.toBe(authorizationStartResponse.data.redirect_url);
     await expect(client.refreshSession()).resolves.toBeUndefined();
     await expect(client.logout()).resolves.toBeUndefined();
@@ -229,6 +234,33 @@ describe("createCloudClient", () => {
     await client.logout();
   });
 
+  it.each([undefined, "short", "a".repeat(31), "a".repeat(33), "a".repeat(63), "a".repeat(65), "a".repeat(31) + "!"])(
+    "rejects a missing or malformed exposed CSRF header: %s",
+    async (header) => {
+      const client = createCloudClient({
+        baseUrl: "https://cloud.example.com",
+        fetch: async () => new Response(null, {
+          status: 204,
+          headers: header ? { "X-CSRFToken": header } : undefined,
+        }),
+      });
+
+      await expect(client.getCsrf()).rejects.toMatchObject({ kind: "contract" });
+    },
+  );
+
+  it("rejects a CSRF response that is not the contract's 204", async () => {
+    const client = createCloudClient({
+      baseUrl: "https://cloud.example.com",
+      fetch: async () => new Response(null, {
+        status: 200,
+        headers: { "X-CSRFToken": "a".repeat(32) },
+      }),
+    });
+
+    await expect(client.getCsrf()).rejects.toMatchObject({ kind: "contract" });
+  });
+
   it("distinguishes timeout, caller abort, and network failures", async () => {
     const hangingFetch: typeof fetch = async (input) => {
       const request = input instanceof Request ? input : new Request(input);
@@ -307,6 +339,28 @@ describe("createCloudClient", () => {
       expect(fetch).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    "/account",
+    "/account?next=%2Fworkspace#details",
+    "/foo%20bar",
+  ])("accepts a safe root-relative return target: %s", (value) => {
+    expect(parseSafeReturnPath(value)).toBe(value);
+  });
+
+  it.each([
+    undefined,
+    "",
+    "//evil.example",
+    "\\\\evil.example",
+    "/contains\nnewline",
+    "/%0A",
+    "/%not-encoded",
+    "/" + "a".repeat(500),
+    "/%2525252525252525252525252525252F%2525252525252525252525252525252Fevil.example",
+  ])("returns null for an unsafe return target: %s", (value) => {
+    expect(parseSafeReturnPath(value)).toBeNull();
+  });
 
   it.each(["javascript:alert(1)", "data:text/html,unsafe", "http://accounts.google.com/auth"])(
     "rejects an unsafe provider redirect: %s",

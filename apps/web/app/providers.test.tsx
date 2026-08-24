@@ -17,33 +17,9 @@ describe("AppProviders", () => {
     vi.unstubAllGlobals();
   });
 
-  it("composes Query and session providers and settles unauthorized restoration", async () => {
+  it("creates one shared provider lifetime and does not restore public routes", async () => {
     vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
     vi.stubEnv("NEXT_PUBLIC_WAITLIST_ENABLED", "true");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const request = input instanceof Request ? input : new Request(input);
-        if (request.url.endsWith("/csrf")) return new Response(null, { status: 204 });
-        return Response.json(
-          { status: "error", message: "Unauthorized", data: { code: "unauthorized" } },
-          { status: 401 },
-        );
-      }),
-    );
-
-    render(
-      <AppProviders>
-        <SessionProbe />
-      </AppProviders>,
-    );
-
-    expect(await screen.findByText("signed-out")).toBeTruthy();
-  });
-
-  it("does not restore the shared session when the waitlist is disabled", async () => {
-    vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
-    vi.stubEnv("NEXT_PUBLIC_WAITLIST_ENABLED", "false");
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
 
@@ -53,7 +29,24 @@ describe("AppProviders", () => {
       </AppProviders>,
     );
 
-    expect(await screen.findByText("signed-out")).toBeTruthy();
+    expect(await screen.findByText("unknown")).toBeTruthy();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not depend on an Interface-origin CSRF cookie", async () => {
+    vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
+    vi.stubEnv("NEXT_PUBLIC_WAITLIST_ENABLED", "false");
+    document.cookie = "csrf_token=stale-interface-cookie; path=/";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <AppProviders>
+        <SessionProbe />
+      </AppProviders>,
+    );
+
+    expect(await screen.findByText("unknown")).toBeTruthy();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });

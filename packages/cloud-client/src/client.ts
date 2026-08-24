@@ -5,7 +5,7 @@ import type { paths } from "./generated/openapi";
 import { isCloudError, normalizeCloudError, type CloudError } from "./errors";
 import { parsePublicCloudUrl } from "./environment";
 import { toAccountViewModel, type AccountViewModel } from "./mappers/account";
-import { externalHttpsUrlSchema } from "./schemas";
+import { csrfTokenSchema, externalHttpsUrlSchema, type CloudCsrfToken } from "./schemas";
 import { createControlledFetch } from "./transport";
 
 const CloudRequest = globalThis.Request;
@@ -38,24 +38,6 @@ const workspaceSchema = z
     capabilities: z.array(z.string()),
   })
   .loose();
-const returnPathSchema = z
-  .string()
-  .min(1)
-  .refine((value) => {
-    let decoded = value;
-    for (let pass = 0; pass < 8; pass += 1) {
-      if (!decoded.startsWith("/") || decoded.startsWith("//") || decoded.includes("\\")) return false;
-      try {
-        const next = decodeURIComponent(decoded);
-        if (next === decoded) return true;
-        decoded = next;
-      } catch {
-        return false;
-      }
-    }
-    return false;
-  });
-
 const maskedEmailSchema = z
   .string()
   .regex(/^[^@\s]+@[^@\s]+$/)
@@ -164,10 +146,38 @@ function rejectPreAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw { kind: "aborted" } satisfies CloudError;
 }
 
+function hasControlCharacter(value: string): boolean {
+  return /[\u0000-\u001f\u007f]/u.test(value);
+}
+
+function isSafeDecodedReturnPath(value: string): boolean {
+  return value.startsWith("/") && !value.startsWith("//") && !value.includes("\\") && !hasControlCharacter(value);
+}
+
+export function parseSafeReturnPath(value: unknown): string | null {
+  if (typeof value !== "string" || value.length < 1 || value.length > 500) return null;
+
+  let decoded = value;
+  for (let pass = 0; pass < 8; pass += 1) {
+    if (!isSafeDecodedReturnPath(decoded)) return null;
+    if (!decoded.includes("%")) return value;
+
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) return value;
+      decoded = next;
+    } catch {
+      return null;
+    }
+  }
+
+  return null;
+}
+
 function parseReturnPath(value: string): string {
-  const parsed = returnPathSchema.safeParse(value);
-  if (!parsed.success) throw { kind: "bad-request" } satisfies CloudError;
-  return parsed.data;
+  const parsed = parseSafeReturnPath(value);
+  if (parsed === null) throw { kind: "bad-request" } satisfies CloudError;
+  return parsed;
 }
 
 export function createCloudClient(options: CloudClientOptions) {
@@ -181,9 +191,21 @@ export function createCloudClient(options: CloudClientOptions) {
   const api = createOpenApiClient<paths>({ baseUrl, fetch: controlledFetch, Request: CloudRequest });
 
   return {
-    async getCsrf(signal?: AbortSignal) {
+    async getCsrf(signal?: AbortSignal): Promise<CloudCsrfToken> {
       rejectPreAborted(signal);
-      await noContent(api.GET("/api/v1/auths/csrf", { signal: normalizeRequestSignal(signal) }) as Promise<ApiResult>);
+      try {
+        const result = await (api.GET("/api/v1/auths/csrf", {
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>);
+        if (!result.response.ok) throw normalizeCloudError(result.response.status, result.error);
+        if (result.response.status !== 204) throw { kind: "contract" } satisfies CloudError;
+        const token = csrfTokenSchema.safeParse(result.response.headers.get("X-CSRFToken"));
+        if (!token.success) throw { kind: "contract" } satisfies CloudError;
+        return token.data;
+      } catch (error) {
+        if (isCloudError(error)) throw error;
+        throw { kind: "contract" } satisfies CloudError;
+      }
     },
 
     async beginSignIn(redirectTo: string, signal?: AbortSignal) {

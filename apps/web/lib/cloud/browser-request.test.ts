@@ -2,28 +2,26 @@
 
 import { describe, expect, it } from "vitest";
 
-import { prepareBrowserCloudRequest, readCookie } from "./browser-request";
+import { createCloudCsrfTokenOwner } from "./csrf-token";
+import { prepareBrowserCloudRequest } from "./browser-request";
 
 describe("browser Cloud request preparation", () => {
-  it("reads the exact CSRF cookie", () => {
-    expect(readCookie("other=a; csrf_token=csrf%20value", "csrf_token")).toBe("csrf value");
-    expect(readCookie("csrf_token=%E0%A4%A", "csrf_token")).toBeNull();
-  });
-
   it("adds credentials and CSRF only to unsafe requests", () => {
-    document.cookie = "csrf_token=csrf-value; path=/";
-    const post = prepareBrowserCloudRequest(new Request("https://cloud.example.com/action", { method: "POST" }));
-    const get = prepareBrowserCloudRequest(new Request("https://cloud.example.com/read"));
+    const owner = createCloudCsrfTokenOwner();
+    owner.replace("c".repeat(32));
+    const post = prepareBrowserCloudRequest(new Request("https://cloud.example.com/action", { method: "POST" }), owner);
+    const get = prepareBrowserCloudRequest(new Request("https://cloud.example.com/read"), owner);
 
     expect(post.credentials).toBe("include");
-    expect(post.headers.get("X-CSRFToken")).toBe("csrf-value");
+    expect(post.headers.get("X-CSRFToken")).toBe("c".repeat(32));
     expect(get.headers.has("X-CSRFToken")).toBe(false);
   });
 
   it("sends public waitlist requests directly without cookies or CSRF", () => {
-    document.cookie = "csrf_token=auth-csrf; path=/";
+    const owner = createCloudCsrfTokenOwner();
     const request = prepareBrowserCloudRequest(
       new Request("https://cloud.example.com/api/v1/waitlist/entries", { method: "POST" }),
+      owner,
     );
 
     expect(request.url).toBe("https://cloud.example.com/api/v1/waitlist/entries");
@@ -31,13 +29,12 @@ describe("browser Cloud request preparation", () => {
     expect(request.headers.has("X-CSRFToken")).toBe(false);
   });
 
-  it("keeps auth requests on their existing CSRF cookie branch", () => {
-    document.cookie = "csrf_token=auth-csrf; path=/";
-    const request = prepareBrowserCloudRequest(
-      new Request("https://cloud.example.com/api/v1/auths/logout", { method: "POST" }),
-    );
+  it("fails closed for an unsafe auth request without a token", () => {
+    const owner = createCloudCsrfTokenOwner();
 
-    expect(request.url).toBe("https://cloud.example.com/api/v1/auths/logout");
-    expect(request.headers.get("X-CSRFToken")).toBe("auth-csrf");
+    expect(() => prepareBrowserCloudRequest(
+      new Request("https://cloud.example.com/api/v1/auths/logout", { method: "POST" }),
+      owner,
+    )).toThrowError();
   });
 });
