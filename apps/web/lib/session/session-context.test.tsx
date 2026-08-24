@@ -2,9 +2,12 @@
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { CloudClient } from "@allies/cloud-client";
+import { CURRENT_ACCOUNT_QUERY_KEY } from "../account/account-query";
+import { createCloudCsrfTokenOwner } from "../cloud/csrf-token";
 import { SessionProvider, useSession } from "./session-context";
 
 const account = {
@@ -15,20 +18,40 @@ const account = {
   workspace: { id: "wsp_example", name: "Personal Workspace", role: "owner", capabilities: [] },
 };
 
-function SessionProbe() {
-  const session = useSession();
-  const label = session.state.status === "signed-out"
-    ? `signed-out:${String(session.state.serverConfirmed)}`
-    : session.state.status;
-  return <button onClick={() => void session.logout()}>{label}</button>;
-}
-
 function RestoreProbe() {
   const session = useSession();
   return (
     <div>
-      <span>{session.state.status}</span>
+      <span data-testid="status">{session.state.status}</span>
       <button onClick={() => void session.restore()}>Restore now</button>
+    </div>
+  );
+}
+
+function LogoutProbe() {
+  const session = useSession();
+  const [result, setResult] = useState<string>("");
+  return (
+    <div>
+      <span data-testid="status">{session.state.status}</span>
+      <span data-testid="result">{result}</span>
+      <button onClick={() => void session.logout().then((value) => setResult(String(value.serverConfirmed)))}>
+        Logout
+      </button>
+    </div>
+  );
+}
+
+function OperationProbe() {
+  const session = useSession();
+  return (
+    <div>
+      <span data-testid="status">{session.state.status}</span>
+      <button onClick={() => void session.runCloudOperation(async () => {
+        throw { kind: "unauthorized", status: 401 };
+      }).catch(() => undefined)}>
+        Run protected operation
+      </button>
     </div>
   );
 }
@@ -36,63 +59,108 @@ function RestoreProbe() {
 describe("SessionProvider", () => {
   afterEach(cleanup);
 
-  it.each([
-    [false, "signed-out:true"],
-    [true, "signed-out:false"],
-  ] as const)("clears Query data and exposes server confirmation (failure: %s)", async (serverFails, expected) => {
+  it("starts unknown and restores explicitly into Query-owned account state", async () => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData(["account"], account);
+    let resolveAccount: ((value: typeof account) => void) | undefined;
     const client = {
-      getCurrentAccount: vi.fn(async () => account),
-      getCsrf: vi.fn(async () => undefined),
-      refreshSession: vi.fn(async () => undefined),
-      logout: vi.fn(async () => {
-        if (serverFails) throw new Error("Cloud unavailable");
-      }),
-    } as unknown as CloudClient;
-
-    render(
-      <QueryClientProvider client={queryClient}>
-        <SessionProvider client={client}>
-          <SessionProbe />
-        </SessionProvider>
-      </QueryClientProvider>,
-    );
-
-    await screen.findByText("signed-in");
-    screen.getByRole("button").click();
-    await screen.findByText(expected);
-    await waitFor(() => expect(queryClient.getQueryData(["account"])).toBeUndefined());
-  });
-
-  it("does not let mount restoration overwrite a newer explicit restore", async () => {
-    let rejectMount: ((reason: unknown) => void) | undefined;
-    let calls = 0;
-    const client = {
-      getCurrentAccount: vi.fn(() => {
-        calls += 1;
-        if (calls === 1) {
-          return new Promise<typeof account>((_resolve, reject) => { rejectMount = reject; });
-        }
-        return Promise.resolve(account);
-      }),
-      getCsrf: vi.fn(async () => undefined),
+      getCurrentAccount: vi.fn(() => new Promise<typeof account>((resolve) => { resolveAccount = resolve; })),
+      getCsrf: vi.fn(async () => "a".repeat(32)),
       refreshSession: vi.fn(async () => undefined),
       logout: vi.fn(async () => undefined),
     } as unknown as CloudClient;
+    const csrf = createCloudCsrfTokenOwner();
 
     render(
-      <QueryClientProvider client={new QueryClient()}>
-        <SessionProvider client={client}>
+      <QueryClientProvider client={queryClient}>
+        <SessionProvider client={client} csrf={csrf}>
           <RestoreProbe />
         </SessionProvider>
       </QueryClientProvider>,
     );
 
+    expect(screen.getByTestId("status").textContent).toBe("unknown");
+    expect(client.getCurrentAccount).not.toHaveBeenCalled();
     screen.getByRole("button", { name: "Restore now" }).click();
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("restoring"));
+    resolveAccount?.(account);
     await screen.findByText("signed-in");
-    rejectMount?.(new Error("late network failure"));
 
-    await waitFor(() => expect(screen.getByText("signed-in")).toBeTruthy());
+    expect(queryClient.getQueryData(CURRENT_ACCOUNT_QUERY_KEY)).toEqual(account);
+  });
+
+  it("removes only private account data after signed-out restoration", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(CURRENT_ACCOUNT_QUERY_KEY, account);
+    queryClient.setQueryData(["waitlist", "entry"], { greeting: "Hello" });
+    const client = {
+      getCurrentAccount: vi.fn(async () => { throw { kind: "unauthorized" }; }),
+      getCsrf: vi.fn(async () => "a".repeat(32)),
+      refreshSession: vi.fn(async () => undefined),
+      logout: vi.fn(async () => undefined),
+    } as unknown as CloudClient;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionProvider client={client} csrf={createCloudCsrfTokenOwner()}>
+          <RestoreProbe />
+        </SessionProvider>
+      </QueryClientProvider>,
+    );
+    screen.getByRole("button", { name: "Restore now" }).click();
+    await screen.findByText("signed-out");
+
+    expect(queryClient.getQueryData(CURRENT_ACCOUNT_QUERY_KEY)).toBeUndefined();
+    expect(queryClient.getQueryData(["waitlist", "entry"])).toEqual({ greeting: "Hello" });
+  });
+
+  it("clears private account data and returns server confirmation separately from status", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(CURRENT_ACCOUNT_QUERY_KEY, account);
+    const client = {
+      getCurrentAccount: vi.fn(async () => account),
+      getCsrf: vi.fn(async () => "a".repeat(32)),
+      refreshSession: vi.fn(async () => undefined),
+      logout: vi.fn(async () => undefined),
+    } as unknown as CloudClient;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionProvider client={client} csrf={createCloudCsrfTokenOwner()}>
+          <LogoutProbe />
+        </SessionProvider>
+      </QueryClientProvider>,
+    );
+
+    // Explicit restoration is route-owned; this test seeds only the private cache.
+    expect(screen.getByTestId("status").textContent).toBe("unknown");
+    screen.getByRole("button", { name: "Logout" }).click();
+    await screen.findByText("true");
+    expect(screen.getByTestId("status").textContent).toBe("signed-out");
+    expect(queryClient.getQueryData(CURRENT_ACCOUNT_QUERY_KEY)).toBeUndefined();
+  });
+
+  it("signs out and clears private data after a replayed 401", async () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(CURRENT_ACCOUNT_QUERY_KEY, account);
+    const client = {
+      getCurrentAccount: vi.fn(async () => account),
+      getCsrf: vi.fn(async () => "a".repeat(32)),
+      refreshSession: vi.fn(async () => undefined),
+      logout: vi.fn(async () => undefined),
+    } as unknown as CloudClient;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionProvider client={client} csrf={createCloudCsrfTokenOwner()}>
+          <OperationProbe />
+        </SessionProvider>
+      </QueryClientProvider>,
+    );
+
+    screen.getByRole("button", { name: "Run protected operation" }).click();
+    await screen.findByText("signed-out");
+
+    expect(client.refreshSession).toHaveBeenCalledOnce();
+    expect(queryClient.getQueryData(CURRENT_ACCOUNT_QUERY_KEY)).toBeUndefined();
   });
 });
