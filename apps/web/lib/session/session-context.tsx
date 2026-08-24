@@ -1,74 +1,86 @@
 "use client";
 
-import type { CloudClient } from "@allies/cloud-client";
+import { isCloudError, type CloudClient } from "@allies/cloud-client";
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { createWebSessionAdapter, type LogoutResult, type SessionState } from "./web-session";
+import { CURRENT_ACCOUNT_QUERY_KEY, removePrivateAccountQueries } from "../account/account-query";
+import type { CloudCsrfTokenOwner } from "../cloud/csrf-token";
+import { createWebSessionAdapter, type LogoutResult, type RunCloudOperation, type SessionState } from "./web-session";
 
 type RootSessionState = { status: "unknown" | "restoring" } | SessionState;
 
-interface SessionContextValue {
+export interface SessionContextValue {
   client: CloudClient;
   state: RootSessionState;
   restore(): Promise<void>;
   logout(): Promise<LogoutResult>;
+  runCloudOperation: ReturnType<typeof createWebSessionAdapter>["runCloudOperation"];
 }
 
 const SessionContext = createContext<SessionContextValue | null>(null);
 
 export function SessionProvider({
   client,
+  csrf,
   children,
-  restoreOnMount = true,
 }: {
   client: CloudClient;
+  csrf: CloudCsrfTokenOwner;
   children: ReactNode;
-  restoreOnMount?: boolean;
 }) {
-  const adapter = useMemo(() => createWebSessionAdapter(client), [client]);
+  const adapter = useMemo(() => createWebSessionAdapter(client, csrf), [client, csrf]);
   const queryClient = useQueryClient();
-  const [state, setState] = useState<RootSessionState>(() =>
-    restoreOnMount ? { status: "restoring" } : { status: "signed-out" },
-  );
+  const [state, setState] = useState<RootSessionState>({ status: "unknown" });
   const operationGeneration = useRef(0);
 
-  const restore = async () => {
-    if (!restoreOnMount) {
-      setState({ status: "signed-out" });
-      return;
-    }
+  const restore = useCallback(async () => {
     const restoreGeneration = ++operationGeneration.current;
     setState({ status: "restoring" });
     const nextState = await adapter.restore();
     if (restoreGeneration !== operationGeneration.current) return;
-    if (nextState.status === "signed-out") queryClient.clear();
+    if (nextState.status === "signed-in") {
+      queryClient.setQueryData(CURRENT_ACCOUNT_QUERY_KEY, nextState.account);
+      setState({ status: "signed-in" });
+      return;
+    }
+    if (nextState.status === "signed-out") removePrivateAccountQueries(queryClient);
     setState(nextState);
-  };
+  }, [adapter, queryClient]);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     const logoutGeneration = ++operationGeneration.current;
     const result = await adapter.logout();
     if (logoutGeneration !== operationGeneration.current) return result;
-    queryClient.clear();
-    setState(result);
+    removePrivateAccountQueries(queryClient);
+    setState({ status: "signed-out" });
     return result;
-  };
+  }, [adapter, queryClient]);
 
-  useEffect(() => {
-    if (!restoreOnMount) return;
-    const controller = new AbortController();
-    const restoreGeneration = ++operationGeneration.current;
-    void adapter.restore(controller.signal).then((nextState) => {
-      if (!controller.signal.aborted && restoreGeneration === operationGeneration.current) {
-        if (nextState.status === "signed-out") queryClient.clear();
-        setState(nextState);
+  const runCloudOperation = useCallback<RunCloudOperation>(async (operation, options) => {
+    const operationGenerationAtStart = operationGeneration.current;
+    try {
+      return await adapter.runCloudOperation(operation, options);
+    } catch (error) {
+      if (
+        operationGenerationAtStart === operationGeneration.current
+        && isCloudError(error)
+        && (error.kind === "unauthorized" || error.status === 401)
+      ) {
+        operationGeneration.current += 1;
+        removePrivateAccountQueries(queryClient);
+        setState({ status: "signed-out" });
       }
-    });
-    return () => controller.abort();
-  }, [adapter, queryClient, restoreOnMount]);
+      throw error;
+    }
+  }, [adapter, queryClient]);
 
-  return <SessionContext.Provider value={{ client, state, restore, logout }}>{children}</SessionContext.Provider>;
+  const value = useMemo<SessionContextValue>(
+    () => ({ client, state, restore, logout, runCloudOperation }),
+    [client, logout, restore, runCloudOperation, state],
+  );
+
+  return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
 }
 
 export function useSession(): SessionContextValue {
