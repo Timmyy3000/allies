@@ -310,6 +310,28 @@ def test_disabled_events_skip_limiter_and_suppression_diagnostics(monkeypatch):
     }
 
 
+def test_rate_limit_events_are_burst_limited(monkeypatch):
+    emitted = []
+    monkeypatch.setattr(
+        middleware,
+        "emit_event",
+        lambda kind, **fields: emitted.append((kind, fields)),
+    )
+
+    def limited(request):
+        response = HttpResponse("limited", status=429)
+        response._allies_rate_limit_reason = "send_rate_limited"
+        return response
+
+    handler = middleware.WideEventMiddleware(limited)
+    for _ in range(middleware._ERROR_EVENT_BURST + 1):
+        handler(RequestFactory().post("/api/v1/chat/messages"))
+
+    assert len(emitted) == middleware._ERROR_EVENT_BURST
+    assert all(kind == "chat.rate_limited" for kind, _ in emitted)
+    assert get_counters()["events_dropped"] == 1
+
+
 def test_suppression_diagnostics_are_emitted_at_bounded_count_steps(monkeypatch):
     diagnostics = []
     monkeypatch.setattr(middleware, "emit_event", lambda *args, **kwargs: None)
