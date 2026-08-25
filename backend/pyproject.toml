@@ -36,7 +36,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["auths", "workspaces", "waitlist", "allies"]
+source = ["auths", "workspaces", "waitlist", "allies", "chat"]
 omit = [
     "*/admin.py",
     "*/apps.py",

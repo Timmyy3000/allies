@@ -252,6 +252,7 @@ class WideEventMiddleware:
         finally:
             duration_ms = max(0, round((time.monotonic() - started) * 1000, 3))
             status_code = getattr(response, "status_code", 500 if error else 200)
+            rate_reason = getattr(response, "_allies_rate_limit_reason", None)
             if wide_events_enabled():
                 converted_error = getattr(request, _EXCEPTION_ATTRIBUTE, None)
                 event_error = error or converted_error
@@ -272,23 +273,51 @@ class WideEventMiddleware:
                     error_type = None
                     error_fingerprint = None
                 route = _route_template(request)
-                is_non_success = outcome in {"error", "client_error"}
-                client_key = _client_bucket(request)
-                error_key = _error_bucket(status_code, error_type, error_fingerprint)
-                if is_non_success and not _error_event_limiter.allow(
-                    route, status_code, client_key, error_key
-                ):
-                    suppressed_count = _error_event_limiter.note_suppression(
-                        route, status_code, client_key, error_key
-                    )
-                    record_dropped_event()
-                    if suppressed_count & (suppressed_count - 1) == 0:
-                        emit_suppression_diagnostic(
-                            route, status_code, suppressed_count
+                if rate_reason and status_code == 429:
+                    if _error_event_limiter.allow(route, 429, "aggregate", rate_reason):
+                        emit_event(
+                            "chat.rate_limited",
+                            method=request.method,
+                            route=route,
+                            status_code=429,
+                            reason=rate_reason,
                         )
-                    if _error_event_limiter.retain_representative(
-                        route, status_code, client_key
+                    else:
+                        record_dropped_event()
+                else:
+                    is_non_success = outcome in {"error", "client_error"}
+                    client_key = _client_bucket(request)
+                    error_key = _error_bucket(
+                        status_code, error_type, error_fingerprint
+                    )
+                    if is_non_success and not _error_event_limiter.allow(
+                        route, status_code, client_key, error_key
                     ):
+                        suppressed_count = _error_event_limiter.note_suppression(
+                            route, status_code, client_key, error_key
+                        )
+                        record_dropped_event()
+                        if suppressed_count & (suppressed_count - 1) == 0:
+                            emit_suppression_diagnostic(
+                                route, status_code, suppressed_count
+                            )
+                        if _error_event_limiter.retain_representative(
+                            route, status_code, client_key
+                        ):
+                            emit_event(
+                                "http.request",
+                                request_id=request_id,
+                                correlation_id=correlation_id,
+                                method=request.method,
+                                route=route,
+                                status_code=status_code,
+                                duration_ms=duration_ms,
+                                outcome=outcome,
+                                error_type=error_type,
+                                error_fingerprint=error_fingerprint,
+                                sampling_key=sampling_key,
+                            )
+                    else:
                         emit_event(
                             "http.request",
                             request_id=request_id,
@@ -302,19 +331,5 @@ class WideEventMiddleware:
                             error_fingerprint=error_fingerprint,
                             sampling_key=sampling_key,
                         )
-                else:
-                    emit_event(
-                        "http.request",
-                        request_id=request_id,
-                        correlation_id=correlation_id,
-                        method=request.method,
-                        route=route,
-                        status_code=status_code,
-                        duration_ms=duration_ms,
-                        outcome=outcome,
-                        error_type=error_type,
-                        error_fingerprint=error_fingerprint,
-                        sampling_key=sampling_key,
-                    )
-            if response is not None:
+            if response is not None and not rate_reason:
                 _echo_request_id(response, request_id)

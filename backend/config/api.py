@@ -1,3 +1,4 @@
+import hashlib
 import logging
 
 from ninja.errors import ValidationError
@@ -5,6 +6,7 @@ from ninja.errors import ValidationError
 from allies.api.register import register as register_allies_api
 from auths.api.common import error_json
 from auths.api.register import register as register_auths_api
+from chat.api.register import register as register_chat_api
 from config.health import HealthController
 from config.openapi import AlliesAPI
 from waitlist.api.register import register as register_waitlist_api
@@ -32,9 +34,13 @@ def _validation_error(request, exc: ValidationError):
         "string_too_long",
         "int_type",
         "greater_than",
+        "greater_than_equal",
         "less_than",
+        "less_than_equal",
         "value_error",
         "json_invalid",
+        "int_parsing",
+        "string_parsing",
         "list_type",
         "dict_type",
         "bool_type",
@@ -66,10 +72,19 @@ def _validation_error(request, exc: ValidationError):
 def _unhandled_error(request, exc: Exception):
     """Prevent framework fallbacks from violating the JSON error contract."""
 
-    logger.exception(
+    match = getattr(request, "resolver_match", None)
+    route = getattr(match, "route", None)
+    route_template = f"/{str(route).lstrip('/')}" if route else "unknown_route"
+    error_type = type(exc).__name__
+    error_fingerprint = hashlib.sha256(error_type.encode()).hexdigest()[:16]
+    logger.error(
         "unhandled API exception",
-        exc_info=(type(exc), exc, exc.__traceback__),
-        extra={"request_method": request.method, "request_path": request.path},
+        extra={
+            "request_method": request.method,
+            "route_template": route_template,
+            "error_type": error_type,
+            "error_fingerprint": error_fingerprint,
+        },
     )
     return error_json("internal_error", "internal server error", 500)
 
@@ -84,6 +99,7 @@ def register_all_apis() -> None:
     register_workspaces_api(api)
     register_waitlist_api(api)
     register_allies_api(api)
+    register_chat_api(api)
 
 
 register_all_apis()
