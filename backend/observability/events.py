@@ -58,6 +58,7 @@ EVENT_NAMES = frozenset(
         "task.succeeded",
         "task.failed",
         "task.retried",
+        "chat.rate_limited",
     }
 )
 
@@ -103,6 +104,7 @@ _ALLOWED_FIELDS = frozenset(
         "task_id",
         "queue",
         "retry_count",
+        "reason",
         "sampled",
     }
 )
@@ -148,6 +150,7 @@ _OPTIONAL_FIELDS = (
     "route",
     "method",
     "retry_count",
+    "reason",
     "duration_ms",
     "status_code",
 )
@@ -177,10 +180,22 @@ class WideEventV1(TypedDict):
     task_id: NotRequired[str | None]
     queue: NotRequired[str | None]
     retry_count: NotRequired[int | None]
+    reason: NotRequired[str | None]
     sampled: bool
 
 
-WideEvent = WideEventV1
+class RateLimitEventV1(TypedDict):
+    """Minimal aggregate-only rate-limit event."""
+
+    schema_version: int
+    event: str
+    route: str
+    method: str
+    status_code: int
+    reason: str
+
+
+WideEvent = WideEventV1 | RateLimitEventV1
 
 _counter_lock = threading.Lock()
 _counters = {
@@ -391,10 +406,19 @@ def _fit_bytes(event: dict[str, object]) -> dict[str, object]:
     }
 
 
-def build_event(kind: str, **fields: object) -> WideEventV1:
+def build_event(kind: str, **fields: object) -> WideEvent:
     """Build a bounded JSON-serializable event without performing I/O."""
 
     event_name = _safe_event_name(kind)
+    if event_name == "chat.rate_limited":
+        return {
+            "schema_version": 1,
+            "event": event_name,
+            "route": _bounded_string(fields.get("route", "unknown_route"), 128),
+            "method": _bounded_string(fields.get("method", "UNKNOWN"), 16),
+            "status_code": 429,
+            "reason": _safe_outcome(fields.get("reason"), event_name),
+        }
     event: dict[str, object] = {
         "schema_version": 1,
         "event": event_name,
@@ -456,7 +480,7 @@ def build_event(kind: str, **fields: object) -> WideEventV1:
                     if re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,95}", value)
                     else None
                 )
-        elif field in {"error_code", "outcome"}:
+        elif field in {"error_code", "outcome", "reason"}:
             value = _safe_outcome(value, event_name) if value is not None else None
         elif field == "error_fingerprint":
             value = _error_fingerprint(value)
@@ -587,7 +611,7 @@ def emit_task_suppression_diagnostic(
         return
 
 
-def emit_event(kind: str, **fields: object) -> WideEventV1 | None:
+def emit_event(kind: str, **fields: object) -> WideEvent | None:
     """Sample, serialize, and emit one event; all failures are fail-open."""
 
     if not wide_events_enabled():
@@ -598,7 +622,8 @@ def emit_event(kind: str, **fields: object) -> WideEventV1 | None:
         if not should_sample(event, sampling_key=sampling_key):
             _count("events_sampled_out")
             return None
-        event["sampled"] = True
+        if event.get("event") != "chat.rate_limited":
+            event["sampled"] = True
         envelope = _serialize(event)
         if len(envelope) > int(_setting("ALLIES_WIDE_EVENTS_MAX_BYTES", 16 * 1024)):
             _count("events_dropped")

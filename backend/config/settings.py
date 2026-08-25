@@ -60,6 +60,13 @@ def env_positive_int(name: str, default: int) -> int:
     return value
 
 
+def env_bounded_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    value = env_positive_int(name, default)
+    if not minimum <= value <= maximum:
+        raise ImproperlyConfigured(f"{name} must be between {minimum} and {maximum}")
+    return value
+
+
 def env_sample_rate(name: str, default: float) -> float:
     raw = os.environ.get(name, str(default))
     try:
@@ -164,6 +171,7 @@ INSTALLED_APPS = [
     "workspaces",
     "waitlist",
     "allies",
+    "chat",
     "devtools",
 ]
 
@@ -384,6 +392,11 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        "allies.chat": {
+            "handlers": ["allies_console"],
+            "level": "INFO",
+            "propagate": False,
+        },
     },
 }
 
@@ -446,6 +459,28 @@ ALLIES_AUTH_JWT_AUDIENCE = os.environ.get(
     "ALLIES_AUTH_JWT_AUDIENCE", "allies-interface"
 )
 ALLIES_AUTH_DIGEST_KEY = os.environ.get("ALLIES_AUTH_DIGEST_KEY", "")
+
+ALLIES_CHAT_MAX_PENDING_MESSAGES = env_bounded_int(
+    "ALLIES_CHAT_MAX_PENDING_MESSAGES", 20, 1, 100
+)
+ALLIES_CHAT_SEND_RATE_LIMIT = env_bounded_int("ALLIES_CHAT_SEND_RATE_LIMIT", 30, 1, 120)
+ALLIES_CHAT_SEND_RATE_PERIOD_SECONDS = env_bounded_int(
+    "ALLIES_CHAT_SEND_RATE_PERIOD_SECONDS", 600, 60, 3600
+)
+ALLIES_CHAT_CURSOR_ACTIVE_KEY_ID = os.environ.get(
+    "ALLIES_CHAT_CURSOR_ACTIVE_KEY_ID", "v1"
+)
+ALLIES_CHAT_CURSOR_KEY = os.environ.get(
+    "ALLIES_CHAT_CURSOR_KEY",
+    ALLIES_AUTH_DIGEST_KEY or "allies-local-chat-cursor-key-not-for-production",
+)
+ALLIES_CHAT_CURSOR_KEYS = os.environ.get("ALLIES_CHAT_CURSOR_KEYS", "{}")
+ALLIES_CHAT_CURSOR_PREVIOUS_KEYS = os.environ.get(
+    "ALLIES_CHAT_CURSOR_PREVIOUS_KEYS", "{}"
+)
+ALLIES_CHAT_CURSOR_TTL_SECONDS = env_bounded_int(
+    "ALLIES_CHAT_CURSOR_TTL_SECONDS", 3600, 1, 86_400
+)
 
 ALLIES_AUTH_FAKE_PROVIDER_ENABLED = env_bool("ALLIES_AUTH_FAKE_PROVIDER_ENABLED", False)
 ALLIES_AUTH_GOOGLE_CLIENT_ID = os.environ.get("ALLIES_AUTH_GOOGLE_CLIENT_ID", "")

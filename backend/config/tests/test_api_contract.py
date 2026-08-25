@@ -106,7 +106,7 @@ def test_waitlist_openapi_declares_two_public_origin_checked_mutations():
         assert "trusted frontend origin" in operation["description"]
 
 
-def test_unhandled_error_logs_traceback_and_returns_generic_envelope(caplog):
+def test_unhandled_error_logs_only_safe_metadata_and_returns_generic_envelope(caplog):
     request = RequestFactory().get("/api/v1/test")
     error = RuntimeError("private failure detail")
 
@@ -119,7 +119,10 @@ def test_unhandled_error_logs_traceback_and_returns_generic_envelope(caplog):
         "message": "internal server error",
         "data": {"code": "internal_error"},
     }
-    assert "private failure detail" in caplog.text
+    assert "private failure detail" not in caplog.text
+    assert "/api/v1/test" not in caplog.text
     record = caplog.records[-1]
     assert record.request_method == "GET"
-    assert record.request_path == "/api/v1/test"
+    assert record.route_template == "unknown_route"
+    assert record.error_type == "RuntimeError"
+    assert not hasattr(record, "request_path")

@@ -57,6 +57,28 @@ def test_build_event_rejects_unknown_event_name():
         build_event("arbitrary.foo")
 
 
+def test_rate_limit_event_has_exact_aggregate_only_shape():
+    event = build_event(
+        "chat.rate_limited",
+        route="/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages",
+        method="POST",
+        status_code=503,
+        reason="send_rate_limited",
+        request_id="req_private",
+        duration_ms=123,
+        outcome="client_error",
+    )
+
+    assert event == {
+        "schema_version": 1,
+        "event": "chat.rate_limited",
+        "route": "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages",
+        "method": "POST",
+        "status_code": 429,
+        "reason": "send_rate_limited",
+    }
+
+
 def test_build_event_normalizes_invalid_and_opaque_identifiers():
     assert normalize_identifier("not safe") is None
     assert normalize_identifier("x" * 129) is None

@@ -120,6 +120,42 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             "retryable": False,
         },
     },
+    "SuccessResponse_ConversationResponse_": {
+        "status": "success",
+        "message": "Conversation loaded",
+        "data": {
+            "id": "conv_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "ally_id": "ally_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "messages": [
+                {
+                    "id": "msg_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d80",
+                    "sender": "assistant",
+                    "content": "Hello! What should we work on first?",
+                    "sequence": 1,
+                    "status": "completed",
+                    "created_at": "2026-08-20T16:00:00Z",
+                }
+            ],
+            "next_cursor": None,
+        },
+    },
+    "SuccessResponse_MessageAcceptanceResponse_": {
+        "status": "success",
+        "message": "Message accepted",
+        "data": {
+            "conversation_id": "conv_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "message": {
+                "id": "msg_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
+                "sender": "user",
+                "content": "Help me plan tomorrow's study block.",
+                "sequence": 3,
+                "status": "queued",
+                "created_at": "2026-08-20T16:01:00Z",
+            },
+            "execution": None,
+            "replayed": False,
+        },
+    },
     "SuccessResponse_WaitlistEntryResponse_": {
         "status": "success",
         "message": "Waitlist greeting ready",

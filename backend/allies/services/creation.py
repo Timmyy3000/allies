@@ -12,6 +12,8 @@ from allies.models import Ally, AllyBinding, OnboardingAttempt, ProvisioningOper
 from allies.services.onboarding import digest_value, normalize_seed
 from auths.config import digest_key
 from auths.models import User
+from chat.exceptions import ChatError
+from chat.services.conversations import ensure_default_conversation
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 
@@ -146,6 +148,11 @@ def create_ally(
                 content_fingerprint=fingerprint,
             )
             attempt.consume(user=user, ally=ally, reply=values["reply"])
+            ensure_default_conversation(
+                ally=ally,
+                greeting=attempt.greeting,
+                reply=values["reply"],
+            )
             transaction.on_commit(_enqueue_dispatch)
             return AllyCreationResult(ally, operation, False)
     except IntegrityError:
@@ -171,6 +178,22 @@ def retrieve_ally(*, user: User, workspace_id: str, ally_id: str) -> Ally:
         workspace_id=workspace_id,
         capability=Capability.PROFILE_READ,
     )
-    return Ally.objects.select_related(
+    ally = Ally.objects.select_related(
         "workspace", "binding", "binding__provisioning_operation"
     ).get(workspace=context.workspace, public_id=ally_id)
+    try:
+        attempt = ally.onboarding_attempt
+    except OnboardingAttempt.DoesNotExist:
+        return ally
+    if attempt.consumed_at is not None and attempt.reply:
+        try:
+            ensure_default_conversation(
+                ally=ally,
+                greeting=attempt.greeting,
+                reply=attempt.reply,
+            )
+        except ChatError:
+            # Conversation repair remains owned by the chat read boundary; Ally
+            # retrieval retains its existing product contract for malformed data.
+            pass
+    return ally
