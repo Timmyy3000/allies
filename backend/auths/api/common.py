@@ -367,7 +367,7 @@ def _set_session_cookies(response: HttpResponse, issued) -> None:
         ),
         httponly=True,
         secure=cookie_secure(),
-        samesite="Strict",
+        samesite=cookie_samesite(),
         path=cookie_path("refresh"),
     )
 
