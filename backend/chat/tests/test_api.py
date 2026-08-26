@@ -22,10 +22,8 @@ from workspaces.models import Membership, Workspace
     ALLIES_CHAT_CURSOR_KEY="c" * 32,
 )
 def test_conversation_read_send_and_replay_contract():
-    user = User.objects.create_user(public_id="usr_chat_api")
-    workspace = Workspace.objects.create(
-        public_id="wsp_chat_api", owner=user, name="Personal Workspace"
-    )
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Personal Workspace")
     Membership.objects.create(
         workspace=workspace, user=user, role="owner", status="active"
     )
@@ -44,11 +42,11 @@ def test_conversation_read_send_and_replay_contract():
     csrf = client.get("/api/v1/auths/csrf", HTTP_HOST="testserver")["X-CSRFToken"]
     client.cookies[cookie_name("access")] = issue_session(user).access_token
     loaded = client.get(
-        f"/api/v1/workspaces/{workspace.public_id}/allies/{ally.public_id}/conversation",
+        f"/api/v1/workspaces/{workspace.id}/allies/{ally.id}/conversation",
         HTTP_HOST="testserver",
     )
     assert loaded.status_code == 200
-    assert loaded.json()["data"]["id"] == conversation.public_id
+    assert loaded.json()["data"]["id"] == str(conversation.id)
     headers = {
         "HTTP_HOST": "testserver",
         "HTTP_ORIGIN": "http://localhost:3000",
@@ -57,13 +55,13 @@ def test_conversation_read_send_and_replay_contract():
     }
     body = json.dumps({"content": "Plan my day"})
     created = client.post(
-        f"/api/v1/workspaces/{workspace.public_id}/conversations/{conversation.public_id}/messages",
+        f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/messages",
         body,
         content_type="application/json",
         **headers,
     )
     replay = client.post(
-        f"/api/v1/workspaces/{workspace.public_id}/conversations/{conversation.public_id}/messages",
+        f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/messages",
         body,
         content_type="application/json",
         **headers,
@@ -76,9 +74,8 @@ def test_conversation_read_send_and_replay_contract():
         == created.json()["data"]["message"]["id"]
     )
 
-    foreign_user = User.objects.create_user(public_id="usr_chat_api_foreign")
+    foreign_user = User.objects.create_user()
     foreign_workspace = Workspace.objects.create(
-        public_id="wsp_chat_api_foreign",
         owner=foreign_user,
         name="Foreign Workspace",
     )
@@ -102,13 +99,13 @@ def test_conversation_read_send_and_replay_contract():
         reply="Private reply",
     )
     denied_get = client.get(
-        f"/api/v1/workspaces/{foreign_workspace.public_id}/conversations/"
-        f"{foreign_conversation.public_id}",
+        f"/api/v1/workspaces/{foreign_workspace.id}/conversations/"
+        f"{foreign_conversation.id}",
         HTTP_HOST="testserver",
     )
     denied_post = client.post(
-        f"/api/v1/workspaces/{foreign_workspace.public_id}/conversations/"
-        f"{foreign_conversation.public_id}/messages",
+        f"/api/v1/workspaces/{foreign_workspace.id}/conversations/"
+        f"{foreign_conversation.id}/messages",
         json.dumps({"content": "Probe"}),
         content_type="application/json",
         **{**headers, "HTTP_IDEMPOTENCY_KEY": "chat-foreign-key-0001"},
@@ -129,10 +126,8 @@ def test_conversation_read_send_and_replay_contract():
     ALLIES_CHAT_SEND_RATE_PERIOD_SECONDS=60,
 )
 def test_rate_limit_is_generic_and_aggregate_only(caplog, monkeypatch):
-    user = User.objects.create_user(public_id="usr_chat_rate")
-    workspace = Workspace.objects.create(
-        public_id="wsp_chat_rate", owner=user, name="Personal Workspace"
-    )
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Personal Workspace")
     Membership.objects.create(
         workspace=workspace, user=user, role="owner", status="active"
     )
@@ -151,8 +146,7 @@ def test_rate_limit_is_generic_and_aggregate_only(caplog, monkeypatch):
     csrf = client.get("/api/v1/auths/csrf", HTTP_HOST="testserver")["X-CSRFToken"]
     client.cookies[cookie_name("access")] = issue_session(user).access_token
     route = (
-        f"/api/v1/workspaces/{workspace.public_id}/conversations/"
-        f"{conversation.public_id}/messages"
+        f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/messages"
     )
     headers = {
         "HTTP_HOST": "testserver",
@@ -166,9 +160,8 @@ def test_rate_limit_is_generic_and_aggregate_only(caplog, monkeypatch):
         HTTP_IDEMPOTENCY_KEY="chat-rate-key-0001",
         **headers,
     )
-    other_owner = User.objects.create_user(public_id="usr_chat_rate_other")
+    other_owner = User.objects.create_user()
     other_workspace = Workspace.objects.create(
-        public_id="wsp_chat_rate_other",
         owner=other_owner,
         name="Other Workspace",
     )
@@ -192,8 +185,8 @@ def test_rate_limit_is_generic_and_aggregate_only(caplog, monkeypatch):
         reply="Ready",
     )
     other_created = client.post(
-        f"/api/v1/workspaces/{other_workspace.public_id}/conversations/"
-        f"{other_conversation.public_id}/messages",
+        f"/api/v1/workspaces/{other_workspace.id}/conversations/"
+        f"{other_conversation.id}/messages",
         json.dumps({"content": "Independent"}),
         content_type="application/json",
         HTTP_IDEMPOTENCY_KEY="chat-rate-other-0001",
@@ -228,7 +221,7 @@ def test_rate_limit_is_generic_and_aggregate_only(caplog, monkeypatch):
     }
     assert event["schema_version"] == 1
     assert "chat-rate-key-0002" not in wide_logs[-1]
-    assert "wsp_chat_rate" not in wide_logs[-1]
+    assert str(workspace.id) not in wide_logs[-1]
 
     def unavailable_rate_limit(**_kwargs):
         raise ThrottleUnavailable("forced cache outage")

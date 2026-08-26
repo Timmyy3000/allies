@@ -8,9 +8,11 @@ import io
 import logging
 import re
 import secrets
+import uuid
 import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone as django_timezone
@@ -31,7 +33,7 @@ from auths.exceptions import (
 )
 from auths.models import AvatarAsset, AvatarStatus, User, UserProfile
 from auths.storage.avatars import ObjectMetadata, get_avatar_store
-from common.identifiers import new_public_id
+from common.uuids import canonical_uuid
 
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
@@ -82,14 +84,14 @@ def prepare_avatar_upload(
     store = _store()
     now = django_timezone.now()
     expires = now + timedelta(seconds=avatar_url_ttl_seconds())
-    asset_id = new_public_id("avt")
+    asset_id = uuid.uuid4()
     key = (
-        f"{STAGING_PREFIX}users/{user.public_id}/avatars/"
+        f"{STAGING_PREFIX}users/{user.id}/avatars/"
         f"{asset_id}/{secrets.token_urlsafe(18)}"
     )
     asset = AvatarAsset.objects.create(
+        id=asset_id,
         user=user,
-        public_id=asset_id,
         object_key=key,
         status=AvatarStatus.PENDING,
         expected_content_type=content_type,
@@ -199,8 +201,12 @@ def _delete_related_objects(object_key: str) -> None:
         store.delete(key=key)
 
 
-def complete_avatar_upload(*, user: User, asset_id: str) -> ReadyAvatar:
-    asset = AvatarAsset.objects.filter(user=user, public_id=asset_id).first()
+def complete_avatar_upload(*, user: User, asset_id: UUID | str) -> ReadyAvatar:
+    try:
+        parsed_asset_id = canonical_uuid(asset_id)
+    except (TypeError, ValueError) as exc:
+        raise AvatarNotFound("avatar is unavailable") from exc
+    asset = AvatarAsset.objects.filter(user=user, pk=parsed_asset_id).first()
     if asset is None:
         raise AvatarNotFound("avatar is unavailable")
     if asset.status == AvatarStatus.READY:
@@ -293,7 +299,7 @@ def complete_avatar_upload(*, user: User, asset_id: str) -> ReadyAvatar:
     return ReadyAvatar(locked)
 
 
-def signed_avatar_read(*, user: User) -> tuple[str, datetime]:
+def signed_avatar_read(*, user: User) -> tuple[AvatarAsset, str, datetime]:
     profile = (
         UserProfile.objects.select_related("current_avatar").filter(user=user).first()
     )
@@ -305,9 +311,10 @@ def signed_avatar_read(*, user: User) -> tuple[str, datetime]:
     ):
         raise AvatarNotFound("avatar is unavailable")
     try:
-        return _store().sign_get(
+        url, expires = _store().sign_get(
             key=profile.current_avatar.object_key, expires_in=avatar_url_ttl_seconds()
         )
+        return profile.current_avatar, url, expires
     except AvatarStorageUnavailable:
         raise
     except Exception as exc:

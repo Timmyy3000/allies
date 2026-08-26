@@ -9,7 +9,6 @@ from django.utils import timezone
 
 from auths.models import ExternalIdentity, User, UserProfile
 from auths.providers.base import VerifiedIdentity
-from common.identifiers import new_public_id
 from workspaces.services.bootstrap import WorkspaceContext, ensure_personal_workspace
 
 
@@ -45,9 +44,7 @@ def resolve_or_create_user(identity: VerifiedIdentity) -> UserBootstrap:
         if existing is None:
             try:
                 with transaction.atomic():
-                    user = User.objects.create_user(
-                        public_id=new_public_id("usr"), is_active=True
-                    )
+                    user = User.objects.create_user(is_active=True)
                     UserProfile.objects.create(
                         user=user,
                         display_name=_safe_display_name(identity.display_name),

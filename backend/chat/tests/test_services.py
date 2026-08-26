@@ -37,10 +37,8 @@ def account(db, settings):
     cache.clear()
     settings.ALLIES_AUTH_DIGEST_KEY = "d" * 32
     settings.ALLIES_CHAT_CURSOR_KEY = "c" * 32
-    user = User.objects.create_user(public_id="usr_chat_services")
-    workspace = Workspace.objects.create(
-        public_id="wsp_chat_services", owner=user, name="Personal Workspace"
-    )
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Personal Workspace")
     Membership.objects.create(
         workspace=workspace, user=user, role="owner", status="active"
     )
@@ -62,21 +60,21 @@ def test_onboarding_history_and_exactly_once_send(account):
         ally=ally, greeting=" Hello ", reply="  Start here. "
     )
     result = retrieve_conversation(
-        user=user, workspace_id=workspace.public_id, ally_id=ally.public_id
+        user=user, workspace_id=workspace.id, ally_id=ally.id
     )
     assert [message.sequence for message in result.messages] == [1, 2]
     assert result.messages[0].content == "Hello"
     accepted = accept_message(
         user=user,
-        workspace_id=workspace.public_id,
-        conversation_id=conversation.public_id,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
         content="  café  ",
         idempotency_key="chat-send-key-0001",
     )
     replay = accept_message(
         user=user,
-        workspace_id=workspace.public_id,
-        conversation_id=conversation.public_id,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
         content="café",
         idempotency_key="chat-send-key-0001",
     )
@@ -87,8 +85,8 @@ def test_onboarding_history_and_exactly_once_send(account):
     with pytest.raises(IdempotencyConflict):
         accept_message(
             user=user,
-            workspace_id=workspace.public_id,
-            conversation_id=conversation.public_id,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
             content="different",
             idempotency_key="chat-send-key-0001",
         )
@@ -115,24 +113,20 @@ def test_lifecycle_primitives_are_idempotent(account):
     )
     accepted = accept_message(
         user=user,
-        workspace_id=workspace.public_id,
-        conversation_id=conversation.public_id,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
         content="Do this",
         idempotency_key="chat-send-key-0002",
     )
-    claimed = claim_next_turn(conversation_id=conversation.public_id)
+    claimed = claim_next_turn(conversation_id=conversation.id)
     assert claimed.pk == accepted.message.pk
-    completed = complete_turn(
-        message_id=claimed.public_id, status=MessageLifecycle.COMPLETED
-    )
+    completed = complete_turn(message_id=claimed.id, status=MessageLifecycle.COMPLETED)
     timestamp = completed.updated_at
-    replay = complete_turn(
-        message_id=claimed.public_id, status=MessageLifecycle.COMPLETED
-    )
+    replay = complete_turn(message_id=claimed.id, status=MessageLifecycle.COMPLETED)
     assert replay.pk == completed.pk
     assert replay.updated_at == timestamp
     with pytest.raises(TurnConflict):
-        complete_turn(message_id=claimed.public_id, status=MessageLifecycle.FAILED)
+        complete_turn(message_id=claimed.id, status=MessageLifecycle.FAILED)
 
 
 @pytest.mark.django_db
@@ -152,8 +146,8 @@ def test_cursor_is_scoped_and_signed(account):
         )
     page = retrieve_conversation(
         user=user,
-        workspace_id=workspace.public_id,
-        conversation_id=conversation.public_id,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
         limit=3,
     )
     assert [message.sequence for message in page.messages] == [5, 6, 7]
@@ -162,8 +156,8 @@ def test_cursor_is_scoped_and_signed(account):
     with pytest.raises(CursorInvalid):
         retrieve_conversation(
             user=user,
-            workspace_id=workspace.public_id,
-            conversation_id=conversation.public_id,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
             limit=3,
             cursor=page.next_cursor[:-1] + replacement,
         )
@@ -178,23 +172,23 @@ def test_queue_limit_rejects_only_new_work(account, settings):
     )
     accepted = accept_message(
         user=user,
-        workspace_id=workspace.public_id,
-        conversation_id=conversation.public_id,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
         content="First",
         idempotency_key="chat-queue-key-0001",
     )
     with pytest.raises(QueueFull):
         accept_message(
             user=user,
-            workspace_id=workspace.public_id,
-            conversation_id=conversation.public_id,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
             content="Second",
             idempotency_key="chat-queue-key-0002",
         )
     replay = accept_message(
         user=user,
-        workspace_id=workspace.public_id,
-        conversation_id=conversation.public_id,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
         content="First",
         idempotency_key="chat-queue-key-0001",
     )
@@ -221,8 +215,8 @@ def test_message_insert_failure_retains_fail_closed_quota(
         with pytest.raises(DatabaseError):
             accept_message(
                 user=user,
-                workspace_id=workspace.public_id,
-                conversation_id=conversation.public_id,
+                workspace_id=workspace.id,
+                conversation_id=conversation.id,
                 content="Retry me",
                 idempotency_key="chat-rollback-key-0001",
             )
@@ -230,8 +224,8 @@ def test_message_insert_failure_retains_fail_closed_quota(
     with pytest.raises(SendRateLimited):
         accept_message(
             user=user,
-            workspace_id=workspace.public_id,
-            conversation_id=conversation.public_id,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
             content="Retry me",
             idempotency_key="chat-rollback-key-0001",
         )
@@ -249,16 +243,16 @@ def test_cursor_rotation_overlap_and_expiry(account, settings):
     settings.ALLIES_CHAT_CURSOR_PREVIOUS_KEYS = {}
     settings.ALLIES_CHAT_CURSOR_TTL_SECONDS = 60
     issued_at = timezone.now()
-    cursor = serialize_cursor(conversation.public_id, 2, now=issued_at)
+    cursor = serialize_cursor(conversation.id, 2, now=issued_at)
     settings.ALLIES_CHAT_CURSOR_ACTIVE_KEY_ID = "new"
     settings.ALLIES_CHAT_CURSOR_KEYS = {"new": "n" * 32}
     settings.ALLIES_CHAT_CURSOR_PREVIOUS_KEYS = {"old": "o" * 32}
-    parsed = parse_cursor(cursor, conversation.public_id, now=issued_at)
+    parsed = parse_cursor(cursor, conversation.id, now=issued_at)
     assert parsed.key_id == "old"
 
     with pytest.raises(CursorInvalid):
         parse_cursor(
             cursor,
-            conversation.public_id,
+            conversation.id,
             now=issued_at + timedelta(seconds=61),
         )

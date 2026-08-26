@@ -1,20 +1,14 @@
+import uuid
+
 from django.db import models
 from django.db.models import Q
-
-from common.identifiers import new_public_id
 
 # Django model metaclasses intentionally consume mutable Meta collections.
 # ruff: noqa: RUF012
 
 
-def new_entry_public_id() -> str:
-    return new_public_id("wle")
-
-
 class WaitlistEntry(models.Model):
-    public_id = models.CharField(
-        max_length=40, unique=True, editable=False, default=new_entry_public_id
-    )
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     attempt_id_digest = models.CharField(max_length=64, unique=True, editable=False)
     attempt_token_digest = models.CharField(max_length=64, unique=True, editable=False)
     completion_digest = models.CharField(max_length=64, blank=True, editable=False)
@@ -75,4 +69,4 @@ class WaitlistEntry(models.Model):
         ]
 
     def __str__(self) -> str:
-        return self.public_id
+        return str(self.id)

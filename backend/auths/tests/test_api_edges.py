@@ -152,7 +152,7 @@ def test_refresh_throttle_uses_stable_family_across_rotation(monkeypatch):
     family_identities = [
         identity for scope, identity in captured if scope == "refresh-family"
     ]
-    assert family_identities == [issued.family.public_id, issued.family.public_id]
+    assert family_identities == [str(issued.family.id), str(issued.family.id)]
 
 
 @pytest.mark.django_db
@@ -245,12 +245,12 @@ def test_avatar_and_workspace_controller_boundaries():
     assert prepare.status_code == 201
     from auths.models import AvatarAsset
 
-    asset = AvatarAsset.objects.get(public_id=prepare.json()["data"]["asset_id"])
+    asset = AvatarAsset.objects.get(pk=prepare.json()["data"]["asset_id"])
     store = InMemoryAvatarObjectStore()
     set_avatar_store(store)
     store.put(asset.object_key, data, "image/png")
     complete = client.post(
-        f"/api/v1/auths/me/avatar/{asset.public_id}/complete",
+        f"/api/v1/auths/me/avatar/{asset.id}/complete",
         content_type="application/json",
         HTTP_X_CSRFTOKEN=csrf,
         HTTP_ORIGIN="http://localhost:3000",
@@ -269,12 +269,13 @@ def test_avatar_and_workspace_controller_boundaries():
     )
     assert deleted.status_code == 204
     workspace = user.owned_workspaces.first()
-    context = client.get(
-        f"/api/v1/workspaces/{workspace.public_id}", HTTP_HOST="testserver"
-    )
+    context = client.get(f"/api/v1/workspaces/{workspace.id}", HTTP_HOST="testserver")
     assert context.status_code == 200
     assert (
-        client.get("/api/v1/workspaces/wsp_missing", HTTP_HOST="testserver").status_code
+        client.get(
+            "/api/v1/workspaces/00000000-0000-4000-8000-000000000001",
+            HTTP_HOST="testserver",
+        ).status_code
         == 404
     )
 
@@ -309,7 +310,7 @@ def test_avatar_controller_normalizes_storage_and_pointer_failures(monkeypatch):
 
     monkeypatch.setattr("auths.api.avatar.complete_avatar_upload", unavailable)
     completed = client.post(
-        "/api/v1/auths/me/avatar/avt_missing/complete",
+        "/api/v1/auths/me/avatar/00000000-0000-4000-8000-000000000001/complete",
         content_type="application/json",
         **request_headers,
     )
@@ -411,7 +412,7 @@ def test_all_mutating_routes_reject_missing_origin_and_referer():
             **headers,
         ),
         lambda: client.post(
-            "/api/v1/auths/me/avatar/avt_missing/complete",
+            "/api/v1/auths/me/avatar/00000000-0000-4000-8000-000000000001/complete",
             content_type="application/json",
             **headers,
         ),
@@ -459,7 +460,11 @@ def test_browser_session_routes_keep_origin_checks_with_native_bearer_header():
             "/api/v1/auths/me/avatar/uploads",
             {"content_type": "image/png", "size": 1, "sha256": "0" * 64},
         ),
-        ("post", "/api/v1/auths/me/avatar/avt_missing/complete", None),
+        (
+            "post",
+            "/api/v1/auths/me/avatar/00000000-0000-4000-8000-000000000001/complete",
+            None,
+        ),
         ("delete", "/api/v1/auths/me/avatar", None),
     ],
 )
@@ -499,18 +504,18 @@ def test_native_bearer_workspace_scope_is_tenant_isolated():
 
     own_workspace = owner.owned_workspaces.first()
     foreign_workspace = foreign.owned_workspaces.first()
-    own = client.get(f"/api/v1/workspaces/{own_workspace.public_id}", **headers)
-    denied = client.get(f"/api/v1/workspaces/{foreign_workspace.public_id}", **headers)
+    own = client.get(f"/api/v1/workspaces/{own_workspace.id}", **headers)
+    denied = client.get(f"/api/v1/workspaces/{foreign_workspace.id}", **headers)
 
     assert own.status_code == 200
-    assert own.json()["data"]["id"] == own_workspace.public_id
+    assert own.json()["data"]["id"] == str(own_workspace.id)
     assert denied.status_code == 404
     assert denied.json()["data"]["code"] == "workspace_denied"
 
     expired_claims = _decode_jwt(issued.access_token)
     expired_claims["exp"] = int(timezone.now().timestamp()) - 1
     expired = client.get(
-        f"/api/v1/workspaces/{own_workspace.public_id}",
+        f"/api/v1/workspaces/{own_workspace.id}",
         HTTP_AUTHORIZATION=f"Bearer {_encode_jwt(expired_claims)}",
         HTTP_HOST="testserver",
     )
@@ -518,7 +523,7 @@ def test_native_bearer_workspace_scope_is_tenant_isolated():
     assert expired.json()["data"]["code"] == "session_invalid"
 
     invalid = client.get(
-        f"/api/v1/workspaces/{own_workspace.public_id}",
+        f"/api/v1/workspaces/{own_workspace.id}",
         HTTP_AUTHORIZATION="Bearer invalid-native-access",
         HTTP_HOST="testserver",
     )

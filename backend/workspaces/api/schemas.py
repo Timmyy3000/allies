@@ -1,8 +1,10 @@
+from uuid import UUID
+
 from ninja import Schema
 
 
 class WorkspaceContextResponse(Schema):
-    id: str
+    id: UUID
     name: str
     role: str
     capabilities: list[str]

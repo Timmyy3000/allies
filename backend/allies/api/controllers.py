@@ -29,14 +29,15 @@ from auths.api.common import (
 )
 from auths.api.schemas import SuccessResponse
 from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
+from common.uuids import CanonicalUUID
 
 
 def _response(ally: Ally) -> AllyResponse:
     operation = ally.binding.provisioning_operation
     return AllyResponse(
-        id=ally.public_id,
-        binding_id=ally.binding.cloud_binding_id,
-        operation_id=operation.public_id,
+        id=str(ally.id),
+        binding_id=str(ally.binding.id),
+        operation_id=str(operation.id),
         name=ally.name,
         job=ally.job,
         personality=ally.personality,
@@ -97,7 +98,7 @@ class AllyController(ControllerBase):
     def create(
         self,
         request: HttpRequest,
-        workspace_id: str,
+        workspace_id: CanonicalUUID,
         payload: CreateAllyRequest,
         idempotency_key: Annotated[
             str,
@@ -144,7 +145,12 @@ class AllyController(ControllerBase):
         "/{ally_id}",
         response={200: SuccessResponse[AllyResponse], **error_responses(401, 404, 500)},
     )
-    def retrieve(self, request: HttpRequest, workspace_id: str, ally_id: str):
+    def retrieve(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        ally_id: CanonicalUUID,
+    ):
         try:
             session = _session(request)
             ally = retrieve_ally(

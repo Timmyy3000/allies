@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 
 from django.conf import settings
-from django.db import models, transaction
+from django.db import models
 from django.db.models import Q
 from django.utils import timezone
-
-from common.identifiers import new_public_id
 
 # Django model metaclasses intentionally consume mutable Meta collections.
 # ruff: noqa: RUF012
@@ -21,19 +20,6 @@ APPEARANCE_CATALOG_VERSION_MAX_LENGTH = 32
 APPEARANCE_KEY_MAX_LENGTH = 128
 ONBOARDING_TEXT_MAX_LENGTH = 4000
 DIGEST_LENGTH = 64
-PUBLIC_ID_MAX_LENGTH = 40
-
-
-def new_ally_public_id() -> str:
-    return new_public_id("ally")
-
-
-def new_binding_id() -> str:
-    return new_public_id("bnd")
-
-
-def new_operation_public_id() -> str:
-    return new_public_id("op")
 
 
 class BindingStatus(models.TextChoices):
@@ -53,12 +39,7 @@ class ProvisioningStatus(models.TextChoices):
 
 
 class Ally(models.Model):
-    public_id = models.CharField(
-        max_length=PUBLIC_ID_MAX_LENGTH,
-        unique=True,
-        editable=False,
-        default=new_ally_public_id,
-    )
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(
         "workspaces.Workspace",
         on_delete=models.CASCADE,
@@ -75,7 +56,7 @@ class Ally(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ("workspace_id", "public_id")
+        ordering = ("workspace_id", "created_at", "id")
         indexes = [
             models.Index(
                 fields=("workspace", "created_at"),
@@ -84,7 +65,7 @@ class Ally(models.Model):
         ]
 
     def __str__(self) -> str:
-        return self.public_id
+        return str(self.id)
 
     @property
     def provisioning_state(self) -> str:
@@ -114,29 +95,12 @@ class Ally(models.Model):
         }.get(operation.status, "pending")
 
 
-class AllyBindingQuerySet(models.QuerySet):
-    def update(self, **kwargs):
-        if "cloud_binding_id" in kwargs:
-            raise ValueError("cloud_binding_id is immutable")
-        return super().update(**kwargs)
-
-    def bulk_update(self, objs, fields, batch_size=None):
-        if "cloud_binding_id" in fields:
-            raise ValueError("cloud_binding_id is immutable")
-        return super().bulk_update(objs, fields, batch_size=batch_size)
-
-
 class AllyBinding(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     ally = models.OneToOneField(
         Ally,
         on_delete=models.CASCADE,
         related_name="binding",
-    )
-    cloud_binding_id = models.CharField(
-        max_length=PUBLIC_ID_MAX_LENGTH,
-        unique=True,
-        editable=False,
-        default=new_binding_id,
     )
     version = models.PositiveSmallIntegerField(default=1)
     status = models.CharField(
@@ -152,10 +116,8 @@ class AllyBinding(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    objects = AllyBindingQuerySet.as_manager()
-
     class Meta:
-        ordering = ("cloud_binding_id",)
+        ordering = ("created_at", "id")
         constraints = [
             models.CheckConstraint(
                 condition=Q(version__gt=0),
@@ -177,21 +139,13 @@ class AllyBinding(models.Model):
         ]
 
     def __str__(self) -> str:
-        return self.cloud_binding_id
-
-    def save(self, *args, **kwargs):
-        if not self._state.adding:
-            with transaction.atomic():
-                previous = type(self).objects.select_for_update().get(pk=self.pk)
-                if previous.cloud_binding_id != self.cloud_binding_id:
-                    raise ValueError("cloud_binding_id is immutable")
-                return super().save(*args, **kwargs)
-        return super().save(*args, **kwargs)
+        return str(self.id)
 
 
 class OnboardingAttempt(models.Model):
     """One expiring, browser-bound official onboarding handoff."""
 
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     attempt_token_digest = models.CharField(
         max_length=DIGEST_LENGTH,
         unique=True,
@@ -291,12 +245,7 @@ def default_operation_expiry():
 
 
 class ProvisioningOperation(models.Model):
-    public_id = models.CharField(
-        max_length=PUBLIC_ID_MAX_LENGTH,
-        unique=True,
-        editable=False,
-        default=new_operation_public_id,
-    )
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     binding = models.OneToOneField(
         AllyBinding,
         on_delete=models.CASCADE,
@@ -341,7 +290,7 @@ class ProvisioningOperation(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ("created_at", "public_id")
+        ordering = ("created_at", "id")
         constraints = [
             models.UniqueConstraint(
                 fields=("workspace", "user", "api_idempotency_key_digest"),
@@ -377,4 +326,4 @@ class ProvisioningOperation(models.Model):
         ]
 
     def __str__(self) -> str:
-        return self.public_id
+        return str(self.id)

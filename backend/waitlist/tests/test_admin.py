@@ -48,7 +48,7 @@ def waitlist_entry(db):
 
 @pytest.fixture
 def staff_user(db):
-    user = User.objects.create_user(public_id="usr_admin")
+    user = User.objects.create_user()
     user.is_staff = True
     user.save(update_fields=("is_staff",))
     return user
@@ -58,18 +58,18 @@ def test_waitlist_admin_has_a_read_only_operator_surface():
     model_admin = admin.site.get_model_admin(WaitlistEntry)
 
     assert model_admin.list_display == (
-        "public_id",
+        "id",
         "name",
         "email_normalized",
         "joined_at",
         "expires_at",
         "created_at",
     )
-    assert model_admin.search_fields == ("public_id", "name", "email_normalized")
+    assert model_admin.search_fields == ("id", "name", "email_normalized")
     assert model_admin.list_filter == ("created_at", "joined_at", "consent_version")
     assert model_admin.ordering == ("-created_at",)
     assert model_admin.fields == (
-        "public_id",
+        "id",
         "generation_claimed_at",
         "name",
         "appearance_catalog_version",
@@ -182,14 +182,14 @@ def test_waitlist_admin_audits_pii_reads_without_logging_pii(
     assert events == [
         {
             "event_name": "waitlist_admin_list_viewed",
-            "actor_ref": staff_user.public_id,
+            "actor_ref": str(staff_user.id),
             "entry_ref": "",
             "search_used": True,
         },
         {
             "event_name": "waitlist_admin_entry_viewed",
-            "actor_ref": staff_user.public_id,
-            "entry_ref": waitlist_entry.public_id,
+            "actor_ref": str(staff_user.id),
+            "entry_ref": str(waitlist_entry.id),
             "search_used": False,
         },
     ]
@@ -250,14 +250,14 @@ def test_waitlist_admin_audits_single_and_bulk_deletions_without_logging_pii(
     assert deletion_events == [
         {
             "event_name": "waitlist_admin_entry_deleted",
-            "actor_ref": staff_user.public_id,
-            "entry_ref": waitlist_entry.public_id,
+            "actor_ref": str(staff_user.id),
+            "entry_ref": str(waitlist_entry.id),
             "search_used": False,
         },
         {
             "event_name": "waitlist_admin_entry_deleted",
-            "actor_ref": staff_user.public_id,
-            "entry_ref": second_entry.public_id,
+            "actor_ref": str(staff_user.id),
+            "entry_ref": str(second_entry.id),
             "search_used": False,
         },
     ]

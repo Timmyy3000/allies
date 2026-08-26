@@ -37,21 +37,21 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             "expires_in": 600,
             "refresh_token": "<rotating-opaque-cloud-token>",
             "refresh_expires_in": 1209600,
-            "session_id": "ses_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+            "session_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
         },
     },
     "SuccessResponse_MeResponse_": {
         "status": "success",
         "message": "Profile loaded",
         "data": {
-            "user": {"id": "usr_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"},
+            "user": {"id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"},
             "profile": {"display_name": "Example User", "avatar_url": None},
             "session": {
-                "id": "ses_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d73",
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d73",
                 "expires_at": "2026-08-12T12:00:00Z",
             },
             "workspace": {
-                "id": "wsp_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
                 "name": "Personal Workspace",
                 "role": "owner",
                 "capabilities": ["workspace:manage"],
@@ -67,7 +67,7 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "status": "success",
         "message": "Avatar upload prepared",
         "data": {
-            "asset_id": "avt_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
+            "asset_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
             "upload_url": "https://uploads.example/avatar",
             "headers": {"Content-Type": "image/png"},
             "expires_at": "2026-08-12T12:00:00Z",
@@ -77,7 +77,7 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "status": "success",
         "message": "Avatar loaded",
         "data": {
-            "asset_id": "avt_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
+            "asset_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
             "url": "https://media.example/avatar",
             "expires_at": "2026-08-12T12:00:00Z",
         },
@@ -86,7 +86,7 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "status": "success",
         "message": "Workspace loaded",
         "data": {
-            "id": "wsp_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
             "name": "Personal Workspace",
             "role": "owner",
             "capabilities": ["workspace:manage"],
@@ -109,9 +109,9 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "status": "success",
         "message": "Ally loaded",
         "data": {
-            "id": "ally_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
-            "binding_id": "bnd_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d77",
-            "operation_id": "op_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d78",
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "binding_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d77",
+            "operation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d78",
             "name": "Mira",
             "job": "Study partner",
             "personality": "Calm, curious, and specific.",
@@ -124,11 +124,11 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "status": "success",
         "message": "Conversation loaded",
         "data": {
-            "id": "conv_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
-            "ally_id": "ally_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
             "messages": [
                 {
-                    "id": "msg_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d80",
+                    "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d80",
                     "sender": "assistant",
                     "content": "Hello! What should we work on first?",
                     "sequence": 1,
@@ -143,9 +143,9 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "status": "success",
         "message": "Message accepted",
         "data": {
-            "conversation_id": "conv_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "conversation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
             "message": {
-                "id": "msg_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
                 "sender": "user",
                 "content": "Help me plan tomorrow's study block.",
                 "sequence": 3,

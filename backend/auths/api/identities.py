@@ -44,7 +44,7 @@ class IdentityController(ControllerBase):
             session = _session(request, expected_client_kind="browser")
             check_rate_limit(
                 scope="link",
-                identity=f"{session.user.public_id}:{provider}",
+                identity=f"{session.user.id}:{provider}",
                 limit=5,
                 period=3600,
             )

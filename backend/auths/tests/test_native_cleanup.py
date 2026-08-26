@@ -90,7 +90,7 @@ def test_cleanup_deletes_expired_pending_and_protects_live_terminal_exchange():
         now=now,
         expires_at=now - timedelta(seconds=1),
     )
-    user = User.objects.create_user(public_id="usr_native_cleanup")
+    user = User.objects.create_user()
     terminal_at = now - timedelta(days=2)
     completed = _transaction(
         status=NativeTransactionStatus.COMPLETED,

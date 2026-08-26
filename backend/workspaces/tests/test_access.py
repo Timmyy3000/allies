@@ -15,13 +15,13 @@ def test_workspace_capability_is_live_and_cross_user_denied():
     )
     context = require_workspace_capability(
         user=first.user,
-        workspace_id=first.workspace.workspace.public_id,
+        workspace_id=first.workspace.workspace.id,
         capability=Capability.WORKSPACE_READ,
     )
     assert context.membership.user_id == first.user.id
     with pytest.raises(WorkspaceAccessDenied):
         require_workspace_capability(
             user=second.user,
-            workspace_id=first.workspace.workspace.public_id,
+            workspace_id=first.workspace.workspace.id,
             capability=Capability.WORKSPACE_READ,
         )

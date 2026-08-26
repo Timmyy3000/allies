@@ -1,4 +1,5 @@
 from urllib.parse import parse_qs, urlparse
+from uuid import UUID
 
 import pytest
 from django.test import Client, override_settings
@@ -52,7 +53,8 @@ def test_fake_sign_in_callback_and_me_are_cookie_bound():
     me = client.get("/api/v1/auths/me", HTTP_HOST="testserver")
     assert me.status_code == 200
     assert me.json()["status"] == "success"
-    assert me.json()["data"]["user"]["id"].startswith("usr_")
+    user_id = me.json()["data"]["user"]["id"]
+    assert str(UUID(user_id)) == user_id
     assert "provider" not in me.json()["data"]
 
 
