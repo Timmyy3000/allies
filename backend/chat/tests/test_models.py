@@ -15,10 +15,8 @@ from workspaces.models import Membership, Workspace
 
 @pytest.fixture
 def account(db):
-    user = User.objects.create_user(public_id="usr_chat_models")
-    workspace = Workspace.objects.create(
-        public_id="wsp_chat_models", owner=user, name="Personal Workspace"
-    )
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Personal Workspace")
     Membership.objects.create(
         workspace=workspace, user=user, role="owner", status="active"
     )

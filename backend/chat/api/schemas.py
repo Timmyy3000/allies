@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from ninja import Schema
 from pydantic import ConfigDict, Field
@@ -12,7 +13,7 @@ class SendMessageRequest(Schema):
 
 
 class MessageResponse(Schema):
-    id: str
+    id: UUID
     sender: str
     content: str
     sequence: int
@@ -21,14 +22,14 @@ class MessageResponse(Schema):
 
 
 class ConversationResponse(Schema):
-    id: str
-    ally_id: str
+    id: UUID
+    ally_id: UUID
     messages: list[MessageResponse]
     next_cursor: str | None = None
 
 
 class MessageAcceptanceResponse(Schema):
-    conversation_id: str
+    conversation_id: UUID
     message: MessageResponse
     execution: dict[str, Any] | None = None
     replayed: bool

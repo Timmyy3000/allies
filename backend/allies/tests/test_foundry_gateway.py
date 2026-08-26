@@ -12,10 +12,10 @@ from allies.gateways.foundry import ProfileProvisioningRequest, provision_profil
 
 def request_payload() -> ProfileProvisioningRequest:
     return ProfileProvisioningRequest(
-        workspace_id="wsp_gateway",
-        binding_id="bnd_gateway",
-        ally_ref="ally_gateway",
-        operation_id="op_gateway",
+        workspace_id="00000000-0000-4000-8000-000000000001",
+        binding_id="00000000-0000-4000-8000-000000000002",
+        ally_ref="00000000-0000-4000-8000-000000000003",
+        operation_id="00000000-0000-4000-8000-000000000004",
         request_fingerprint="a" * 64,
         job="Study partner",
         personality="Calm and specific",
@@ -39,8 +39,8 @@ class Response:
 def receipt(**overrides):
     return {
         "version": 1,
-        "binding_id": "bnd_gateway",
-        "operation_id": "op_gateway",
+        "binding_id": "00000000-0000-4000-8000-000000000002",
+        "operation_id": "00000000-0000-4000-8000-000000000004",
         "request_fingerprint": "a" * 64,
         "status": "pending",
         "evidence_digest": "b" * 64,

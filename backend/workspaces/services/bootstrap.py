@@ -8,7 +8,6 @@ from django.db import IntegrityError, transaction
 
 from auths.exceptions import WorkspaceInvariantError
 from auths.models import User, UserProfile
-from common.identifiers import new_public_id
 
 from ..models import (
     Membership,
@@ -52,7 +51,6 @@ def ensure_personal_workspace(user: User) -> WorkspaceContext:
             try:
                 with transaction.atomic():
                     workspace = Workspace.objects.create(
-                        public_id=new_public_id("wsp"),
                         kind=WorkspaceKind.PERSONAL,
                         owner=locked_user,
                         name=_workspace_name(locked_user),

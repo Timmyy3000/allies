@@ -34,6 +34,7 @@ from chat.exceptions import (
 )
 from chat.services.conversations import retrieve_conversation
 from chat.services.messages import accept_message, message_response
+from common.uuids import CanonicalUUID
 
 
 def _message_response(message) -> MessageResponse:
@@ -42,8 +43,8 @@ def _message_response(message) -> MessageResponse:
 
 def _conversation_response(result) -> ConversationResponse:
     return ConversationResponse(
-        id=result.conversation.public_id,
-        ally_id=result.conversation.ally.public_id,
+        id=str(result.conversation.id),
+        ally_id=str(result.conversation.ally.id),
         messages=[_message_response(message) for message in result.messages],
         next_cursor=result.next_cursor,
     )
@@ -51,7 +52,7 @@ def _conversation_response(result) -> ConversationResponse:
 
 def _acceptance_response(result) -> MessageAcceptanceResponse:
     return MessageAcceptanceResponse(
-        conversation_id=result.conversation.public_id,
+        conversation_id=str(result.conversation.id),
         message=_message_response(result.message),
         execution=None,
         replayed=result.replayed,
@@ -100,8 +101,8 @@ class ConversationController(ControllerBase):
     def by_ally(
         self,
         request: HttpRequest,
-        workspace_id: str,
-        ally_id: str,
+        workspace_id: CanonicalUUID,
+        ally_id: CanonicalUUID,
         limit: int = Query(50, ge=1, le=100),
         cursor: str | None = Query(None),
     ):
@@ -131,8 +132,8 @@ class ConversationController(ControllerBase):
     def by_conversation(
         self,
         request: HttpRequest,
-        workspace_id: str,
-        conversation_id: str,
+        workspace_id: CanonicalUUID,
+        conversation_id: CanonicalUUID,
         limit: int = Query(50, ge=1, le=100),
         cursor: str | None = Query(None),
     ):
@@ -163,8 +164,8 @@ class ConversationController(ControllerBase):
     def send(
         self,
         request: HttpRequest,
-        workspace_id: str,
-        conversation_id: str,
+        workspace_id: CanonicalUUID,
+        conversation_id: CanonicalUUID,
         payload: SendMessageRequest,
         idempotency_key: Annotated[
             str,

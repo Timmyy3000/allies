@@ -11,6 +11,7 @@ import time
 from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlencode, urlparse, urlsplit, urlunsplit
+from uuid import UUID
 
 from django.db import DatabaseError, transaction
 from django.utils import timezone
@@ -226,7 +227,7 @@ def _terminal_redirect(
 
 
 def _mark_failed(
-    transaction_id: int,
+    transaction_id: UUID,
     *,
     claim_digest: str | None,
     error_code: str = "provider_unavailable",
@@ -344,7 +345,7 @@ def _claim_transaction(
 
 
 def _finalize_provider_result(
-    transaction_id: int,
+    transaction_id: UUID,
     *,
     claim_digest: str,
     identity,
@@ -383,7 +384,7 @@ def _finalize_provider_result(
             "auth.native.flow.completed",
             outcome="accepted",
             provider=locked.provider,
-            user_ref=bootstrap.user.public_id,
+            user_ref=str(bootstrap.user.id),
         )
         return _success_redirect(locked, raw_code)
 

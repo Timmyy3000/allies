@@ -13,7 +13,7 @@ from auths.services.sessions import (
     authenticate_access,
     issue_session,
     logout_session,
-    refresh_family_public_id,
+    refresh_family_id,
     revoke_family,
     rotate_refresh,
 )
@@ -28,8 +28,8 @@ def test_refresh_rotation_is_one_time_and_reuse_revokes_family():
     rotated = rotate_refresh(issued.refresh_token)
 
     assert authenticate_access(issued.access_token).user.id == user.id
-    assert rotated.family.public_id == issued.family.public_id
-    assert refresh_family_public_id(rotated.refresh_token) == issued.family.public_id
+    assert rotated.family.id == issued.family.id
+    assert refresh_family_id(rotated.refresh_token) == str(issued.family.id)
     with pytest.raises(SessionInvalid):
         rotate_refresh(issued.refresh_token)
     family = SessionFamily.objects.get(pk=issued.family.pk)
@@ -99,7 +99,7 @@ def test_session_lifecycle_rejects_inactive_unknown_and_expired_records():
     user.save(update_fields=("is_active",))
     issued = issue_session(user)
     claims = _decode_jwt(issued.access_token)
-    claims["sid"] = "ses_missing"
+    claims["sid"] = "00000000-0000-4000-8000-000000000000"
     with pytest.raises(SessionInvalid):
         authenticate_access(_encode_jwt(claims))
 

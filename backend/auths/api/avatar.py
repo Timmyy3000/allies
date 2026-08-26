@@ -25,6 +25,7 @@ from auths.services.avatars import (
     signed_avatar_read,
 )
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_limit
+from common.uuids import CanonicalUUID
 
 
 @api_controller("/auths", tags=["User Profile"])
@@ -44,7 +45,7 @@ class AvatarController(ControllerBase):
             session = _session(request)
             check_rate_limit(
                 scope="avatar-prepare",
-                identity=session.user.public_id,
+                identity=str(session.user.id),
                 limit=10,
                 period=3600,
             )
@@ -67,7 +68,7 @@ class AvatarController(ControllerBase):
             return error_json(code, "avatar request invalid", _domain_status(code, 422))
         return success_json(
             PreparedAvatarResponse(
-                asset_id=prepared.asset.public_id,
+                asset_id=str(prepared.asset.id),
                 upload_url=prepared.upload_url,
                 headers=prepared.headers,
                 expires_at=prepared.expires_at,
@@ -83,7 +84,7 @@ class AvatarController(ControllerBase):
             **error_responses(401, 403, 404, 409, 422, 429, 500, 503),
         },
     )
-    def complete(self, request: HttpRequest, asset_id: str):
+    def complete(self, request: HttpRequest, asset_id: CanonicalUUID):
         rejected = _require_origin(request, allow_native_bearer=True)
         if rejected:
             return rejected
@@ -91,12 +92,12 @@ class AvatarController(ControllerBase):
             session = _session(request)
             check_rate_limit(
                 scope="avatar-complete",
-                identity=session.user.public_id,
+                identity=str(session.user.id),
                 limit=20,
                 period=3600,
             )
             ready = complete_avatar_upload(user=session.user, asset_id=asset_id)
-            url, expires = signed_avatar_read(user=session.user)
+            _asset, url, expires = signed_avatar_read(user=session.user)
         except ThrottleExceeded:
             return error_json("throttled", "try again later", 429)
         except ThrottleUnavailable:
@@ -109,7 +110,7 @@ class AvatarController(ControllerBase):
             code = getattr(exc, "code", "avatar_invalid")
             return error_json(code, "avatar unavailable", _domain_status(code, 422))
         return success_json(
-            AvatarResponse(asset_id=ready.asset.public_id, url=url, expires_at=expires),
+            AvatarResponse(asset_id=str(ready.asset.id), url=url, expires_at=expires),
             "Avatar completed",
         )
 
@@ -123,7 +124,7 @@ class AvatarController(ControllerBase):
     def read(self, request: HttpRequest):
         try:
             session = _session(request)
-            url, expires = signed_avatar_read(user=session.user)
+            asset, url, expires = signed_avatar_read(user=session.user)
         except SessionInvalid:
             return error_json("session_invalid", "session invalid", 401)
         except RuntimeError:
@@ -132,7 +133,7 @@ class AvatarController(ControllerBase):
             code = getattr(exc, "code", "avatar_absent")
             return error_json(code, "avatar unavailable", _domain_status(code, 404))
         return success_json(
-            AvatarResponse(asset_id="", url=url, expires_at=expires),
+            AvatarResponse(asset_id=asset.id, url=url, expires_at=expires),
             "Avatar read prepared",
         )
 

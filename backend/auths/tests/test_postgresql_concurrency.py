@@ -76,7 +76,7 @@ def test_same_refresh_token_converges_and_revokes_family_under_postgresql_race()
     def rotate_once():
         close_old_connections()
         try:
-            return "rotated", rotate_refresh(issued.refresh_token).family.public_id
+            return "rotated", rotate_refresh(issued.refresh_token).family.id
         except SessionInvalid:
             return "rejected", None
         finally:
@@ -219,7 +219,7 @@ def test_avatar_completion_and_cleanup_converge_under_postgresql_race():
     def complete():
         close_old_connections()
         try:
-            complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
+            complete_avatar_upload(user=user, asset_id=prepared.asset.id)
             return "completed"
         except AvatarConflict:
             return "conflict"
@@ -289,7 +289,7 @@ def test_same_avatar_completion_is_idempotent_under_postgresql_race():
     def complete_once():
         close_old_connections()
         try:
-            ready = complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
+            ready = complete_avatar_upload(user=user, asset_id=prepared.asset.id)
             return ready.asset.object_key
         finally:
             connection.close()

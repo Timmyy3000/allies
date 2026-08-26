@@ -29,10 +29,8 @@ class GreetingProvider:
 @pytest.fixture
 def account(db, settings):
     settings.ALLIES_AUTH_DIGEST_KEY = "d" * 32
-    user = User.objects.create_user(public_id="usr_ally_service")
-    workspace = Workspace.objects.create(
-        public_id="wsp_ally_service", owner=user, name="Personal Workspace"
-    )
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Personal Workspace")
     Membership.objects.create(
         workspace=workspace, user=user, role="owner", status="active"
     )
@@ -80,7 +78,7 @@ def test_create_replays_same_intent_and_conflicts_on_changed_content(account):
     values = {
         **payload(),
         "user": user,
-        "workspace_id": workspace.public_id,
+        "workspace_id": workspace.id,
         "onboarding_attempt": start.attempt_token,
         "reply": "Help me plan tomorrow.",
         "browser_binding": b"browser",
@@ -113,7 +111,7 @@ def test_create_rejects_browser_or_seed_tampering(account):
     values = {
         **payload(),
         "user": user,
-        "workspace_id": workspace.public_id,
+        "workspace_id": workspace.id,
         "onboarding_attempt": start.attempt_token,
         "reply": "Help me plan tomorrow.",
         "browser_binding": b"other-browser",
@@ -140,24 +138,22 @@ def test_retrieve_is_workspace_scoped(account):
     result = create_ally(
         **payload(),
         user=user,
-        workspace_id=workspace.public_id,
+        workspace_id=workspace.id,
         onboarding_attempt=start.attempt_token,
         reply="Help me plan tomorrow.",
         browser_binding=b"browser",
         idempotency_key="stable-create-key-3",
     )
     assert (
-        retrieve_ally(
-            user=user, workspace_id=workspace.public_id, ally_id=result.ally.public_id
-        ).pk
+        retrieve_ally(user=user, workspace_id=workspace.id, ally_id=result.ally.id).pk
         == result.ally.pk
     )
-    stranger = User.objects.create_user(public_id="usr_stranger")
+    stranger = User.objects.create_user()
     with pytest.raises(WorkspaceAccessDenied):
         retrieve_ally(
             user=stranger,
-            workspace_id=workspace.public_id,
-            ally_id=result.ally.public_id,
+            workspace_id=workspace.id,
+            ally_id=result.ally.id,
         )
 
 
@@ -185,7 +181,7 @@ def test_cleanup_deletes_only_expired_unconsumed_attempts(account):
     create_ally(
         **payload(),
         user=user,
-        workspace_id=workspace.public_id,
+        workspace_id=workspace.id,
         onboarding_attempt=consumed.attempt_token,
         reply="Retain this exchange for handoff.",
         browser_binding=b"consumed-browser",

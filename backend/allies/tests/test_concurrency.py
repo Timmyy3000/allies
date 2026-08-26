@@ -47,10 +47,8 @@ def seed():
 def test_concurrent_same_key_create_converges_on_one_ally(settings, monkeypatch):
     settings.ALLIES_AUTH_DIGEST_KEY = "d" * 32
     monkeypatch.setattr("allies.services.creation._enqueue_dispatch", lambda: None)
-    user = User.objects.create_user(public_id="usr_ally_race")
-    workspace = Workspace.objects.create(
-        public_id="wsp_ally_race", owner=user, name="Personal Workspace"
-    )
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Personal Workspace")
     Membership.objects.create(
         workspace=workspace, user=user, role="owner", status="active"
     )
@@ -69,12 +67,12 @@ def test_concurrent_same_key_create_converges_on_one_ally(settings, monkeypatch)
             return create_ally(
                 **seed(),
                 user=user,
-                workspace_id=workspace.public_id,
+                workspace_id=workspace.id,
                 onboarding_attempt=start.attempt_token,
                 reply="Help me plan tomorrow.",
                 browser_binding=b"race-browser",
                 idempotency_key="stable-concurrent-key-1",
-            ).ally.public_id
+            ).ally.id
         finally:
             close_old_connections()
 
@@ -90,10 +88,8 @@ def test_concurrent_same_key_create_converges_on_one_ally(settings, monkeypatch)
 
 @pytest.mark.django_db(transaction=True)
 def test_duplicate_dispatch_claims_are_fenced_by_one_live_lease():
-    user = User.objects.create_user(public_id="usr_dispatch_race")
-    workspace = Workspace.objects.create(
-        public_id="wsp_dispatch_race", owner=user, name="Dispatch"
-    )
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Dispatch")
     ally = Ally.objects.create(workspace=workspace, **seed())
     binding = AllyBinding.objects.create(ally=ally)
     operation = ProvisioningOperation.objects.create(

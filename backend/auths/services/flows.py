@@ -289,7 +289,7 @@ def complete_auth_flow(
             "auth.identity.linked",
             outcome="accepted",
             provider=provider_key.value,
-            user_ref=family.user.public_id,
+            user_ref=str(family.user.id),
         )
         return AuthCompletion(
             user=family.user,
@@ -303,7 +303,7 @@ def complete_auth_flow(
         "auth.flow.completed",
         outcome="accepted",
         provider=provider_key.value,
-        user_ref=bootstrap.user.public_id,
+        user_ref=str(bootstrap.user.id),
     )
     return AuthCompletion(
         user=bootstrap.user,

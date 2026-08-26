@@ -37,6 +37,7 @@ def test_subject_resolution_is_idempotent_and_never_merges_email():
     assert other.user.id != first.user.id
     assert User.objects.count() == 2
     assert ExternalIdentity.objects.count() == 2
+    assert str(ExternalIdentity.objects.get(subject="subject-a")) == "fake:subject-a"
     assert UserProfile.objects.count() == 2
     assert Workspace.objects.count() == 2
     assert Membership.objects.count() == 2

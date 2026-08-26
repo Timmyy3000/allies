@@ -36,17 +36,13 @@ def seed():
     ALLIES_AUTH_JWT_KEY="j" * 32,
 )
 def test_create_retrieve_and_replay_use_workspace_scoped_contract(monkeypatch):
-    user = User.objects.create_user(public_id="usr_ally_api")
-    workspace = Workspace.objects.create(
-        public_id="wsp_ally_api", owner=user, name="Personal Workspace"
-    )
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Personal Workspace")
     Membership.objects.create(
         workspace=workspace, user=user, role="owner", status="active"
     )
-    other_user = User.objects.create_user(public_id="usr_ally_api_other")
-    other_workspace = Workspace.objects.create(
-        public_id="wsp_ally_api_other", owner=other_user, name="Other Workspace"
-    )
+    other_user = User.objects.create_user()
+    other_workspace = Workspace.objects.create(owner=other_user, name="Other Workspace")
     Membership.objects.create(
         workspace=other_workspace, user=other_user, role="owner", status="active"
     )
@@ -79,13 +75,13 @@ def test_create_retrieve_and_replay_use_workspace_scoped_contract(monkeypatch):
     }
 
     created = client.post(
-        f"/api/v1/workspaces/{workspace.public_id}/allies",
+        f"/api/v1/workspaces/{workspace.id}/allies",
         json.dumps(payload),
         content_type="application/json",
         **headers,
     )
     replay = client.post(
-        f"/api/v1/workspaces/{workspace.public_id}/allies",
+        f"/api/v1/workspaces/{workspace.id}/allies",
         json.dumps(payload),
         content_type="application/json",
         **headers,
@@ -96,11 +92,11 @@ def test_create_retrieve_and_replay_use_workspace_scoped_contract(monkeypatch):
     assert replay.json()["data"]["id"] == created.json()["data"]["id"]
     ally_id = created.json()["data"]["id"]
     loaded = client.get(
-        f"/api/v1/workspaces/{workspace.public_id}/allies/{ally_id}",
+        f"/api/v1/workspaces/{workspace.id}/allies/{ally_id}",
         HTTP_HOST="testserver",
     )
     foreign = client.get(
-        f"/api/v1/workspaces/{other_workspace.public_id}/allies/{ally_id}",
+        f"/api/v1/workspaces/{other_workspace.id}/allies/{ally_id}",
         HTTP_HOST="testserver",
     )
 
@@ -133,7 +129,7 @@ def test_onboarding_attempt_route_requires_trusted_csrf_bound_origin():
 def test_retrieve_requires_a_valid_session():
     client = Client()
     response = client.get(
-        "/api/v1/workspaces/wsp_missing/allies/ally_missing",
+        "/api/v1/workspaces/00000000-0000-4000-8000-000000000001/allies/00000000-0000-4000-8000-000000000002",
         HTTP_HOST="testserver",
     )
 

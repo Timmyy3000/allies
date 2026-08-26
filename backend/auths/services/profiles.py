@@ -64,18 +64,18 @@ def get_self_profile(session: AuthenticatedSession) -> MeResult:
         from auths.services.avatars import signed_avatar_read
 
         try:
-            avatar_url, _ = signed_avatar_read(user=user)
+            _asset, avatar_url, _expires = signed_avatar_read(user=user)
         except Exception:  # noqa: BLE001 - signed-read outages do not expose keys or fail /me
             # A temporary storage outage must not leak an object key or fail the
             # rest of the self projection.
             avatar_url = None
     expires_at = datetime.fromtimestamp(int(session.claims["exp"]), tz=UTC)
     return MeResult(
-        user_id=user.public_id,
+        user_id=str(user.id),
         profile=ProfileResult(profile.display_name, avatar_url),
-        session=SessionResult(session.family.public_id, expires_at),
+        session=SessionResult(str(session.family.id), expires_at),
         workspace=WorkspaceResult(
-            membership.workspace.public_id,
+            str(membership.workspace.id),
             membership.workspace.name,
             membership.role,
             capabilities_for_role(membership.role),

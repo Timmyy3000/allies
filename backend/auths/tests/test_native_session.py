@@ -179,7 +179,9 @@ def test_native_callback_exchange_refresh_and_logout_bind_one_native_family(
         issued.access_token, expected_client_kind=SessionClientKind.NATIVE
     )
     assert issued.family.client_kind == SessionClientKind.NATIVE
-    assert authenticated.user.public_id.startswith("usr_")
+    import uuid
+
+    assert isinstance(authenticated.user.id, uuid.UUID)
 
     with pytest.raises(NativeExchangeReplay):
         exchange_native_code(

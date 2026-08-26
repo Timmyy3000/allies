@@ -1,10 +1,10 @@
 from __future__ import annotations
 
+import uuid
+
 from django.conf import settings
 from django.db import models
 from django.db.models import Q
-
-from common.identifiers import new_public_id
 
 # Django model metaclasses intentionally consume mutable Meta collections.
 # ruff: noqa: RUF012
@@ -24,7 +24,7 @@ class MembershipStatus(models.TextChoices):
 
 
 class Workspace(models.Model):
-    public_id = models.CharField(max_length=40, unique=True, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     kind = models.CharField(
         max_length=20, choices=WorkspaceKind.choices, default=WorkspaceKind.PERSONAL
     )
@@ -58,10 +58,11 @@ class Workspace(models.Model):
         ]
 
     def __str__(self) -> str:
-        return self.public_id
+        return str(self.id)
 
 
 class Membership(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(
         Workspace, on_delete=models.CASCADE, related_name="memberships"
     )
@@ -94,8 +95,4 @@ class Membership(models.Model):
         ]
 
     def __str__(self) -> str:
-        return f"{self.workspace.public_id}:{self.user.public_id}"
-
-
-def new_workspace_id() -> str:
-    return new_public_id("wsp")
+        return f"{self.workspace_id}:{self.user_id}"

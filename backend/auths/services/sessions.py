@@ -11,6 +11,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
+from uuid import UUID
 
 from django.db import transaction
 from django.utils import timezone
@@ -32,7 +33,7 @@ from auths.models import (
     SessionFamily,
     User,
 )
-from common.identifiers import new_public_id
+from common.uuids import canonical_uuid
 
 
 def _b64(value: bytes) -> str:
@@ -59,6 +60,15 @@ def _encode_jwt(claims: dict[str, Any]) -> str:
     signing_input = f"{encoded_header}.{encoded_claims}".encode()
     signature = hmac.new(jwt_key(), signing_input, hashlib.sha256).digest()
     return f"{encoded_header}.{encoded_claims}.{_b64(signature)}"
+
+
+def _claim_uuid(value: object) -> UUID:
+    if not isinstance(value, str):
+        raise SessionInvalid("access token subject invalid")
+    try:
+        return canonical_uuid(value)
+    except (TypeError, ValueError) as exc:
+        raise SessionInvalid("access token subject invalid") from exc
 
 
 def _decode_jwt(raw: str) -> dict[str, Any]:
@@ -96,6 +106,8 @@ def _decode_jwt(raw: str) -> dict[str, Any]:
         for key in ("sub", "sid", "jti")
     ):
         raise SessionInvalid("access token subject invalid")
+    _claim_uuid(claims["sub"])
+    _claim_uuid(claims["sid"])
     return claims
 
 
@@ -122,7 +134,7 @@ class AuthenticatedSession:
 
 
 class _RefreshReuse(Exception):
-    def __init__(self, family_id: int):
+    def __init__(self, family_id: UUID):
         self.family_id = family_id
 
 
@@ -133,8 +145,8 @@ def _access_token(
     claims = {
         "iss": jwt_issuer(),
         "aud": jwt_audience(),
-        "sub": user.public_id,
-        "sid": family.public_id,
+        "sub": str(user.id),
+        "sid": str(family.id),
         "jti": uuid.uuid4().hex,
         "iat": int(now.timestamp()),
         "exp": int(expires.timestamp()),
@@ -165,7 +177,6 @@ def issue_session(
     absolute = now + timedelta(seconds=refresh_absolute_seconds())
     family = SessionFamily.objects.create(
         user=user,
-        public_id=new_public_id("ses"),
         last_used_at=now,
         idle_expires_at=idle,
         absolute_expires_at=absolute,
@@ -182,9 +193,11 @@ def authenticate_access(
     raw_jwt: str, *, expected_client_kind: SessionClientKind | str | None = None
 ) -> AuthenticatedSession:
     claims = _decode_jwt(raw_jwt)
+    user_id = _claim_uuid(claims["sub"])
+    family_id = _claim_uuid(claims["sid"])
     try:
         family = SessionFamily.objects.select_related("user").get(
-            public_id=claims["sid"], user__public_id=claims["sub"]
+            pk=family_id, user_id=user_id
         )
     except SessionFamily.DoesNotExist as exc:
         raise SessionInvalid("session not found") from exc
@@ -195,21 +208,21 @@ def authenticate_access(
             raise SessionInvalid("session client kind invalid") from exc
         if family.client_kind != resolved_client_kind:
             raise SessionInvalid("session transport mismatch")
-    if not family.is_active() or family.user.public_id != claims["sub"]:
+    if not family.is_active() or family.user_id != user_id:
         raise SessionInvalid("session inactive")
     return AuthenticatedSession(user=family.user, family=family, claims=claims)
 
 
-def refresh_family_public_id(raw_token: str) -> str:
+def refresh_family_id(raw_token: str) -> str:
     """Resolve a rotating refresh token to its stable, non-secret family id."""
 
     if not isinstance(raw_token, str) or len(raw_token) > 512:
         raise SessionInvalid("refresh token invalid")
     try:
-        return (
+        return str(
             RefreshToken.objects.select_related("family")
             .get(token_digest=_digest(raw_token))
-            .family.public_id
+            .family.id
         )
     except RefreshToken.DoesNotExist as exc:
         raise SessionInvalid("refresh token invalid") from exc

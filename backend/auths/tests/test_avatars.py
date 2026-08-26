@@ -55,10 +55,12 @@ def test_avatar_prepare_complete_replace_read_and_delete(avatar_context):
         sha256=hashlib.sha256(first_data).hexdigest(),
     )
     store.put(first.asset.object_key, first_data, content_type)
-    ready = complete_avatar_upload(user=user, asset_id=first.asset.public_id)
+    ready = complete_avatar_upload(user=user, asset_id=first.asset.id)
     assert ready.asset.status == AvatarStatus.READY
     assert ready.asset.width == 12
-    url, expires = signed_avatar_read(user=user)
+    returned_asset, url, expires = signed_avatar_read(user=user)
+
+    assert returned_asset == ready.asset
     assert url.startswith("memory://get/")
     assert expires > timezone.now()
     second_data, second_type = _image("JPEG")
@@ -69,7 +71,7 @@ def test_avatar_prepare_complete_replace_read_and_delete(avatar_context):
         sha256=hashlib.sha256(second_data).hexdigest(),
     )
     store.put(second.asset.object_key, second_data, second_type)
-    complete_avatar_upload(user=user, asset_id=second.asset.public_id)
+    complete_avatar_upload(user=user, asset_id=second.asset.id)
     assert AvatarAsset.objects.get(pk=first.asset.pk).status == AvatarStatus.REPLACED
     delete_current_avatar(user)
     with pytest.raises(AvatarNotFound):
@@ -89,7 +91,7 @@ def test_completed_avatar_is_immune_to_staging_url_reuse(avatar_context):
     staging_key = prepared.asset.object_key
     store.put(staging_key, original, content_type)
 
-    completed = complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
+    completed = complete_avatar_upload(user=user, asset_id=prepared.asset.id)
     store.put(staging_key, b"attacker-overwrite", content_type)
 
     completed.asset.refresh_from_db()
@@ -129,7 +131,7 @@ def test_avatar_promotion_conflict_removes_uncommitted_verified_object(
     verified_key = f"{prepared.asset.object_key.removeprefix('staging/')}.verified"
 
     with pytest.raises(AvatarConflict):
-        complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
+        complete_avatar_upload(user=user, asset_id=prepared.asset.id)
     with pytest.raises(KeyError):
         store.head(key=verified_key)
 
@@ -156,7 +158,7 @@ def test_avatar_completion_reloads_ready_state_after_staging_disappears(
 
     monkeypatch.setattr("auths.services.avatars._read_object", concurrently_promoted)
 
-    ready = complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
+    ready = complete_avatar_upload(user=user, asset_id=prepared.asset.id)
     assert ready.asset.status == AvatarStatus.READY
     assert ready.asset.object_key == final_key
 
@@ -201,11 +203,11 @@ def test_avatar_storage_failures_are_normalized(avatar_context, monkeypatch):
         lambda **kwargs: (_ for _ in ()).throw(OSError("R2 unavailable")),
     )
     with pytest.raises(AvatarStorageUnavailable, match="promotion"):
-        complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
+        complete_avatar_upload(user=user, asset_id=prepared.asset.id)
 
     monkeypatch.undo()
     set_avatar_store(store)
-    ready = complete_avatar_upload(user=user, asset_id=prepared.asset.public_id)
+    ready = complete_avatar_upload(user=user, asset_id=prepared.asset.id)
     monkeypatch.setattr(
         store,
         "sign_get",
@@ -231,7 +233,7 @@ def test_cross_user_avatar_pointer_fails_closed(avatar_context):
     )
     store.put(other_upload.asset.object_key, data, content_type)
     other_ready = complete_avatar_upload(
-        user=other, asset_id=other_upload.asset.public_id
+        user=other, asset_id=other_upload.asset.id
     ).asset
     UserProfile.objects.filter(user=user).update(current_avatar=other_ready)
 
@@ -248,7 +250,7 @@ def test_cross_user_avatar_pointer_fails_closed(avatar_context):
     )
     store.put(user_upload.asset.object_key, data, content_type)
     with pytest.raises(AvatarConflict):
-        complete_avatar_upload(user=user, asset_id=user_upload.asset.public_id)
+        complete_avatar_upload(user=user, asset_id=user_upload.asset.id)
     other_ready.refresh_from_db()
     assert other_ready.status == AvatarStatus.READY
     assert store.head(key=other_ready.object_key).size == len(data)
@@ -266,9 +268,11 @@ def test_avatar_rejects_bad_objects_and_foreign_assets(avatar_context):
     )
     store.put(pending.asset.object_key, b"not-an-image", content_type)
     with pytest.raises(AvatarError):
-        complete_avatar_upload(user=user, asset_id=pending.asset.public_id)
+        complete_avatar_upload(user=user, asset_id=pending.asset.id)
     with pytest.raises(AvatarNotFound):
-        complete_avatar_upload(user=user, asset_id="avt_missing")
+        complete_avatar_upload(
+            user=user, asset_id="00000000-0000-4000-8000-000000000000"
+        )
     with pytest.raises(ValidationError):
         prepare_avatar_upload(
             user=user, content_type="text/plain", size=1, sha256="0" * 64
@@ -284,7 +288,6 @@ def test_avatar_cleanup_claims_expired_pending_and_records_failures(avatar_conte
     user, store = avatar_context
     asset = AvatarAsset.objects.create(
         user=user,
-        public_id="avt_expired",
         object_key="expired-key",
         status=AvatarStatus.PENDING,
         expected_content_type="image/png",
@@ -305,7 +308,6 @@ def test_avatar_cleanup_rechecks_status_after_candidate_selection(
     user, store = avatar_context
     asset = AvatarAsset.objects.create(
         user=user,
-        public_id="avt_cleanup_race",
         object_key="staging/users/test/avatar-race",
         status=AvatarStatus.PENDING,
         expected_content_type="image/png",

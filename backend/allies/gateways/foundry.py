@@ -9,31 +9,17 @@ from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
 from allies.exceptions import ProvisioningRejected, ProvisioningRetryable
 
+_UUID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+
 
 class ProfileProvisioningRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: StrictInt = Field(default=1, ge=1, le=1)
-    workspace_id: StrictStr = Field(
-        min_length=1,
-        max_length=40,
-        pattern=r"^[^\s\x00-\x1f\x7f]{1,40}$",
-    )
-    binding_id: StrictStr = Field(
-        min_length=1,
-        max_length=40,
-        pattern=r"^[^\s\x00-\x1f\x7f]{1,40}$",
-    )
-    ally_ref: StrictStr = Field(
-        min_length=1,
-        max_length=40,
-        pattern=r"^[^\s\x00-\x1f\x7f]{1,40}$",
-    )
-    operation_id: StrictStr = Field(
-        min_length=1,
-        max_length=40,
-        pattern=r"^[^\s\x00-\x1f\x7f]{1,40}$",
-    )
+    workspace_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    binding_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    ally_ref: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    operation_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
     request_fingerprint: StrictStr = Field(
         min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
     )
@@ -47,8 +33,8 @@ class ProfileProvisioningReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     version: StrictInt = Field(ge=1, le=1)
-    binding_id: StrictStr = Field(min_length=1, max_length=40)
-    operation_id: StrictStr = Field(min_length=1, max_length=40)
+    binding_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    operation_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
     request_fingerprint: StrictStr = Field(
         min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
     )

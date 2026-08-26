@@ -20,10 +20,8 @@ from workspaces.models import Workspace
 
 @pytest.fixture
 def operation(db):
-    user = User.objects.create_user(public_id="usr_dispatch")
-    workspace = Workspace.objects.create(
-        public_id="wsp_dispatch", owner=user, name="Dispatch"
-    )
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Dispatch")
     ally = Ally.objects.create(
         workspace=workspace,
         name="Mira",

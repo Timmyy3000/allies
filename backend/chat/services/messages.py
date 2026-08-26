@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
+from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
@@ -42,6 +43,7 @@ from chat.models import (
     MessageOrigin,
     MessageSender,
 )
+from common.uuids import canonical_uuid
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 
@@ -59,6 +61,13 @@ class Cursor:
     before_sequence: int
     expires_at: int
     key_id: str
+
+
+def _parse_uuid(value: UUID | str) -> UUID:
+    try:
+        return canonical_uuid(value)
+    except (TypeError, ValueError) as exc:
+        raise ConversationUnavailable("conversation unavailable") from exc
 
 
 def normalize_content(content: object) -> str:
@@ -123,12 +132,13 @@ def enforce_send_rate_limit(
     return reservation
 
 
-def _conversation_for_send(*, workspace, conversation_id: str) -> Conversation:
+def _conversation_for_send(*, workspace, conversation_id: UUID | str) -> Conversation:
+    parsed_conversation_id = _parse_uuid(conversation_id)
     try:
         return (
             Conversation.objects.select_for_update()
             .select_related("ally", "ally__workspace")
-            .get(public_id=conversation_id, ally__workspace=workspace)
+            .get(pk=parsed_conversation_id, ally__workspace=workspace)
         )
     except Conversation.DoesNotExist as exc:
         raise ConversationUnavailable("conversation unavailable") from exc
@@ -137,8 +147,8 @@ def _conversation_for_send(*, workspace, conversation_id: str) -> Conversation:
 def accept_message(
     *,
     user: User,
-    workspace_id: str,
-    conversation_id: str,
+    workspace_id: UUID | str,
+    conversation_id: UUID | str,
     content: object,
     idempotency_key: object,
 ) -> MessageAcceptance:
@@ -151,11 +161,13 @@ def accept_message(
     key = _validate_send_key(idempotency_key)
     key_digest = _digest(key)
     content_fingerprint = _fingerprint(normalized)
-    user_ref = str(getattr(user, "public_id", None) or user.pk)
+    user_ref = str(user.id)
+    workspace_ref = str(context.workspace.id)
+    conversation_ref = str(_parse_uuid(conversation_id))
     reservation_key = _reservation_token(
-        workspace_id=workspace_id,
+        workspace_id=workspace_ref,
         user_id=user_ref,
-        conversation_id=conversation_id,
+        conversation_id=conversation_ref,
         key_digest=key_digest,
     )
     reservation: RateLimitReservation | None = None
@@ -193,7 +205,7 @@ def accept_message(
 
             reservation = enforce_send_rate_limit(
                 user_id=user_ref,
-                workspace_id=workspace_id,
+                workspace_id=workspace_ref,
                 reservation_key=reservation_key,
             )
             max_sequence = Message.objects.filter(conversation=conversation).aggregate(
@@ -216,11 +228,12 @@ def accept_message(
         raise
 
 
-def claim_next_turn(*, conversation_id: str) -> Message | None:
+def claim_next_turn(*, conversation_id: UUID | str) -> Message | None:
+    parsed_conversation_id = _parse_uuid(conversation_id)
     with transaction.atomic():
         try:
             conversation = Conversation.objects.select_for_update().get(
-                public_id=conversation_id
+                pk=parsed_conversation_id
             )
         except Conversation.DoesNotExist as exc:
             raise ConversationUnavailable("conversation unavailable") from exc
@@ -249,7 +262,7 @@ def claim_next_turn(*, conversation_id: str) -> Message | None:
         return message
 
 
-def complete_turn(*, message_id: str, status: str) -> Message:
+def complete_turn(*, message_id: UUID | str, status: str) -> Message:
     terminal = {
         MessageLifecycle.COMPLETED,
         MessageLifecycle.FAILED,
@@ -257,9 +270,10 @@ def complete_turn(*, message_id: str, status: str) -> Message:
     }
     if status not in terminal:
         raise TurnConflict("invalid terminal status")
+    parsed_message_id = _parse_uuid(message_id)
     try:
         existing = Message.objects.only("id", "conversation_id").get(
-            public_id=message_id
+            pk=parsed_message_id
         )
     except Message.DoesNotExist as exc:
         raise ConversationUnavailable("conversation unavailable") from exc
@@ -327,13 +341,17 @@ def _b64decode(value: str) -> bytes:
 
 
 def serialize_cursor(
-    conversation_id: str, before_sequence: int, now: datetime | None = None
+    conversation_id: UUID | str, before_sequence: int, now: datetime | None = None
 ) -> str:
     try:
         before_sequence = int(before_sequence)
     except (TypeError, ValueError, OverflowError) as exc:
         raise CursorInvalid("invalid cursor") from exc
-    if not conversation_id or before_sequence < 1:
+    try:
+        conversation_id = str(_parse_uuid(conversation_id))
+    except ConversationUnavailable as exc:
+        raise CursorInvalid("invalid cursor") from exc
+    if before_sequence < 1:
         raise CursorInvalid("invalid cursor")
     active_id, keys = _cursor_keys()
     key = keys.get(active_id)
@@ -354,8 +372,12 @@ def serialize_cursor(
 
 
 def parse_cursor(
-    cursor: str, conversation_id: str, now: datetime | None = None
+    cursor: str, conversation_id: UUID | str, now: datetime | None = None
 ) -> Cursor:
+    try:
+        conversation_id = str(_parse_uuid(conversation_id))
+    except ConversationUnavailable:
+        raise CursorInvalid("invalid cursor") from None
     try:
         encoded, signature = cursor.split(".", 1)
         raw = _b64decode(encoded)
@@ -387,7 +409,7 @@ def parse_cursor(
 
 def message_response(message: Message) -> dict[str, Any]:
     return {
-        "id": message.public_id,
+        "id": str(message.id),
         "sender": message.sender,
         "content": message.content,
         "sequence": message.sequence,

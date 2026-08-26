@@ -187,7 +187,7 @@ def _client_bucket(request: HttpRequest) -> str:
     if user_proxy is not None:
         user = vars(user_proxy).get("_wrapped", user_proxy)
     if user is not empty and getattr(user, "is_authenticated", False):
-        user_ref = getattr(user, "public_id", None) or getattr(user, "pk", None)
+        user_ref = getattr(user, "pk", None)
         if user_ref is not None:
             return identifier_digest(f"user:{str(user_ref)[:128]}")
     canonical = request.META.get(CANONICAL_CLIENT_ADDRESS_META)

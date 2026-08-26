@@ -54,7 +54,7 @@ def test_native_exchange_has_one_postgresql_winner():
         pytest.skip("native exchange race requires PostgreSQL")
 
     now = timezone.now()
-    user = User.objects.create_user(public_id="usr_native_pg_exchange")
+    user = User.objects.create_user()
     transaction_row = NativeAuthorizationTransaction.objects.create(
         state_digest=hashlib.sha256(b"native-pg-exchange-state").hexdigest(),
         provider="google",

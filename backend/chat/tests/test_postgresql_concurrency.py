@@ -19,9 +19,8 @@ pytestmark = pytest.mark.skipif(
 
 
 def _account(suffix: str):
-    user = User.objects.create_user(public_id=f"usr_chat_race_{suffix}")
+    user = User.objects.create_user()
     workspace = Workspace.objects.create(
-        public_id=f"wsp_chat_race_{suffix}",
         owner=user,
         name="Race Workspace",
     )
@@ -75,12 +74,12 @@ def test_concurrent_same_key_creates_one_message_and_one_rate_reservation(
         try:
             result = accept_message(
                 user=user,
-                workspace_id=workspace.public_id,
-                conversation_id=conversation.public_id,
+                workspace_id=workspace.id,
+                conversation_id=conversation.id,
                 content="Same request",
                 idempotency_key="chat-race-same-key-0001",
             )
-            return result.message.public_id
+            return result.message.id
         finally:
             close_old_connections()
 
@@ -104,8 +103,8 @@ def test_concurrent_distinct_sends_receive_unique_order():
         try:
             result = accept_message(
                 user=user,
-                workspace_id=workspace.public_id,
-                conversation_id=conversation.public_id,
+                workspace_id=workspace.id,
+                conversation_id=conversation.id,
                 content=f"Request {index}",
                 idempotency_key=f"chat-race-order-key-{index:04d}",
             )

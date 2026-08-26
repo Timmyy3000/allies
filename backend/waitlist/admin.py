@@ -35,18 +35,18 @@ def _emit_admin_access(
 @admin.register(WaitlistEntry)
 class WaitlistEntryAdmin(ModelAdmin):
     list_display = (
-        "public_id",
+        "id",
         "name",
         "email_normalized",
         "joined_at",
         "expires_at",
         "created_at",
     )
-    search_fields = ("public_id", "name", "email_normalized")
+    search_fields = ("id", "name", "email_normalized")
     list_filter = ("created_at", "joined_at", "consent_version")
     ordering = ("-created_at",)
     fields = (
-        "public_id",
+        "id",
         "generation_claimed_at",
         "name",
         "appearance_catalog_version",
@@ -78,8 +78,8 @@ class WaitlistEntryAdmin(ModelAdmin):
         return request.user.has_perm(f"{opts.app_label}.view_{opts.model_name}")
 
     def delete_model(self, request, obj):
-        actor_ref = request.user.public_id
-        entry_ref = obj.public_id
+        actor_ref = str(request.user.id)
+        entry_ref = str(obj.id)
         super().delete_model(request, obj)
         _emit_admin_access(
             "waitlist_admin_entry_deleted",
@@ -88,8 +88,10 @@ class WaitlistEntryAdmin(ModelAdmin):
         )
 
     def delete_queryset(self, request, queryset):
-        actor_ref = request.user.public_id
-        entry_refs = list(queryset.values_list("public_id", flat=True))
+        actor_ref = str(request.user.id)
+        entry_refs = [
+            str(entry_id) for entry_id in queryset.values_list("id", flat=True)
+        ]
         super().delete_queryset(request, queryset)
         for entry_ref in entry_refs:
             _emit_admin_access(
@@ -105,7 +107,7 @@ class WaitlistEntryAdmin(ModelAdmin):
             and response.status_code == 200
             and isinstance(response, TemplateResponse)
         ):
-            actor_ref = request.user.public_id
+            actor_ref = str(request.user.id)
             search_used = bool(request.GET.get("q"))
             response.add_post_render_callback(
                 lambda rendered_response: _emit_admin_access(
@@ -124,8 +126,8 @@ class WaitlistEntryAdmin(ModelAdmin):
             and isinstance(response, TemplateResponse)
             and (entry := response.context_data.get("original")) is not None
         ):
-            actor_ref = request.user.public_id
-            entry_ref = entry.public_id
+            actor_ref = str(request.user.id)
+            entry_ref = str(entry.id)
             response.add_post_render_callback(
                 lambda rendered_response: _emit_admin_access(
                     "waitlist_admin_entry_viewed",
