@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
@@ -23,7 +24,7 @@ from chat.models import (
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 
-from .messages import parse_cursor, serialize_cursor
+from .messages import _parse_uuid, parse_cursor, serialize_cursor
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,10 +148,13 @@ def reconcile_ally_conversation(*, ally: Ally) -> Conversation:
     return ensure_default_conversation(ally=ally, greeting=greeting, reply=reply)
 
 
-def _conversation_for_workspace(*, workspace, conversation_id: str) -> Conversation:
+def _conversation_for_workspace(
+    *, workspace, conversation_id: UUID | str
+) -> Conversation:
+    parsed_conversation_id = _parse_uuid(conversation_id)
     try:
         return Conversation.objects.select_related("ally", "ally__workspace").get(
-            public_id=conversation_id,
+            pk=parsed_conversation_id,
             ally__workspace=workspace,
         )
     except Conversation.DoesNotExist as exc:
@@ -164,7 +168,7 @@ def _messages_page(
         raise CursorInvalid("invalid history limit")
     before_sequence: int | None = None
     if cursor:
-        parsed = parse_cursor(cursor, conversation_id=conversation.public_id)
+        parsed = parse_cursor(cursor, conversation_id=str(conversation.id))
         before_sequence = parsed.before_sequence
     query: QuerySet[Message, Message] = Message.objects.filter(
         conversation=conversation
@@ -178,7 +182,7 @@ def _messages_page(
     next_cursor = None
     if has_more and rows:
         next_cursor = serialize_cursor(
-            conversation_id=conversation.public_id,
+            conversation_id=str(conversation.id),
             before_sequence=rows[0].sequence,
         )
     return tuple(rows), next_cursor
@@ -187,9 +191,9 @@ def _messages_page(
 def retrieve_conversation(
     *,
     user: User,
-    workspace_id: str,
-    conversation_id: str | None = None,
-    ally_id: str | None = None,
+    workspace_id: UUID | str,
+    conversation_id: UUID | str | None = None,
+    ally_id: UUID | str | None = None,
     limit: int = 50,
     cursor: str | None = None,
 ) -> ConversationRead:
@@ -218,7 +222,7 @@ def retrieve_conversation(
     else:
         try:
             ally = Ally.objects.select_related("workspace").get(
-                public_id=ally_id, workspace=context.workspace
+                pk=_parse_uuid(ally_id), workspace=context.workspace
             )
         except Ally.DoesNotExist as exc:
             raise ConversationUnavailable("conversation unavailable") from exc

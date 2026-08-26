@@ -136,8 +136,8 @@ def exchange_native_code(
         "auth.native.exchange.completed",
         outcome="accepted",
         provider=exchange.transaction.provider,
-        user_ref=exchange.user.public_id,
-        family_ref=issued.family.public_id,
+        user_ref=str(exchange.user.id),
+        family_ref=str(issued.family.id),
     )
     return issued
 
@@ -150,7 +150,7 @@ def refresh_native_session(raw_token: str) -> IssuedSession:
     emit_auth_event(
         "auth.native.refresh.rotated",
         outcome="accepted",
-        family_ref=issued.family.public_id,
+        family_ref=str(issued.family.id),
     )
     return issued
 
@@ -195,6 +195,6 @@ def logout_native_session(
     emit_auth_event(
         "auth.native.session.revoked",
         outcome="accepted",
-        family_ref=locked.public_id,
+        family_ref=str(locked.id),
     )
     return access_session

@@ -10,6 +10,7 @@ session uniqueness by accident.
 
 from __future__ import annotations
 
+import uuid
 from datetime import timedelta
 
 from django.contrib.auth.base_user import AbstractBaseUser, BaseUserManager
@@ -17,8 +18,6 @@ from django.contrib.auth.models import PermissionsMixin
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
-
-from common.identifiers import new_public_id
 
 
 class Provider(models.TextChoices):
@@ -58,7 +57,6 @@ class UserManager(BaseUserManager["User"]):
     def _create(self, *, is_staff: bool, is_superuser: bool, **extra_fields):
         password = extra_fields.pop("password", None)
         user = self.model(
-            public_id=extra_fields.pop("public_id", new_public_id("usr")),
             is_staff=is_staff,
             is_superuser=is_superuser,
             **extra_fields,
@@ -70,17 +68,15 @@ class UserManager(BaseUserManager["User"]):
         user.save(using=self._db)
         return user
 
-    def create_user(self, public_id: str | None = None, **extra_fields):
+    def create_user(self, **extra_fields):
         return self._create(
-            public_id=public_id or new_public_id("usr"),
             is_staff=False,
             is_superuser=False,
             **extra_fields,
         )
 
-    def create_superuser(self, public_id: str | None = None, **extra_fields):
+    def create_superuser(self, **extra_fields):
         return self._create(
-            public_id=public_id or new_public_id("usr"),
             is_staff=True,
             is_superuser=True,
             **extra_fields,
@@ -88,34 +84,33 @@ class UserManager(BaseUserManager["User"]):
 
 
 class User(AbstractBaseUser, PermissionsMixin):
-    """The sole Cloud principal.
+    """The sole Cloud principal."""
 
-    ``public_id`` is the only user identifier exposed to product clients.  No
-    email column exists on the principal, which prevents accidental email
-    based account merging.
-    """
-
-    public_id = models.CharField(max_length=40, unique=True, editable=False)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     is_active = models.BooleanField(default=True)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now, editable=False)
 
     objects = UserManager()
 
-    USERNAME_FIELD = "public_id"
+    USERNAME_FIELD = "id"
     REQUIRED_FIELDS: list[str] = []
 
     class Meta:
-        ordering = ("public_id",)
+        ordering = ("id",)
         indexes = [
-            models.Index(fields=("is_active", "public_id"), name="auth_user_active_idx")
+            models.Index(fields=("is_active", "id"), name="auth_user_active_idx")
         ]
 
     def __str__(self) -> str:
-        return self.public_id
+        return str(self.id)
+
+    def get_username(self) -> str:
+        return str(self.id)
 
 
 class ExternalIdentity(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="external_identities"
     )
@@ -165,6 +160,7 @@ class ExternalIdentity(models.Model):
 
 
 class UserProfile(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")
     display_name = models.CharField(max_length=80, blank=True)
     current_avatar = models.ForeignKey(
@@ -187,6 +183,7 @@ class UserProfile(models.Model):
 
 
 class AuthFlow(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     state_digest = models.CharField(max_length=64, unique=True, editable=False)
     flow_cookie_digest = models.CharField(max_length=64, editable=False)
     browser_binding_digest = models.CharField(max_length=64, editable=False)
@@ -242,6 +239,7 @@ class AuthFlow(models.Model):
 
 
 class NativeAuthorizationTransaction(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     state_digest = models.CharField(max_length=64, unique=True, editable=False)
     provider = models.CharField(max_length=32, choices=Provider.choices)
     callback_uri = models.CharField(max_length=500)
@@ -306,6 +304,7 @@ class NativeAuthorizationTransaction(models.Model):
 
 
 class NativeExchangeCode(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     transaction = models.OneToOneField(
         NativeAuthorizationTransaction,
         on_delete=models.PROTECT,
@@ -332,10 +331,10 @@ class NativeExchangeCode(models.Model):
 
 
 class SessionFamily(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="session_families"
     )
-    public_id = models.CharField(max_length=40, unique=True, editable=False)
     created_at = models.DateTimeField(auto_now_add=True)
     last_used_at = models.DateTimeField(default=timezone.now)
     idle_expires_at = models.DateTimeField()
@@ -358,7 +357,7 @@ class SessionFamily(models.Model):
         ]
 
     def __str__(self) -> str:
-        return self.public_id
+        return str(self.id)
 
     def is_active(self, now=None) -> bool:
         now = now or timezone.now()
@@ -371,6 +370,7 @@ class SessionFamily(models.Model):
 
 
 class RefreshToken(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     family = models.ForeignKey(
         SessionFamily, on_delete=models.CASCADE, related_name="refresh_tokens"
     )
@@ -395,10 +395,10 @@ class RefreshToken(models.Model):
 
 
 class AvatarAsset(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="avatar_assets"
     )
-    public_id = models.CharField(max_length=40, unique=True, editable=False)
     object_key = models.CharField(max_length=500, unique=True, editable=False)
     status = models.CharField(
         max_length=16, choices=AvatarStatus.choices, default=AvatarStatus.PENDING
@@ -434,7 +434,7 @@ class AvatarAsset(models.Model):
         ]
 
     def __str__(self) -> str:
-        return self.public_id
+        return str(self.id)
 
 
 def default_session_expiry(now=None) -> tuple:

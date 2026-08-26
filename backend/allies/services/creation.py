@@ -4,6 +4,7 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
+from uuid import UUID
 
 from django.db import IntegrityError, transaction
 
@@ -14,6 +15,7 @@ from auths.config import digest_key
 from auths.models import User
 from chat.exceptions import ChatError
 from chat.services.conversations import ensure_default_conversation
+from common.uuids import canonical_uuid
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 
@@ -43,7 +45,7 @@ def _load_result(operation: ProvisioningOperation, fingerprint: str):
 def create_ally(
     *,
     user: User,
-    workspace_id: str,
+    workspace_id: UUID | str,
     name: str,
     job: str,
     personality: str,
@@ -172,15 +174,19 @@ def _enqueue_dispatch() -> None:
         return
 
 
-def retrieve_ally(*, user: User, workspace_id: str, ally_id: str) -> Ally:
+def retrieve_ally(*, user: User, workspace_id: UUID | str, ally_id: UUID | str) -> Ally:
     context = require_workspace_capability(
         user=user,
         workspace_id=workspace_id,
         capability=Capability.PROFILE_READ,
     )
+    try:
+        parsed_ally_id = canonical_uuid(ally_id)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("ally unavailable") from exc
     ally = Ally.objects.select_related(
         "workspace", "binding", "binding__provisioning_operation"
-    ).get(workspace=context.workspace, public_id=ally_id)
+    ).get(workspace=context.workspace, pk=parsed_ally_id)
     try:
         attempt = ally.onboarding_attempt
     except OnboardingAttempt.DoesNotExist:

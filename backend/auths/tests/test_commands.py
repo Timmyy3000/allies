@@ -16,11 +16,11 @@ def test_revoke_command_prints_count_only(capsys):
         VerifiedIdentity(provider="fake", subject="operator")
     ).user
     issued = issue_session(user)
-    call_command("revoke_auth_sessions", user_id=user.public_id, reason="incident")
+    call_command("revoke_auth_sessions", user_id=str(user.id), reason="incident")
     output = capsys.readouterr().out
     assert output.strip() == "revoked=1"
     assert SessionFamily.objects.get(pk=issued.family.pk).revoked_at is not None
-    assert user.public_id not in output
+    assert str(user.id) not in output
 
 
 @pytest.mark.django_db

@@ -17,9 +17,8 @@ from workspaces.models import Workspace
 
 
 def _workspace_and_user():
-    user = User.objects.create_user(public_id="ally-model-user")
+    user = User.objects.create_user()
     workspace = Workspace.objects.create(
-        public_id="wsp_model_workspace",
         owner=user,
         name="Model workspace",
     )
@@ -65,18 +64,14 @@ def test_ally_has_seed_fields_without_persisted_provisioning_state():
         receipt_digest="c" * 64,
     )
     assert ally.provisioning_state == BindingStatus.BOUND
-    assert binding.cloud_binding_id.startswith("bnd_")
+    assert binding.id is not None
 
 
 @pytest.mark.django_db
-def test_binding_identity_is_immutable_and_one_to_one():
+def test_binding_identity_is_uuid_and_one_to_one():
     workspace, _ = _workspace_and_user()
     ally = _ally(workspace=workspace)
-    binding = AllyBinding.objects.create(ally=ally)
-
-    binding.cloud_binding_id = "bnd_replacement"
-    with pytest.raises(ValueError, match="immutable"):
-        binding.save()
+    AllyBinding.objects.create(ally=ally)
 
     with pytest.raises(IntegrityError):
         AllyBinding.objects.create(ally=ally)

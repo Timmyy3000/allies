@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from ninja import Schema
 from pydantic import ConfigDict, Field
@@ -107,7 +108,7 @@ class NativeTokenResponse(Schema):
     expires_in: int
     refresh_token: str
     refresh_expires_in: int
-    session_id: str
+    session_id: UUID
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -118,7 +119,7 @@ class NativeTokenResponse(Schema):
                     "expires_in": 600,
                     "refresh_token": "<rotating-opaque-cloud-token>",
                     "refresh_expires_in": 1209600,
-                    "session_id": "ses_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+                    "session_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
                 }
             ]
         }
@@ -126,12 +127,10 @@ class NativeTokenResponse(Schema):
 
 
 class UserResponse(Schema):
-    id: str
+    id: UUID
 
     model_config = ConfigDict(
-        json_schema_extra={
-            "examples": [{"id": "usr_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"}]
-        }
+        json_schema_extra={"examples": [{"id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"}]}
     )
 
 
@@ -151,12 +150,12 @@ class ProfileResponse(Schema):
 
 
 class SessionResponse(Schema):
-    id: str
+    id: UUID
     expires_at: datetime
 
 
 class WorkspaceResponse(Schema):
-    id: str
+    id: UUID
     name: str
     role: str
     capabilities: list[str]
@@ -170,13 +169,13 @@ class MeResponse(Schema):
 
 
 class PreparedAvatarResponse(Schema):
-    asset_id: str
+    asset_id: UUID
     upload_url: str
     headers: dict[str, str]
     expires_at: datetime
 
 
 class AvatarResponse(Schema):
-    asset_id: str
+    asset_id: UUID
     url: str | None = None
     expires_at: datetime | None = None

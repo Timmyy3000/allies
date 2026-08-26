@@ -62,7 +62,7 @@ def _token_response(issued) -> NativeTokenResponse:
         refresh_expires_in=max(
             0, math.ceil((issued.refresh_expires_at - now).total_seconds())
         ),
-        session_id=issued.family.public_id,
+        session_id=str(issued.family.id),
     )
 
 

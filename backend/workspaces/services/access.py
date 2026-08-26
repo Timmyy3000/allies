@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+from uuid import UUID
+
 from auths.exceptions import WorkspaceAccessDenied
 from auths.models import User
+from common.uuids import canonical_uuid
 
 from ..capabilities import Capability, capabilities_for_role
 from ..models import Membership, MembershipStatus
@@ -11,17 +14,21 @@ from .bootstrap import WorkspaceContext
 
 
 def require_workspace_capability(
-    *, user: User, workspace_id: str, capability: Capability | str
+    *, user: User, workspace_id: UUID | str, capability: Capability | str
 ) -> WorkspaceContext:
     try:
         requested = Capability(str(capability))
     except ValueError as exc:
         raise WorkspaceAccessDenied("workspace denied") from exc
+    try:
+        parsed_workspace_id = canonical_uuid(workspace_id)
+    except (TypeError, ValueError) as exc:
+        raise WorkspaceAccessDenied("workspace denied") from exc
     membership = (
         Membership.objects.select_related("workspace", "user")
         .filter(
             user=user,
-            workspace__public_id=workspace_id,
+            workspace_id=parsed_workspace_id,
             workspace__is_active=True,
             status=MembershipStatus.ACTIVE,
         )

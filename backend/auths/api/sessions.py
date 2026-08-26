@@ -20,7 +20,7 @@ from auths.models import SessionClientKind
 from auths.services.sessions import (
     authenticate_access,
     logout_session,
-    refresh_family_public_id,
+    refresh_family_id,
     rotate_refresh,
 )
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_limit
@@ -50,7 +50,7 @@ class SessionController(ControllerBase):
                     limit=20,
                     period=60,
                 )
-            family_id = refresh_family_public_id(raw)
+            family_id = refresh_family_id(raw)
             check_rate_limit(
                 scope="refresh-family",
                 identity=family_id,

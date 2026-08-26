@@ -4,6 +4,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from datetime import timedelta
+from uuid import UUID
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -35,7 +36,7 @@ class DispatchReport:
         }
 
 
-def _claim_due(*, now, limit: int) -> list[tuple[int, int]]:
+def _claim_due(*, now, limit: int) -> list[tuple[UUID, int]]:
     lease_until = now + timedelta(
         seconds=int(getattr(settings, "ALLIES_PROVISIONING_LEASE_SECONDS", 60))
     )
@@ -95,7 +96,7 @@ def _receipt_digest(receipt: ProfileProvisioningReceipt) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _defer(pk: int, fence: int, code: str, *, now) -> bool:
+def _defer(pk: UUID, fence: int, code: str, *, now) -> bool:
     delay = min(
         int(getattr(settings, "ALLIES_PROVISIONING_MAX_BACKOFF_SECONDS", 300)),
         2 ** min(fence, 8),
@@ -114,15 +115,15 @@ def _defer(pk: int, fence: int, code: str, *, now) -> bool:
     )
 
 
-def _dispatch_one(pk: int, fence: int, *, now) -> str:
+def _dispatch_one(pk: UUID, fence: int, *, now) -> str:
     operation = ProvisioningOperation.objects.select_related(
         "workspace", "binding__ally"
     ).get(pk=pk)
     request = ProfileProvisioningRequest(
-        workspace_id=operation.workspace.public_id,
-        binding_id=operation.binding.cloud_binding_id,
-        ally_ref=operation.binding.ally.public_id,
-        operation_id=operation.public_id,
+        workspace_id=str(operation.workspace.id),
+        binding_id=str(operation.binding.id),
+        ally_ref=str(operation.binding.ally.id),
+        operation_id=str(operation.id),
         request_fingerprint=operation.content_fingerprint,
         job=operation.binding.ally.job,
         personality=operation.binding.ally.personality,

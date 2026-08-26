@@ -1,0 +1,515 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Cloud UUID-Native Identity Foundation Plan</title><style>:root{color-scheme:light;--ink:#14202b;--muted:#5b6875;--line:#d8e1e8;--panel:#f5f8fa;--safe:#16784a;--warn:#a35d00}*,*::before,*::after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#fff;color:var(--ink);font:15px/1.62 system-ui,-apple-system,Segoe UI,sans-serif}main{max-width:1220px;margin:0 auto;padding:36px 44px 84px;min-width:0}article,section,div{min-width:0}header{border-bottom:1px solid var(--line);padding-bottom:24px;margin-bottom:28px}h1{font-size:34px;line-height:1.15;margin:0 0 10px}h2{font-size:24px;margin:36px 0 13px;border-bottom:1px solid var(--line);padding-bottom:7px}h3{font-size:19px;margin:27px 0 9px}h4{font-size:16px;margin:22px 0 7px}p,ul,ol{max-width:1050px}li{margin:4px 0}code{background:#edf2f6;border-radius:4px;padding:1px 4px;font-size:.92em;overflow-wrap:anywhere;word-break:break-word}pre{max-width:100%;background:#101820;color:#e7eef4;padding:17px;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere;border-radius:8px;line-height:1.45}table{border-collapse:collapse;width:100%;max-width:100%;table-layout:fixed;margin:15px 0 24px;font-size:13px}th,td{border:1px solid var(--line);padding:8px 9px;vertical-align:top;text-align:left;overflow-wrap:anywhere;word-break:break-word}th{background:var(--panel)}.meta{color:var(--muted);font-size:13px}.overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin:18px 0 30px}.card{border:1px solid var(--line);border-radius:9px;padding:15px;background:var(--panel)}.card h3{margin:0 0 7px;font-size:15px}.safe{color:var(--safe);font-weight:650}.warn{color:var(--warn);font-weight:650}.flow{max-width:100%;background:#f7f9fb;border:1px solid var(--line);border-radius:9px;padding:16px;margin:18px 0;overflow-x:auto}.flow pre{background:transparent;color:var(--ink);padding:0;margin:0}@media(max-width:800px){main{padding:22px 16px}.overview{grid-template-columns:1fr}table{font-size:12px}}</style></head><body><main><header><h1>Cloud UUID-Native Identity Foundation</h1><div class="meta">Full implementation plan - generated 2026-08-25T22:23:56.068377+00:00</div></header><section class="overview"><div class="card"><h3>Editorial scope</h3><div class="safe">Prose only</div><div class="meta">Requirements, contracts, commands, and structure preserved</div></div><div class="card"><h3>Reviewability</h3><div class="safe">Before copy + unified diff</div><div class="meta">Clean final remains the canonical plan</div></div><div class="card"><h3>Humanizer check</h3><div class="warn">No dash characters</div><div class="meta">Neutral technical voice retained</div></div></section><section class="flow"><pre>Before copy -> Better Docs edit -> Editing check -> Humanizer file check -> Final Markdown -> Matching HTML</pre></section><article><h1>Cloud UUID-Native Identity Foundation Plan</h1>
+<h2>Feature Overview</h2>
+<ul>
+<li>Problem: Cloud currently mixes integer primary keys with prefixed string <code>public_id</code> values. Both forms appear in relations, APIs, authentication, storage, migrations, admin, observability, and tests. Cloud needs one stable UUID identity model.</li>
+<li>Target users: Allies customers' and waitlist applicants' identifiers must remain private, stable, and consistently validated. Operators need a safe one-time reset that preserves production waitlist business data.</li>
+<li>Source docs/specs: Accepted Nabu Cloud UUID-native identity decision; <code>.agent/cloud-uuid-identity-kickoff.md</code>; repository <code>AGENTS.md</code>, <code>ENGINEERING_STYLE.md</code>, README/Makefile/CI/test conventions, current models/migrations/APIs/tests, and <code>docs/templates/PLAN_TEMPLATE.md</code>.</li>
+<li>Success outcome: All 18 Cloud product models use UUID primary keys and UUID foreign keys. No prefixed-ID layer remains. A fresh baseline builds cleanly, and verified production waitlist business data survives export, clean schema rebuild, UUID restore, checksum, and API verification.</li>
+</ul>
+<h2>User Stories</h2>
+<ol>
+<li>As a Cloud API consumer, I want every product identifier to be a canonical UUID, so request, response, token, cursor, and storage identity have one unambiguous representation.</li>
+<li>As a waitlist applicant, I want my existing business record preserved through the schema reset, so the foundation refactor does not lose, duplicate, or reinterpret my submission.</li>
+<li>As an operator, I want an owner-approved reset runbook with verified export/restore evidence, so production can move to a clean UUID schema without relying on reversible non-waitlist data.</li>
+</ol>
+<h2>Scope</h2>
+<h3>In Scope</h3>
+<ul>
+<li>Convert all 18 explicit Cloud models to <code>UUIDField(primary_key=True, default=uuid.uuid4, editable=False)</code> or the repository-equivalent: <code>User</code>, <code>ExternalIdentity</code>, <code>UserProfile</code>, <code>AuthFlow</code>, <code>NativeAuthorizationTransaction</code>, <code>NativeExchangeCode</code>, <code>SessionFamily</code>, <code>RefreshToken</code>, <code>AvatarAsset</code>, <code>Workspace</code>, <code>Membership</code>, <code>Ally</code>, <code>AllyBinding</code>, <code>OnboardingAttempt</code>, <code>ProvisioningOperation</code>, <code>Conversation</code>, <code>Message</code>, and <code>WaitlistEntry</code>.</li>
+<li>Update every foreign key, one-to-one field, implicit many-to-many/through relation, Django content-type/admin/session relation, and test database relation so it is type-compatible with its UUID owner.</li>
+<li>Remove every <code>public_id</code> field, prefix generator, prefix validator/parser, lookup, ordering clause, index, admin field, fixture value, compatibility shim, and <code>common.identifiers</code> use; remove the helper module when no callers remain.</li>
+<li>Update API schemas/controllers/routes, auth/session/JWT/native-app exchange flows, signed cursors, storage/avatar object keys, admin/search, commands, tasks, observability, fixtures/factories, migrations, docs, and tests.</li>
+<li>Preserve only production <code>WaitlistEntry</code> business data. Export business fields without old identity, rebuild the complete clean schema, restore each row with a new UUID primary key, and verify counts, deterministic business-data checksums, uniqueness, timestamps, consent/source fields, and public API behavior.</li>
+<li>Adapt the existing CLD-003 provisioning gateway only where identity changes: preserve exact transport names and map <code>workspace_id=Workspace.id</code>, <code>binding_id=AllyBinding.id</code>, <code>ally_ref=Ally.id</code>, and <code>operation_id=ProvisioningOperation.id</code> as canonical UUID strings; require Cloud/Foundry request and receipt fixture parity and record a minimal Foundry change if any field is not treated opaquely.</li>
+<li>Replace historical app migrations with a reviewed clean UUID-native baseline suitable for a fresh database, including swappable-user and dependency ordering.</li>
+</ul>
+<h3>Out of Scope</h3>
+<ul>
+<li>New CLD-005 Foundry gateway, execution dispatch, activity projection, or event-ordering behavior. Existing CLD-003 provisioning remains in scope only for UUID identity adaptation.</li>
+<li>Compatibility for disposable non-waitlist rows, old integer IDs, prefixed IDs, tokens, sessions, cursors, bookmarks, or storage keys.</li>
+<li>Product behavior changes unrelated to identity, new dependencies, a generic identity abstraction, or a long-lived dual-write/dual-read migration.</li>
+<li>Preserving Django admin history, sessions, auth flows, workspaces, Allies, onboarding, provisioning, conversations, messages, or other non-waitlist data.</li>
+</ul>
+<h3>Dependencies and Assumptions</h3>
+<ul>
+<li>This foundation PR merges into <code>dev</code> before CLD-005 resumes; downstream branches rebase onto the merged UUID baseline.</li>
+<li>Production waitlist business data is the only durable dataset. All non-waitlist rows are explicitly disposable and must not be exported or restored.</li>
+<li>Production writes remain disabled throughout export, rebuild, restore, and verification. Owner approval is required for the export artifact, maintenance window, clean baseline, restore report, and reopen decision.</li>
+<li>Verified Railway topology is <code>staging</code> and <code>prod</code>, each using services <code>Backend</code>, <code>Worker</code>, <code>Beat</code>, <code>Postgres</code>, and <code>Redis</code>. Production cutover uses a separately provisioned green Postgres while the old Postgres remains intact; this PR documents owner-run commands/steps but performs no Railway mutation.</li>
+<li>The protected source is the current <code>waitlist_waitlistentry</code> table plus any evidence-discovered implicit table that owns waitlist business fields. No current non-waitlist relation may be silently treated as protected.</li>
+<li>PostgreSQL/Django UUID capabilities and the locked repository toolchain are sufficient; no new package is required.</li>
+</ul>
+<h2>Contract and Shape Definitions</h2>
+<h3>Function and Service Shapes</h3>
+<table>
+<thead>
+<tr>
+<th>Location</th>
+<th>Symbol</th>
+<th>Signature</th>
+<th>Inputs and validation</th>
+<th>Return value</th>
+<th>Side effects / errors</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>backend/common/identity.py</code> or direct model defaults</td>
+<td>UUID default</td>
+<td><code>new_uuid() -&gt; UUID</code> only if a named helper is justified; otherwise <code>uuid.uuid4</code> directly</td>
+<td>No input; cryptographically suitable UUID4</td>
+<td>UUID</td>
+<td>No I/O; no prefixes or string wrapper</td>
+</tr>
+<tr>
+<td><code>backend/waitlist/management/commands/export_waitlist.py</code></td>
+<td>export command</td>
+<td><code>handle(output: Path) -&gt; None</code></td>
+<td>Owner-approved path; operator-confirmed Backend/Worker/Beat freeze and drained writes; source schema version; exact business fields; no overwrite</td>
+<td>Versioned manifest plus data file</td>
+<td>Runs the export in a repeatable-read transaction with the shared encoder/checksum helper; fails on missing/duplicate <code>attempt_id_digest</code>, schema mismatch, or incomplete read</td>
+</tr>
+<tr>
+<td><code>backend/waitlist/management/commands/restore_waitlist.py</code></td>
+<td>restore command</td>
+<td><code>handle(input: Path, expected_checksum: str) -&gt; None</code></td>
+<td>Operator-confirmed freeze/drain; empty UUID-native waitlist table; validated manifest/schema/checksum</td>
+<td>Restored count/checksum report</td>
+<td>Directly restores with shared helper, assigns UUID4 PKs, preserves business fields/timestamps, and rolls back on partial/duplicate/mismatch</td>
+</tr>
+<tr>
+<td><code>backend/waitlist/management/commands/verify_waitlist.py</code></td>
+<td>verify command</td>
+<td><code>handle(manifest: Path) -&gt; None</code></td>
+<td>Operator-confirmed freeze/drain; source manifest plus restored database</td>
+<td>Recorded verification report</td>
+<td>Directly recomputes shared canonical checksum and field/count equivalence; non-zero exit blocks operator reopen on mismatch</td>
+</tr>
+<tr>
+<td>Auth/session/token services</td>
+<td>UUID identity encoding</td>
+<td>Existing signatures updated from prefixed strings/ints to <code>UUID</code></td>
+<td>Strict UUID parsing; canonical lowercase hyphenated representation at serialization boundaries; no fallback prefix parser</td>
+<td>Existing auth/session result shapes with UUID <code>user_id</code>, <code>session_family_id</code>, and related claims</td>
+<td>Invalid legacy IDs fail as invalid/expired; no silent account lookup or token upgrade</td>
+</tr>
+<tr>
+<td>Storage/avatar services</td>
+<td>object-key builder</td>
+<td>Existing builder signatures accept UUID owner/asset IDs</td>
+<td>UUID objects or validated canonical strings; reject path separators and unknown formats</td>
+<td>Deterministic object key containing UUID segments</td>
+<td>Existing storage I/O; old disposable keys are not migrated; never log full object URL/key</td>
+</tr>
+</tbody>
+</table>
+<h3>API and Transport Contracts</h3>
+<table>
+<thead>
+<tr>
+<th>Consumer</th>
+<th>Method and path / event</th>
+<th>Authentication and authorization</th>
+<th>Request schema</th>
+<th>Success response schema</th>
+<th>Error responses / retry semantics</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Public client</td>
+<td>Existing resource routes such as <code>/api/v1/workspaces/{workspace_id:uuid}</code> and nested Ally/conversation/message routes</td>
+<td>Existing session plus tenant membership/capability checks remain unchanged</td>
+<td>Path/body identifiers are strict UUIDs</td>
+<td>Existing envelope with UUID <code>id</code>/relation fields; no <code>public_id</code></td>
+<td>Malformed UUID is <code>422</code>/route miss per existing framework contract; unauthorized/foreign resources retain privacy-safe behavior; no prefix fallback</td>
+</tr>
+<tr>
+<td>Browser/native auth client</td>
+<td>Existing login/callback/session/refresh/native exchange endpoints</td>
+<td>Existing CSRF, OAuth state, proof, session-family, and token rules</td>
+<td>UUID claims/references where identity is carried</td>
+<td>Existing auth envelope with UUID user/session/avatar IDs</td>
+<td>Old prefixed/int claim is invalid/expired; refresh remains rotation-safe and replay detection unchanged</td>
+</tr>
+<tr>
+<td>Waitlist client</td>
+<td>Existing waitlist create/status contract</td>
+<td>Existing public validation/rate-limit/privacy behavior</td>
+<td>Business fields unchanged; client does not submit model identity</td>
+<td>Existing success envelope; any returned identifier is a UUID <code>id</code> only if current evidence proves the API exposes one</td>
+<td>Duplicate/invalid/rate-limit behavior unchanged; retries retain existing business idempotency semantics</td>
+</tr>
+<tr>
+<td>Internal commands/tasks</td>
+<td>Existing model-ID arguments</td>
+<td>Existing operator/task authorization</td>
+<td>UUID arguments encoded canonically</td>
+<td>Existing safe result summaries with UUID identifiers only when necessary</td>
+<td>Invalid IDs fail before lookup; task logs/metrics do not emit customer data or full UUID sets</td>
+</tr>
+<tr>
+<td>CLD-003 Cloud/Foundry provisioning</td>
+<td>Existing provisioning request/receipt contract</td>
+<td>Existing service authentication and tenant/binding checks</td>
+<td>Preserve exact field names and send canonical UUID strings: <code>workspace_id=Workspace.id</code>, <code>binding_id=AllyBinding.id</code>, <code>ally_ref=Ally.id</code>, <code>operation_id=ProvisioningOperation.id</code></td>
+<td>Existing receipt fields/behavior; identifiers remain opaque</td>
+<td>Update Cloud and Foundry request/receipt fixtures and tests for UUID opacity; if Foundry validates prefixes, land the minimal cross-repo contract adaptation before Cloud cutover; no CLD-005 behavior</td>
+</tr>
+</tbody>
+</table>
+<p>Representative product response:</p>
+<pre><code class="language-json">{
+  &quot;status&quot;: &quot;success&quot;,
+  &quot;message&quot;: &quot;Workspace retrieved.&quot;,
+  &quot;data&quot;: {
+    &quot;id&quot;: &quot;750e8400-e29b-41d4-a716-446655440000&quot;,
+    &quot;owner_id&quot;: &quot;550e8400-e29b-41d4-a716-446655440000&quot;,
+    &quot;name&quot;: &quot;My Workspace&quot;
+  }
+}
+</code></pre>
+<p>Representative waitlist export manifest:</p>
+<pre><code class="language-json">{
+  &quot;format_version&quot;: &quot;waitlist-business-export-v1&quot;,
+  &quot;source_table&quot;: &quot;waitlist_waitlistentry&quot;,
+  &quot;business_columns&quot;: [&quot;attempt_id_digest&quot;, &quot;attempt_token_digest&quot;, &quot;completion_digest&quot;, &quot;generation_claimed_at&quot;, &quot;name&quot;, &quot;appearance_catalog_version&quot;, &quot;appearance_key&quot;, &quot;job&quot;, &quot;personality&quot;, &quot;greeting_text&quot;, &quot;greeting_policy_version&quot;, &quot;greeting_generated_at&quot;, &quot;reply_text&quot;, &quot;reply_recorded_at&quot;, &quot;email_normalized&quot;, &quot;consent_version&quot;, &quot;joined_at&quot;, &quot;expires_at&quot;, &quot;created_at&quot;, &quot;updated_at&quot;],
+  &quot;row_count&quot;: 42,
+  &quot;canonical_checksum&quot;: &quot;sha256:&lt;64 lowercase hex&gt;&quot;,
+  &quot;exported_at&quot;: &quot;2026-08-25T12:00:00Z&quot;
+}
+</code></pre>
+<p><code>waitlist-business-export-v1</code> is locked to exactly those 20 fields. The old integer PK and <code>public_id</code> are the only excluded current columns. Canonical encoding uses UTF-8 JSON Lines with keys in manifest order. It preserves NFC strings exactly apart from JSON escaping, normalizes datetimes to UTC RFC3339 with six fractional digits and <code>Z</code>, and encodes database null as JSON <code>null</code> (never an empty string). Rows are ordered strictly by unique <code>attempt_id_digest</code>. Blank or repeated <code>email_normalized</code> values are valid and are never deduplicated. Source-to-restored equivalence compares every encoded field row-for-row by <code>attempt_id_digest</code>; UUID identity is outside the checksum. Pagination/filtering behavior is unchanged except that cursor payloads encode UUID resource identity. This is a breaking identity reset with no legacy compatibility window.</p>
+<h3>Data Shapes and Invariants</h3>
+<h4>Database Models</h4>
+<table>
+<thead>
+<tr>
+<th>Type / category</th>
+<th>Model / table</th>
+<th>Location</th>
+<th>Fields and types</th>
+<th>Required / nullable / defaults</th>
+<th>Validation, indexes, constraints, and invariants</th>
+<th>Compatibility / migration notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Persisted auth models (9)</td>
+<td><code>User</code>, <code>ExternalIdentity</code>, <code>UserProfile</code>, <code>AuthFlow</code>, <code>NativeAuthorizationTransaction</code>, <code>NativeExchangeCode</code>, <code>SessionFamily</code>, <code>RefreshToken</code>, <code>AvatarAsset</code></td>
+<td><code>backend/auths/models.py</code></td>
+<td><code>id: UUID</code>; every relation to user/session/transaction/avatar is UUID-backed</td>
+<td>UUID PK required/default UUID4; existing business null/default rules unchanged</td>
+<td>Rebuild unique identities, token digests, session-family/replay indexes, one-to-one constraints, active-user indexes without <code>public_id</code></td>
+<td>Disposable rows; clean-baseline only; old sessions/tokens become invalid</td>
+</tr>
+<tr>
+<td>Persisted workspace models (2)</td>
+<td><code>Workspace</code>, <code>Membership</code></td>
+<td><code>backend/workspaces/models.py</code></td>
+<td><code>id: UUID</code>; UUID owner/workspace/user FKs</td>
+<td>UUID PK required/default UUID4</td>
+<td>Preserve ownership, membership uniqueness, tenant indexes and cascading behavior; UUID ordering is explicit where stable ordering is needed</td>
+<td>Disposable rows; clean-baseline only</td>
+</tr>
+<tr>
+<td>Persisted Ally models (4)</td>
+<td><code>Ally</code>, <code>AllyBinding</code>, <code>OnboardingAttempt</code>, <code>ProvisioningOperation</code></td>
+<td><code>backend/allies/models.py</code></td>
+<td><code>id: UUID</code>; UUID workspace/ally/user/binding FKs/one-to-ones</td>
+<td>UUID PK required/default UUID4</td>
+<td>Preserve one-binding-per-Ally, onboarding/provisioning idempotency/state constraints and indexes; remove prefix-based ordering/lookup</td>
+<td>Disposable rows; clean-baseline only; external provider references remain opaque non-PK fields where required</td>
+</tr>
+<tr>
+<td>Persisted chat models (2)</td>
+<td><code>Conversation</code>, <code>Message</code></td>
+<td><code>backend/chat/models.py</code></td>
+<td><code>id: UUID</code>; <code>Conversation.ally</code> and <code>Message.conversation</code> UUID relations</td>
+<td>UUID PK required/default UUID4</td>
+<td>Preserve current conversation ownership and message ordering/idempotency constraints; do not invent workspace/author FKs</td>
+<td>Disposable rows; clean-baseline only; CLD-005 additions excluded</td>
+</tr>
+<tr>
+<td>Persisted waitlist model (1)</td>
+<td><code>WaitlistEntry</code></td>
+<td><code>backend/waitlist/models.py</code></td>
+<td><code>id: UUID</code>; exact export-v1 business fields: <code>attempt_id_digest</code>, <code>attempt_token_digest</code>, <code>completion_digest</code>, <code>generation_claimed_at</code>, <code>name</code>, <code>appearance_catalog_version</code>, <code>appearance_key</code>, <code>job</code>, <code>personality</code>, <code>greeting_text</code>, <code>greeting_policy_version</code>, <code>greeting_generated_at</code>, <code>reply_text</code>, <code>reply_recorded_at</code>, <code>email_normalized</code>, <code>consent_version</code>, <code>joined_at</code>, <code>expires_at</code>, <code>created_at</code>, <code>updated_at</code>; no <code>public_id</code></td>
+<td>UUID PK required/default UUID4; current business defaults/nullability unchanged</td>
+<td>Unique <code>attempt_id_digest</code> is export ordering/equivalence key; repeated/blank emails remain valid and are not deduplicated; preserve digests, timestamps, null/empty distinctions, consent, appearance, greeting, reply, and expiry semantics</td>
+<td>Only protected data: exact-field export, clean rebuild, UUID restore, row-for-row checksum/API verification</td>
+</tr>
+<tr>
+<td>Framework/implicit tables</td>
+<td>Django auth permission/group through tables, admin log, sessions, migrations, content types, implicit relation tables</td>
+<td>Django/contrib plus generated schema</td>
+<td>UUID FK columns wherever they reference UUID product models</td>
+<td>Framework defaults</td>
+<td>Fresh baseline must create type-compatible relations with swappable user dependency and no orphan FK</td>
+<td>Framework/business rows disposable; permissions/content types regenerated normally</td>
+</tr>
+</tbody>
+</table>
+<h4>Enums</h4>
+<p>No enum vocabulary changes. Existing auth, membership, onboarding, provisioning, chat, and waitlist statuses remain unchanged; tests prove the migration does not reinterpret state values.</p>
+<h4>API Request Schemas</h4>
+<table>
+<thead>
+<tr>
+<th>Type / category</th>
+<th>Request schema</th>
+<th>Location</th>
+<th>Fields and types</th>
+<th>Required / nullable / defaults</th>
+<th>Validation and invariants</th>
+<th>Compatibility notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>API request schemas</td>
+<td>Existing workspace/Ally/chat/auth schemas</td>
+<td><code>backend/**/schemas.py</code></td>
+<td>Every model reference becomes <code>UUID</code>; business fields unchanged</td>
+<td>Existing required/null/default rules</td>
+<td>Strict UUID parse; reject integers, prefixes, malformed/overlong values, and cross-tenant IDs</td>
+<td>Breaking reset; no dual parser</td>
+</tr>
+<tr>
+<td>Waitlist request</td>
+<td>Existing create/request schema</td>
+<td><code>backend/waitlist/schemas.py</code></td>
+<td>Business fields unchanged; no client-supplied ID</td>
+<td>Existing rules</td>
+<td>Normalization, consent, duplicate, and rate-limit behavior unchanged</td>
+<td>Compatible business contract; identity response changes only if currently exposed</td>
+</tr>
+</tbody>
+</table>
+<h4>API Response Schemas</h4>
+<table>
+<thead>
+<tr>
+<th>Type / category</th>
+<th>Response schema</th>
+<th>Location</th>
+<th>Fields and types</th>
+<th>Required / nullable / defaults</th>
+<th>Validation and invariants</th>
+<th>Compatibility notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Product response schemas</td>
+<td>Existing auth/workspace/Ally/chat responses</td>
+<td><code>backend/**/schemas.py</code></td>
+<td><code>id</code> and relation identifiers are canonical UUID strings; no <code>public_id</code></td>
+<td>Existing shape otherwise unchanged</td>
+<td>Tenant-safe fields only; serializers never fall back to internal integer/prefix aliases</td>
+<td>Breaking identity representation accepted for pre-launch reset</td>
+</tr>
+<tr>
+<td>Waitlist response</td>
+<td>Existing waitlist response</td>
+<td><code>backend/waitlist/schemas.py</code></td>
+<td>Business-safe fields unchanged; exposed identifier, if any, is UUID <code>id</code></td>
+<td>Existing required/null rules</td>
+<td>Do not expose export metadata, source PK, checksum, or internal restore state</td>
+<td>Verify exact pre/post public behavior apart from accepted UUID identity change</td>
+</tr>
+</tbody>
+</table>
+<h4>Temporary / Internal Shapes</h4>
+<table>
+<thead>
+<tr>
+<th>Type / category</th>
+<th>Shape</th>
+<th>Location</th>
+<th>Fields and types</th>
+<th>Lifetime / visibility</th>
+<th>Validation, security, and invariants</th>
+<th>Compatibility / rotation notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Signed JWT/session claims</td>
+<td>Auth token payload</td>
+<td><code>backend/auths/**</code></td>
+<td>UUID <code>sub</code>/user/session-family/avatar references; existing issue/expiry/audience fields</td>
+<td>Token lifetime; opaque to product clients</td>
+<td>Signature/audience/expiry/replay checked before UUID lookup; no sensitive data in logs</td>
+<td>All pre-reset tokens invalid; no legacy claim parser</td>
+</tr>
+<tr>
+<td>Signed cursor</td>
+<td>Existing cursor payloads</td>
+<td>controllers/services</td>
+<td>UUID scope/resource ID plus ordering fields and signature metadata</td>
+<td>Page lifetime; opaque</td>
+<td>Signature, tenant scope, bounds, and UUID type checked; stable tie-breaker remains explicit</td>
+<td>Old cursors invalid after reset</td>
+</tr>
+<tr>
+<td>Waitlist export artifact</td>
+<td><code>waitlist-business-export-v1</code></td>
+<td>encrypted owner-approved operational storage</td>
+<td>Exact 20-field canonical JSONL rows, manifest, count, SHA-256 checksum; no old IDs</td>
+<td>Through verified restore and approved rollback window</td>
+<td>Client-side or platform KMS encryption at rest plus TLS; named least-privilege access/audit; independent immutable hash</td>
+<td>Owner records policy-backed retention before cutover; never delete before verification and rollback window end; deletion receipt retains no business data</td>
+</tr>
+<tr>
+<td>Full database logical dump</td>
+<td>Pre-cutover encrypted PostgreSQL custom-format dump</td>
+<td>Owner-approved secure backup destination</td>
+<td>Complete old database for rollback; <code>pg_dump --format=custom --no-owner --no-acl</code>; independent SHA-256</td>
+<td>Through verified restore and approved rollback window</td>
+<td>Encrypted/access-audited; <code>pg_restore --list</code> plus isolated timed restore rehearsal</td>
+<td>Owner records policy-backed retention before cutover; old DB/dump survive verification and rollback window; deletion receipt required</td>
+</tr>
+<tr>
+<td>Storage key</td>
+<td>Avatar/object key</td>
+<td>storage service</td>
+<td>UUID owner/asset segments and existing safe suffix</td>
+<td>Object lifetime</td>
+<td>No traversal, bounded suffix, opaque bucket URL</td>
+<td>Old disposable objects may be purged under existing storage policy</td>
+</tr>
+</tbody>
+</table>
+<h4>Shared Internal Helper</h4>
+<table>
+<thead>
+<tr>
+<th>Type / category</th>
+<th>Helper</th>
+<th>Location</th>
+<th>Signature</th>
+<th>Inputs and validation</th>
+<th>Return value</th>
+<th>Side effects and errors</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Shared helper (not a service abstraction)</td>
+<td><code>encode_waitlist_row</code> / <code>checksum_waitlist_rows</code></td>
+<td>waitlist command helper module</td>
+<td>Exact export-v1 row -&gt; canonical UTF-8 JSONL bytes; ordered rows -&gt; SHA-256</td>
+<td>Locked 20 fields, NFC strings, fixed UTC datetimes, JSON null, unique attempt digest ordering</td>
+<td>Canonical bytes/digest</td>
+<td>Pure deterministic logic shared only by the three thin commands; no I/O, state machine, framework, or generic export API</td>
+</tr>
+</tbody>
+</table>
+<h4>PostgreSQL Migration Contract</h4>
+<p>The migration test introspects PostgreSQL, not only Django metadata. It asserts target columns and UUID types for all 18 model PKs and exactly these 22 relations: <code>ExternalIdentity.user</code>, <code>UserProfile.user</code>, <code>UserProfile.current_avatar</code>, <code>AuthFlow.user</code>, <code>AuthFlow.session_family</code>, <code>NativeExchangeCode.transaction</code>, <code>NativeExchangeCode.user</code>, <code>SessionFamily.user</code>, <code>RefreshToken.family</code>, <code>AvatarAsset.user</code>; <code>Workspace.owner</code>, <code>Membership.workspace</code>, <code>Membership.user</code>; <code>Ally.workspace</code>, <code>AllyBinding.ally</code>, <code>OnboardingAttempt.user</code>, <code>OnboardingAttempt.ally</code>, <code>ProvisioningOperation.binding</code>, <code>ProvisioningOperation.workspace</code>, <code>ProvisioningOperation.user</code>; <code>Conversation.ally</code>, <code>Message.conversation</code>. It separately asserts UUID target references for PermissionsMixin <code>user_groups</code>/<code>user_permissions</code> and <code>django_admin_log.user_id</code>. It deliberately does not pin generated constraint names or incidental indexes; existing model/domain tests continue to own business uniqueness, deletion, and indexing invariants. Framework-owned tables may retain independent integer PKs when they do not reference product identities.</p>
+<h3>Plain-language glossary</h3>
+<ul>
+<li><strong>Business data:</strong> Waitlist fields representing the applicant submission and audit timestamps, excluding old database IDs and the removed <code>public_id</code>.</li>
+<li><strong>Clean baseline:</strong> A new initial migration graph that creates the UUID-native schema from an empty database; it is not a conditional destructive migration.</li>
+<li><strong>Canonical checksum:</strong> SHA-256 over a documented, stable ordering and normalized serialization of protected waitlist business fields.</li>
+<li><strong>Reset window:</strong> An owner-approved period in which production writes/workers are disabled and the clean schema is installed and verified.</li>
+</ul>
+<h3>Frontend Interaction Shapes (if applicable)</h3>
+<p>No visual or state-flow redesign. Existing clients must treat identifiers as opaque canonical UUID strings. Update route builders, typed API models, cache keys, and tests wherever the repository contains them; loading, error, empty, and permission behavior remains unchanged. Old bookmarked prefixed-ID routes fail through the existing not-found/validation behavior.</p>
+<h2>Phases</h2>
+<h3>Phase 1 - Freeze inventory and UUID contract</h3>
+<ul>
+<li>Goal: Establish an auditable map of all 18 models, implicit/framework relations, and every identity consumer before migration work.</li>
+<li>Work items: Use a PR checklist (not a ledger abstraction) to record the model/FK graph and classify hits across active runtime code, active migrations, current contracts, current operational docs, settings, commands, admin, logs, JWT/session claims, cursors, storage, routes, fixtures, and <code>common.identifiers</code>; lock canonical UUID behavior, exact waitlist export-v1, and four-field Cloud/Foundry fixture parity. Historical accepted plans remain unchanged or receive a clear superseded label rather than mechanical rewrites.</li>
+<li>Impacted files/systems: PR checklist plus model/schema/controller/auth/storage/observability/test directories.</li>
+<li>Exit criteria: Named checklist covers all 18 models and every <code>public_id</code>/prefix helper hit; exact waitlist table/columns and absence/presence of inbound relations are owner-reviewed; no CLD-005 file enters scope.</li>
+</ul>
+<h3>Phase 2 - Convert schema and runtime atomically</h3>
+<ul>
+<li>Goal: Land the clean UUID baseline and every active runtime consumer in one reviewable, inseparable change.</li>
+<li>Work items: Convert PKs/FKs/one-to-ones; remove <code>public_id</code>/generators; rebuild migrations in dependency order; update routes, schemas, services, auth/JWT/session/native exchange, cursors, storage, tasks, admin, observability, fixtures, tests, and CLD-003 four-field contracts. Use one central strict UUID parser test matrix plus representative distinct route-boundary tests; run full existing domain/auth/tenant suites. The schema contract asserts target columns/types for exact 18 PKs, 22 relations, permission through refs, and admin-log user ref; it does not assert generated constraint names or incidental indexes, while existing business-invariant tests remain.</li>
+<li>Impacted files/systems: All model/migration modules and active runtime/API/auth/storage/admin/test consumers.</li>
+<li>Exit criteria: Fresh PostgreSQL migration and <code>makemigrations --check</code> pass; active runtime/migrations/current contracts/current ops docs have zero legacy identity hits; strict UUID boundaries and existing suites pass; historical plans are unchanged or labeled superseded.</li>
+</ul>
+<h3>Phase 3 - Build waitlist tooling and rehearse</h3>
+<ul>
+<li>Goal: Prove production waitlist business data can survive the clean reset before touching production.</li>
+<li>Work items: Add three thin Django commands (export, restore, verify) that share only one canonical row encoder/checksum helper; do not create a generic export framework or application maintenance-state infrastructure. Freeze/drain remains an operator procedure. Run one complete staging/shadow waitlist export/rebuild/restore/API rehearsal and one separate isolated timed custom-format logical-dump restore; cover corrupt/truncated/duplicate-attempt/null/empty/repeated-email cases.</li>
+<li>Impacted files/systems: Waitlist commands/helper/tests, secure artifact destinations, staging/shadow and isolated restore database.</li>
+<li>Exit criteria: The single complete waitlist rehearsal passes field equivalence/API gates; the separate full-dump rehearsal meets RTO and schema/count checks; failure injection proves no partial reopen.</li>
+</ul>
+<h3>Phase 4 - Production cutover and final validation</h3>
+<ul>
+<li>Goal: Blue/green the production database using the verified Railway topology while preserving all and only waitlist business data. Target RPO is zero accepted waitlist writes after the freeze/drain checkpoint; target RTO is 60 minutes from scaling services to zero to restored Backend health, with owner-authorized rollback if either target or a verification gate is missed.</li>
+<li>Canonical runbook: This Phase 4 section is the sole exact-command cutover runbook; implementation must not create a third duplicate operations document. Immediately before execution, revalidate Railway CLI command help/behavior, linked project/environment, regions, replica counts, and variable-reference method; record non-secret evidence and amend this section if CLI behavior changed.</li>
+<li>Owner-run preflight (no Railway mutation in this PR): pin the reviewed app revision; explicitly link/verify <code>cloud</code>/<code>prod</code>; record <code>railway status --json</code>, regions, and counts (<code>Backend ams=1</code>, <code>Worker ams=1</code>, <code>Beat ams=1</code> currently). After verified context, provision green with <code>railway add --database postgres --json</code>; immediately verify returned service/environment. Never capture <code>railway variable list</code> because it outputs secrets.</li>
+<li>Freeze and drain: announce outage; scale production <code>Backend</code>, <code>Worker</code>, and <code>Beat</code> to zero with <code>railway service scale --project cloud --environment prod --service Backend ams=0</code>, then the same explicit command for <code>Worker</code> and <code>Beat</code> (resolve and record the current region ID instead of assuming <code>ams</code> if topology changes); confirm no replicas, in-flight HTTP, Celery tasks, scheduled jobs, or DB writes remain. Record the final transaction/checkpoint time establishing RPO zero.</li>
+<li>Preserve old state: from a secure operator job/host with the old database secret injected privately, create an encrypted PostgreSQL custom-format backup using <code>pg_dump --format=custom --no-owner --no-acl --file=&lt;encrypted-secure-path&gt;/cloud-prod-pre-uuid.dump &lt;private-connection&gt;</code>; compute SHA-256 and store it independently in immutable release evidence, then verify <code>pg_restore --list</code> succeeds. Rehearse on an isolated Postgres with <code>pg_restore --clean --if-exists --no-owner --no-acl --dbname=&lt;isolated-private-connection&gt; &lt;dump&gt;</code>, time the restore against the 60-minute RTO, and run schema/count smoke checks. PITR is not enabled and is not a rollback mechanism. Keep old Postgres intact/read-only and create the locked waitlist export; do not expose connections or variables in logs/evidence.</li>
+<li>Build green: point an owner-controlled one-off job at green Postgres using secret injection outside captured output; deploy the pinned revision; run fresh migrations, PostgreSQL migration-contract assertions, waitlist restore, and source/restored field equality. Production validation is read-only only: schema queries, counts/checksums, and safe GET/health checks. It includes no production POST canary.</li>
+<li>Switch references while stopped: update DB references for all three services with scoped, secret-safe <code>railway variable set --environment prod --service Backend &lt;DB_REFERENCE_KEY&gt;=&lt;GREEN_REFERENCE&gt; --skip-deploys</code>, repeated for <code>Worker</code> and <code>Beat</code>. Explicitly scale <code>Backend</code> back to recorded <code>ams=1</code>, redeploy, and pass status/health/read-only waitlist/migration gates; then scale <code>Worker</code> to <code>ams=1</code>, redeploy, and pass its status/queue gate; then scale <code>Beat</code> to <code>ams=1</code>, redeploy, and pass its status/scheduler gate. Never rely on redeploy alone to restore replicas. Redis remains unchanged.</li>
+<li>Approval, rollback, and retention: the release owner has rollback authority until all gates pass; the database owner independently approves equivalence. On failure, scale green consumers to zero, restore all three old references, then explicitly scale/redeploy/gate Backend, Worker, and Beat at recorded counts. Before cutover, owners approve and record retention durations for old Postgres, logical dump, and waitlist export based on policy. None may be deleted before verification completes and the approved rollback window ends; deletion receipts are required.</li>
+<li>Impacted files/systems: Railway <code>prod</code>/<code>staging</code>; <code>Backend</code>, <code>Worker</code>, <code>Beat</code>, old and green <code>Postgres</code>, unchanged <code>Redis</code>; secure backup storage and immutable release evidence. The PR contains runbook/docs/tests only and performs no Railway mutation.</li>
+<li>Exit criteria: Green schema/contract, exact waitlist equivalence, read-only production gates, RPO/RTO, full CI, privacy checks, active-scope zero-hit search, all three green references, two-person approval, retention record, and CLD-005 parked-until-merge handoff all pass.</li>
+</ul>
+<h2>Acceptance Criteria</h2>
+<ol>
+<li>All 18 named models have UUID primary keys; PostgreSQL contract assertions cover every explicit relation, PermissionsMixin group/permission through tables, and <code>django_admin_log.user_id</code>; independent framework-owned integer PKs remain allowed only when they do not reference product identities.</li>
+<li>Searches find no <code>public_id</code>, prefixed-ID generator/parser/validator, prefix-based lookup/order/index, compatibility shim, or legacy identity dependency in active runtime code, active migrations, current contracts, or current operational docs. Historical accepted plans may retain the old terminology only when clearly marked superseded and are not treated as active implementation guidance.</li>
+<li>Product APIs accept/return canonical UUID identifiers with strict validation and unchanged authentication, authorization, tenant isolation, and privacy-safe error behavior.</li>
+<li>User/session/JWT/native exchange/avatar/workspace/Ally/onboarding/provisioning/conversation/message flows pass using UUID identity; pre-reset tokens, sessions, cursors, and disposable storage references are invalid rather than upgraded.</li>
+<li>Clean migrations create the complete schema from zero, <code>makemigrations --check</code> passes, and inspected PK/FK/index/constraint types match the model graph.</li>
+<li>Production reset exports exactly the locked 20 WaitlistEntry fields, preserves null/blank/repeated-email semantics without email dedupe, orders/equates rows by unique <code>attempt_id_digest</code>, restores UUID-native rows, and proves every source/restored field, count, checksum, uniqueness, timestamps, and API behavior equivalent.</li>
+<li>The reset never restores non-waitlist data; failure keeps writes disabled and reroutes to intact old Postgres or restores the encrypted custom-format logical dump only under the approved rollback procedure.</li>
+<li>Export and logical-dump artifacts remain encrypted/access-audited, have independently verified hashes, pass restore rehearsal, and follow owner-approved policy-backed retention recorded before cutover; old DB/artifacts cannot be deleted before verification and the rollback window end, and PITR is not claimed.</li>
+<li>Full relevant tests, migration checks, lint, format inspection, and CI pass with PostgreSQL evidence.</li>
+<li>Railway staging rehearsal and production blue/green runbook record current region/replicas, scale Backend/Worker/Beat from <code>ams=1</code> to zero and explicitly back to <code>ams=1</code> with a status gate after each during activation and rollback, use production read-only gates, meet RPO zero/RTO 60-minute targets, and execute no mutations in the PR.</li>
+<li>CLD-003 Cloud/Foundry request and receipt fixtures match exact transport names <code>workspace_id</code>, <code>binding_id</code>, <code>ally_ref</code>, and <code>operation_id</code>, carrying canonical UUID strings from <code>Workspace.id</code>, <code>AllyBinding.id</code>, <code>Ally.id</code>, and <code>ProvisioningOperation.id</code>; any opacity adaptation is minimal and new CLD-005 behavior remains absent.</li>
+</ol>
+<h2>Backend Considerations (if applicable)</h2>
+<h3>Query Optimization Plan</h3>
+<ul>
+<li>Hotspots/endpoints: UUID PK lookup in auth/session refresh, Workspace/Ally nested routes, chat lists, provisioning lookup, waitlist duplicate checks, and admin search.</li>
+<li>Query-shape choices: retain existing <code>select_related</code>/<code>prefetch_related</code>; replace prefix/public-ID indexes with UUID PK/FK indexes; keep business uniqueness indexes; use explicit timestamp+UUID tie-breakers rather than UUID-only chronological ordering; bound export/restore batches while preserving one consistent repeatable-read view.</li>
+<li>Expected query-count change: Identity conversion must not add lookups; PK/FK paths remain indexed and query counts stay equal or lower.</li>
+<li>Measurement/monitoring plan: Reuse existing query-count coverage; add no new query-count tests unless implementation changes a query shape. Inspect PostgreSQL plans only for changed query/index shapes and monitor sanitized latency/errors after reset.</li>
+</ul>
+<h3>N+1 Prevention</h3>
+<ul>
+<li>Relation access map: Auth user/profile/avatar/session; Workspace owner/memberships; Ally/binding/onboarding/provisioning; Conversation/Message ownership; Waitlist standalone.</li>
+<li>Prefetch/select plan per endpoint/service: Preserve current eager-loading maps. UUID conversion does not justify per-row identity translation queries.</li>
+<li>N+1 regression guardrails: Existing domain suites remain; add targeted query-count coverage only if a query shape changes. No prefix-to-UUID translation table or lookup loop is permitted.</li>
+</ul>
+<h3>Detailed Unit Test Cases</h3>
+<ul>
+<li>Happy path: Exact PostgreSQL inventory for 18 PKs/22 relations/permission refs/admin-log user ref; UUID defaults and representative distinct route boundaries; full existing auth/domain/tenant suites; CLD-003 four-field fixture parity; waitlist encoder and three command flows.</li>
+<li>Validation and bad input: One central UUID parser matrix covers canonical acceptance and representative malformed/legacy inputs; representative route boundaries prove parser/error integration without a Cartesian endpoint matrix. Focused JWT/cursor/storage tests and waitlist corrupt/truncated/wrong-version/checksum/duplicate-attempt cases remain.</li>
+<li>Auth/RBAC boundaries: foreign Workspace/Ally/conversation/message UUID, deleted user/session, token replay, session-family mismatch, admin permissions, privacy-safe missing-versus-foreign behavior.</li>
+<li>Idempotency/retry behavior: duplicate waitlist submission, repeated export, restore into non-empty target, repeated restore, command interruption, transaction rollback, deterministic checksum across ordering, restart after partial file write, and two-row source/restored equivalence where both rows have blank or repeated <code>email_normalized</code> but distinct unique <code>attempt_id_digest</code> values.</li>
+<li>Failure-path behavior: model/FK migration cycle, swappable-user ordering failure, missing waitlist column, blocked write during window, restore exception, post-restore API mismatch, logical-dump restore failure, observability redaction, old token/cursor/object key use.</li>
+</ul>
+<h2>Frontend Considerations (if applicable)</h2>
+<p>Frontend implementation is not applicable in this Cloud repository. API handoff only: publish canonical UUID route/request/response contracts and tell consumers identifiers remain opaque; client implementation belongs to its owning repository.</p>
+<h2>Test Plan</h2>
+<ul>
+<li>Unit tests: Exact PostgreSQL UUID targets for 18 PKs/22 relations/permission through refs/admin-log user ref; one central UUID parser matrix; representative distinct route boundaries; auth claims/cursors/storage/admin/observability; locked waitlist encoder/checksum and three thin commands.</li>
+<li>Integration/API tests: Full auth/session/native/avatar, Workspace/membership, Ally/binding/onboarding/provisioning, exact four-field CLD-003 Cloud/Foundry request/receipt UUID fixture parity, chat, and waitlist API suites with UUID positive/negative/tenant-boundary cases; fresh PostgreSQL migration test; export/rebuild/restore and encrypted logical-dump restore rehearsals. Staging/shadow runs may use POST/GET contract tests; production gate is strictly read-only schema/count/checksum/GET/health verification.</li>
+<li>Regression checks: Full existing domain/auth/tenant suites, authorization/privacy, token rotation/replay, business uniqueness/idempotency, timestamp ordering, storage cleanup, admin access, and CI migration checks; query counts only where query shapes change.</li>
+<li>Manual verification checklist: Search for <code>public_id</code> and known prefix helpers; inspect the exact PostgreSQL migration contract; inspect OpenAPI route/response schemas; run locked waitlist manifest/count/checksum and row-for-row equivalence; exercise POST contracts only in staging/shadow; use read-only production GET/health gates; verify non-waitlist tables empty after production reset; inspect logs/admin/metrics for sensitive export, secrets, or legacy IDs; verify immutable hashes, restore rehearsal, and expiry/deletion receipts.</li>
+<li>Commands: <code>make sync</code>; <code>make check</code>; <code>make migrations APP=&lt;each affected app&gt;</code> during development; <code>cd backend; uv run python manage.py makemigrations --check</code>; clean disposable database <code>make migrate</code>; <code>make test</code>; targeted <code>make test APP=backend/auths/tests</code>, <code>backend/workspaces/tests</code>, <code>backend/allies/tests</code>, <code>backend/chat/tests</code>, <code>backend/waitlist/tests</code>; <code>make lint</code>; <code>make format</code> and inspect diff; repository searches with <code>rg</code> for <code>public_id</code>, <code>new_public_id</code>, and known prefixes; run export/restore/verify commands against a rehearsal database.</li>
+<li>CI basis: Existing <code>.github/workflows/ci.yml</code>, Makefile, locked <code>uv</code> dependencies, Django system/migration checks, pytest with PostgreSQL concurrency coverage, Ruff lint/format, and coverage reporting.</li>
+</ul>
+<h2>Risks and Mitigations</h2>
+<ul>
+<li>Risk: Hidden legacy identity remains in active runtime, migrations, current contracts, or current operational docs. Mitigation: PR checklist, central parser/representative boundary tests, schema/OpenAPI inspection, and narrow zero-hit searches; historical accepted plans remain unchanged or are labeled superseded. Rollback/fallback: block merge; there is no compatibility shim.</li>
+<li>Risk: Clean migration graph breaks swappable-user/framework dependency ordering. Mitigation: build from empty PostgreSQL repeatedly, inspect generated dependencies/through tables/content types, and run system/migration checks in CI. Rollback/fallback: revise the baseline before production; never fake migration state.</li>
+<li>Risk: Waitlist data is lost, duplicated, or reinterpreted. Mitigation: locked 20-field contract, attempt-digest ordering, exact null/string/datetime encoding, no email dedupe, write freeze, encrypted custom-format logical dump, deterministic checksum/count, rehearsed restore, API equivalence, and two-person approval. Rollback/fallback: keep writes closed and repoint all services to intact old Postgres; never continue with any field/checksum mismatch.</li>
+<li>Risk: Export artifact exposes applicant data. Mitigation: least-privilege encrypted storage, business fields only, no git/log/admin attachment, access audit, and owner-approved deletion/retention. Rollback/fallback: stop reset, revoke access/rotate credentials, and follow incident handling before retry.</li>
+<li>Risk: UUID changes accidentally weaken tenant authorization or enumeration privacy. Mitigation: retain ancestry/capability checks and negative cross-tenant tests; UUID unpredictability is not authorization. Rollback/fallback: block merge/traffic reopening until boundary tests pass.</li>
+<li>Risk: Existing clients use prefixed routes/tokens/cursors. Mitigation: pre-launch breaking reset is explicit, all non-waitlist state is disposable, and clients/fixtures deploy with the foundation. Rollback/fallback: revert deployment as one unit; do not introduce dual parsing.</li>
+<li>Risk: Railway cutover partially switches services or leaks secrets in evidence. Mitigation: explicit environment/service-scoped commands, all three services stopped during reference update, Backend-first restart, pinned revision, no <code>railway variable list</code> output, immutable non-secret release evidence, and RPO/RTO gates. Rollback/fallback: release owner scales green consumers to zero, restores all three old references, and redeploys Backend then Worker/Beat.</li>
+<li>Risk: CLD-003 Foundry assumes a prefixed binding key. Mitigation: cross-repo fixture/contract inspection and UUID opacity test before merge. Rollback/fallback: land only the minimal Foundry parser/schema adaptation or block Cloud cutover; do not add CLD-005 behavior.</li>
+<li>Risk: CLD-005 scope leaks into the foundation. Mitigation: diff review against the brief and explicit excluded-path/behavior checklist. Rollback/fallback: split/remove gateway/projection changes before review.</li>
+<li>Required pre-cutover approval: Owners record policy-backed retention durations, secure destinations, maintenance window, and two-person reopen evidence. The waitlist field contract and <code>pg_dump</code>/<code>pg_restore</code> procedure are resolved in this plan; only environment-specific values and retention durations are approved immediately before execution.</li>
+</ul></article></main></body></html>

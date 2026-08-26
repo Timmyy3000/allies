@@ -1,3 +1,5 @@
+from uuid import UUID
+
 from ninja import Schema
 from pydantic import ConfigDict, Field
 
@@ -33,9 +35,9 @@ class CreateAllyRequest(AllySeedInput):
 
 
 class AllyResponse(Schema):
-    id: str
-    binding_id: str
-    operation_id: str
+    id: UUID
+    binding_id: UUID
+    operation_id: UUID
     name: str
     job: str
     personality: str

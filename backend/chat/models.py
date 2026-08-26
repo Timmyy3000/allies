@@ -2,15 +2,14 @@
 
 from __future__ import annotations
 
+import uuid
+
 from django.db import models
 from django.db.models import Q
-
-from common.identifiers import new_public_id
 
 # Django model metaclasses intentionally consume mutable Meta collections.
 # ruff: noqa: RUF012
 
-PUBLIC_ID_MAX_LENGTH = 40
 MESSAGE_CONTENT_MAX_LENGTH = 16_000
 DIGEST_LENGTH = 64
 
@@ -33,21 +32,8 @@ class MessageOrigin(models.TextChoices):
     ONBOARDING = "onboarding", "Onboarding"
 
 
-def new_conversation_public_id() -> str:
-    return new_public_id("conv")
-
-
-def new_message_public_id() -> str:
-    return new_public_id("msg")
-
-
 class Conversation(models.Model):
-    public_id = models.CharField(
-        max_length=PUBLIC_ID_MAX_LENGTH,
-        unique=True,
-        editable=False,
-        default=new_conversation_public_id,
-    )
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     ally = models.ForeignKey(
         "allies.Ally", on_delete=models.CASCADE, related_name="conversations"
     )
@@ -56,7 +42,7 @@ class Conversation(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ("ally_id", "public_id")
+        ordering = ("ally_id", "created_at", "id")
         constraints = [
             models.UniqueConstraint(
                 fields=("ally",),
@@ -66,16 +52,11 @@ class Conversation(models.Model):
         ]
 
     def __str__(self) -> str:
-        return self.public_id
+        return str(self.id)
 
 
 class Message(models.Model):
-    public_id = models.CharField(
-        max_length=PUBLIC_ID_MAX_LENGTH,
-        unique=True,
-        editable=False,
-        default=new_message_public_id,
-    )
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(
         Conversation, on_delete=models.CASCADE, related_name="messages"
     )
@@ -98,7 +79,7 @@ class Message(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ("sequence", "public_id")
+        ordering = ("sequence", "id")
         constraints = [
             models.UniqueConstraint(
                 fields=("conversation", "sequence"),
@@ -182,4 +163,4 @@ class Message(models.Model):
         ]
 
     def __str__(self) -> str:
-        return self.public_id
+        return str(self.id)
