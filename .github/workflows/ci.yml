@@ -19,7 +19,7 @@ permissions:
 jobs:
   check:
     name: Django checks and tests
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       source_sha: ${{ steps.record_source.outputs.sha }}
     steps:
@@ -83,7 +83,7 @@ jobs:
 
   postgresql-auth:
     name: PostgreSQL UUID schema and concurrency
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     services:
       postgres:
         image: postgres:17
