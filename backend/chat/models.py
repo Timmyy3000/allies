@@ -6,6 +6,7 @@ import uuid
 
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 # Django model metaclasses intentionally consume mutable Meta collections.
 # ruff: noqa: RUF012
@@ -17,6 +18,7 @@ DIGEST_LENGTH = 64
 class MessageLifecycle(models.TextChoices):
     QUEUED = "queued", "Queued"
     IN_PROGRESS = "in_progress", "In progress"
+    AWAITING_ACTION = "awaiting_action", "Awaiting action"
     COMPLETED = "completed", "Completed"
     FAILED = "failed", "Failed"
     STOPPED = "stopped", "Stopped"
@@ -122,6 +124,7 @@ class Message(models.Model):
                         content_fingerprint="",
                         status__in=(
                             MessageLifecycle.IN_PROGRESS,
+                            MessageLifecycle.AWAITING_ACTION,
                             MessageLifecycle.COMPLETED,
                             MessageLifecycle.FAILED,
                             MessageLifecycle.STOPPED,
@@ -164,3 +167,80 @@ class Message(models.Model):
 
     def __str__(self) -> str:
         return str(self.id)
+
+
+class DispatchState(models.TextChoices):
+    PENDING = "pending", "Pending"
+    IN_PROGRESS = "in_progress", "In progress"
+    ACCEPTED = "accepted", "Accepted"
+    RECONCILIATION_NEEDED = "reconciliation_needed", "Reconciliation needed"
+    FAILED = "failed", "Failed"
+
+
+class DispatchOutbox(models.Model):
+    """One exact, retryable Foundry command owned by an accepted message."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.OneToOneField(
+        Message,
+        on_delete=models.CASCADE,
+        related_name="dispatch_outbox",
+    )
+    command_bytes = models.BinaryField(default=bytes, editable=False)
+    command_byte_length = models.PositiveIntegerField(default=0, editable=False)
+    command_sha256 = models.CharField(
+        max_length=DIGEST_LENGTH, blank=True, default="", editable=False
+    )
+    command_fingerprint = models.CharField(
+        max_length=90, blank=True, default="", editable=False
+    )
+    status = models.CharField(
+        max_length=32,
+        choices=DispatchState.choices,
+        default=DispatchState.PENDING,
+    )
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now, null=True, blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    safe_error_code = models.CharField(max_length=64, blank=True, default="")
+    receipt_digest = models.CharField(
+        max_length=DIGEST_LENGTH, blank=True, default="", editable=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("created_at", "id")
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(command_byte_length__gte=0),
+                name="chat_dispatch_command_length_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(command_sha256="") | Q(command_sha256__regex=r"^[0-9a-fA-F]{64}$")
+                ),
+                name="chat_dispatch_command_sha_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(receipt_digest="") | Q(receipt_digest__regex=r"^[0-9a-fA-F]{64}$")
+                ),
+                name="chat_dispatch_receipt_digest_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(attempt_count__gte=0) & Q(attempt_count__lte=5),
+                name="chat_dispatch_attempt_count_bounded",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("status", "next_attempt_at", "lease_expires_at"),
+                name="chat_dispatch_due_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"dispatch:{self.message_id}"

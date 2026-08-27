@@ -156,6 +156,27 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             "replayed": False,
         },
     },
+    "SuccessResponse_ActivitySnapshotResponse_": {
+        "status": "success",
+        "message": "Activities loaded",
+        "data": {
+            "conversation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "activities": [
+                {
+                    "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
+                    "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
+                    "sequence": 1,
+                    "conversation_turn_ordinal": 3,
+                    "kind": "assistant_delta",
+                    "text": "I can help with that.",
+                    "state": "running",
+                    "created_at": "2026-08-20T16:01:01Z",
+                }
+            ],
+            "state": "running",
+            "last_contiguous_sequence": 2,
+        },
+    },
     "SuccessResponse_WaitlistEntryResponse_": {
         "status": "success",
         "message": "Waitlist greeting ready",

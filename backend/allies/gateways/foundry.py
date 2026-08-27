@@ -1,13 +1,33 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from uuid import UUID
 
 from django.conf import settings
 from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr
 
-from allies.exceptions import ProvisioningRejected, ProvisioningRetryable
+from allies.exceptions import (
+    FoundryGatewayConflict,
+    FoundryGatewayInvalid,
+    FoundryGatewayNotFound,
+    FoundryGatewayRejected,
+    FoundryGatewayRetryable,
+    FoundryGatewayUnknownOutcome,
+    ProvisioningRejected,
+    ProvisioningRetryable,
+)
+
+from .contracts import (
+    FINGERPRINT_PATTERN,
+    ExecutionCommand,
+    ExecutionReceipt,
+    ReconciliationReceipt,
+    canonical_json_bytes,
+)
 
 _UUID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
 
@@ -49,6 +69,124 @@ class ProfileProvisioningReceipt(BaseModel):
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
+
+
+def _foundry_origin() -> tuple[str, str]:
+    origin = str(getattr(settings, "ALLIES_FOUNDRY_URL", "")).rstrip("/")
+    token = str(getattr(settings, "ALLIES_FOUNDRY_SERVICE_TOKEN", ""))
+    try:
+        parsed = urlparse(origin)
+        safe_origin = (
+            parsed.scheme == "https"
+            and bool(parsed.hostname)
+            and not parsed.username
+            and not parsed.password
+            and not parsed.params
+            and not parsed.query
+            and not parsed.fragment
+        )
+    except ValueError:
+        safe_origin = False
+    if not token or not safe_origin:
+        raise FoundryGatewayRetryable("foundry unavailable")
+    return origin, token
+
+
+def _read_response(response) -> bytes:
+    raw = response.read(65_537)
+    if len(raw) > 65_536:
+        raise FoundryGatewayInvalid("foundry response too large")
+    return raw
+
+
+def _request(
+    *,
+    method: str,
+    path: str,
+    body: bytes | None = None,
+    query: Mapping[str, str] | None = None,
+) -> bytes:
+    origin, token = _foundry_origin()
+    suffix = f"?{urlencode(query)}" if query else ""
+    request = Request(
+        urljoin(origin + "/", path.lstrip("/")) + suffix,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        },
+        method=method,
+    )
+    try:
+        with build_opener(_NoRedirect).open(
+            request,
+            timeout=float(getattr(settings, "ALLIES_FOUNDRY_TIMEOUT_SECONDS", 5.0)),
+        ) as response:
+            return _read_response(response)
+    except HTTPError as exc:
+        if exc.code in {408, 429} or exc.code >= 500:
+            raise FoundryGatewayRetryable("foundry unavailable") from exc
+        if exc.code == 401:
+            raise FoundryGatewayRejected("foundry rejected request") from exc
+        if exc.code == 404:
+            raise FoundryGatewayNotFound("foundry resource unavailable") from exc
+        if exc.code == 409:
+            raise FoundryGatewayConflict("foundry request conflicts") from exc
+        if exc.code == 422:
+            raise FoundryGatewayInvalid("foundry request is invalid") from exc
+        raise FoundryGatewayRejected("foundry rejected request") from exc
+    except (TimeoutError, URLError, OSError) as exc:
+        raise FoundryGatewayUnknownOutcome("foundry outcome unknown") from exc
+
+
+def _receipt(raw: bytes) -> ExecutionReceipt:
+    try:
+        return ExecutionReceipt.model_validate_json(raw)
+    except ValueError as exc:
+        raise FoundryGatewayInvalid("foundry response invalid") from exc
+
+
+def create_execution_intent(
+    command: ExecutionCommand, *, raw_body: bytes | None = None
+) -> ExecutionReceipt:
+    """Submit one exact command; retries may pass the persisted bytes directly."""
+
+    canonical_body = canonical_json_bytes(command.model_dump(mode="json"))
+    if raw_body is not None and (
+        not isinstance(raw_body, bytes) or raw_body != canonical_body
+    ):
+        raise FoundryGatewayInvalid("foundry command bytes are not canonical")
+    body = raw_body if raw_body is not None else canonical_body
+    if len(body) > 64 * 1024:
+        raise FoundryGatewayInvalid("foundry command too large")
+    return _receipt(
+        _request(method="POST", path="api/v1/internal/executions", body=body)
+    )
+
+
+def reconcile_execution_intent(
+    idempotency_key, fingerprint: str
+) -> ReconciliationReceipt:
+    """Look up an execution without creating work."""
+
+    try:
+        key = UUID(str(idempotency_key))
+    except (TypeError, ValueError) as exc:
+        raise FoundryGatewayInvalid("idempotency identity is invalid") from exc
+    if not isinstance(fingerprint, str) or not re.fullmatch(
+        FINGERPRINT_PATTERN, fingerprint
+    ):
+        raise FoundryGatewayInvalid("fingerprint is invalid")
+    raw = _request(
+        method="GET",
+        path="api/v1/internal/executions/reconcile",
+        query={"idempotency_key": str(key), "fingerprint": fingerprint},
+    )
+    try:
+        return ReconciliationReceipt.model_validate_json(raw)
+    except ValueError as exc:
+        raise FoundryGatewayInvalid("foundry reconciliation response invalid") from exc
 
 
 def provision_profile(
