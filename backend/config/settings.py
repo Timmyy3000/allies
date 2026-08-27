@@ -15,9 +15,11 @@ import re
 import secrets
 from ipaddress import IPv4Network, IPv6Network, ip_network
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
+
 from observability.settings import FoundryObservabilitySettings
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -75,6 +77,42 @@ if not DEBUG and (
     raise ImproperlyConfigured(
         "ALLIES_CLOUD_SERVICE_TOKEN must be a strong token outside debug"
     )
+
+ALLIES_CLOUD_EVENT_DELIVERY_ENABLED = env_bool(
+    "ALLIES_CLOUD_EVENT_DELIVERY_ENABLED", default=False
+)
+ALLIES_CLOUD_URL = os.getenv("ALLIES_CLOUD_URL")
+ALLIES_CLOUD_EVENT_SERVICE_TOKEN = os.getenv("ALLIES_CLOUD_EVENT_SERVICE_TOKEN")
+if ALLIES_CLOUD_EVENT_DELIVERY_ENABLED:
+    if not ALLIES_CLOUD_URL or not ALLIES_CLOUD_EVENT_SERVICE_TOKEN:
+        raise ImproperlyConfigured(
+            "ALLIES_CLOUD_URL and ALLIES_CLOUD_EVENT_SERVICE_TOKEN are required "
+            "when event delivery is enabled"
+        )
+    try:
+        cloud_url = urlsplit(ALLIES_CLOUD_URL)
+        cloud_port = cloud_url.port
+    except ValueError:
+        cloud_url = None
+    if (
+        cloud_url is None
+        or cloud_url.scheme.lower() != "https"
+        or not cloud_url.hostname
+        or cloud_url.username is not None
+        or cloud_url.password is not None
+        or cloud_port is not None
+        and not 0 <= cloud_port <= 65535
+        or cloud_url.query
+        or cloud_url.fragment
+        or any(character in ALLIES_CLOUD_URL for character in "\x00\r\n")
+    ):
+        raise ImproperlyConfigured("ALLIES_CLOUD_URL must be an HTTPS origin")
+    if len(ALLIES_CLOUD_EVENT_SERVICE_TOKEN) < 32 or any(
+        character.isspace() for character in ALLIES_CLOUD_EVENT_SERVICE_TOKEN
+    ):
+        raise ImproperlyConfigured(
+            "ALLIES_CLOUD_EVENT_SERVICE_TOKEN must be a strong token"
+        )
 
 PROFILE_PROVISIONING_PROVIDER = env_profile_text(
     "PROFILE_PROVISIONING_PROVIDER", "openai", max_length=128

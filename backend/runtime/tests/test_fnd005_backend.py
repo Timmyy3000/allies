@@ -395,6 +395,20 @@ def test_internal_api_claim_and_event(runtime_setup):
         },
     )
     assert event.status_code == 202, event.content
+    session = client.put(
+        f"/api/v1/runtime/attempts/{claim['attempt_id']}/session-binding",
+        data={
+            "cloud_conversation_ref": "cloud-conversation",
+            "expected_session_id": None,
+            "effective_session_id": "hermes-session",
+        },
+        content_type="application/json",
+        headers={
+            "Authorization": f"Bearer {issued.raw_token}",
+            "X-Foundry-Lease-Token": claim["lease_token"],
+        },
+    )
+    assert session.status_code == 200, session.content
     complete = client.post(
         f"/api/v1/runtime/attempts/{claim['attempt_id']}/complete",
         data={

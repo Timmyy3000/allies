@@ -24,6 +24,13 @@ class ExecutionStatus(models.TextChoices):
     UNKNOWN = "unknown", "Unknown"
 
 
+class EventDeliveryState(models.TextChoices):
+    PENDING = "pending", "Pending"
+    DELIVERING = "delivering", "Delivering"
+    DELIVERED = "delivered", "Delivered"
+    EXHAUSTED = "exhausted", "Exhausted"
+
+
 class AttemptStatus(models.TextChoices):
     QUEUED = "queued", "Queued"
     LEASED = "leased", "Leased"
@@ -402,6 +409,15 @@ class Execution(models.Model):
     idempotency_key = models.CharField(max_length=255)
     input_payload = models.JSONField(default=dict)
     payload_digest = models.CharField(max_length=64, default="", editable=False)
+    command_id = models.UUIDField(null=True, blank=True, unique=True)
+    command_fingerprint = models.CharField(max_length=100, default="", blank=True)
+    cloud_workspace_id = models.UUIDField(null=True, blank=True)
+    cloud_ally_id = models.UUIDField(null=True, blank=True)
+    cloud_conversation_id = models.UUIDField(null=True, blank=True)
+    cloud_message_id = models.UUIDField(null=True, blank=True)
+    cloud_binding_id = models.UUIDField(null=True, blank=True)
+    conversation_turn_ordinal = models.PositiveIntegerField(null=True, blank=True)
+    source_kind = models.CharField(max_length=64, default="", blank=True)
     status = models.CharField(
         max_length=16,
         choices=ExecutionStatus,
@@ -415,6 +431,30 @@ class Execution(models.Model):
             models.UniqueConstraint(
                 fields=["workspace", "idempotency_key"],
                 name="runtime_execution_workspace_idempotency_unique",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(command_fingerprint="")
+                    | Q(
+                        command_fingerprint__regex=r"^canonical-json-sha256:v1:[0-9a-f]{64}$"
+                    )
+                ),
+                name="runtime_execution_command_fingerprint_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(command_id__isnull=True)
+                    | (
+                        Q(cloud_workspace_id__isnull=False)
+                        & Q(cloud_ally_id__isnull=False)
+                        & Q(cloud_conversation_id__isnull=False)
+                        & Q(cloud_message_id__isnull=False)
+                        & Q(cloud_binding_id__isnull=False)
+                        & Q(conversation_turn_ordinal__gt=0)
+                        & ~Q(command_fingerprint="")
+                    )
+                ),
+                name="runtime_execution_command_contract",
             ),
         ]
         indexes: ClassVar = [
@@ -554,3 +594,113 @@ class ExecutionEvent(models.Model):
                 name="runtime_event_sequence_positive",
             ),
         ]
+
+
+class ExecutionEventDelivery(models.Model):
+    """Bounded wire envelope erased after delivery reaches a terminal state."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    event = models.OneToOneField(
+        ExecutionEvent,
+        on_delete=models.CASCADE,
+        related_name="delivery",
+    )
+    envelope_bytes = models.BinaryField(max_length=64 * 1024)
+    byte_length = models.PositiveIntegerField()
+    fingerprint = models.CharField(max_length=100)
+    state = models.CharField(
+        max_length=16,
+        choices=EventDeliveryState,
+        default=EventDeliveryState.PENDING,
+    )
+    delivery_attempts = models.PositiveSmallIntegerField(default=0)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField()
+    safe_error_code = models.CharField(max_length=64, default="", blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["event", "fingerprint"],
+                name="runtime_delivery_event_fingerprint_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(state__in=EventDeliveryState.values),
+                name="runtime_delivery_state_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(delivery_attempts__gte=0) & Q(delivery_attempts__lte=8),
+                name="runtime_delivery_attempts_bounded",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    state__in=[
+                        EventDeliveryState.DELIVERED,
+                        EventDeliveryState.EXHAUSTED,
+                    ],
+                    byte_length=0,
+                )
+                | (Q(byte_length__gt=0) & Q(byte_length__lte=64 * 1024)),
+                name="runtime_delivery_bytes_bounded",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(fingerprint__regex=r"^canonical-json-sha256:v1:[0-9a-f]{64}$")
+                ),
+                name="runtime_delivery_fingerprint_valid",
+            ),
+        ]
+        indexes: ClassVar = [
+            models.Index(
+                fields=["state", "next_attempt_at", "lease_expires_at"],
+                name="rt_delivery_due_idx",
+            )
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self._state.adding:
+            previous = (
+                type(self)
+                .objects.only(
+                    "event_id", "envelope_bytes", "byte_length", "fingerprint"
+                )
+                .get(pk=self.pk)
+            )
+            identity_changed = (
+                previous.event_id != self.event_id
+                or previous.fingerprint != self.fingerprint
+            )
+            payload_changed = (
+                previous.envelope_bytes != self.envelope_bytes
+                or previous.byte_length != self.byte_length
+            )
+            terminal_erasure = (
+                self.state
+                in {EventDeliveryState.DELIVERED, EventDeliveryState.EXHAUSTED}
+                and self.envelope_bytes == b""
+                and self.byte_length == 0
+            )
+            if identity_changed or payload_changed and not terminal_erasure:
+                raise RuntimeConflictError("event delivery envelope is immutable")
+        if not isinstance(self.envelope_bytes, bytes):
+            raise RuntimeValidationError("delivery envelope must be UTF-8 bytes")
+        terminal_erasure = (
+            self.state in {EventDeliveryState.DELIVERED, EventDeliveryState.EXHAUSTED}
+            and self.envelope_bytes == b""
+        )
+        if not terminal_erasure and not 0 < len(self.envelope_bytes) <= 64 * 1024:
+            raise RuntimeValidationError("delivery envelope is too large")
+        if self.byte_length != len(self.envelope_bytes):
+            raise RuntimeValidationError("delivery byte length is invalid")
+        if not re.fullmatch(r"canonical-json-sha256:v1:[0-9a-f]{64}", self.fingerprint):
+            raise RuntimeValidationError("delivery fingerprint is invalid")
+        if not 0 <= self.delivery_attempts <= 8:
+            raise RuntimeValidationError("delivery attempts exceed the bounded budget")
+        if self.safe_error_code and not re.fullmatch(
+            r"[a-z][a-z0-9_-]{0,63}", self.safe_error_code
+        ):
+            raise RuntimeValidationError("delivery error code is invalid")
+        return super().save(*args, **kwargs)

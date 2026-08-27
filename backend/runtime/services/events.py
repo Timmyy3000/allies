@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -87,6 +88,24 @@ def _runtime_event_payload(event_type: str, payload: dict) -> dict:
         if payload != {"status": "dispatched"}:
             raise RuntimeValidationError("dispatch event payload is invalid")
         return dict(payload)
+    if event_type == "execution.awaiting_action":
+        action_kind = payload.get("action_kind")
+        if (
+            set(payload) != {"action_kind"}
+            or not isinstance(action_kind, str)
+            or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", action_kind)
+        ):
+            raise RuntimeValidationError("awaiting-action payload is invalid")
+        return {"action_kind": action_kind}
+    if event_type == "execution.stopped":
+        reason = payload.get("reason")
+        if (
+            set(payload) != {"reason"}
+            or not isinstance(reason, str)
+            or not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", reason)
+        ):
+            raise RuntimeValidationError("stopped event payload is invalid")
+        return {"reason": reason}
     if event_type == "message.delta":
         text = payload.get("text")
         if set(payload) != {"text"} or not isinstance(text, str) or not text:
@@ -202,6 +221,7 @@ def _append_event_once(
                 attempt_id, lease_id, token_digest, machine_generation
             )
         _ensure_exact_replay(existing, sequence, event_type, payload_digest, stream_id)
+        _enqueue_event_delivery(existing)
         return existing
     authorization = _authorize_attempt_mutation(
         attempt_id,
@@ -228,7 +248,7 @@ def _append_event_once(
 
     try:
         with transaction.atomic():
-            return ExecutionEvent.objects.create(
+            event = ExecutionEvent.objects.create(
                 attempt_id=authorization.attempt_id,
                 event_id=event_uuid,
                 stream_id=stream_id,
@@ -237,6 +257,8 @@ def _append_event_once(
                 payload=event_payload,
                 payload_digest=payload_digest,
             )
+            _enqueue_event_delivery(event)
+            return event
     except IntegrityError:
         existing = (
             ExecutionEvent.objects.select_for_update()
@@ -247,6 +269,7 @@ def _append_event_once(
             _ensure_exact_replay(
                 existing, sequence, event_type, payload_digest, stream_id
             )
+            _enqueue_event_delivery(existing)
             return existing
         raise RuntimeConflictError("event append conflicts with existing state")
 
@@ -274,6 +297,12 @@ def _stored_payload_digest(existing: ExecutionEvent) -> str:
     existing.payload_digest = digest
     existing.save(update_fields=["payload_digest"])
     return digest
+
+
+def _enqueue_event_delivery(event: ExecutionEvent) -> None:
+    from .event_delivery import enqueue_event_delivery
+
+    enqueue_event_delivery(event)
 
 
 def _authorize_released_event_replay(
