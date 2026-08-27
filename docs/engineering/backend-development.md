@@ -653,6 +653,19 @@ The example performs at most 60 passes, one minute apart, and then exits.
 the default and is idempotent, so cron or a platform job may invoke it
 directly when a periodic process is not needed.
 
+The Foundry event outbox uses the same bounded management-command convention.
+Run one publication pass with:
+
+```sh
+export DJANGO_DEBUG=true
+cd backend
+uv run --locked python manage.py publish_event_deliveries
+```
+
+For a supervised periodic publisher, use `--watch --interval 60 --max-runs
+60`. The command claims at most 20 deliveries per pass, so deployment may
+restart the bounded process without creating an unbounded worker loop.
+
 ## Definition of done for a new domain slice
 
 Before calling a domain slice ready for review, confirm:

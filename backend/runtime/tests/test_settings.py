@@ -29,6 +29,9 @@ def run_settings_probe(**overrides):
         "DJANGO_TRUST_PROXY_HEADERS",
         "DJANGO_TRUSTED_PROXY_IPS",
         "ALLIES_CLOUD_SERVICE_TOKEN",
+        "ALLIES_CLOUD_EVENT_DELIVERY_ENABLED",
+        "ALLIES_CLOUD_URL",
+        "ALLIES_CLOUD_EVENT_SERVICE_TOKEN",
         "PROFILE_PROVISIONING_PROVIDER",
         "PROFILE_PROVISIONING_MODEL",
         "PROFILE_PROVISIONING_BASE_URL",
@@ -98,6 +101,26 @@ def test_production_mode_requires_strong_cloud_service_token():
 
     assert "ALLIES_CLOUD_SERVICE_TOKEN is required" in missing.stderr
     assert "ALLIES_CLOUD_SERVICE_TOKEN must be a strong token" in weak.stderr
+
+
+@pytest.mark.parametrize(
+    "cloud_url",
+    [
+        "http://cloud.example.test",
+        "https://user:password@cloud.example.test",
+        "https://cloud.example.test/events?token=secret",
+    ],
+)
+def test_event_delivery_requires_credential_free_https_cloud_url(cloud_url):
+    result = run_settings_probe(
+        DJANGO_DEBUG="true",
+        ALLIES_CLOUD_EVENT_DELIVERY_ENABLED="true",
+        ALLIES_CLOUD_URL=cloud_url,
+        ALLIES_CLOUD_EVENT_SERVICE_TOKEN="c" * 32,
+    )
+
+    assert result.returncode != 0
+    assert "ALLIES_CLOUD_URL must be an HTTPS origin" in result.stderr
 
 
 @pytest.mark.parametrize(
@@ -181,7 +204,10 @@ def test_production_mode_requires_allowed_host():
     ("database_url", "engine"),
     [
         ("sqlite:///test-production.sqlite3", "django.db.backends.sqlite3"),
-        ("postgres://user:pass@localhost:5432/foundry", "django.db.backends.postgresql"),
+        (
+            "postgres://user:pass@localhost:5432/foundry",
+            "django.db.backends.postgresql",
+        ),
     ],
 )
 def test_production_mode_accepts_explicit_database(database_url, engine):

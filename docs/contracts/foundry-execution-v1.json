@@ -1,0 +1,77 @@
+{
+  "command": {
+    "schema_version": "v1",
+    "kind": "execution.command",
+    "producer": "cloud",
+    "service_identity": "cloud-service",
+    "command_id": "550e8400-e29b-41d4-a716-446655440000",
+    "idempotency_key": "650e8400-e29b-41d4-a716-446655440000",
+    "scope": {
+      "kind": "workspace",
+      "cloud_workspace_id": "750e8400-e29b-41d4-a716-446655440000"
+    },
+    "conversation_turn_ordinal": 12,
+    "cloud": {
+      "ally_id": "850e8400-e29b-41d4-a716-446655440000",
+      "conversation_id": "950e8400-e29b-41d4-a716-446655440000",
+      "message_id": "a50e8400-e29b-41d4-a716-446655440000",
+      "cloud_binding_id": "c50e8400-e29b-41d4-a716-446655440000"
+    },
+    "source_kind": "conversation_message",
+    "payload": {
+      "kind": "execution_input",
+      "text": "normalized user text"
+    },
+    "issued_at": "2026-08-25T12:00:00Z",
+    "deadline_at": "2026-08-25T12:00:05Z",
+    "fingerprint": "canonical-json-sha256:v1:b4e253ef34e4710692d1eaba026071ccbe9468d7be6baf8115242624d676b663"
+  },
+  "receipt": {
+    "schema_version": "v1",
+    "kind": "execution.receipt",
+    "status": "accepted",
+    "command_id": "550e8400-e29b-41d4-a716-446655440000",
+    "idempotency_key": "650e8400-e29b-41d4-a716-446655440000",
+    "fingerprint": "canonical-json-sha256:v1:b4e253ef34e4710692d1eaba026071ccbe9468d7be6baf8115242624d676b663"
+  },
+  "event": {
+    "schema_version": "v1",
+    "kind": "execution.event",
+    "producer": "foundry",
+    "service_identity": "foundry-service",
+    "event_id": "d50e8400-e29b-41d4-a716-446655440000",
+    "event_dedupe_key": "execution:attempt:generation:event",
+    "scope": {
+      "kind": "workspace",
+      "cloud_workspace_id": "750e8400-e29b-41d4-a716-446655440000"
+    },
+    "cloud": {
+      "ally_id": "850e8400-e29b-41d4-a716-446655440000",
+      "conversation_id": "950e8400-e29b-41d4-a716-446655440000",
+      "message_id": "a50e8400-e29b-41d4-a716-446655440000",
+      "cloud_binding_id": "c50e8400-e29b-41d4-a716-446655440000"
+    },
+    "conversation_turn_ordinal": 12,
+    "foundry": {
+      "execution_id": "e50e8400-e29b-41d4-a716-446655440000",
+      "attempt_id": "f50e8400-e29b-41d4-a716-446655440000",
+      "generation": 3,
+      "attempt_sequence": 7
+    },
+    "event_type": "message.delta",
+    "payload": {
+      "kind": "assistant_delta",
+      "text": "safe bounded fragment"
+    },
+    "issued_at": "2026-08-25T12:00:01Z",
+    "fingerprint": "canonical-json-sha256:v1:4346a1ed2a989e06dc500c59dac5a905d998227784089e0094d983e582da7dd7"
+  },
+  "reconciliation": {
+    "schema_version": "v1",
+    "kind": "execution.reconciliation",
+    "status": "accepted",
+    "idempotency_key": "650e8400-e29b-41d4-a716-446655440000",
+    "fingerprint": "canonical-json-sha256:v1:b4e253ef34e4710692d1eaba026071ccbe9468d7be6baf8115242624d676b663",
+    "command_id": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}

@@ -6,6 +6,31 @@ from uuid import UUID
 from ninja import Schema
 from pydantic import ConfigDict, Field, StrictInt, StrictStr
 
+from runtime.contracts import (
+    ExecutionCommand,
+    ExecutionReceipt,
+    FoundryEventEnvelope,
+    ReconciliationReceipt,
+)
+
+__all__ = [
+    "ClaimRequest",
+    "CleanupReceiptRequest",
+    "CompleteRequest",
+    "EventRequest",
+    "ExecutionCommand",
+    "ExecutionReceipt",
+    "FailRequest",
+    "FoundryEventEnvelope",
+    "MaterializationReceiptRequest",
+    "ProfileProvisioningReceipt",
+    "ProfileProvisioningRequest",
+    "ReconciliationReceipt",
+    "SessionBindingRequest",
+    "StoppedRequest",
+    "TerminalEventRequest",
+]
+
 
 class ClaimRequest(Schema):
     claim_id: UUID

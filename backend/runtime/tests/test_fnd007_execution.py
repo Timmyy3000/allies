@@ -4,7 +4,11 @@ from uuid import uuid4
 
 import pytest
 
-from runtime.exceptions import RuntimeIdempotencyConflictError, RuntimeValidationError
+from runtime.exceptions import (
+    RuntimeIdempotencyConflictError,
+    RuntimeLeaseConflictError,
+    RuntimeValidationError,
+)
 from runtime.models import (
     Attempt,
     AttemptStatus,
@@ -27,6 +31,7 @@ from runtime.services.runtime_auth import (
     authenticate_runtime_token,
     issue_runtime_credential,
 )
+from runtime.services.sessions import update_session_binding
 
 
 @pytest.fixture
@@ -72,9 +77,21 @@ def dispatch(context, claim):
     )
 
 
+def bind_effective_session(context, claim):
+    return update_session_binding(
+        context,
+        claim.attempt_id,
+        claim.lease_token,
+        "cloud-1",
+        None,
+        "session-1",
+    )
+
+
 def test_complete_atomically_appends_terminal_event_and_replays(claimed_execution):
     context, execution, claim = claimed_execution
     dispatch(context, claim)
+    bind_effective_session(context, claim)
     event_id = uuid4()
     terminal_event = {
         "event_id": event_id,
@@ -119,6 +136,43 @@ def test_complete_atomically_appends_terminal_event_and_replays(claimed_executio
             {"code": "ok"},
             terminal_event=conflicting,
         )
+
+
+def test_complete_requires_effective_session_before_terminal_event(
+    claimed_execution,
+):
+    context, execution, claim = claimed_execution
+    dispatch(context, claim)
+    terminal_event = {
+        "event_id": uuid4(),
+        "stream_id": claim.stream_id,
+        "sequence": 2,
+        "payload": {"run_id": "run-1", "status": "completed"},
+    }
+
+    with pytest.raises(RuntimeLeaseConflictError, match="effective session"):
+        complete_attempt(
+            context,
+            claim.attempt_id,
+            claim.lease_token,
+            {"code": "ok"},
+            terminal_event=terminal_event,
+        )
+
+    assert Attempt.objects.get(pk=claim.attempt_id).status == AttemptStatus.RUNNING
+    assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.RUNNING
+    assert not ExecutionEvent.objects.filter(
+        attempt_id=claim.attempt_id, event_type="execution.completed"
+    ).exists()
+
+    bind_effective_session(context, claim)
+    complete_attempt(
+        context,
+        claim.attempt_id,
+        claim.lease_token,
+        {"code": "ok"},
+        terminal_event=terminal_event,
+    )
 
 
 def test_fail_atomically_appends_failure_and_dispatch_prevents_requeue(
@@ -193,6 +247,47 @@ def test_runtime_event_append_rejects_unknown_or_unsafe_payload(claimed_executio
             "activity.started",
             {"activity_id": "a", "kind": "tool", "args": {"secret": "x"}},
         )
+
+
+def test_projection_event_budget_reserves_sequence_513_for_terminal_truth(
+    claimed_execution,
+):
+    context, _execution, claim = claimed_execution
+
+    with pytest.raises(RuntimeValidationError, match="1 to 513"):
+        complete_attempt(
+            context,
+            claim.attempt_id,
+            claim.lease_token,
+            {"code": "ok"},
+            terminal_event={
+                "event_id": uuid4(),
+                "stream_id": claim.stream_id,
+                "sequence": 514,
+                "payload": {"run_id": "run-1", "status": "completed"},
+            },
+        )
+
+    dispatch(context, claim)
+    bind_effective_session(context, claim)
+    receipt = complete_attempt(
+        context,
+        claim.attempt_id,
+        claim.lease_token,
+        {"code": "ok"},
+        terminal_event={
+            "event_id": uuid4(),
+            "stream_id": claim.stream_id,
+            "sequence": 513,
+            "payload": {"run_id": "run-1", "status": "completed"},
+        },
+    )
+
+    assert receipt.status == AttemptStatus.SUCCEEDED
+    assert (
+        ExecutionEvent.objects.get(attempt_id=claim.attempt_id, sequence=513).event_type
+        == "execution.completed"
+    )
 
 
 def test_machine_fence_does_not_requeue_dispatched_work(claimed_execution):

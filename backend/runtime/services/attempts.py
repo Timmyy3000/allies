@@ -164,6 +164,15 @@ def _finish_attempt(
             raise RuntimeLeaseConflictError("lease is no longer active")
         if lease.expires_at <= timezone.now():
             raise RuntimeLeaseConflictError("lease has expired")
+        if terminal_status == AttemptStatus.SUCCEEDED and terminal_event is not None:
+            session_receipt = attempt.session_receipt or {}
+            if (
+                not isinstance(session_receipt.get("session_id"), str)
+                or attempt.session_lease_digest != lease_digest
+            ):
+                raise RuntimeLeaseConflictError(
+                    "effective session receipt is required before completion"
+                )
         if attempt.status in {
             AttemptStatus.SUCCEEDED,
             AttemptStatus.FAILED,
@@ -243,10 +252,10 @@ def _terminal_event(value: dict | None, event_type: str) -> dict | None:
     if (
         isinstance(sequence, bool)
         or not isinstance(sequence, int)
-        or not 1 <= sequence <= 100000
+        or not 1 <= sequence <= 513
     ):
         raise RuntimeValidationError(
-            "terminal sequence must be an integer from 1 to 100000"
+            "terminal sequence must be an integer from 1 to 513"
         )
     payload = validate_object_payload(
         value.get("payload"), max_bytes=MAX_EVENT_PAYLOAD_BYTES

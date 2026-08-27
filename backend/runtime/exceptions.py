@@ -22,6 +22,12 @@ class RuntimeAuthorizationError(RuntimeDomainError):
     code = "INVALID_CREDENTIAL"
 
 
+class RuntimeNotFoundError(RuntimeDomainError):
+    """The requested contract binding is not available to this caller."""
+
+    code = "NOT_FOUND"
+
+
 class RuntimeFencedError(RuntimeConflictError):
     """The authenticated credential belongs to a retired Machine generation."""
 
