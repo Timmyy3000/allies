@@ -172,6 +172,7 @@ INSTALLED_APPS = [
     "waitlist",
     "allies",
     "chat",
+    "activities",
     "devtools",
 ]
 
@@ -610,6 +611,10 @@ ALLIES_FOUNDRY_SERVICE_TOKEN = os.environ.get("ALLIES_FOUNDRY_SERVICE_TOKEN", ""
 ALLIES_FOUNDRY_TIMEOUT_SECONDS = env_positive_float(
     "ALLIES_FOUNDRY_TIMEOUT_SECONDS", 5.0
 )
+ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN = os.environ.get(
+    "ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN", ""
+)
+ALLIES_FOUNDRY_EXECUTION_ENABLED = env_bool("ALLIES_FOUNDRY_EXECUTION_ENABLED", False)
 ALLIES_PROVISIONING_LEASE_SECONDS = env_positive_int(
     "ALLIES_PROVISIONING_LEASE_SECONDS", 60
 )
@@ -618,6 +623,11 @@ ALLIES_PROVISIONING_MAX_BACKOFF_SECONDS = env_positive_int(
 )
 CELERY_BEAT_SCHEDULE["dispatch-due-provisioning"] = {
     "task": "allies.dispatch_due_provisioning",
+    "schedule": 15.0,
+    "options": {"queue": "cloud"},
+}
+CELERY_BEAT_SCHEDULE["dispatch-pending-messages"] = {
+    "task": "chat.dispatch_pending_messages",
     "schedule": 15.0,
     "options": {"queue": "cloud"},
 }
@@ -761,6 +771,11 @@ if not DEBUG:
         character.isspace() for character in ALLIES_FOUNDRY_SERVICE_TOKEN
     ):
         missing.append("ALLIES_FOUNDRY_SERVICE_TOKEN (at least 32 bytes)")
+    if ALLIES_FOUNDRY_EXECUTION_ENABLED and (
+        len(ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN) < 32
+        or any(character.isspace() for character in ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN)
+    ):
+        missing.append("ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN (at least 32 bytes)")
     if (
         (
             ALLIES_TRUST_FORWARDED_PROTO

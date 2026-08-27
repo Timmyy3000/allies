@@ -12,6 +12,7 @@ from auths.models import User
 from chat.exceptions import (
     CursorInvalid,
     IdempotencyConflict,
+    MessageValidation,
     QueueFull,
     SendRateLimited,
     TurnConflict,
@@ -89,6 +90,23 @@ def test_onboarding_history_and_exactly_once_send(account):
             conversation_id=conversation.id,
             content="different",
             idempotency_key="chat-send-key-0001",
+        )
+
+
+@pytest.mark.django_db
+def test_new_message_enforces_the_gateway_utf8_budget(account):
+    user, workspace, ally = account
+    conversation = ensure_default_conversation(
+        ally=ally, greeting="Hello", reply="Ready"
+    )
+
+    with pytest.raises(MessageValidation):
+        accept_message(
+            user=user,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
+            content="界" * 6000,
+            idempotency_key="chat-send-key-utf8-budget",
         )
 
 

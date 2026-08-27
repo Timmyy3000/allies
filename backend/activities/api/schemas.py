@@ -1,0 +1,24 @@
+from __future__ import annotations
+
+from datetime import datetime
+from uuid import UUID
+
+from ninja import Schema
+
+
+class ActivityResponse(Schema):
+    id: UUID
+    message_id: UUID
+    sequence: int
+    conversation_turn_ordinal: int
+    kind: str
+    text: str
+    state: str
+    created_at: datetime
+
+
+class ActivitySnapshotResponse(Schema):
+    conversation_id: UUID
+    activities: list[ActivityResponse]
+    state: str
+    last_contiguous_sequence: int

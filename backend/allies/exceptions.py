@@ -20,3 +20,31 @@ class ProvisioningRetryable(AllyError):
 
 class ProvisioningRejected(AllyError):
     code = "provisioning_rejected"
+
+
+class FoundryGatewayError(AllyError):
+    code = "foundry_gateway_error"
+
+
+class FoundryGatewayRetryable(FoundryGatewayError):
+    code = "foundry_unavailable"
+
+
+class FoundryGatewayUnknownOutcome(FoundryGatewayRetryable):
+    code = "foundry_outcome_unknown"
+
+
+class FoundryGatewayRejected(FoundryGatewayError):
+    code = "foundry_rejected"
+
+
+class FoundryGatewayConflict(FoundryGatewayError):
+    code = "foundry_conflict"
+
+
+class FoundryGatewayNotFound(FoundryGatewayError):
+    code = "foundry_not_found"
+
+
+class FoundryGatewayInvalid(FoundryGatewayError):
+    code = "foundry_invalid"
