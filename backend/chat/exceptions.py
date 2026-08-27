@@ -40,3 +40,11 @@ class TurnConflict(ChatError):
 
 class ChatUnavailable(ChatError):
     code = "internal_error"
+
+
+class DispatchUnavailable(ChatError):
+    code = "dispatch_unavailable"
+
+
+class DispatchConflict(ChatError):
+    code = "dispatch_conflict"

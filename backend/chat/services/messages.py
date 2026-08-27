@@ -189,7 +189,13 @@ def accept_message(
             if duplicate is not None:
                 if duplicate.content_fingerprint != content_fingerprint:
                     raise IdempotencyConflict("idempotency key conflicts with content")
+                from .dispatch import ensure_dispatch_after_accept
+
+                ensure_dispatch_after_accept(duplicate)
                 return MessageAcceptance(conversation, duplicate, True)
+
+            if len(normalized.encode("utf-8")) > MESSAGE_CONTENT_MAX_LENGTH:
+                raise MessageValidation("request validation failed")
 
             pending = Message.objects.filter(
                 conversation=conversation,
@@ -221,6 +227,9 @@ def accept_message(
                 send_key_digest=key_digest,
                 content_fingerprint=content_fingerprint,
             )
+            from .dispatch import ensure_dispatch_after_accept
+
+            ensure_dispatch_after_accept(message)
             return MessageAcceptance(conversation, message, False)
     except Exception:
         if reservation is not None:

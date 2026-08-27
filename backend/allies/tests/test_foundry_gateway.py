@@ -6,8 +6,17 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-from allies.exceptions import ProvisioningRejected, ProvisioningRetryable
-from allies.gateways.foundry import ProfileProvisioningRequest, provision_profile
+from allies.exceptions import (
+    FoundryGatewayInvalid,
+    ProvisioningRejected,
+    ProvisioningRetryable,
+)
+from allies.gateways.contracts import ExecutionCommand
+from allies.gateways.foundry import (
+    ProfileProvisioningRequest,
+    provision_profile,
+    reconcile_execution_intent,
+)
 
 
 def request_payload() -> ProfileProvisioningRequest:
@@ -121,3 +130,59 @@ def test_gateway_rejects_malformed_or_incompatible_receipts(
 
     with pytest.raises(ProvisioningRejected):
         provision_profile(request_payload())
+
+
+@pytest.mark.parametrize(
+    ("key", "fingerprint"),
+    [
+        ("0" * 36, "canonical-json-sha256:v1:" + "a" * 64),
+        (
+            "00000000-0000-4000-8000-000000000001",
+            "canonical-json-sha256:v1:" + "a" * 63,
+        ),
+    ],
+)
+def test_reconcile_validates_uuid_and_complete_fingerprint_before_network(
+    monkeypatch, settings, key, fingerprint
+):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    monkeypatch.setattr(
+        "allies.gateways.foundry._request",
+        lambda **_kwargs: pytest.fail("invalid reconcile input reached the network"),
+    )
+
+    with pytest.raises(FoundryGatewayInvalid):
+        reconcile_execution_intent(key, fingerprint)
+
+
+def test_execution_command_fixture_round_trips_through_gateway_dto():
+    command = ExecutionCommand.model_validate(
+        {
+            "schema_version": "v1",
+            "kind": "execution.command",
+            "producer": "cloud",
+            "service_identity": "cloud-service",
+            "command_id": "550e8400-e29b-41d4-a716-446655440000",
+            "idempotency_key": "650e8400-e29b-41d4-a716-446655440000",
+            "scope": {
+                "kind": "workspace",
+                "cloud_workspace_id": "750e8400-e29b-41d4-a716-446655440000",
+            },
+            "conversation_turn_ordinal": 12,
+            "cloud": {
+                "ally_id": "850e8400-e29b-41d4-a716-446655440000",
+                "conversation_id": "950e8400-e29b-41d4-a716-446655440000",
+                "message_id": "a50e8400-e29b-41d4-a716-446655440000",
+                "cloud_binding_id": "c50e8400-e29b-41d4-a716-446655440000",
+            },
+            "source_kind": "conversation_message",
+            "payload": {"kind": "execution_input", "text": "normalized user text"},
+            "issued_at": "2026-08-25T12:00:00Z",
+            "deadline_at": "2026-08-25T12:00:05Z",
+            "fingerprint": "canonical-json-sha256:v1:b4e253ef34e4710692d1eaba026071ccbe9468d7be6baf8115242624d676b663",
+        }
+    )
+    assert command.fingerprint.endswith(
+        "b4e253ef34e4710692d1eaba026071ccbe9468d7be6baf8115242624d676b663"
+    )

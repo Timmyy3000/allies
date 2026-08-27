@@ -3,6 +3,7 @@ import logging
 
 from ninja.errors import ValidationError
 
+from activities.api.register import register as register_activities_api
 from allies.api.register import register as register_allies_api
 from auths.api.common import error_json
 from auths.api.register import register as register_auths_api
@@ -100,6 +101,7 @@ def register_all_apis() -> None:
     register_waitlist_api(api)
     register_allies_api(api)
     register_chat_api(api)
+    register_activities_api(api)
 
 
 register_all_apis()
