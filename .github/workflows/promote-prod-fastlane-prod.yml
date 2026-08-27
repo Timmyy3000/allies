@@ -14,7 +14,7 @@ permissions:
 
 jobs:
   validate-version:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Validate release version
         env:
@@ -29,7 +29,7 @@ jobs:
       ref: prod-fastlane
   promote:
     needs: validate
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     outputs:
       fastlane_sha: ${{ needs.validate.outputs.source_sha }}
     steps:
@@ -57,7 +57,7 @@ jobs:
           git push --atomic origin prod "$VERSION"
   backmerge:
     needs: promote
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
         with:
