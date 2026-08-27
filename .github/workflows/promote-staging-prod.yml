@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   validate-version:
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Validate release version
         env:
@@ -28,7 +28,7 @@ jobs:
       ref: staging
   promote:
     needs: validate
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v4
         with:
