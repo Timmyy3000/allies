@@ -20,7 +20,7 @@ jobs:
   verify:
     name: Public HTTPS healthcheck
     if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 12
     env:
       BASE_URL: ${{ inputs.base_url || vars.STAGING_URL }}
