@@ -19,7 +19,7 @@ permissions:
 jobs:
   quality:
     name: Interface foundation checks
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     env:
       NEXT_PUBLIC_CLOUD_API_URL: https://cloud.invalid
       EXPO_PUBLIC_CLOUD_API_URL: https://cloud.invalid
