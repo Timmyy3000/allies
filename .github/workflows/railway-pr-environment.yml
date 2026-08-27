@@ -26,7 +26,7 @@ jobs:
     if: >-
       github.event.action != 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     container:
       image: ghcr.io/railwayapp/cli:latest
     env:
@@ -194,7 +194,7 @@ jobs:
     if: >-
       github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     container:
       image: ghcr.io/railwayapp/cli:latest
     env:
