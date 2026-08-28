@@ -1,9 +1,9 @@
 # Allies mobile
 
 Expo / React Native client for Allies. The current mobile implementation includes
-the native auth/account boundary and the first Cloud-backed Ally workspace,
-creation, conversation, and read-only identity slice on branch
-`mobile/app-surface-foundation`.
+the native auth/account boundary, the first Cloud-backed Ally workspace, creation,
+conversation, and read-only identity slice, and a navigable visual prototype of the
+accepted M3 and M4 destinations on branch `mobile/app-surface-foundation`.
 
 This file is an agent handoff and a living mirror of the mobile implementation. The
 full implementation record is maintained in Nabu at:
@@ -108,16 +108,25 @@ The signed-in app has these implemented destinations:
   loading, bounded activity polling, retry, and offline/error recovery;
 - `/allies/[allyId]/identity` — read-only Ally name, job, personality, appearance,
   and provisioning state;
-- `/account` — the existing personal account and Workspace surface.
+- `/account` — the existing personal account and Workspace surface;
+- `/activity` and `/activity/[item]` — a visual attention feed for results, waiting
+  work, approvals, failures, and routine outcomes;
+- `/settings`, `/settings/[section]`, and `/settings/connection/[service]` — visual
+  previews for preferences, connections, usage and billing, privacy, sessions, and
+  the complete mobile screen map;
+- `/allies/[allyId]/settings` and `/allies/[allyId]/settings/[section]` — visual
+  previews for Ally identity, responsibilities, routines, connection access, and
+  deletion.
 
 This is an honest M2 slice, not the complete M2 return-later experience. The pinned
 Cloud contract has no `GET /workspaces/{workspace_id}/allies` collection endpoint.
 The app therefore does not invent a local or fake durable Ally catalog. It shows only
 real Ally IDs reached during the current app session, plus a recoverable pending
 creation. A process restart can lose the in-memory index until Cloud provides the
-collection endpoint. Activity, Settings, Profile, approvals, usage, deletion, and
-trust/recovery remain mapped in the implementation plan for M3 and M4; they are not
-placeholder routes in the app.
+collection endpoint. The M3 and M4 routes are design prototypes, not implemented
+product capability. Every future surface has a visible `Preview` label. Actions that
+would change data, permissions, billing, approvals, sessions, integrations, routines,
+or deletion stay disabled until an accepted contract owns the behavior.
 
 The current mobile onboarding implementation is a UI handoff, not a replacement for
 the accepted web/waitlist contract. Final copy and choreography remain subject to
@@ -247,7 +256,7 @@ claim about the latest remote artifact or publish:
 | Production profile | `production` channel | Profile exists; no production build or publish has been performed. |
 | EAS project link | Linked | `updates.url` and `extra.eas.projectId` are present in the Expo app config; credentials are not stored in the repository. |
 | EAS app version source | `remote` | Future Android build numbers are managed by EAS; `preview` and `production` profiles auto-increment them. |
-| Current change class | OTA-eligible after merge | JavaScript and generated TypeScript use only native modules already present in the `1.0.2` runtime. No OTA was published. |
+| Current change class | OTA-eligible after merge | The visual walkthrough and Router test-location fix use only JavaScript and native modules already present in the `1.0.2` runtime. No OTA was published. |
 
 The preview APK includes `expo-updates`; installing a development build does not prove
 OTA is active. Verify that a device has a compatible `1.0.2` preview binary before an
@@ -327,6 +336,11 @@ channel/message at the release boundary.
   Local validation passed with 56 test files and 324 tests, repository typecheck,
   lint with zero errors, web build, iOS export, Android export, and Cloud contract
   verification. No OTA was published; publishing remains a device-owner action.
+- **2026-08-28 — Full mobile visual walkthrough prepared:** added the three-root
+  Allies, Activity, and Settings shell and the accepted M3/M4 review surfaces. Future
+  actions remain disabled and visibly marked `Preview`. Moved the app-config test out
+  of `src/app` so Expo Router cannot import Vitest into the native bundle. App and
+  runtime version stay at `1.0.2`; no OTA was published.
 
 ### GitHub merges and installed devices
 
@@ -624,15 +638,15 @@ interaction. Every meaningful animation needs a reduced-motion path.
 
 ## Validation
 
-The latest completed local validation for the M2 mobile app-surface foundation was:
+The latest completed local validation for the full mobile visual walkthrough was:
 
 ```text
-bun run test:run       # 56 test files, 324 tests passed
+bun run test:run       # 57 test files, 329 tests passed
 bun run typecheck      # cloud-client, web, and mobile passed
 bun run lint           # 0 errors; 8 pre-existing web warnings
 bun run build:web      # passed
 bun run bundle:mobile  # Expo iOS export passed
-cd apps/mobile && bunx expo export --platform android --output-dir dist/android-check
+cd apps/mobile && bunx expo export --platform android --output-dir dist/android-preview-check
 bun run cloud:generate # generated the shared client from the pinned contract
 bun run cloud:verify   # pinned snapshot verification passed
 git diff --check       # passed before commit
@@ -640,14 +654,16 @@ git diff --check       # passed before commit
 
 Focused tests cover onboarding state, Cloud input conversion, route guards, encrypted
 pending commands, appearance parsing, session indexing, conversation page merging,
-polling decisions, the native Cloud client, and shared Cloud-client contracts. Run the
-relevant focused test while iterating, then run the full checks before handoff.
+polling decisions, the visual screen map, the native Cloud client, and shared
+Cloud-client contracts. Run the relevant focused test while iterating, then run the
+full checks before handoff.
 
-The 2026-08-28 headless Android smoke attempt was blocked before app rendering. The
-emulator entered a `com.android.systemui` ANR and its installed Expo Go runtime was
-SDK 54 while this project targets SDK 57. There was no JavaScript bundle/export
-failure, but this is not a successful device smoke result. Repeat the visual check
-with a compatible SDK 57 client or preview binary and a healthy emulator.
+The 2026-08-28 Android smoke used Expo Go 57.0.9 on the API 36.1 emulator. The first
+run exposed `src/app/app-config.test.ts` as an invalid Router route and imported
+Vitest into the Android bundle. The test now lives at `apps/mobile/app-config.test.ts`.
+A clean Metro build then rendered onboarding, the Settings root, and an approval
+detail at 1080x2400 with no JavaScript error. The Expo Go splash warning is expected;
+the configured splash needs the preview binary for proof.
 
 ## How to continue safely
 
@@ -661,8 +677,9 @@ with a compatible SDK 57 client or preview binary and a healthy emulator.
 - Keep Cloud creation, pending-command recovery, and continuous conversation behind
   their pinned contracts. Do not add a fake durable Ally catalog while the Cloud
   collection endpoint is absent.
-- Add the M3 and M4 destinations only when their contracts and milestone work are
-  accepted; the current plan is a map, not permission to ship placeholder routes.
+- Keep the M3 and M4 prototype surfaces honest. Replace static descriptors with real
+  feature ownership only after the related contract is accepted. Do not connect a
+  disabled preview action to fake persistence or a fake success state.
 - Run mobile lint, typecheck, targeted tests, and the full test suite before handoff.
 - Update Nabu and this README together after meaningful changes, following the sync
   contract above.
