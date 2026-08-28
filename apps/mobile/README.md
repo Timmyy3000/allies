@@ -1,8 +1,9 @@
 # Allies mobile
 
 Expo / React Native client for Allies. The current mobile implementation includes
-the local onboarding UI slice and the INT-008 native auth/account boundary on branch
-`mobile/int-008-google-auth-account`.
+the native auth/account boundary and the first Cloud-backed Ally workspace,
+creation, conversation, and read-only identity slice on branch
+`mobile/app-surface-foundation`.
 
 This file is an agent handoff and a living mirror of the mobile implementation. The
 full implementation record is maintained in Nabu at:
@@ -86,16 +87,37 @@ a build when the current request has not authorized those actions.
 
 ## Current scope and boundary
 
-Implemented here is the mobile presentation and local interaction slice for:
+Implemented here is the first usable mobile loop:
 
-`welcome -> name -> look -> job -> personality -> preview`
+`welcome -> name -> look -> job -> personality -> confirm -> sign in -> create Ally -> workspace -> conversation -> identity`
 
-The onboarding creation flow is intentionally local for now. `apps/mobile/src/app/index.tsx`
-renders `OnboardingFlow`; it owns local state and generates a static local greeting.
-This slice does **not** yet create an Ally in Cloud, call a greeting-generation API,
-persist onboarding progress, or complete the waitlist flow. The initial INT-008
-native session/account boundary is now implemented separately; live Cloud sign-in
-remains disabled until the accepted native routes are deployed and enabled.
+The onboarding screens keep their existing design and flow-local state, but the final
+confirmation now creates a real Cloud onboarding attempt and Ally. A signed-out user
+can continue through native authentication without losing the confirmed command.
+The app encrypts one pending create command, or pending conversation sends, on the
+device. It binds the command to the first authenticated user and Workspace, expires
+it after seven days, and deletes mismatched or explicitly cancelled work.
+
+The signed-in app has these implemented destinations:
+
+- `/allies` — a Workspace surface for the real Ally records reached in the current
+  app session, with a maximum of 12 visible records at a time;
+- `/allies/new` and `/allies/new/complete` — the reused onboarding flow and its
+  authenticated completion boundary;
+- `/allies/[allyId]` — one continuous Cloud conversation for an Ally, with older-page
+  loading, bounded activity polling, retry, and offline/error recovery;
+- `/allies/[allyId]/identity` — read-only Ally name, job, personality, appearance,
+  and provisioning state;
+- `/account` — the existing personal account and Workspace surface.
+
+This is an honest M2 slice, not the complete M2 return-later experience. The pinned
+Cloud contract has no `GET /workspaces/{workspace_id}/allies` collection endpoint.
+The app therefore does not invent a local or fake durable Ally catalog. It shows only
+real Ally IDs reached during the current app session, plus a recoverable pending
+creation. A process restart can lose the in-memory index until Cloud provides the
+collection endpoint. Activity, Settings, Profile, approvals, usage, deletion, and
+trust/recovery remain mapped in the implementation plan for M3 and M4; they are not
+placeholder routes in the app.
 
 The current mobile onboarding implementation is a UI handoff, not a replacement for
 the accepted web/waitlist contract. Final copy and choreography remain subject to
@@ -118,7 +140,9 @@ The local implementation is deliberately thin around the shared Cloud client:
 - `src/lib/cloud/native-cloud-client.ts` reuses the shared transport and injects a
   bearer only for the exact authenticated routes `GET /api/v1/auths/me`, `PATCH
   /api/v1/auths/me/profile`, the avatar prepare/complete/read/delete routes, and
-  `GET /api/v1/workspaces/{workspace_id}`. Native auth and direct object-storage
+  `GET /api/v1/workspaces/{workspace_id}`, plus the exact Ally, conversation,
+  message, and activity routes used by the app surface. `POST
+  /api/v1/onboarding/attempts` remains public. Native auth and direct object-storage
   requests remain cookie-free and bearer-free where required.
 - `src/app/sign-in.tsx`, `src/app/auth/return.tsx`, and `src/app/account.tsx` provide
   the public sign-in entry, safe cold-return fallback, guarded account surface,
@@ -131,13 +155,11 @@ The local implementation is deliberately thin around the shared Cloud client:
 
 Copy `apps/mobile/.env.example` to an ignored local environment file and replace the
 placeholder return URL with the exact HTTPS URL registered with Cloud and the mobile
-platform. The current Nabu handoff records that the native routes are merged in Cloud
-but are not yet present in live staging/production schemas; therefore an unconfigured
-build truthfully shows sign-in as unavailable rather than falling back to browser
-cookies or a WebView. `app.config.ts` derives Android App Links and iOS Associated
-Domains from that same exact URL when it is supplied at build time. The domain's
-Android `assetlinks.json`, iOS `apple-app-site-association`, platform registration,
-and Cloud enablement gate must still be completed before device proof.
+platform. An unconfigured build truthfully shows Cloud-dependent actions as
+unavailable instead of using browser cookies, a WebView, or local demo data.
+`app.config.ts` derives Android App Links and iOS Associated Domains from that same
+exact URL when it is supplied at build time. Complete the domain association and
+platform registration before device sign-in proof.
 
 The auth/account dependency and config changes are native. They require a new EAS
 binary with app/runtime version `1.0.2`; the installed `1.0.1` APK cannot receive the
@@ -205,11 +227,12 @@ now linked and the first preview APK artifact is available for installation.
 
 ### Current release metadata
 
-This is the version state verified on 2026-08-21:
+This is the local version state verified on 2026-08-28. Check EAS before making a
+claim about the latest remote artifact or publish:
 
 | Item | Current value | Meaning |
 | --- | --- | --- |
-| App version | `1.0.2` | `expo.version`; this is also the next runtime version because the app uses the `appVersion` policy. A new native build is pending. |
+| App version | `1.0.2` | `expo.version`; this is also the runtime version because the app uses the `appVersion` policy. This change does not alter it. |
 | Package version | `1.0.2` | `apps/mobile/package.json` package metadata; it does not replace `expo.version`. |
 | Expo SDK | SDK 57 (`expo ~57.0.9`; resolved app config `57.0.0`) | Native/runtime baseline for the current mobile app. |
 | React Native | `0.86.2` | Native runtime dependency. |
@@ -224,12 +247,13 @@ This is the version state verified on 2026-08-21:
 | Production profile | `production` channel | Profile exists; no production build or publish has been performed. |
 | EAS project link | Linked | `updates.url` and `extra.eas.projectId` are present in the Expo app config; credentials are not stored in the repository. |
 | EAS app version source | `remote` | Future Android build numbers are managed by EAS; `preview` and `production` profiles auto-increment them. |
+| Current change class | OTA-eligible after merge | JavaScript and generated TypeScript use only native modules already present in the `1.0.2` runtime. No OTA was published. |
 
 The preview APK includes `expo-updates`; installing a development build does not prove
-OTA is active. The last completed `1.0.1` artifact is ready for device installation
-and smoke testing, while `1.0.2` is the next native build for INT-008. After each APK
-or OTA release, record the commit SHA, build ID or update group, artifact URL when
-applicable, and EAS update channel/message at the release boundary.
+OTA is active. Verify that a device has a compatible `1.0.2` preview binary before an
+owner publishes this JavaScript update. After each APK or OTA release, record the
+commit SHA, build ID or update group, artifact URL when applicable, and EAS update
+channel/message at the release boundary.
 
 ### Version and release rules
 
@@ -295,6 +319,14 @@ applicable, and EAS update channel/message at the release boundary.
 - **2026-08-21 — CI portability follow-up:** corrected the pinned Cloud schema
   metadata for the LF-normalized repository artifact in `59b922c`; Cloud contract
   verification now passes on the Linux CI checkout without changing runtime behavior.
+- **2026-08-28 — M2 mobile app-surface foundation prepared:** added the real
+  Cloud-backed Ally create, Workspace, continuous conversation, and read-only identity
+  surfaces. Pending commands use existing Expo Crypto, FileSystem, and SecureStore
+  modules, so no native dependency or app/runtime version changed. The Cloud pin is
+  `1fceace350f418f1371451356e4dcf5626259cf2148b36d2611c36dfb0ea3b4f`.
+  Local validation passed with 56 test files and 324 tests, repository typecheck,
+  lint with zero errors, web build, iOS export, Android export, and Cloud contract
+  verification. No OTA was published; publishing remains a device-owner action.
 
 ### GitHub merges and installed devices
 
@@ -331,15 +363,24 @@ every local edit. Native changes still require a new APK.
 
 ### Flow and state
 
-- `src/app/index.tsx` — mobile entry point for the current onboarding surface.
+- `src/app/index.tsx` — public first-Ally onboarding entry point.
 - `src/app/_layout.tsx` — fonts, splash lifecycle, providers, and signed-in route
   redirection.
+- `src/app/allies/index.tsx` — current-session Workspace surface for real Cloud Ally
+  records and recoverable pending creation.
+- `src/app/allies/new/index.tsx` and `src/app/allies/new/complete.tsx` — reused
+  onboarding and the authenticated create boundary.
+- `src/app/allies/[allyId]/index.tsx` — continuous conversation, history paging,
+  accepted-send insertion, activity polling, and recovery UI.
+- `src/app/allies/[allyId]/identity.tsx` — read-only Cloud Ally identity.
 - `app.config.ts` — derives native App Links/Associated Domains from the exact
   registered HTTPS return URL when build-time configuration is present.
 - `src/lib/native-link-config.test.ts` — validates the native link allowlist shape
   and rejects unsafe return URLs.
-- `src/features/onboarding/onboarding-flow.tsx` — owns the flow, local state,
+- `src/features/onboarding/onboarding-flow.tsx` — owns the flow-local form state,
   forward/back navigation, validation, accent color, and screen composition.
+- `src/features/onboarding/onboarding-cloud-input.ts` — converts validated local
+  onboarding state into the pinned Cloud request without changing the visual flow.
 - `src/features/onboarding/onboarding-state.ts` — step, Ally shape/color,
   personality, form state, validation, progress, and local greeting helpers.
 - Current Ally palette order is `#FF5800`, `#FD304F`, `#0D92FD`, `#BE9BF5`,
@@ -374,7 +415,15 @@ every local edit. Native changes still require a new APK.
 - `src/features/auth/` — in-memory PKCE/state flow and system-browser return parsing.
 - `src/features/account/` — profile validation, account queries, and signed avatar
   upload lifecycle.
+- `src/features/allies/ally-session-index.tsx` — the minimal in-memory index of real
+  Ally IDs reached during the current app session.
+- `src/features/allies/ally-appearance.ts` — shared parser for the Cloud appearance
+  value used by Workspace, conversation, and identity surfaces.
+- `src/features/conversation/conversation-state.ts` — message-page merge rules,
+  immutable-message conflict checks, and active-execution polling decisions.
 - `src/lib/session/` — SecureStore refresh port and serialized native session adapter.
+- `src/lib/pending-command-store.ts` — AES-GCM encrypted, atomic pending create and
+  send commands with seven-day expiry and account/Workspace binding.
 - `src/lib/cloud/native-cloud-client.ts` — shared Cloud transport with an explicit
   authenticated route allowlist.
 
@@ -485,11 +534,11 @@ every local edit. Native changes still require a new APK.
 
 ### Job
 
-- The job screen is the next placeholder stage after appearance selection.
+- The job screen follows appearance selection.
 - It uses the shared header, placeholder/selected Ally behavior, keyboard-safe text
   input, character limit, disabled/enabled action state, and outside-tap keyboard
-  dismissal. Its Cloud persistence and final contract are not implemented in this
-  local slice.
+  dismissal. The validated value is sent in the Cloud onboarding attempt and Ally
+  create command.
 
 ### Personality
 
@@ -514,6 +563,9 @@ every local edit. Native changes still require a new APK.
 
 ### Preview and first conversation surface
 
+- The preview greeting and one-time attempt token come from `POST
+  /api/v1/onboarding/attempts`; the app does not generate a local fallback greeting.
+  A confirmed reply is required before `POST /api/v1/workspaces/{workspace_id}/allies`.
 - `Coming alive....` uses a lightweight per-character wave. The letters move in a
   short staggered wave rather than appearing as a single unanimated label. Reduced
   motion renders the settled text directly.
@@ -543,6 +595,10 @@ every local edit. Native changes still require a new APK.
   16px line height and `-0.5px` letter spacing. It becomes less rounded as its
   content grows. Tapping outside it dismisses the keyboard. The send control uses
   the selected Ally color.
+- After creation, the continuous conversation composer sends an exact encrypted
+  pending command with a stable idempotency key. The accepted response is inserted
+  immediately, and active execution is polled every three seconds for up to ten
+  minutes. Polling stops on terminal or unknown state, screen blur, or unmount.
 
 ## Motion contract
 
@@ -568,31 +624,30 @@ interaction. Every meaningful animation needs a reduced-motion path.
 
 ## Validation
 
-The latest completed local validation for the INT-008/mobile implementation was:
+The latest completed local validation for the M2 mobile app-surface foundation was:
 
 ```text
-  bun run test:run       # 39 test files, 198 tests passed
+bun run test:run       # 56 test files, 324 tests passed
 bun run typecheck      # cloud-client, web, and mobile passed
-bun run lint           # 0 errors; 8 existing web warnings
+bun run lint           # 0 errors; 8 pre-existing web warnings
 bun run build:web      # passed
 bun run bundle:mobile  # Expo iOS export passed
-bun run cloud:check    # OpenAPI snapshot verification/generation passed
-git diff --cached --check
+cd apps/mobile && bunx expo export --platform android --output-dir dist/android-check
+bun run cloud:generate # generated the shared client from the pinned contract
+bun run cloud:verify   # pinned snapshot verification passed
+git diff --check       # passed before commit
 ```
 
-Focused onboarding tests cover state transitions, layout constants, motion values,
-carousel behavior, structured preview blocks, keyboard dismissal, and Ally entrance
-motion. The main focused files are `onboarding-state.test.ts`,
-`onboarding-layout.test.ts`, `onboarding-motion.test.ts`, `onboarding-preview.test.ts`,
-`onboarding-shell.test.ts`, `keyboard-dismiss.test.ts`, and
-`ally-entrance-motion.test.ts`. Run the relevant focused test while iterating, then run the full checks before
-handoff.
+Focused tests cover onboarding state, Cloud input conversion, route guards, encrypted
+pending commands, appearance parsing, session indexing, conversation page merging,
+polling decisions, the native Cloud client, and shared Cloud-client contracts. Run the
+relevant focused test while iterating, then run the full checks before handoff.
 
-The Android emulator has previously shown a cold Expo development-launch input-focus
-ANR around 20 seconds. Native logs eventually reached `Running "main"` without a
-JavaScript module-resolution or fatal-exception error; this is not evidence that
-device smoke testing is fully clean. Record new emulator evidence separately rather
-than marking the app healthy based only on the eventual log line.
+The 2026-08-28 headless Android smoke attempt was blocked before app rendering. The
+emulator entered a `com.android.systemui` ANR and its installed Expo Go runtime was
+SDK 54 while this project targets SDK 57. There was no JavaScript bundle/export
+failure, but this is not a successful device smoke result. Repeat the visual check
+with a compatible SDK 57 client or preview binary and a healthy emulator.
 
 ## How to continue safely
 
@@ -603,10 +658,11 @@ than marking the app healthy based only on the eventual log line.
   adding a dependency.
 - Keep user-facing copy, timing, spacing, and asset decisions in the owning feature
   modules with tests for stable values.
-- Keep future Cloud creation, durable onboarding persistence, and conversation
-  streaming behind their accepted Nabu contracts; the INT-008 auth/account boundary
-  is already implemented and remains gated by Cloud deployment/enablement and
-  platform return-link registration.
+- Keep Cloud creation, pending-command recovery, and continuous conversation behind
+  their pinned contracts. Do not add a fake durable Ally catalog while the Cloud
+  collection endpoint is absent.
+- Add the M3 and M4 destinations only when their contracts and milestone work are
+  accepted; the current plan is a map, not permission to ship placeholder routes.
 - Run mobile lint, typecheck, targeted tests, and the full test suite before handoff.
 - Update Nabu and this README together after meaningful changes, following the sync
   contract above.
