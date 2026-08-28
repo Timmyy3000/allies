@@ -726,3 +726,7 @@ decision log.
 - 2026-08-28 — Nabu product design and mobile implementation notes were synchronized
   with the full visual walkthrough and its PR #14 review follow-up. No `Nabu sync
   pending` item is open.
+- 2026-08-28 — Nabu's decision log, first product requirements, product design
+  specification, and mobile implementation handoff were synchronized with commit
+  `10e7394`. The new direction includes Google and credential account access. The
+  Cloud credential contract remains open; no `Nabu sync pending` item is open.
