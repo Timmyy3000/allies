@@ -28,6 +28,8 @@ import { useAllySessionIndex } from '@/features/allies/ally-session-index';
 import { getAllyAppearance } from '@/features/allies/ally-appearance';
 import { pendingCommandStore, type PendingMessageCommand } from '@/lib/pending-command-store';
 import { useNativeSession } from '@/lib/session/session-context';
+import { useMockApp } from '@/features/mock/mock-app';
+import { MockConversationScreen } from '@/features/mock/mock-screens';
 
 import {
   createConversationScrollIntent,
@@ -68,6 +70,11 @@ function messageLabel(sender: string): string {
 }
 
 export default function AllyConversationScreen() {
+  const mock = useMockApp();
+  return mock.isMock ? <MockConversationScreen /> : <CloudAllyConversationScreen />;
+}
+
+function CloudAllyConversationScreen() {
   const { allyId: allyIdParam } = useLocalSearchParams<{ allyId?: string }>();
   const allyId = allyIdFromParam(allyIdParam);
   const router = useRouter();

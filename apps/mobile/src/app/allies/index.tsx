@@ -12,6 +12,8 @@ import { useAllySessionIndex } from '@/features/allies/ally-session-index';
 import { pendingCommandStore } from '@/lib/pending-command-store';
 import { useNativeSession } from '@/lib/session/session-context';
 import { AppBottomNav } from '@/features/app-preview/preview-ui';
+import { useMockApp } from '@/features/mock/mock-app';
+import { MockAlliesScreen } from '@/features/mock/mock-screens';
 
 const PAGE_SIZE = 12;
 
@@ -69,6 +71,11 @@ function AllyCard({ allyId }: { allyId: string }) {
 }
 
 export default function AlliesScreen() {
+  const mock = useMockApp();
+  return mock.isMock ? <MockAlliesScreen /> : <CloudAlliesScreen />;
+}
+
+function CloudAlliesScreen() {
   const router = useRouter();
   const focused = useIsFocused();
   const session = useNativeSession();
