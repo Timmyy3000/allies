@@ -726,3 +726,7 @@ decision log.
   specification, and mobile implementation handoff were synchronized with commit
   `10e7394`. The new direction includes Google and credential account access. The
   Cloud credential contract remains open; no `Nabu sync pending` item is open.
+- 2026-08-28 — The mobile walkthrough moved to deliberate local mock mode in commit
+  `a6655f8`. Nabu records the seeded account, deterministic Ally creation and replies,
+  active settings/activity surfaces, API boundary, app/runtime `1.0.2`, validation,
+  and the fact that no OTA was published. No `Nabu sync pending` item is open.
