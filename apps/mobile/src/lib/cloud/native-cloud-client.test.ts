@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createMobileCloudClient } from './native-cloud-client';
+import { createMobileCloudClient, isAuthenticatedCloudRequest } from './native-cloud-client';
 
 const accountResponse = {
   status: 'success',
@@ -14,6 +14,27 @@ const accountResponse = {
 };
 
 describe('createMobileCloudClient', () => {
+  it.each([
+    ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/allies'],
+    ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/allies/ally'],
+    ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/allies/ally/conversation'],
+    ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation'],
+    ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/activities'],
+    ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/messages'],
+  ])('classifies %s %s as authenticated', (method, url) => {
+    expect(isAuthenticatedCloudRequest(new Request(url, { method }))).toBe(true);
+  });
+
+  it.each([
+    ['POST', 'https://cloud.example.com/api/v1/onboarding/attempts'],
+    ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/allies'],
+    ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/allies/ally'],
+    ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation'],
+    ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/messages'],
+  ])('does not classify %s %s as authenticated', (method, url) => {
+    expect(isAuthenticatedCloudRequest(new Request(url, { method }))).toBe(false);
+  });
+
   it('adds bearer credentials only to authenticated Cloud routes', async () => {
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const request = input instanceof Request ? input : new Request(input, init);

@@ -19,7 +19,7 @@ export interface MobileCloudClientOptions extends MobileEnvironment {
   maxJsonBytes?: number;
 }
 
-function isAuthenticatedCloudRequest(request: Request): boolean {
+export function isAuthenticatedCloudRequest(request: Request): boolean {
   const pathname = new URL(request.url).pathname;
   const method = request.method.toUpperCase();
 
@@ -30,7 +30,13 @@ function isAuthenticatedCloudRequest(request: Request): boolean {
     (method === 'POST' && /^\/api\/v1\/auths\/me\/avatar\/[^/]+\/complete$/u.test(pathname)) ||
     (method === 'GET' && pathname === '/api/v1/auths/me/avatar/read') ||
     (method === 'DELETE' && pathname === '/api/v1/auths/me/avatar') ||
-    (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+$/u.test(pathname))
+    (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+$/u.test(pathname)) ||
+    (method === 'POST' && /^\/api\/v1\/workspaces\/[^/]+\/allies$/u.test(pathname)) ||
+    (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/allies\/[^/]+$/u.test(pathname)) ||
+    (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/allies\/[^/]+\/conversation$/u.test(pathname)) ||
+    (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+$/u.test(pathname)) ||
+    (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/activities$/u.test(pathname)) ||
+    (method === 'POST' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/messages$/u.test(pathname))
   );
 }
 
