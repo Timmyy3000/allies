@@ -46,7 +46,6 @@ export function PreviewPage({
               />
             </Pressable>
           ) : <AlliesLogo height={42} width={49} />}
-          <View style={styles.previewBadge}><Text style={styles.previewBadgeText}>Preview</Text></View>
         </View>
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           <Text style={styles.pageTitle}>{title}</Text>
@@ -119,8 +118,8 @@ export function PreviewListRow({
 export function PreviewDetailPage({ backHref, screen }: { backHref: string; screen: PreviewScreen | null }) {
   if (!screen) {
     return (
-      <PreviewPage backHref={backHref} subtitle="This preview route is not part of the screen map." title="Preview not found">
-        <PreviewCard><Text style={styles.bodyText}>Return to the previous screen and choose an available preview.</Text></PreviewCard>
+      <PreviewPage backHref={backHref} subtitle="This destination is not available." title="Screen not found">
+        <PreviewCard><Text style={styles.bodyText}>Return to the previous screen and choose another destination.</Text></PreviewCard>
       </PreviewPage>
     );
   }
@@ -143,7 +142,6 @@ export function PreviewDetailPage({ backHref, screen }: { backHref: string; scre
         ))}
       </PreviewCard>
       {screen.actions?.length ? <View style={styles.actions}>{screen.actions.map((action) => <PreviewActionButton action={action} key={action.label} />)}</View> : null}
-      <Text style={styles.previewNote}>This screen is a visual prototype. Connected behavior will arrive with its accepted product and Cloud contract.</Text>
     </PreviewPage>
   );
 }
@@ -161,15 +159,12 @@ function PreviewProgress({ label, note, tone, value }: { label: string; note: st
 
 function PreviewActionButton({ action }: { action: PreviewAction }) {
   const router = useRouter();
-  const disabled = action.disabled || !action.href;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityState={{ disabled }}
-      disabled={disabled}
-      onPress={() => action.href && router.push(action.href as never)}
-      style={({ pressed }) => [styles.action, disabled && styles.actionDisabled, pressed && styles.pressed]}>
-      <Text style={[styles.actionText, disabled && styles.actionTextDisabled]}>{action.label}</Text>
+      onPress={() => router.push(action.href as never)}
+      style={({ pressed }) => [styles.action, pressed && styles.pressed]}>
+      <Text style={styles.actionText}>{action.label}</Text>
     </Pressable>
   );
 }
@@ -180,9 +175,7 @@ export function PreviewSectionTitle({ children }: { children: ReactNode }) {
 
 const styles = StyleSheet.create({
   action: { alignItems: 'center', backgroundColor: '#111111', borderRadius: 999, minHeight: 50, justifyContent: 'center', paddingHorizontal: 20 },
-  actionDisabled: { backgroundColor: '#E5E5E5' },
   actionText: { color: '#FFFFFF', fontFamily: 'OpenRundeSemibold', fontSize: 15 },
-  actionTextDisabled: { color: '#8A8A8A' },
   actions: { gap: 10, marginTop: 16 },
   backButton: { alignItems: 'center', backgroundColor: '#F3F3F3', borderRadius: 20, height: 40, justifyContent: 'center', width: 40 },
   bodyText: { color: '#606060', fontFamily: 'OpenRundeMedium', fontSize: 16, lineHeight: 22 },
@@ -202,9 +195,6 @@ const styles = StyleSheet.create({
   pageSubtitle: { color: '#606060', fontFamily: 'OpenRundeMedium', fontSize: 16, lineHeight: 22, marginTop: 10, maxWidth: 500 },
   pageTitle: { color: '#111111', fontFamily: 'OpenRundeSemibold', fontSize: 34, letterSpacing: -1.4, lineHeight: 39 },
   pressed: { opacity: 0.72 },
-  previewBadge: { backgroundColor: '#FFF0E8', borderRadius: 999, paddingHorizontal: 12, paddingVertical: 7 },
-  previewBadgeText: { color: '#FF5800', fontFamily: 'OpenRundeSemibold', fontSize: 12 },
-  previewNote: { color: '#8A8A8A', fontFamily: 'OpenRundeMedium', fontSize: 12, lineHeight: 17, marginTop: 18, textAlign: 'center' },
   progressCard: { backgroundColor: '#F8F8F8', borderRadius: 24, marginTop: 16, padding: 20 },
   progressFill: { borderRadius: 4, height: 8 },
   progressHeader: { alignItems: 'center', flexDirection: 'row', justifyContent: 'space-between' },
