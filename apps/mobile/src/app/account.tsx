@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Image } from 'expo-image';
 import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,6 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PrimaryButton } from '@/components/ui/primary-button';
 import { AlliesLogo } from '@/features/onboarding/allies-logo';
 import { useNativeSession } from '@/lib/session/session-context';
+import { pendingCommandStore } from '@/lib/pending-command-store';
 
 import {
   useAvatar,
@@ -31,10 +32,6 @@ export default function AccountScreen() {
   const profileMutation = useUpdateProfile();
   const [displayName, setDisplayName] = useState(account?.displayName ?? '');
   const [hasEditedDisplayName, setHasEditedDisplayName] = useState(false);
-
-  useEffect(() => {
-    if (session.status === 'signed-out') router.replace('/sign-in');
-  }, [router, session.status]);
 
   const inputDisplayName = hasEditedDisplayName ? displayName : account?.displayName ?? displayName;
   const profileValidation = useMemo(
@@ -150,6 +147,11 @@ export default function AccountScreen() {
             bottomMargin={0}
             label="Sign out"
             onPress={async () => {
+              try {
+                await pendingCommandStore.clear();
+              } catch {
+                // Session logout must continue; account binding blocks later command reuse.
+              }
               const result = await session.logout();
               if (result.localCleared) router.replace('/sign-in');
             }}

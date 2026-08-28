@@ -1,10 +1,10 @@
 {
   "source": "https://cloud.staging.yourallies.io/api/v1/openapi.json",
-  "retrievedAt": "2026-08-17",
+  "retrievedAt": "2026-08-28",
   "title": "Allies Cloud API",
   "version": "0.1.0",
-  "byteLength": 83420,
-  "sha256": "d9bbe394ea500638cbfb55f9997e3ccca1e3e4b331d8ec5c790d3243c4194788",
+  "byteLength": 142409,
+  "sha256": "1fceace350f418f1371451356e4dcf5626259cf2148b36d2611c36dfb0ea3b4f",
   "generators": {
     "openapi-typescript": "7.13.0"
   }

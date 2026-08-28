@@ -1,6 +1,167 @@
 {
   "components": {
     "schemas": {
+      "ActivityResponse": {
+        "properties": {
+          "conversation_turn_ordinal": {
+            "title": "Conversation Turn Ordinal",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "sequence",
+          "conversation_turn_ordinal",
+          "kind",
+          "text",
+          "state",
+          "created_at"
+        ],
+        "title": "ActivityResponse",
+        "type": "object"
+      },
+      "ActivitySnapshotResponse": {
+        "properties": {
+          "activities": {
+            "items": {
+              "$ref": "#/components/schemas/ActivityResponse"
+            },
+            "title": "Activities",
+            "type": "array"
+          },
+          "conversation_id": {
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "last_contiguous_sequence": {
+            "title": "Last Contiguous Sequence",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "activities",
+          "state",
+          "last_contiguous_sequence"
+        ],
+        "title": "ActivitySnapshotResponse",
+        "type": "object"
+      },
+      "AllyResponse": {
+        "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/AppearanceInput"
+          },
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "job": {
+            "title": "Job",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "operation_id": {
+            "format": "uuid",
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "personality": {
+            "title": "Personality",
+            "type": "string"
+          },
+          "provisioning_state": {
+            "title": "Provisioning State",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "binding_id",
+          "operation_id",
+          "name",
+          "job",
+          "personality",
+          "appearance",
+          "provisioning_state",
+          "retryable"
+        ],
+        "title": "AllyResponse",
+        "type": "object"
+      },
+      "AppearanceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "catalog_version": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Catalog Version",
+            "type": "string"
+          },
+          "key": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "catalog_version",
+          "key"
+        ],
+        "title": "AppearanceInput",
+        "type": "object"
+      },
       "AuthorizationStartResponse": {
         "examples": [
           {
@@ -17,221 +178,6 @@
           "redirect_url"
         ],
         "title": "AuthorizationStartResponse",
-        "type": "object"
-      },
-      "NativeAuthorizationStartRequest": {
-        "properties": {
-          "code_challenge": {
-            "maxLength": 43,
-            "minLength": 43,
-            "pattern": "^[A-Za-z0-9_-]{43}$",
-            "title": "Code Challenge",
-            "type": "string"
-          },
-          "code_challenge_method": {
-            "const": "S256",
-            "default": "S256",
-            "title": "Code Challenge Method",
-            "type": "string"
-          },
-          "redirect_uri": {
-            "format": "uri",
-            "title": "Redirect Uri",
-            "type": "string"
-          },
-          "state": {
-            "maxLength": 512,
-            "minLength": 1,
-            "title": "State",
-            "type": "string"
-          }
-        },
-        "required": [
-          "redirect_uri",
-          "code_challenge",
-          "code_challenge_method",
-          "state"
-        ],
-        "title": "NativeAuthorizationStartRequest",
-        "type": "object"
-      },
-      "NativeAuthorizationStartResponse": {
-        "properties": {
-          "authorization_url": {
-            "format": "uri",
-            "title": "Authorization Url",
-            "type": "string"
-          },
-          "expires_at": {
-            "format": "date-time",
-            "title": "Expires At",
-            "type": "string"
-          }
-        },
-        "required": [
-          "authorization_url",
-          "expires_at"
-        ],
-        "title": "NativeAuthorizationStartResponse",
-        "type": "object"
-      },
-      "NativeAuthorizationTokenRequest": {
-        "properties": {
-          "code": {
-            "minLength": 1,
-            "title": "Code",
-            "type": "string"
-          },
-          "code_verifier": {
-            "minLength": 43,
-            "title": "Code Verifier",
-            "type": "string"
-          },
-          "grant_type": {
-            "const": "authorization_code",
-            "default": "authorization_code",
-            "title": "Grant Type",
-            "type": "string"
-          },
-          "redirect_uri": {
-            "format": "uri",
-            "title": "Redirect Uri",
-            "type": "string"
-          }
-        },
-        "required": [
-          "grant_type",
-          "code",
-          "code_verifier",
-          "redirect_uri"
-        ],
-        "title": "NativeAuthorizationTokenRequest",
-        "type": "object"
-      },
-      "NativeRefreshTokenRequest": {
-        "properties": {
-          "grant_type": {
-            "const": "refresh_token",
-            "default": "refresh_token",
-            "title": "Grant Type",
-            "type": "string"
-          },
-          "refresh_token": {
-            "minLength": 1,
-            "title": "Refresh Token",
-            "type": "string"
-          }
-        },
-        "required": [
-          "grant_type",
-          "refresh_token"
-        ],
-        "title": "NativeRefreshTokenRequest",
-        "type": "object"
-      },
-      "NativeLogoutRequest": {
-        "properties": {
-          "refresh_token": {
-            "minLength": 1,
-            "title": "Refresh Token",
-            "type": "string"
-          }
-        },
-        "required": [
-          "refresh_token"
-        ],
-        "title": "NativeLogoutRequest",
-        "type": "object"
-      },
-      "NativeSessionResponse": {
-        "properties": {
-          "access_token": {
-            "minLength": 1,
-            "title": "Access Token",
-            "type": "string"
-          },
-          "expires_in": {
-            "exclusiveMinimum": 0,
-            "title": "Expires In",
-            "type": "integer"
-          },
-          "refresh_expires_in": {
-            "exclusiveMinimum": 0,
-            "title": "Refresh Expires In",
-            "type": "integer"
-          },
-          "refresh_token": {
-            "minLength": 1,
-            "title": "Refresh Token",
-            "type": "string"
-          },
-          "session_id": {
-            "minLength": 1,
-            "title": "Session Id",
-            "type": "string"
-          },
-          "token_type": {
-            "const": "Bearer",
-            "default": "Bearer",
-            "title": "Token Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "token_type",
-          "access_token",
-          "expires_in",
-          "refresh_token",
-          "refresh_expires_in",
-          "session_id"
-        ],
-        "title": "NativeSessionResponse",
-        "type": "object"
-      },
-      "SuccessResponse_NativeAuthorizationStartResponse_": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/NativeAuthorizationStartResponse"
-          },
-          "message": {
-            "title": "Message",
-            "type": "string"
-          },
-          "status": {
-            "const": "success",
-            "default": "success",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "message",
-          "data"
-        ],
-        "title": "SuccessResponse[NativeAuthorizationStartResponse]",
-        "type": "object"
-      },
-      "SuccessResponse_NativeSessionResponse_": {
-        "properties": {
-          "data": {
-            "$ref": "#/components/schemas/NativeSessionResponse"
-          },
-          "message": {
-            "title": "Message",
-            "type": "string"
-          },
-          "status": {
-            "const": "success",
-            "default": "success",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "message",
-          "data"
-        ],
-        "title": "SuccessResponse[NativeSessionResponse]",
         "type": "object"
       },
       "AvatarPrepareRequest": {
@@ -260,6 +206,7 @@
       "AvatarResponse": {
         "properties": {
           "asset_id": {
+            "format": "uuid",
             "title": "Asset Id",
             "type": "string"
           },
@@ -291,6 +238,126 @@
           "asset_id"
         ],
         "title": "AvatarResponse",
+        "type": "object"
+      },
+      "CloudCorrelation": {
+        "additionalProperties": false,
+        "properties": {
+          "ally_id": {
+            "format": "uuid",
+            "title": "Ally Id",
+            "type": "string"
+          },
+          "cloud_binding_id": {
+            "format": "uuid",
+            "title": "Cloud Binding Id",
+            "type": "string"
+          },
+          "conversation_id": {
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ally_id",
+          "conversation_id",
+          "message_id",
+          "cloud_binding_id"
+        ],
+        "title": "CloudCorrelation",
+        "type": "object"
+      },
+      "ConversationResponse": {
+        "properties": {
+          "ally_id": {
+            "format": "uuid",
+            "title": "Ally Id",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/MessageResponse"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "required": [
+          "id",
+          "ally_id",
+          "messages"
+        ],
+        "title": "ConversationResponse",
+        "type": "object"
+      },
+      "CreateAllyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/AppearanceInput"
+          },
+          "job": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Job",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "onboarding_attempt": {
+            "maxLength": 256,
+            "minLength": 32,
+            "title": "Onboarding Attempt",
+            "type": "string"
+          },
+          "personality": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Personality",
+            "type": "string"
+          },
+          "reply": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Reply",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "job",
+          "personality",
+          "appearance",
+          "onboarding_attempt",
+          "reply"
+        ],
+        "title": "CreateAllyRequest",
         "type": "object"
       },
       "ErrorData": {
@@ -374,6 +441,132 @@
         "title": "ErrorResponse[ErrorData]",
         "type": "object"
       },
+      "FoundryEventEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "cloud": {
+            "$ref": "#/components/schemas/CloudCorrelation"
+          },
+          "conversation_turn_ordinal": {
+            "maximum": 2147483647,
+            "minimum": 1,
+            "title": "Conversation Turn Ordinal",
+            "type": "integer"
+          },
+          "event_dedupe_key": {
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[^\\x00\\r\\n]+$",
+            "title": "Event Dedupe Key",
+            "type": "string"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_type": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Event Type",
+            "type": "string"
+          },
+          "fingerprint": {
+            "pattern": "^canonical-json-sha256:v1:[0-9a-f]{64}$",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "foundry": {
+            "$ref": "#/components/schemas/FoundryIdentity"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "title": "Issued At",
+            "type": "string"
+          },
+          "kind": {
+            "const": "execution.event",
+            "title": "Kind",
+            "type": "string"
+          },
+          "payload": {
+            "additionalProperties": true,
+            "title": "Payload",
+            "type": "object"
+          },
+          "producer": {
+            "const": "foundry",
+            "title": "Producer",
+            "type": "string"
+          },
+          "schema_version": {
+            "const": "v1",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/WorkspaceScope"
+          },
+          "service_identity": {
+            "const": "foundry-service",
+            "title": "Service Identity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "kind",
+          "producer",
+          "service_identity",
+          "event_id",
+          "event_dedupe_key",
+          "scope",
+          "cloud",
+          "conversation_turn_ordinal",
+          "foundry",
+          "event_type",
+          "payload",
+          "issued_at",
+          "fingerprint"
+        ],
+        "title": "FoundryEventEnvelope",
+        "type": "object"
+      },
+      "FoundryIdentity": {
+        "additionalProperties": false,
+        "properties": {
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "attempt_sequence": {
+            "maximum": 513,
+            "minimum": 1,
+            "title": "Attempt Sequence",
+            "type": "integer"
+          },
+          "execution_id": {
+            "format": "uuid",
+            "title": "Execution Id",
+            "type": "string"
+          },
+          "generation": {
+            "maximum": 2147483647,
+            "minimum": 0,
+            "title": "Generation",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "execution_id",
+          "attempt_id",
+          "generation",
+          "attempt_sequence"
+        ],
+        "title": "FoundryIdentity",
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "state": {
@@ -412,9 +605,308 @@
         "title": "MeResponse",
         "type": "object"
       },
+      "MessageAcceptanceResponse": {
+        "properties": {
+          "conversation_id": {
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "execution": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution"
+          },
+          "message": {
+            "$ref": "#/components/schemas/MessageResponse"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "conversation_id",
+          "message",
+          "replayed"
+        ],
+        "title": "MessageAcceptanceResponse",
+        "type": "object"
+      },
+      "MessageResponse": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "sender": {
+            "title": "Sender",
+            "type": "string"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sender",
+          "content",
+          "sequence",
+          "status",
+          "created_at"
+        ],
+        "title": "MessageResponse",
+        "type": "object"
+      },
+      "NativeAuthorizationStartResponse": {
+        "examples": [
+          {
+            "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth?...",
+            "expires_at": "2026-08-20T16:10:00Z"
+          }
+        ],
+        "properties": {
+          "authorization_url": {
+            "title": "Authorization Url",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "authorization_url",
+          "expires_at"
+        ],
+        "title": "NativeAuthorizationStartResponse",
+        "type": "object"
+      },
+      "NativeLogoutRequest": {
+        "properties": {
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "refresh_token"
+        ],
+        "title": "NativeLogoutRequest",
+        "type": "object"
+      },
+      "NativeRefreshRequest": {
+        "properties": {
+          "grant_type": {
+            "enum": [
+              "refresh_token"
+            ],
+            "title": "Grant Type",
+            "type": "string"
+          },
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_type",
+          "refresh_token"
+        ],
+        "title": "NativeRefreshRequest",
+        "type": "object"
+      },
+      "NativeSignInRequest": {
+        "properties": {
+          "code_challenge": {
+            "title": "Code Challenge",
+            "type": "string"
+          },
+          "code_challenge_method": {
+            "enum": [
+              "S256"
+            ],
+            "title": "Code Challenge Method",
+            "type": "string"
+          },
+          "redirect_uri": {
+            "title": "Redirect Uri",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "redirect_uri",
+          "code_challenge",
+          "code_challenge_method",
+          "state"
+        ],
+        "title": "NativeSignInRequest",
+        "type": "object"
+      },
+      "NativeTokenExchangeRequest": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "code_verifier": {
+            "title": "Code Verifier",
+            "type": "string"
+          },
+          "grant_type": {
+            "enum": [
+              "authorization_code"
+            ],
+            "title": "Grant Type",
+            "type": "string"
+          },
+          "redirect_uri": {
+            "title": "Redirect Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_type",
+          "code",
+          "code_verifier",
+          "redirect_uri"
+        ],
+        "title": "NativeTokenExchangeRequest",
+        "type": "object"
+      },
+      "NativeTokenResponse": {
+        "examples": [
+          {
+            "access_token": "<short-lived-cloud-jwt>",
+            "expires_in": 600,
+            "refresh_expires_in": 1209600,
+            "refresh_token": "<rotating-opaque-cloud-token>",
+            "session_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+            "token_type": "Bearer"
+          }
+        ],
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "expires_in": {
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "refresh_expires_in": {
+            "title": "Refresh Expires In",
+            "type": "integer"
+          },
+          "refresh_token": {
+            "title": "Refresh Token",
+            "type": "string"
+          },
+          "session_id": {
+            "format": "uuid",
+            "title": "Session Id",
+            "type": "string"
+          },
+          "token_type": {
+            "const": "Bearer",
+            "title": "Token Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token_type",
+          "access_token",
+          "expires_in",
+          "refresh_token",
+          "refresh_expires_in",
+          "session_id"
+        ],
+        "title": "NativeTokenResponse",
+        "type": "object"
+      },
+      "OnboardingAttemptRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "appearance": {
+            "$ref": "#/components/schemas/AppearanceInput"
+          },
+          "job": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Job",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 80,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "personality": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Personality",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "job",
+          "personality",
+          "appearance"
+        ],
+        "title": "OnboardingAttemptRequest",
+        "type": "object"
+      },
+      "OnboardingAttemptResponse": {
+        "properties": {
+          "attempt_token": {
+            "title": "Attempt Token",
+            "type": "string"
+          },
+          "greeting": {
+            "title": "Greeting",
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempt_token",
+          "greeting"
+        ],
+        "title": "OnboardingAttemptResponse",
+        "type": "object"
+      },
       "PreparedAvatarResponse": {
         "properties": {
           "asset_id": {
+            "format": "uuid",
             "title": "Asset Id",
             "type": "string"
           },
@@ -492,6 +984,22 @@
         "title": "RedirectRequest",
         "type": "object"
       },
+      "SendMessageRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "maxLength": 16000,
+            "minLength": 1,
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "SendMessageRequest",
+        "type": "object"
+      },
       "SessionResponse": {
         "properties": {
           "expires_at": {
@@ -500,6 +1008,7 @@
             "type": "string"
           },
           "id": {
+            "format": "uuid",
             "title": "Id",
             "type": "string"
           }
@@ -509,6 +1018,91 @@
           "expires_at"
         ],
         "title": "SessionResponse",
+        "type": "object"
+      },
+      "SuccessResponse_ActivitySnapshotResponse_": {
+        "example": {
+          "data": {
+            "activities": [
+              {
+                "conversation_turn_ordinal": 3,
+                "created_at": "2026-08-20T16:01:01Z",
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
+                "kind": "assistant_delta",
+                "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
+                "sequence": 1,
+                "state": "running",
+                "text": "I can help with that."
+              }
+            ],
+            "conversation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "last_contiguous_sequence": 2,
+            "state": "running"
+          },
+          "message": "Activities loaded",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ActivitySnapshotResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[ActivitySnapshotResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_AllyResponse_": {
+        "example": {
+          "data": {
+            "appearance": {
+              "catalog_version": "v1",
+              "key": "sunrise"
+            },
+            "binding_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d77",
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "job": "Study partner",
+            "name": "Mira",
+            "operation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d78",
+            "personality": "Calm, curious, and specific.",
+            "provisioning_state": "pending",
+            "retryable": false
+          },
+          "message": "Ally loaded",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AllyResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[AllyResponse]",
         "type": "object"
       },
       "SuccessResponse_AuthorizationStartResponse_": {
@@ -544,7 +1138,7 @@
       "SuccessResponse_AvatarResponse_": {
         "example": {
           "data": {
-            "asset_id": "avt_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
+            "asset_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
             "expires_at": "2026-08-12T12:00:00Z",
             "url": "https://media.example/avatar"
           },
@@ -571,6 +1165,48 @@
           "data"
         ],
         "title": "SuccessResponse[AvatarResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_ConversationResponse_": {
+        "example": {
+          "data": {
+            "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "messages": [
+              {
+                "content": "Hello! What should we work on first?",
+                "created_at": "2026-08-20T16:00:00Z",
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d80",
+                "sender": "assistant",
+                "sequence": 1,
+                "status": "completed"
+              }
+            ],
+            "next_cursor": null
+          },
+          "message": "Conversation loaded",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ConversationResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[ConversationResponse]",
         "type": "object"
       },
       "SuccessResponse_HealthResponse_": {
@@ -612,16 +1248,16 @@
             },
             "session": {
               "expires_at": "2026-08-12T12:00:00Z",
-              "id": "ses_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d73"
+              "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d73"
             },
             "user": {
-              "id": "usr_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"
+              "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"
             },
             "workspace": {
               "capabilities": [
                 "workspace:manage"
               ],
-              "id": "wsp_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
+              "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
               "name": "Personal Workspace",
               "role": "owner"
             }
@@ -651,10 +1287,147 @@
         "title": "SuccessResponse[MeResponse]",
         "type": "object"
       },
+      "SuccessResponse_MessageAcceptanceResponse_": {
+        "example": {
+          "data": {
+            "conversation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "execution": null,
+            "message": {
+              "content": "Help me plan tomorrow's study block.",
+              "created_at": "2026-08-20T16:01:00Z",
+              "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
+              "sender": "user",
+              "sequence": 3,
+              "status": "queued"
+            },
+            "replayed": false
+          },
+          "message": "Message accepted",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MessageAcceptanceResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[MessageAcceptanceResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_NativeAuthorizationStartResponse_": {
+        "example": {
+          "data": {
+            "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth?...",
+            "expires_at": "2026-08-20T16:10:00Z"
+          },
+          "message": "Native sign-in started",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NativeAuthorizationStartResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[NativeAuthorizationStartResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_NativeTokenResponse_": {
+        "example": {
+          "data": {
+            "access_token": "<short-lived-cloud-jwt>",
+            "expires_in": 600,
+            "refresh_expires_in": 1209600,
+            "refresh_token": "<rotating-opaque-cloud-token>",
+            "session_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+            "token_type": "Bearer"
+          },
+          "message": "Native session issued",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/NativeTokenResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[NativeTokenResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_OnboardingAttemptResponse_": {
+        "example": {
+          "data": {
+            "attempt_token": "opaque-onboarding-attempt",
+            "greeting": "Hello! What should we work on first?"
+          },
+          "message": "Onboarding started",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/OnboardingAttemptResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[OnboardingAttemptResponse]",
+        "type": "object"
+      },
       "SuccessResponse_PreparedAvatarResponse_": {
         "example": {
           "data": {
-            "asset_id": "avt_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
+            "asset_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
             "expires_at": "2026-08-12T12:00:00Z",
             "headers": {
               "Content-Type": "image/png"
@@ -784,7 +1557,7 @@
             "capabilities": [
               "workspace:manage"
             ],
-            "id": "wsp_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
             "name": "Personal Workspace",
             "role": "owner"
           },
@@ -816,11 +1589,12 @@
       "UserResponse": {
         "examples": [
           {
-            "id": "usr_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"
           }
         ],
         "properties": {
           "id": {
+            "format": "uuid",
             "title": "Id",
             "type": "string"
           }
@@ -957,6 +1731,7 @@
             "type": "array"
           },
           "id": {
+            "format": "uuid",
             "title": "Id",
             "type": "string"
           },
@@ -988,6 +1763,7 @@
             "type": "array"
           },
           "id": {
+            "format": "uuid",
             "title": "Id",
             "type": "string"
           },
@@ -1008,68 +1784,35 @@
         ],
         "title": "WorkspaceResponse",
         "type": "object"
+      },
+      "WorkspaceScope": {
+        "additionalProperties": false,
+        "properties": {
+          "cloud_workspace_id": {
+            "format": "uuid",
+            "title": "Cloud Workspace Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "workspace",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "cloud_workspace_id"
+        ],
+        "title": "WorkspaceScope",
+        "type": "object"
       }
     },
-    "responses": {
-      "NativeBadRequest": {
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
-            }
-          }
-        },
-        "description": "Bad Request"
-      },
-      "NativeConflict": {
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
-            }
-          }
-        },
-        "description": "Conflict"
-      },
-      "NativeRateLimited": {
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
-            }
-          }
-        },
-        "description": "Too Many Requests"
-      },
-      "NativeServerError": {
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
-            }
-          }
-        },
-        "description": "Internal Server Error"
-      },
-      "NativeServiceUnavailable": {
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
-            }
-          }
-        },
-        "description": "Service Unavailable"
-      },
-      "NativeUnauthorized": {
-        "content": {
-          "application/json": {
-            "schema": {
-              "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
-            }
-          }
-        },
-        "description": "Unauthorized"
+    "securitySchemes": {
+      "BearerAuth": {
+        "bearerFormat": "JWT",
+        "description": "Native sessions only. The bearer is accepted only on the reviewed account, profile, avatar, and Workspace methods.",
+        "scheme": "bearer",
+        "type": "http"
       }
     }
   },
@@ -1080,246 +1823,9 @@
   },
   "openapi": "3.1.0",
   "paths": {
-    "/api/v1/auths/native/sign-in/google": {
-      "post": {
-        "operationId": "native_authentication_sign_in_google",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NativeAuthorizationStartRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SuccessResponse_NativeAuthorizationStartResponse_"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "$ref": "#/components/responses/NativeBadRequest"
-          },
-          "429": {
-            "$ref": "#/components/responses/NativeRateLimited"
-          },
-          "500": {
-            "$ref": "#/components/responses/NativeServerError"
-          },
-          "503": {
-            "$ref": "#/components/responses/NativeServiceUnavailable"
-          }
-        },
-        "security": [],
-        "summary": "Native Google Sign In Start",
-        "tags": [
-          "Authentication"
-        ]
-      }
-    },
-    "/api/v1/auths/native/callback/google": {
-      "get": {
-        "operationId": "native_authentication_callback_google",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "code",
-            "required": false,
-            "schema": {
-              "title": "Code",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "state",
-            "required": false,
-            "schema": {
-              "title": "State",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
-            "name": "error",
-            "required": false,
-            "schema": {
-              "title": "Error",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "303": {
-            "description": "See Other"
-          },
-          "400": {
-            "$ref": "#/components/responses/NativeBadRequest"
-          },
-          "409": {
-            "$ref": "#/components/responses/NativeConflict"
-          },
-          "429": {
-            "$ref": "#/components/responses/NativeRateLimited"
-          },
-          "500": {
-            "$ref": "#/components/responses/NativeServerError"
-          },
-          "503": {
-            "$ref": "#/components/responses/NativeServiceUnavailable"
-          }
-        },
-        "security": [],
-        "summary": "Native Google Callback",
-        "tags": [
-          "Authentication"
-        ]
-      }
-    },
-    "/api/v1/auths/native/token": {
-      "post": {
-        "operationId": "native_authentication_token",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NativeAuthorizationTokenRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SuccessResponse_NativeSessionResponse_"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "$ref": "#/components/responses/NativeBadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/NativeUnauthorized"
-          },
-          "429": {
-            "$ref": "#/components/responses/NativeRateLimited"
-          },
-          "500": {
-            "$ref": "#/components/responses/NativeServerError"
-          },
-          "503": {
-            "$ref": "#/components/responses/NativeServiceUnavailable"
-          }
-        },
-        "security": [],
-        "summary": "Native Token Exchange",
-        "tags": [
-          "Authentication"
-        ]
-      }
-    },
-    "/api/v1/auths/native/token/refresh": {
-      "post": {
-        "operationId": "native_authentication_token_refresh",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NativeRefreshTokenRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SuccessResponse_NativeSessionResponse_"
-                }
-              }
-            },
-            "description": "OK"
-          },
-          "400": {
-            "$ref": "#/components/responses/NativeBadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/NativeUnauthorized"
-          },
-          "429": {
-            "$ref": "#/components/responses/NativeRateLimited"
-          },
-          "500": {
-            "$ref": "#/components/responses/NativeServerError"
-          },
-          "503": {
-            "$ref": "#/components/responses/NativeServiceUnavailable"
-          }
-        },
-        "security": [],
-        "summary": "Native Token Refresh",
-        "tags": [
-          "Authentication"
-        ]
-      }
-    },
-    "/api/v1/auths/native/logout": {
-      "post": {
-        "operationId": "native_authentication_logout",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/NativeLogoutRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "204": {
-            "description": "No Content"
-          },
-          "400": {
-            "$ref": "#/components/responses/NativeBadRequest"
-          },
-          "401": {
-            "$ref": "#/components/responses/NativeUnauthorized"
-          },
-          "429": {
-            "$ref": "#/components/responses/NativeRateLimited"
-          },
-          "500": {
-            "$ref": "#/components/responses/NativeServerError"
-          },
-          "503": {
-            "$ref": "#/components/responses/NativeServiceUnavailable"
-          }
-        },
-        "security": [],
-        "summary": "Native Logout",
-        "tags": [
-          "Authentication"
-        ]
-      }
-    },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_ddd2379f",
+        "operationId": "authentication_callback_fcae9a6d",
         "parameters": [
           {
             "in": "path",
@@ -1424,7 +1930,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_cc9fcff5",
+        "operationId": "authentication_csrf_bf3fb71f",
         "parameters": [],
         "responses": {
           "204": {
@@ -1454,7 +1960,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_99eb23ab",
+        "operationId": "identity_link_88f3d5a9",
         "parameters": [
           {
             "in": "path",
@@ -1631,7 +2137,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_1681f0c2",
+        "operationId": "session_logout_12155845",
         "parameters": [],
         "responses": {
           "204": {
@@ -1676,7 +2182,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_dd549e3d",
+        "operationId": "profile_me_200b7614",
         "parameters": [],
         "responses": {
           "200": {
@@ -1720,6 +2226,11 @@
             "description": "Internal Server Error"
           }
         },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Me",
         "tags": [
           "User Profile"
@@ -1728,7 +2239,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_3676889b",
+        "operationId": "avatar_delete_b1360519",
         "parameters": [],
         "responses": {
           "204": {
@@ -1825,6 +2336,11 @@
             "description": "Service Unavailable"
           }
         },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Delete",
         "tags": [
           "User Profile"
@@ -1833,13 +2349,14 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_0b4079b8",
+        "operationId": "avatar_complete_46fa714b",
         "parameters": [
           {
             "in": "path",
             "name": "asset_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Asset Id",
               "type": "string"
             }
@@ -1977,6 +2494,11 @@
             "description": "Service Unavailable"
           }
         },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Complete",
         "tags": [
           "User Profile"
@@ -1985,7 +2507,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_fcf8fea4",
+        "operationId": "avatar_read_f9645c8f",
         "parameters": [],
         "responses": {
           "200": {
@@ -2059,6 +2581,11 @@
             "description": "Service Unavailable"
           }
         },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Read",
         "tags": [
           "User Profile"
@@ -2067,7 +2594,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_558212b3",
+        "operationId": "avatar_prepare_49cd6e7a",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -2196,6 +2723,11 @@
             "description": "Service Unavailable"
           }
         },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Prepare",
         "tags": [
           "User Profile"
@@ -2204,7 +2736,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_cb35f70a",
+        "operationId": "profile_profile_5d8a1a7c",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -2303,15 +2835,676 @@
             "description": "Internal Server Error"
           }
         },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Profile",
         "tags": [
           "User Profile"
         ]
       }
     },
+    "/api/v1/auths/native/callback/{provider}": {
+      "get": {
+        "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
+        "operationId": "nativeauthentication_callback_22d9fe5e",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "code",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "State",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "error",
+            "required": false,
+            "schema": {
+              "default": "",
+              "title": "Error",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "303": {
+            "description": "See Other"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Callback",
+        "tags": [
+          "Native Authentication"
+        ]
+      }
+    },
+    "/api/v1/auths/native/logout": {
+      "post": {
+        "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
+        "operationId": "nativeauthentication_logout_ebca3ae6",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeLogoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {},
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Logout",
+        "tags": [
+          "Native Authentication"
+        ]
+      }
+    },
+    "/api/v1/auths/native/sign-in/{provider}": {
+      "post": {
+        "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
+        "operationId": "nativeauthentication_sign_in_58709063",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeSignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_NativeAuthorizationStartResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [],
+        "summary": "Sign In",
+        "tags": [
+          "Native Authentication"
+        ]
+      }
+    },
+    "/api/v1/auths/native/token": {
+      "post": {
+        "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
+        "operationId": "nativeauthentication_token_fa0b3d38",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeTokenExchangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_NativeTokenResponse_"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Cache-Control": {
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Bad Request",
+            "headers": {
+              "Cache-Control": {
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict",
+            "headers": {
+              "Cache-Control": {
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Cache-Control": {
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable",
+            "headers": {
+              "Cache-Control": {
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "summary": "Token",
+        "tags": [
+          "Native Authentication"
+        ]
+      }
+    },
+    "/api/v1/auths/native/token/refresh": {
+      "post": {
+        "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
+        "operationId": "nativeauthentication_refresh_0e23f697",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NativeRefreshRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_NativeTokenResponse_"
+                }
+              }
+            },
+            "description": "OK",
+            "headers": {
+              "Cache-Control": {
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized",
+            "headers": {
+              "Cache-Control": {
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found",
+            "headers": {
+              "Cache-Control": {
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests",
+            "headers": {
+              "Cache-Control": {
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable",
+            "headers": {
+              "Cache-Control": {
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "summary": "Refresh",
+        "tags": [
+          "Native Authentication"
+        ]
+      }
+    },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_8f84733f",
+        "operationId": "session_refresh_4b6e5e00",
         "parameters": [],
         "responses": {
           "204": {
@@ -2401,7 +3594,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_0fdc4354",
+        "operationId": "authentication_sign_in_31cc7864",
         "parameters": [
           {
             "in": "path",
@@ -2548,7 +3741,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_c84a8c4b",
+        "operationId": "health_health_8e7a121e",
         "parameters": [],
         "responses": {
           "200": {
@@ -2598,10 +3791,124 @@
         ]
       }
     },
+    "/api/v1/internal/foundry/events": {
+      "post": {
+        "operationId": "activities_api_register_foundry_event",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FoundryEventEnvelope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Foundry Event"
+      }
+    },
+    "/api/v1/onboarding/attempts": {
+      "post": {
+        "operationId": "onboarding_begin_9dace418",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OnboardingAttemptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_OnboardingAttemptResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Begin",
+        "tags": [
+          "Onboarding"
+        ]
+      }
+    },
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_836a660b",
+        "operationId": "waitlist_create_56fd18b0",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -2782,7 +4089,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_c6c912b4",
+        "operationId": "waitlist_complete_bbf07bf2",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -2952,13 +4259,14 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_657b1a0f",
+        "operationId": "workspace_context_717ab08d",
         "parameters": [
           {
             "in": "path",
             "name": "workspace_id",
             "required": true,
             "schema": {
+              "format": "uuid",
               "title": "Workspace Id",
               "type": "string"
             }
@@ -2974,6 +4282,21 @@
               }
             },
             "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
           },
           "404": {
             "content": {
@@ -3006,9 +4329,801 @@
             "description": "Internal Server Error"
           }
         },
+        "security": [
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Context",
         "tags": [
           "Workspaces"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/allies": {
+      "post": {
+        "operationId": "ally_create_ededc968",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable key for repeating the exact create request; changed content with the same key conflicts.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "Stable key for repeating the exact create request; changed content with the same key conflicts.",
+              "maxLength": 128,
+              "minLength": 16,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAllyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AllyResponse_"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AllyResponse_"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Create",
+        "tags": [
+          "Allies"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
+      "get": {
+        "operationId": "ally_retrieve_582da5aa",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AllyResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Retrieve",
+        "tags": [
+          "Allies"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
+      "get": {
+        "operationId": "conversation_by_ally_caf784dc",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ConversationResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "By Ally",
+        "tags": [
+          "Chat"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
+      "get": {
+        "operationId": "conversation_by_conversation_5f4609f1",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ConversationResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "By Conversation",
+        "tags": [
+          "Chat"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
+      "get": {
+        "operationId": "activity_snapshot_3d85cbc3",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ActivitySnapshotResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Snapshot",
+        "tags": [
+          "Activities"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
+      "post": {
+        "operationId": "conversation_send_b646b8e0",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable key for repeating the exact text send.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "Stable key for repeating the exact text send.",
+              "maxLength": 128,
+              "minLength": 16,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendMessageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_MessageAcceptanceResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_MessageAcceptanceResponse_"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Send",
+        "tags": [
+          "Chat"
         ]
       }
     }
