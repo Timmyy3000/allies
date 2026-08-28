@@ -341,6 +341,11 @@ channel/message at the release boundary.
   actions remain disabled and visibly marked `Preview`. Moved the app-config test out
   of `src/app` so Expo Router cannot import Vitest into the native bundle. App and
   runtime version stay at `1.0.2`; no OTA was published.
+- **2026-08-28 — PR #14 review follow-up prepared:** completed sign-in now leaves
+  `/auth/return`, a read without identity does not delete a bound Ally creation,
+  ambiguous message responses keep the same-key retry, and conversations open at the
+  latest content while older-page loads preserve the visible position. App and runtime
+  version stay at `1.0.2`; no OTA was published.
 
 ### GitHub merges and installed devices
 
@@ -641,7 +646,7 @@ interaction. Every meaningful animation needs a reduced-motion path.
 The latest completed local validation for the full mobile visual walkthrough was:
 
 ```text
-bun run test:run       # 57 test files, 329 tests passed
+bun run test:run       # 57 test files, 338 tests passed
 bun run typecheck      # cloud-client, web, and mobile passed
 bun run lint           # 0 errors; 8 pre-existing web warnings
 bun run build:web      # passed
@@ -697,3 +702,6 @@ decision log.
   `320d0bb` were validated with 39 test files/198 tests, typecheck, lint, web build,
   mobile export, and Cloud OpenAPI verification. No native contract or runtime
   version changed; the `1.0.2` build and Cloud/platform/device gates remain open.
+- 2026-08-28 — Nabu product design and mobile implementation notes were synchronized
+  with the full visual walkthrough and its PR #14 review follow-up. No `Nabu sync
+  pending` item is open.

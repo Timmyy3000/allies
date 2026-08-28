@@ -1,6 +1,12 @@
-import type { ActivitySnapshotViewModel, ConversationPageViewModel, MessageViewModel } from '@allies/cloud-client';
+import {
+  isCloudError,
+  type ActivitySnapshotViewModel,
+  type ConversationPageViewModel,
+  type MessageViewModel,
+} from '@allies/cloud-client';
 
 const ACTIVE_ACTIVITY_STATES = new Set(['queued', 'in_progress', 'running']);
+const AMBIGUOUS_MESSAGE_ERROR_KINDS = new Set(['network', 'timeout', 'server', 'throttled', 'contract']);
 const ACTIVITY_POLL_WINDOW_MS = 10 * 60 * 1000;
 
 function sameMessage(left: MessageViewModel, right: MessageViewModel): boolean {
@@ -57,4 +63,26 @@ export function isActivityPollingAllowed(input: {
   return input.focused
     && ACTIVE_ACTIVITY_STATES.has(input.state)
     && input.now - input.startedAt < ACTIVITY_POLL_WINDOW_MS;
+}
+
+export function shouldKeepPendingMessage(error: unknown): boolean {
+  return isCloudError(error) && AMBIGUOUS_MESSAGE_ERROR_KINDS.has(error.kind);
+}
+
+export function createConversationScrollIntent() {
+  let latestRequested = true;
+
+  return {
+    consumeLatest() {
+      const requested = latestRequested;
+      latestRequested = false;
+      return requested;
+    },
+    preservePosition() {
+      latestRequested = false;
+    },
+    requestLatest() {
+      latestRequested = true;
+    },
+  };
 }
