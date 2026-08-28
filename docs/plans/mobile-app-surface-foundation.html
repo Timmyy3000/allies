@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Allies Mobile App Surface Foundation Plan</title>
+  <style>
+    @font-face { font-family: OpenRunde; src: url('../../apps/mobile/assets/allies/fonts/OpenRunde-Medium.otf'); font-weight: 500; }
+    @font-face { font-family: OpenRunde; src: url('../../apps/mobile/assets/allies/fonts/OpenRunde-Semibold.otf'); font-weight: 600; }
+    :root { --ink:#121212; --muted:#686868; --soft:#f3f3f3; --line:#e5e5e5; --brand:#ff5800; --paper:#fff; --danger:#b3261e; }
+    * { box-sizing: border-box; }
+    body { margin:0; color:var(--ink); background:var(--paper); font-family:OpenRunde,system-ui,sans-serif; font-weight:500; line-height:1.5; }
+    main { width:min(1180px,calc(100% - 32px)); margin:0 auto; padding:48px 0 80px; }
+    header { display:grid; grid-template-columns:minmax(0,1.45fr) minmax(260px,.55fr); gap:24px; align-items:end; padding:34px; border-radius:32px; background:var(--soft); }
+    h1,h2,h3 { margin:0; font-weight:600; letter-spacing:-.04em; line-height:1.05; }
+    h1 { max-width:760px; font-size:clamp(40px,7vw,76px); }
+    h2 { margin-bottom:20px; font-size:clamp(28px,4vw,44px); }
+    h3 { font-size:21px; }
+    p { margin:0; }
+    .eyebrow { margin-bottom:20px; color:var(--brand); font-size:13px; font-weight:600; letter-spacing:.08em; text-transform:uppercase; }
+    .lede { max-width:780px; margin-top:24px; color:#343434; font-size:19px; line-height:1.55; }
+    .decision { padding:24px; border-radius:24px; color:#fff; background:var(--brand); }
+    .decision strong { display:block; margin-bottom:8px; font-size:22px; }
+    section { margin-top:64px; }
+    .summary-grid,.cards,.risk-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+    .summary { min-width:0; padding:24px; border:1px solid var(--line); border-radius:24px; }
+    .summary span,.phase-index { display:block; margin-bottom:14px; color:var(--brand); font-size:13px; font-weight:600; }
+    .summary strong { display:block; font-size:22px; line-height:1.2; }
+    .summary p { margin-top:10px; color:var(--muted); }
+    .callout { padding:24px; border-left:5px solid var(--brand); border-radius:0 22px 22px 0; background:#fff5ef; }
+    .callout strong { font-weight:600; }
+    .flow { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; padding:18px; border-radius:28px; background:var(--soft); }
+    .flow article { min-width:0; padding:22px; border-radius:20px; background:#fff; }
+    .flow small { display:block; margin-bottom:12px; color:var(--brand); font-weight:600; }
+    .flow p { margin-top:10px; color:var(--muted); font-size:14px; }
+    .table-wrap { overflow-x:auto; border:1px solid var(--line); border-radius:24px; }
+    table { width:100%; border-collapse:collapse; min-width:760px; }
+    th,td { padding:16px 18px; border-bottom:1px solid var(--line); text-align:left; vertical-align:top; overflow-wrap:anywhere; }
+    th { background:var(--soft); font-size:13px; font-weight:600; }
+    tbody tr:last-child td { border-bottom:0; }
+    code { padding:.14em .38em; border-radius:6px; background:var(--soft); font:500 .9em ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
+    .status { display:inline-block; padding:5px 9px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
+    .now { color:#fff; background:var(--brand); }
+    .later { color:#555; background:var(--soft); }
+    .blocked { color:var(--danger); background:#fdebea; }
+    .phase { min-width:0; padding:24px; border-radius:24px; background:var(--soft); }
+    .phase h3 { margin-bottom:12px; }
+    .phase p { color:var(--muted); }
+    .phase ul,.risk ul,.checks { margin:16px 0 0; padding-left:20px; }
+    li + li { margin-top:8px; }
+    .risk { min-width:0; padding:24px; border:1px solid var(--line); border-radius:24px; }
+    .risk h3 { margin-bottom:10px; }
+    .risk p { color:var(--muted); }
+    .criteria { columns:2; column-gap:42px; margin:0; padding-left:24px; }
+    .criteria li { break-inside:avoid; margin-bottom:10px; }
+    .commands { display:grid; gap:8px; padding:20px; border-radius:20px; color:#fff; background:#161616; }
+    .commands code { padding:0; color:#fff; background:transparent; }
+    footer { margin-top:64px; padding-top:24px; border-top:1px solid var(--line); color:var(--muted); font-size:14px; }
+    @media (max-width:900px) {
+      header,.summary-grid,.cards,.risk-grid,.flow { grid-template-columns:1fr 1fr; }
+      header { align-items:start; }
+    }
+    @media (max-width:640px) {
+      main { width:min(100% - 20px,1180px); padding-top:10px; }
+      header,.summary-grid,.cards,.risk-grid,.flow { grid-template-columns:1fr; }
+      header { padding:24px; border-radius:24px; }
+      section { margin-top:48px; }
+      .criteria { columns:1; }
+    }
+    @media (prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto !important; } }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <p class="eyebrow">Accepted M2 implementation plan · 28 August 2026</p>
+      <h1>Turn the polished onboarding into a working Allies app.</h1>
+      <p class="lede">Build four Cloud-backed mobile destinations with the current design language and the smallest correct architecture. Map M3 and M4 now. Do not implement speculative screens.</p>
+    </div>
+    <aside class="decision">
+      <strong>Core decision</strong>
+      Keep this M2 mobile slice as a stack. Reuse the existing onboarding, session, query, character, motion, Crypto, FileSystem, and SecureStore code. Add no dependency.
+    </aside>
+  </header>
+
+  <section aria-labelledby="outcome">
+    <h2 id="outcome">Outcome and boundaries</h2>
+    <div class="summary-grid">
+      <article class="summary"><span>Users</span><strong>Signed-in internal alpha testers</strong><p>Create, open, use, and inspect an Ally through the public Cloud API.</p></article>
+      <article class="summary"><span>Source of truth</span><strong>Allies Cloud</strong><p>React Query caches fetched records. Mobile does not create a second product database.</p></article>
+      <article class="summary"><span>Navigation</span><strong>Simple stack</strong><p>Tabs arrive only when M3 adds three real root destinations.</p></article>
+    </div>
+    <div class="callout" style="margin-top:16px"><strong>Known contract ceiling:</strong> the 28 August staging contract is pinned at <code>1fceace3…b4f</code>. It can create and retrieve an Ally, but it cannot list all Allies. M2 shows only Cloud-fetched Allies whose IDs are reachable in the current signed-in app lifecycle. It does not persist or invent a catalog.</div>
+  </section>
+
+  <section aria-labelledby="journey">
+    <h2 id="journey">M2 user journey</h2>
+    <div class="flow">
+      <article><small>01</small><h3>Allies workspace</h3><p>Open a reachable Cloud Ally, create another Ally, or open Account.</p></article>
+      <article><small>02</small><h3>Create Ally</h3><p>Reuse the existing flow, show the Cloud greeting, collect a preview reply, then require sign-in before production creation.</p></article>
+      <article><small>03</small><h3>Conversation</h3><p>One continuous history with message submission and lifecycle activity.</p></article>
+      <article><small>04</small><h3>Identity</h3><p>Read-only name, appearance, job, personality, and provisioning state.</p></article>
+    </div>
+  </section>
+
+  <section aria-labelledby="map">
+    <h2 id="map">Complete screen map</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Milestone</th><th>Destination</th><th>Purpose</th><th>Status</th></tr></thead>
+        <tbody>
+          <tr><td>M2</td><td>Allies workspace</td><td>Reach Cloud-fetched Allies and primary actions.</td><td><span class="status now">Implement</span></td></tr>
+          <tr><td>M2</td><td>Create Ally</td><td>Reuse existing onboarding and submit one real creation request.</td><td><span class="status now">Implement</span></td></tr>
+          <tr><td>M2</td><td>Ally conversation</td><td>One continuous history, composer, and lifecycle presentation.</td><td><span class="status now">Implement</span></td></tr>
+          <tr><td>M2</td><td>Ally identity</td><td>Read-only Cloud identity summary.</td><td><span class="status now">Implement</span></td></tr>
+          <tr><td>M3</td><td>Allies root</td><td>Durable server-backed collection.</td><td><span class="status blocked">Needs list API</span></td></tr>
+          <tr><td>M3</td><td>Activity root</td><td>Attention feed for results, waiting, approvals, failures, and routines.</td><td><span class="status later">Map only</span></td></tr>
+          <tr><td>M3</td><td>Settings root</td><td>Account, integrations, responsibilities, and routines.</td><td><span class="status later">Map only</span></td></tr>
+          <tr><td>M3</td><td>Profile and details</td><td>Profile under Settings; integration, responsibility, and routine details.</td><td><span class="status later">Map only</span></td></tr>
+          <tr><td>M4</td><td>Approval, usage, deletion, recovery</td><td>Trust and consequential-action flows after contracts are accepted.</td><td><span class="status later">Map only</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="routes">
+    <h2 id="routes">Route and session matrix</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Session state</th><th>Public <code>/</code></th><th><code>/sign-in</code></th><th><code>/auth/return</code></th><th>Protected routes</th></tr></thead>
+        <tbody>
+          <tr><td>Checking or refreshing</td><td>Keep route; show bootstrap.</td><td>Keep route; disable action.</td><td>Keep route so callback delivery can finish.</td><td>Keep route; show bootstrap. Do not redirect yet.</td></tr>
+          <tr><td>Signed out</td><td>Allow official onboarding.</td><td>Allow a validated <code>returnTo</code>.</td><td>Always allow.</td><td>Replace with sign-in and a safe return path.</td></tr>
+          <tr><td>Signed in</td><td>Replace with <code>/allies</code>.</td><td>Replace with the safe return path or <code>/allies</code>.</td><td>Allow until delivery completes.</td><td>Allow.</td></tr>
+          <tr><td>Offline with session</td><td>Replace with <code>/allies</code>.</td><td>Replace with <code>/allies</code>.</td><td>Allow.</td><td>Show cached shell; disable mutations.</td></tr>
+          <tr><td>Unavailable</td><td>Show recovery.</td><td>Show recovery.</td><td>Allow.</td><td>Keep route; show recovery without a redirect loop.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="callout" style="margin-top:16px"><strong>Return safety:</strong> use the existing safe relative-path parser. Accept only signed-in app routes. Never redirect the callback route before native auth return delivery runs.</div>
+  </section>
+
+  <section aria-labelledby="onboarding-state">
+    <h2 id="onboarding-state">Official onboarding state machine</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>State</th><th>Action</th><th>Recovery rule</th></tr></thead>
+        <tbody>
+          <tr><td><code>editing</code></td><td>Send the final name, job, personality, and appearance to the onboarding-attempt endpoint.</td><td>Keep fields on failure. Back returns to editing.</td></tr>
+          <tr><td><code>attempt_pending</code></td><td>Keep the opaque token and Cloud greeting in flow memory.</td><td>Abort on unmount.</td></tr>
+          <tr><td><code>preview</code></td><td>Create one key, set seven-day expiry, encrypt the exact unbound create command, and atomically store it before auth or transport.</td><td>Storage failure blocks transport and preserves all valid input.</td></tr>
+          <tr><td><code>auth_required</code></td><td>Open sign-in with <code>/allies/new/complete</code> as the safe return path.</td><td>Sign-in cancel keeps the command. Explicit cancel clears it.</td></tr>
+          <tr><td><code>create_pending</code></td><td>Delete expired or mismatched data. Bind an unbound command to the first authenticated user and workspace, then send the exact body and key.</td><td>Timeout or abort keeps the bound command for the same-key retry. It cannot cross accounts.</td></tr>
+          <tr><td><code>provisioning</code></td><td>Add the returned Cloud Ally ID to session reachability, clear the command, and open its conversation.</td><td>Render Cloud provisioning and retryable state.</td></tr>
+          <tr><td><code>attempt_invalid</code></td><td>Keep configuration and reply, start a new attempt, and show the new Cloud greeting.</td><td>Require reply confirmation. Never reuse the old token.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="contracts">
+    <h2 id="contracts">Accepted Cloud surface</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Capability</th><th>Method and path</th><th>Important rule</th></tr></thead>
+        <tbody>
+          <tr><td>Begin onboarding</td><td><code>POST /api/v1/onboarding/attempts</code></td><td>Send final configuration. Render the Cloud greeting and keep the opaque attempt token.</td></tr>
+          <tr><td>Create Ally</td><td><code>POST /api/v1/workspaces/{workspace_id}/allies</code></td><td>Send one stable <code>Idempotency-Key</code> for each logical attempt.</td></tr>
+          <tr><td>Read Ally</td><td><code>GET /api/v1/workspaces/{workspace_id}/allies/{ally_id}</code></td><td>Every displayed workspace row comes from this Cloud response.</td></tr>
+          <tr><td>Read conversation</td><td><code>GET .../allies/{ally_id}/conversation</code></td><td>Use bounded limit and opaque cursor pagination.</td></tr>
+          <tr><td>Send message</td><td><code>POST .../conversations/{conversation_id}/messages</code></td><td>Retry the unchanged body with the same idempotency key.</td></tr>
+          <tr><td>Read activity</td><td><code>GET .../conversations/{conversation_id}/activities</code></td><td>Poll only while active and stop on terminal state or route exit.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="phases">
+    <h2 id="phases">Six implementation phases</h2>
+    <div class="cards">
+      <article class="phase"><span class="phase-index">Phase 1</span><h3>Pin the Cloud surface</h3><p>Refresh OpenAPI, generate types, validate response envelopes, and expand protected path handling.</p><ul><li>No parallel transport layer.</li><li>Focused mapping and auth tests.</li></ul></article>
+      <article class="phase"><span class="phase-index">Phase 2</span><h3>Workspace and route guards</h3><p>Apply an explicit session/status matrix, make <code>/allies</code> the signed-in entry, and keep Account reachable.</p><ul><li>One Load more count reveals 12 more.</li><li>Every row fetched from Cloud.</li></ul></article>
+      <article class="phase"><span class="phase-index">Phase 3</span><h3>Official creation</h3><p>Reuse onboarding, request the Cloud greeting, encrypt the exact command, authenticate, and create.</p><ul><li>AES-GCM ciphertext in the app document directory.</li><li>Same-key recovery after OAuth or unknown outcome.</li></ul></article>
+      <article class="phase"><span class="phase-index">Phase 4</span><h3>Continuous conversation</h3><p>Render deduplicated ordered history, bounded pagination, composer, and safe activity text.</p><ul><li>Cloud queues later accepted turns.</li><li>Three-second polling with a ten-minute ceiling.</li></ul></article>
+      <article class="phase"><span class="phase-index">Phase 5</span><h3>Identity summary</h3><p>Show the cached Cloud Ally as a read-only identity page.</p><ul><li>No edit controls.</li><li>No unsupported product surfaces.</li></ul></article>
+      <article class="phase"><span class="phase-index">Phase 6</span><h3>Verify and hand off</h3><p>Review, run the full checks, test Android, update README and Nabu, and open a PR to <code>dev</code>.</p><ul><li>Classify OTA eligibility.</li><li>Do not merge the PR.</li></ul></article>
+    </div>
+  </section>
+
+  <section aria-labelledby="state">
+    <h2 id="state">State ownership</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Owner</th><th>State</th><th>Rule</th></tr></thead>
+        <tbody>
+          <tr><td>Cloud</td><td>Ally identity, provisioning, messages, activity, completion</td><td>Only durable product source of truth.</td></tr>
+          <tr><td>React Query</td><td>Fetched Ally, conversation, and activity cache</td><td>Invalidate exact keys after successful mutations; clear on sign-out.</td></tr>
+          <tr><td>Signed-in mobile provider</td><td>Reachable Ally IDs for this app lifecycle</td><td>Navigation aid only. Never persisted or presented as a complete collection.</td></tr>
+          <tr><td>Encrypted command file</td><td>Exact unresolved create or message command and idempotency key</td><td>AES-GCM ciphertext in the app document directory; SecureStore keeps only the key. Pre-auth create expires after seven days and binds to the first authenticated user and workspace. Delete on success, cancel, expiry, mismatch, or explicit sign-out.</td></tr>
+          <tr><td>Screen</td><td>Editable draft text and presentation state</td><td>Preserve through retry; Cloud remains durable product truth.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="conversation-rules">
+    <h2 id="conversation-rules">Conversation merge and polling rules</h2>
+    <div class="summary-grid">
+      <article class="summary"><span>History</span><strong>Bounded and ordered</strong><p>Fetch the newest page first. Load older pages only on user action. Deduplicate by message ID and sort by Cloud sequence.</p></article>
+      <article class="summary"><span>Conflict</span><strong>Fail on incompatible copies</strong><p>The same ID with different sender, content, or sequence is a contract error. Do not select one silently.</p></article>
+      <article class="summary"><span>Activity</span><strong>Safe projected text only</strong><p>Render only <code>ActivityResponse.text</code>. Never expose kinds, IDs, payloads, or runtime fields as user copy.</p></article>
+    </div>
+    <div class="callout" style="margin-top:16px"><strong>Polling:</strong> poll every three seconds while focused and state is <code>queued</code>, <code>in_progress</code>, or <code>running</code>. Stop for awaiting action, terminal or unknown state, blur, unmount, or ten minutes. Keep manual Refresh.</div>
+  </section>
+
+  <section aria-labelledby="acceptance">
+    <h2 id="acceptance">Acceptance criteria</h2>
+    <ol class="criteria">
+      <li>Signed-in testers land on <code>/allies</code>.</li>
+      <li>Auth return routes remain reachable.</li>
+      <li>The workspace shows only Cloud-fetched Allies.</li>
+      <li>The empty state explains the collection limit.</li>
+      <li>Create Ally reuses existing onboarding.</li>
+      <li>Creation uses the accepted body and a stable idempotency key.</li>
+      <li>Creation failure preserves form data.</li>
+      <li>Provisioning states come from Cloud.</li>
+      <li>Conversation history follows Cloud sequence and cursor order.</li>
+      <li>The composer blocks empty and parallel transport submissions, then allows later accepted Cloud-queued turns.</li>
+      <li>Message retry keeps the same key and body.</li>
+      <li>Polling stops after ten minutes or on paused, terminal, unknown, blurred, or unmounted state.</li>
+      <li>Activity renders only <code>ActivityResponse.text</code>.</li>
+      <li>Unknown states use a neutral fallback.</li>
+      <li>Identity is read-only.</li>
+      <li>Account and sign-out remain functional.</li>
+      <li>Sign-out clears session-scoped state.</li>
+      <li>Safe areas, keyboard dismissal, accessibility, and reduced motion remain correct.</li>
+      <li>M3 and M4 remain documentation only.</li>
+      <li>All repository checks pass.</li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="risks">
+    <h2 id="risks">Risks and controls</h2>
+    <div class="risk-grid">
+      <article class="risk"><h3>Missing collection read</h3><p>Call this an M2 mobile slice. Do not persist a catalog. Replace the ID source when Cloud adds the endpoint.</p></article>
+      <article class="risk"><h3>Duplicate mutations</h3><p>Encrypt one idempotency key and unchanged body before transport. Retry the same command after timeout, abort, remount, or restart.</p></article>
+      <article class="risk"><h3>Unknown lifecycle strings</h3><p>Poll only <code>queued</code>, <code>in_progress</code>, and <code>running</code>. Stop and show manual Refresh for unknown or awaiting-action states.</p></article>
+      <article class="risk"><h3>Excess polling</h3><p>Poll at three seconds only while focused and active. Stop after ten minutes or on blur, abort, paused, terminal, unknown, or unmount.</p></article>
+      <article class="risk"><h3>Auth route regression</h3><p>Use explicit route guard tests for public, auth-return, signed-in, and signed-out paths.</p></article>
+      <article class="risk"><h3>Cross-account command</h3><p>Expire pre-auth commands after seven days, bind once before transport, reject a principal or workspace mismatch, and clear on explicit sign-out.</p></article>
+      <article class="risk"><h3>Scope creep</h3><p>No tabs, attachments, manual editors, runtime UI, analytics, flags, or new dependencies in M2.</p></article>
+    </div>
+  </section>
+
+  <section aria-labelledby="checks">
+    <h2 id="checks">Required validation</h2>
+    <div class="commands" role="list" aria-label="Validation commands">
+      <code role="listitem">bun run cloud:verify</code>
+      <code role="listitem">bun run cloud:generate</code>
+      <code role="listitem">bun run test:run -- packages/cloud-client/test/allies.test.ts apps/mobile/src/lib/cloud/native-cloud-client.test.ts apps/mobile/src/lib/session/session-route.test.ts apps/mobile/src/lib/pending-command-store.test.ts apps/mobile/src/features/onboarding/onboarding-cloud-input.test.ts apps/mobile/src/features/conversation/conversation-state.test.ts</code>
+      <code role="listitem">bun run lint:mobile</code>
+      <code role="listitem">bun run typecheck</code>
+      <code role="listitem">bun run test:run</code>
+      <code role="listitem">bun run bundle:mobile</code>
+      <code role="listitem">bun --filter mobile exec expo export --platform android --output-dir dist/android-check</code>
+    </div>
+  </section>
+
+  <footer>
+    This read-only plan follows <code>docs/templates/PLAN_TEMPLATE.md</code>, Allies engineering policy, Nabu product sources, the live staging Cloud contract, and Expo SDK 57 documentation. It presents the same accepted route, onboarding, conversation, validation, and delivery rules as the synchronized Markdown plan.
+  </footer>
+</main>
+</body>
+</html>

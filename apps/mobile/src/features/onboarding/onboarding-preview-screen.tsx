@@ -54,7 +54,6 @@ import {
   ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE,
   getOnboardingAllyHandoffTransform,
   getNextOnboardingPreviewPhase,
-  getOnboardingGreeting,
   getOnboardingGreetingRevealStep,
   getVisibleOnboardingGreeting,
   ONBOARDING_PREVIEW_ENTRANCE_DELAY_MS,
@@ -77,6 +76,13 @@ type OnboardingPreviewScreenProps = {
   allyName: string;
   allyShape: AllyShape;
   selectedColor: AllyColorValue | null;
+  greeting: string;
+  initialReply?: string;
+  isSubmitting?: boolean;
+  onCancelPending?: () => void | Promise<void>;
+  onReplySubmit: (reply: string) => boolean | Promise<boolean>;
+  retryPending?: boolean;
+  statusMessage?: string | null;
 };
 
 type WavyTextProps = {
@@ -172,7 +178,14 @@ function WavyCharacter({
 export function OnboardingPreviewScreen({
   allyName,
   allyShape,
+  greeting,
+  initialReply,
+  isSubmitting = false,
+  onCancelPending,
+  onReplySubmit,
+  retryPending = false,
   selectedColor,
+  statusMessage,
 }: OnboardingPreviewScreenProps) {
   const [phase, setPhase] = useState<OnboardingPreviewPhase>('coming-alive');
   const reducedMotion = useReducedMotion();
@@ -230,6 +243,13 @@ export function OnboardingPreviewScreen({
       allyShape={allyShape}
       phase={phase}
       selectedColor={selectedColor}
+      greeting={greeting}
+      initialReply={initialReply}
+      isSubmitting={isSubmitting}
+      onCancelPending={onCancelPending}
+      onReplySubmit={onReplySubmit}
+      retryPending={retryPending}
+      statusMessage={statusMessage}
     />
   );
 }
@@ -241,18 +261,24 @@ type ConversationPreviewProps = OnboardingPreviewScreenProps & {
 function ConversationPreview({
   allyName,
   allyShape,
+  greeting,
+  initialReply,
+  isSubmitting,
+  onCancelPending,
+  onReplySubmit,
   phase,
+  retryPending,
   selectedColor,
+  statusMessage,
 }: ConversationPreviewProps) {
   const { bottom: bottomInset } = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(initialReply ?? '');
   const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
   const [replySubmitted, setReplySubmitted] = useState(false);
   const [headerAvatarLayout, setHeaderAvatarLayout] = useState<OnboardingAvatarLayout | null>(null);
   const [thinkingAvatarLayout, setThinkingAvatarLayout] = useState<OnboardingAvatarLayout | null>(null);
   const [avatarSettledState, setAvatarSettledState] = useState(false);
-  const greeting = useMemo(() => getOnboardingGreeting(allyName), [allyName]);
   const [visibleGreetingLength, setVisibleGreetingLength] = useState(0);
   const displayName = allyName || 'Your Ally';
   const [visibleNameLength, setVisibleNameLength] = useState(0);
@@ -262,7 +288,10 @@ function ConversationPreview({
   const shouldRevealName = phase === 'ready' && avatarSettled;
   const nameRevealComplete = Boolean(reducedMotion) || visibleNameLength >= displayName.length;
   const shouldRevealGreeting = shouldRevealName && nameRevealComplete;
-  const canSend = phase === 'ready' && Boolean(draft.trim()) && !replySubmitted;
+  const canSend = phase === 'ready'
+    && Boolean(draft.trim())
+    && !replySubmitted
+    && !isSubmitting;
   const displayedGreetingLength = reducedMotion ? greeting.length : visibleGreetingLength;
   const displayedName = reducedMotion
     ? displayName
@@ -423,9 +452,11 @@ function ConversationPreview({
     if (replySubmitted) setReplySubmitted(false);
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!canSend) return;
     setReplySubmitted(true);
+    const accepted = await onReplySubmit(draft);
+    if (!accepted) setReplySubmitted(false);
   };
 
   return (
@@ -462,6 +493,13 @@ function ConversationPreview({
             ) : null}
           </ScrollView>
 
+          {statusMessage ? <Text style={styles.statusMessage}>{statusMessage}</Text> : null}
+          {retryPending && onCancelPending ? (
+            <Pressable accessibilityRole="button" onPress={() => void onCancelPending()} style={styles.cancelPending}>
+              <Text style={styles.cancelPendingText}>Cancel saved creation</Text>
+            </Pressable>
+          ) : null}
+
           <View onLayout={captureThinkingAvatarLayout} style={styles.thinkingStatus}>
             <View style={styles.thinkingAvatarSlot} />
             <Animated.View style={thinkingLabelOpacityStyle}>
@@ -497,7 +535,7 @@ function ConversationPreview({
                 accessibilityLabel="Reply to your Ally"
                 autoCapitalize="sentences"
                 autoCorrect
-                editable={!replySubmitted}
+                editable={!replySubmitted && !isSubmitting && !retryPending}
                 maxLength={4000}
                 multiline
                 onChangeText={handleDraftChange}
@@ -570,6 +608,16 @@ function ConversationPreview({
 }
 
 const styles = StyleSheet.create({
+  cancelPending: {
+    alignSelf: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  cancelPendingText: {
+    color: '#7A7A7A',
+    fontFamily: 'OpenRundeSemibold',
+    fontSize: 13,
+  },
   avatarHandoff: {
     position: 'absolute',
     zIndex: 2,
@@ -684,6 +732,15 @@ const styles = StyleSheet.create({
   sendIcon: {
     height: 18,
     width: 18,
+  },
+  statusMessage: {
+    color: '#606060',
+    fontFamily: 'OpenRundeMedium',
+    fontSize: 14,
+    lineHeight: 19,
+    paddingHorizontal: CONVERSATION_HORIZONTAL_PADDING,
+    paddingBottom: 8,
+    textAlign: 'center',
   },
   thinkingLabel: {
     fontFamily: 'OpenRundeSemibold',

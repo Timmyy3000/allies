@@ -1,4 +1,3 @@
-import { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { StyleSheet, Text, View } from 'react-native';
@@ -6,18 +5,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AlliesLogo } from '@/features/onboarding/allies-logo';
 import { PrimaryButton } from '@/components/ui/primary-button';
-import { useNativeSession } from '@/lib/session/session-context';
 
 import { useGoogleSignIn } from '@/features/auth/use-google-sign-in';
 
 export default function SignInScreen() {
   const router = useRouter();
-  const session = useNativeSession();
   const signIn = useGoogleSignIn();
-
-  useEffect(() => {
-    if (session.status === 'signed-in') router.replace('/account');
-  }, [router, session.status]);
 
   const message = signIn.outcome?.status === 'canceled'
     ? 'Sign-in canceled.'

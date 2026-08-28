@@ -47,6 +47,106 @@ const waitlistEntrySchema = z.object({
   greeting: z.string().min(1),
 });
 const waitlistCompletionSchema = z.object({ email: maskedEmailSchema });
+const dateTimeSchema = z.iso.datetime({ offset: true });
+const appearanceSchema = z
+  .object({
+    catalog_version: z.string().min(1),
+    key: z.string().regex(/^[a-z][a-z0-9_-]*:[0-9a-f]{6}$/i),
+  })
+  .loose();
+const onboardingAttemptSchema = z
+  .object({
+    attempt_token: z.string().min(1),
+    greeting: z.string().min(1),
+  })
+  .loose();
+const allySchema = z
+  .object({
+    appearance: appearanceSchema,
+    binding_id: z.string().min(1),
+    id: z.string().min(1),
+    job: z.string().min(1),
+    name: z.string().min(1),
+    operation_id: z.string().min(1),
+    personality: z.string().min(1),
+    provisioning_state: z.string().min(1),
+    retryable: z.boolean(),
+  })
+  .loose();
+const messageSchema = z
+  .object({
+    content: z.string().min(1),
+    created_at: dateTimeSchema,
+    id: z.string().min(1),
+    sender: z.string().min(1),
+    sequence: z.number().int().nonnegative(),
+    status: z.string().min(1),
+  })
+  .loose();
+const conversationSchema = z
+  .object({
+    ally_id: z.string().min(1),
+    id: z.string().min(1),
+    messages: z.array(messageSchema),
+    next_cursor: z.string().nullable().optional(),
+  })
+  .loose();
+const activitySchema = z
+  .object({
+    conversation_turn_ordinal: z.number().int().nonnegative(),
+    created_at: dateTimeSchema,
+    id: z.string().min(1),
+    kind: z.string().min(1),
+    message_id: z.string().min(1),
+    sequence: z.number().int().nonnegative(),
+    state: z.string().min(1),
+    text: z.string().min(1),
+  })
+  .loose();
+const activitySnapshotSchema = z
+  .object({
+    activities: z.array(activitySchema),
+    conversation_id: z.string().min(1),
+    last_contiguous_sequence: z.number().int().nonnegative(),
+    state: z.string().min(1),
+  })
+  .loose();
+const messageAcceptanceSchema = z
+  .object({
+    conversation_id: z.string().min(1),
+    execution: z.record(z.string(), z.unknown()).nullable().optional(),
+    message: messageSchema,
+    replayed: z.boolean(),
+  })
+  .loose();
+const appearanceInputSchema = z
+  .object({
+    catalogVersion: z.string().min(1),
+    key: z.string().regex(/^[a-z][a-z0-9_-]*:[0-9a-f]{6}$/i),
+  })
+  .loose();
+const onboardingAttemptInputSchema = z
+  .object({
+    appearance: appearanceInputSchema,
+    job: z.string().min(1),
+    name: z.string().min(1),
+    personality: z.string().min(1),
+  })
+  .loose();
+const createAllyInputSchema = onboardingAttemptInputSchema
+  .extend({
+    onboardingAttempt: z.string().min(1),
+    reply: z.string().min(1).max(4000),
+  })
+  .loose();
+const messageContentSchema = z.string().min(1).max(4000).refine((value) => value.trim().length > 0);
+const pathIdSchema = z.string().trim().min(1);
+const idempotencyKeySchema = z
+  .string()
+  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
+const pageLimitSchema = z.number().int().min(1).max(100);
+const DEFAULT_CONVERSATION_PAGE_LIMIT = 50;
+const DEFAULT_ACTIVITY_LIMIT = 50;
 
 function normalizeRequestSignal(signal?: AbortSignal): AbortSignal | undefined {
   if (!signal) return undefined;
@@ -81,6 +181,79 @@ export interface WorkspaceViewModel {
   name: string;
   role: string;
   capabilities: string[];
+}
+
+export interface AppearanceViewModel {
+  catalogVersion: string;
+  key: string;
+}
+
+export interface OnboardingAttemptInput {
+  name: string;
+  job: string;
+  personality: string;
+  appearance: AppearanceViewModel;
+}
+
+export interface OnboardingAttemptViewModel {
+  attemptToken: string;
+  greeting: string;
+}
+
+export interface CreateAllyInput extends OnboardingAttemptInput {
+  onboardingAttempt: string;
+  reply: string;
+}
+
+export interface AllyViewModel {
+  id: string;
+  name: string;
+  job: string;
+  personality: string;
+  appearance: AppearanceViewModel;
+  provisioningState: string;
+  retryable: boolean;
+}
+
+export interface MessageViewModel {
+  id: string;
+  sender: string;
+  content: string;
+  sequence: number;
+  status: string;
+  createdAt: string;
+}
+
+export interface ConversationPageViewModel {
+  id: string;
+  allyId: string;
+  messages: MessageViewModel[];
+  nextCursor: string | null;
+}
+
+export interface MessageAcceptanceViewModel {
+  conversationId: string;
+  message: MessageViewModel;
+}
+
+export interface ActivityViewModel {
+  id: string;
+  text: string;
+  sequence: number;
+  state: string;
+  createdAt: string;
+}
+
+export interface ActivitySnapshotViewModel {
+  conversationId: string;
+  activities: ActivityViewModel[];
+  state: string;
+  lastContiguousSequence: number;
+}
+
+export interface ConversationPageInput {
+  limit?: number;
+  cursor?: string | null;
 }
 
 export interface WaitlistEntryInput {
@@ -144,6 +317,67 @@ async function noContent(operation: Promise<ApiResult>): Promise<void> {
 
 function rejectPreAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw { kind: "aborted" } satisfies CloudError;
+}
+
+function parseRequest<T>(schema: z.ZodType<T>, input: unknown): T {
+  try {
+    return schema.parse(input);
+  } catch {
+    throw { kind: "bad-request" } satisfies CloudError;
+  }
+}
+
+function mapMessage(message: z.infer<typeof messageSchema>): MessageViewModel {
+  return {
+    id: message.id,
+    sender: message.sender,
+    content: message.content,
+    sequence: message.sequence,
+    status: message.status,
+    createdAt: message.created_at,
+  };
+}
+
+function mapAlly(data: unknown): AllyViewModel {
+  const ally = successEnvelope(allySchema).parse(data).data;
+  return {
+    id: ally.id,
+    name: ally.name,
+    job: ally.job,
+    personality: ally.personality,
+    appearance: {
+      catalogVersion: ally.appearance.catalog_version,
+      key: ally.appearance.key,
+    },
+    provisioningState: ally.provisioning_state,
+    retryable: ally.retryable,
+  };
+}
+
+function mapConversation(data: unknown): ConversationPageViewModel {
+  const conversation = successEnvelope(conversationSchema).parse(data).data;
+  return {
+    id: conversation.id,
+    allyId: conversation.ally_id,
+    messages: conversation.messages.map(mapMessage),
+    nextCursor: conversation.next_cursor ?? null,
+  };
+}
+
+function mapActivitySnapshot(data: unknown): ActivitySnapshotViewModel {
+  const snapshot = successEnvelope(activitySnapshotSchema).parse(data).data;
+  return {
+    conversationId: snapshot.conversation_id,
+    activities: snapshot.activities.map((activity) => ({
+      id: activity.id,
+      text: activity.text,
+      sequence: activity.sequence,
+      state: activity.state,
+      createdAt: activity.created_at,
+    })),
+    state: snapshot.state,
+    lastContiguousSequence: snapshot.last_contiguous_sequence,
+  };
 }
 
 function hasControlCharacter(value: string): boolean {
@@ -308,6 +542,153 @@ export function createCloudClient(options: CloudClientOptions) {
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => successEnvelope(workspaceSchema).parse(data).data,
+      );
+    },
+
+    async beginOnboardingAttempt(
+      input: OnboardingAttemptInput,
+      signal?: AbortSignal,
+    ): Promise<OnboardingAttemptViewModel> {
+      rejectPreAborted(signal);
+      const values = parseRequest(onboardingAttemptInputSchema, input);
+      return unwrap(
+        api.POST("/api/v1/onboarding/attempts", {
+          body: {
+            name: values.name,
+            job: values.job,
+            personality: values.personality,
+            appearance: {
+              catalog_version: values.appearance.catalogVersion,
+              key: values.appearance.key,
+            },
+          },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => {
+          const attempt = successEnvelope(onboardingAttemptSchema).parse(data).data;
+          return { attemptToken: attempt.attempt_token, greeting: attempt.greeting };
+        },
+      );
+    },
+
+    async createAlly(
+      workspaceId: string,
+      input: CreateAllyInput,
+      idempotencyKey: string,
+      signal?: AbortSignal,
+    ): Promise<AllyViewModel> {
+      rejectPreAborted(signal);
+      const values = parseRequest(createAllyInputSchema, input);
+      const path = parseRequest(pathIdSchema, workspaceId);
+      const key = parseRequest(idempotencyKeySchema, idempotencyKey);
+      return unwrap(
+        api.POST("/api/v1/workspaces/{workspace_id}/allies", {
+          params: { path: { workspace_id: path }, header: { "Idempotency-Key": key } },
+          body: {
+            name: values.name,
+            job: values.job,
+            personality: values.personality,
+            appearance: {
+              catalog_version: values.appearance.catalogVersion,
+              key: values.appearance.key,
+            },
+            onboarding_attempt: values.onboardingAttempt,
+            reply: values.reply,
+          },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        mapAlly,
+      );
+    },
+
+    async getAlly(workspaceId: string, allyId: string, signal?: AbortSignal): Promise<AllyViewModel> {
+      rejectPreAborted(signal);
+      const workspace = parseRequest(pathIdSchema, workspaceId);
+      const ally = parseRequest(pathIdSchema, allyId);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/allies/{ally_id}", {
+          params: { path: { workspace_id: workspace, ally_id: ally } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        mapAlly,
+      );
+    },
+
+    async getConversationByAlly(
+      workspaceId: string,
+      allyId: string,
+      page?: ConversationPageInput,
+      signal?: AbortSignal,
+    ): Promise<ConversationPageViewModel> {
+      rejectPreAborted(signal);
+      const workspace = parseRequest(pathIdSchema, workspaceId);
+      const ally = parseRequest(pathIdSchema, allyId);
+      const values = page
+        ? parseRequest(z.object({ limit: pageLimitSchema.optional(), cursor: z.string().nullable().optional() }).loose(), page)
+        : {};
+      const limit = values.limit ?? DEFAULT_CONVERSATION_PAGE_LIMIT;
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation", {
+          params: {
+            path: { workspace_id: workspace, ally_id: ally },
+            query: { limit, ...(values.cursor ? { cursor: values.cursor } : {}) },
+          },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        mapConversation,
+      );
+    },
+
+    async sendMessage(
+      workspaceId: string,
+      conversationId: string,
+      content: string,
+      idempotencyKey: string,
+      signal?: AbortSignal,
+    ): Promise<MessageAcceptanceViewModel> {
+      rejectPreAborted(signal);
+      const workspace = parseRequest(pathIdSchema, workspaceId);
+      const conversation = parseRequest(pathIdSchema, conversationId);
+      const body = parseRequest(messageContentSchema, content);
+      const key = parseRequest(idempotencyKeySchema, idempotencyKey);
+      return unwrap(
+        api.POST("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages", {
+          params: {
+            path: { workspace_id: workspace, conversation_id: conversation },
+            header: { "Idempotency-Key": key },
+          },
+          body: { content: body },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => {
+          const acceptance = successEnvelope(messageAcceptanceSchema).parse(data).data;
+          return {
+            conversationId: acceptance.conversation_id,
+            message: mapMessage(acceptance.message),
+          };
+        },
+      );
+    },
+
+    async getActivitySnapshot(
+      workspaceId: string,
+      conversationId: string,
+      limit?: number,
+      signal?: AbortSignal,
+    ): Promise<ActivitySnapshotViewModel> {
+      rejectPreAborted(signal);
+      const workspace = parseRequest(pathIdSchema, workspaceId);
+      const conversation = parseRequest(pathIdSchema, conversationId);
+      const boundedLimit = parseRequest(pageLimitSchema, limit ?? DEFAULT_ACTIVITY_LIMIT);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities", {
+          params: {
+            path: { workspace_id: workspace, conversation_id: conversation },
+            query: { limit: boundedLimit },
+          },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        mapActivitySnapshot,
       );
     },
 
