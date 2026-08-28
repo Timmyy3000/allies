@@ -137,6 +137,18 @@ describe('pending command store', () => {
     expect(await store.readCreate()).toBeNull();
   });
 
+  it('does not delete a bound create command when no identity is supplied', async () => {
+    const memory = createMemoryDependencies();
+    const store = createPendingCommandStore(memory.dependencies);
+
+    await store.saveCreate(createCommand);
+    const bound = await store.bindCreate('user-1', 'workspace-1');
+
+    expect(await store.readCreate()).toBeNull();
+    expect(await store.readCreate('user-1', 'workspace-1')).toEqual(bound);
+    expect(memory.getCiphertext()).not.toBeNull();
+  });
+
   it('expires an unsubmitted create command after seven days', async () => {
     const memory = createMemoryDependencies();
     const store = createPendingCommandStore(memory.dependencies);

@@ -234,10 +234,13 @@ export function createPendingCommandStore(dependencies: PendingCommandStoreDepen
     }
 
     const isBound = Boolean(state.create.boundUserId && state.create.boundWorkspaceId);
-    if (isBound && (state.create.boundUserId !== userId || state.create.boundWorkspaceId !== workspaceId)) {
-      delete state.create;
-      await writeState(state);
-      return null;
+    if (isBound) {
+      if (!userId || !workspaceId) return null;
+      if (state.create.boundUserId !== userId || state.create.boundWorkspaceId !== workspaceId) {
+        delete state.create;
+        await writeState(state);
+        return null;
+      }
     }
     return state.create;
   }
