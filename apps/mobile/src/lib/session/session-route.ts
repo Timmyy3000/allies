@@ -14,6 +14,10 @@ function isProtectedPath(pathname: string): boolean {
     || pathname.startsWith('/settings/');
 }
 
+function isAccountEntryPath(pathname: string): boolean {
+  return pathname === '/sign-in' || pathname === '/create-account';
+}
+
 function isSafeSignedInReturnTo(value: unknown): value is string {
   const path = parseSafeReturnPath(value);
   return path !== null && isProtectedPath(path);
@@ -35,11 +39,11 @@ export function getSessionRouteAction(
   }
 
   if (status === 'offline-with-session') {
-    return pathname === '/' || pathname === '/sign-in' ? { type: 'replace', path: '/allies' } : null;
+    return pathname === '/' || isAccountEntryPath(pathname) ? { type: 'replace', path: '/allies' } : null;
   }
 
   if (pathname === '/') return { type: 'replace', path: '/allies' };
-  if (pathname === '/sign-in' || pathname === '/auth/return') {
+  if (isAccountEntryPath(pathname) || pathname === '/auth/return') {
     return { type: 'replace', path: isSafeSignedInReturnTo(returnTo) ? (returnTo as string) : '/allies' };
   }
 

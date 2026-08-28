@@ -37,13 +37,27 @@ describe('getSessionRouteAction', () => {
     expect(getSessionRouteAction('signed-in', '/')).toEqual({ type: 'replace', path: '/allies' });
   });
 
+  it.each(['/sign-in', '/create-account'] as const)(
+    'sends a signed-in account entry route %s to the Ally collection',
+    (pathname) => {
+      expect(getSessionRouteAction('signed-in', pathname)).toEqual({
+        type: 'replace',
+        path: '/allies',
+      });
+    },
+  );
+
+  it('keeps account creation public while signed out', () => {
+    expect(getSessionRouteAction('signed-out', '/create-account')).toBeNull();
+  });
+
   it.each([
-    ['/allies/new/complete', '/allies/new/complete'],
-    ['/activity', '/activity'],
-    ['/account', '/account'],
-    ['/settings/privacy', '/settings/privacy'],
-  ] as const)('uses a safe signed-in return target: %s', (returnTo, expected) => {
-    expect(getSessionRouteAction('signed-in', '/sign-in', returnTo)).toEqual({ type: 'replace', path: expected });
+    ['/sign-in', '/allies/new/complete', '/allies/new/complete'],
+    ['/create-account', '/activity', '/activity'],
+    ['/sign-in', '/account', '/account'],
+    ['/sign-in', '/settings/privacy', '/settings/privacy'],
+  ] as const)('uses a safe signed-in return target from %s: %s', (pathname, returnTo, expected) => {
+    expect(getSessionRouteAction('signed-in', pathname, returnTo)).toEqual({ type: 'replace', path: expected });
   });
 
   it.each([undefined, '', 'https://evil.example', '//evil.example', '/sign-in', '/auth/return'])(
@@ -56,7 +70,7 @@ describe('getSessionRouteAction', () => {
     },
   );
 
-  it.each(['/', '/sign-in'] as const)('sends offline entry route %s to the collection', (pathname) => {
+  it.each(['/', '/sign-in', '/create-account'] as const)('sends offline entry route %s to the collection', (pathname) => {
     expect(getSessionRouteAction('offline-with-session', pathname)).toEqual({ type: 'replace', path: '/allies' });
   });
 
