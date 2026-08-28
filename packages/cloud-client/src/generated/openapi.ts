@@ -4,91 +4,6 @@
  */
 
 export interface paths {
-    "/api/v1/auths/native/sign-in/google": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Native Google Sign In Start */
-        post: operations["native_authentication_sign_in_google"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auths/native/callback/google": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Native Google Callback */
-        get: operations["native_authentication_callback_google"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auths/native/token": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Native Token Exchange */
-        post: operations["native_authentication_token"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auths/native/token/refresh": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Native Token Refresh */
-        post: operations["native_authentication_token_refresh"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/auths/native/logout": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Native Logout */
-        post: operations["native_authentication_logout"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/auths/callback/{provider}": {
         parameters: {
             query?: never;
@@ -97,7 +12,7 @@ export interface paths {
             cookie?: never;
         };
         /** Callback */
-        get: operations["authentication_callback_ddd2379f"];
+        get: operations["authentication_callback_fcae9a6d"];
         put?: never;
         post?: never;
         delete?: never;
@@ -114,7 +29,7 @@ export interface paths {
             cookie?: never;
         };
         /** Csrf */
-        get: operations["authentication_csrf_cc9fcff5"];
+        get: operations["authentication_csrf_bf3fb71f"];
         put?: never;
         post?: never;
         delete?: never;
@@ -133,7 +48,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Link */
-        post: operations["identity_link_99eb23ab"];
+        post: operations["identity_link_88f3d5a9"];
         delete?: never;
         options?: never;
         head?: never;
@@ -150,7 +65,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Logout */
-        post: operations["session_logout_1681f0c2"];
+        post: operations["session_logout_12155845"];
         delete?: never;
         options?: never;
         head?: never;
@@ -165,7 +80,7 @@ export interface paths {
             cookie?: never;
         };
         /** Me */
-        get: operations["profile_me_dd549e3d"];
+        get: operations["profile_me_200b7614"];
         put?: never;
         post?: never;
         delete?: never;
@@ -185,7 +100,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete */
-        delete: operations["avatar_delete_3676889b"];
+        delete: operations["avatar_delete_b1360519"];
         options?: never;
         head?: never;
         patch?: never;
@@ -201,7 +116,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Complete */
-        post: operations["avatar_complete_0b4079b8"];
+        post: operations["avatar_complete_46fa714b"];
         delete?: never;
         options?: never;
         head?: never;
@@ -216,7 +131,7 @@ export interface paths {
             cookie?: never;
         };
         /** Read */
-        get: operations["avatar_read_fcf8fea4"];
+        get: operations["avatar_read_f9645c8f"];
         put?: never;
         post?: never;
         delete?: never;
@@ -235,7 +150,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Prepare */
-        post: operations["avatar_prepare_558212b3"];
+        post: operations["avatar_prepare_49cd6e7a"];
         delete?: never;
         options?: never;
         head?: never;
@@ -256,7 +171,107 @@ export interface paths {
         options?: never;
         head?: never;
         /** Profile */
-        patch: operations["profile_profile_cb35f70a"];
+        patch: operations["profile_profile_5d8a1a7c"];
+        trace?: never;
+    };
+    "/api/v1/auths/native/callback/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Callback
+         * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
+         */
+        get: operations["nativeauthentication_callback_22d9fe5e"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auths/native/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout
+         * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
+         */
+        post: operations["nativeauthentication_logout_ebca3ae6"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auths/native/sign-in/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign In
+         * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
+         */
+        post: operations["nativeauthentication_sign_in_58709063"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auths/native/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Token
+         * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
+         */
+        post: operations["nativeauthentication_token_fa0b3d38"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auths/native/token/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Refresh
+         * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
+         */
+        post: operations["nativeauthentication_refresh_0e23f697"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/auths/refresh": {
@@ -269,7 +284,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Refresh */
-        post: operations["session_refresh_8f84733f"];
+        post: operations["session_refresh_4b6e5e00"];
         delete?: never;
         options?: never;
         head?: never;
@@ -286,7 +301,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Sign In */
-        post: operations["authentication_sign_in_0fdc4354"];
+        post: operations["authentication_sign_in_31cc7864"];
         delete?: never;
         options?: never;
         head?: never;
@@ -301,9 +316,43 @@ export interface paths {
             cookie?: never;
         };
         /** Health */
-        get: operations["health_health_c84a8c4b"];
+        get: operations["health_health_8e7a121e"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/foundry/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Foundry Event */
+        post: operations["activities_api_register_foundry_event"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onboarding/attempts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Begin */
+        post: operations["onboarding_begin_9dace418"];
         delete?: never;
         options?: never;
         head?: never;
@@ -323,7 +372,7 @@ export interface paths {
          * Create
          * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
          */
-        post: operations["waitlist_create_836a660b"];
+        post: operations["waitlist_create_56fd18b0"];
         delete?: never;
         options?: never;
         head?: never;
@@ -343,7 +392,7 @@ export interface paths {
          * Complete
          * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
          */
-        post: operations["waitlist_complete_c6c912b4"];
+        post: operations["waitlist_complete_bbf07bf2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -358,9 +407,111 @@ export interface paths {
             cookie?: never;
         };
         /** Context */
-        get: operations["workspace_context_657b1a0f"];
+        get: operations["workspace_context_717ab08d"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/allies": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create */
+        post: operations["ally_create_ededc968"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Retrieve */
+        get: operations["ally_retrieve_582da5aa"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** By Ally */
+        get: operations["conversation_by_ally_caf784dc"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** By Conversation */
+        get: operations["conversation_by_conversation_5f4609f1"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Snapshot */
+        get: operations["activity_snapshot_3d85cbc3"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send */
+        post: operations["conversation_send_b646b8e0"];
         delete?: never;
         options?: never;
         head?: never;
@@ -371,6 +522,84 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** ActivityResponse */
+        ActivityResponse: {
+            /** Conversation Turn Ordinal */
+            conversation_turn_ordinal: number;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+            /** Sequence */
+            sequence: number;
+            /** State */
+            state: string;
+            /** Text */
+            text: string;
+        };
+        /** ActivitySnapshotResponse */
+        ActivitySnapshotResponse: {
+            /** Activities */
+            activities: components["schemas"]["ActivityResponse"][];
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /** Last Contiguous Sequence */
+            last_contiguous_sequence: number;
+            /** State */
+            state: string;
+        };
+        /** AllyResponse */
+        AllyResponse: {
+            appearance: components["schemas"]["AppearanceInput"];
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Job */
+            job: string;
+            /** Name */
+            name: string;
+            /**
+             * Operation Id
+             * Format: uuid
+             */
+            operation_id: string;
+            /** Personality */
+            personality: string;
+            /** Provisioning State */
+            provisioning_state: string;
+            /** Retryable */
+            retryable: boolean;
+        };
+        /** AppearanceInput */
+        AppearanceInput: {
+            /** Catalog Version */
+            catalog_version: string;
+            /** Key */
+            key: string;
+        };
         /**
          * AuthorizationStartResponse
          * @example {
@@ -380,114 +609,6 @@ export interface components {
         AuthorizationStartResponse: {
             /** Redirect Url */
             redirect_url: string;
-        };
-        /** NativeAuthorizationStartRequest */
-        NativeAuthorizationStartRequest: {
-            /** Code Challenge */
-            code_challenge: string;
-            /**
-             * Code Challenge Method
-             * @default S256
-             * @constant
-             */
-            code_challenge_method: "S256";
-            /**
-             * Redirect Uri
-             * Format: uri
-             */
-            redirect_uri: string;
-            /** State */
-            state: string;
-        };
-        /** NativeAuthorizationStartResponse */
-        NativeAuthorizationStartResponse: {
-            /**
-             * Authorization Url
-             * Format: uri
-             */
-            authorization_url: string;
-            /**
-             * Expires At
-             * Format: date-time
-             */
-            expires_at: string;
-        };
-        /** NativeAuthorizationTokenRequest */
-        NativeAuthorizationTokenRequest: {
-            /** Code */
-            code: string;
-            /** Code Verifier */
-            code_verifier: string;
-            /**
-             * Grant Type
-             * @default authorization_code
-             * @constant
-             */
-            grant_type: "authorization_code";
-            /**
-             * Redirect Uri
-             * Format: uri
-             */
-            redirect_uri: string;
-        };
-        /** NativeRefreshTokenRequest */
-        NativeRefreshTokenRequest: {
-            /**
-             * Grant Type
-             * @default refresh_token
-             * @constant
-             */
-            grant_type: "refresh_token";
-            /** Refresh Token */
-            refresh_token: string;
-        };
-        /** NativeLogoutRequest */
-        NativeLogoutRequest: {
-            /** Refresh Token */
-            refresh_token: string;
-        };
-        /** NativeSessionResponse */
-        NativeSessionResponse: {
-            /** Access Token */
-            access_token: string;
-            /** Expires In */
-            expires_in: number;
-            /** Refresh Expires In */
-            refresh_expires_in: number;
-            /** Refresh Token */
-            refresh_token: string;
-            /** Session Id */
-            session_id: string;
-            /**
-             * Token Type
-             * @default Bearer
-             * @constant
-             */
-            token_type: "Bearer";
-        };
-        /** SuccessResponse[NativeAuthorizationStartResponse] */
-        SuccessResponse_NativeAuthorizationStartResponse_: {
-            data: components["schemas"]["NativeAuthorizationStartResponse"];
-            /** Message */
-            message: string;
-            /**
-             * Status
-             * @default success
-             * @constant
-             */
-            status: "success";
-        };
-        /** SuccessResponse[NativeSessionResponse] */
-        SuccessResponse_NativeSessionResponse_: {
-            data: components["schemas"]["NativeSessionResponse"];
-            /** Message */
-            message: string;
-            /**
-             * Status
-             * @default success
-             * @constant
-             */
-            status: "success";
         };
         /** AvatarPrepareRequest */
         AvatarPrepareRequest: {
@@ -500,12 +621,69 @@ export interface components {
         };
         /** AvatarResponse */
         AvatarResponse: {
-            /** Asset Id */
+            /**
+             * Asset Id
+             * Format: uuid
+             */
             asset_id: string;
             /** Expires At */
             expires_at?: string | null;
             /** Url */
             url?: string | null;
+        };
+        /** CloudCorrelation */
+        CloudCorrelation: {
+            /**
+             * Ally Id
+             * Format: uuid
+             */
+            ally_id: string;
+            /**
+             * Cloud Binding Id
+             * Format: uuid
+             */
+            cloud_binding_id: string;
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+        };
+        /** ConversationResponse */
+        ConversationResponse: {
+            /**
+             * Ally Id
+             * Format: uuid
+             */
+            ally_id: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Messages */
+            messages: components["schemas"]["MessageResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /** CreateAllyRequest */
+        CreateAllyRequest: {
+            appearance: components["schemas"]["AppearanceInput"];
+            /** Job */
+            job: string;
+            /** Name */
+            name: string;
+            /** Onboarding Attempt */
+            onboarding_attempt: string;
+            /** Personality */
+            personality: string;
+            /** Reply */
+            reply: string;
         };
         /**
          * ErrorData
@@ -557,6 +735,71 @@ export interface components {
              */
             status: "error";
         };
+        /** FoundryEventEnvelope */
+        FoundryEventEnvelope: {
+            cloud: components["schemas"]["CloudCorrelation"];
+            /** Conversation Turn Ordinal */
+            conversation_turn_ordinal: number;
+            /** Event Dedupe Key */
+            event_dedupe_key: string;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Event Type */
+            event_type: string;
+            /** Fingerprint */
+            fingerprint: string;
+            foundry: components["schemas"]["FoundryIdentity"];
+            /**
+             * Issued At
+             * Format: date-time
+             */
+            issued_at: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "execution.event";
+            /** Payload */
+            payload: {
+                [key: string]: unknown;
+            };
+            /**
+             * Producer
+             * @constant
+             */
+            producer: "foundry";
+            /**
+             * Schema Version
+             * @constant
+             */
+            schema_version: "v1";
+            scope: components["schemas"]["WorkspaceScope"];
+            /**
+             * Service Identity
+             * @constant
+             */
+            service_identity: "foundry-service";
+        };
+        /** FoundryIdentity */
+        FoundryIdentity: {
+            /**
+             * Attempt Id
+             * Format: uuid
+             */
+            attempt_id: string;
+            /** Attempt Sequence */
+            attempt_sequence: number;
+            /**
+             * Execution Id
+             * Format: uuid
+             */
+            execution_id: string;
+            /** Generation */
+            generation: number;
+        };
         /** HealthResponse */
         HealthResponse: {
             /**
@@ -572,9 +815,155 @@ export interface components {
             user: components["schemas"]["UserResponse"];
             workspace: components["schemas"]["WorkspaceResponse"];
         };
+        /** MessageAcceptanceResponse */
+        MessageAcceptanceResponse: {
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /** Execution */
+            execution?: {
+                [key: string]: unknown;
+            } | null;
+            message: components["schemas"]["MessageResponse"];
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** MessageResponse */
+        MessageResponse: {
+            /** Content */
+            content: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Sender */
+            sender: string;
+            /** Sequence */
+            sequence: number;
+            /** Status */
+            status: string;
+        };
+        /**
+         * NativeAuthorizationStartResponse
+         * @example {
+         *       "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth?...",
+         *       "expires_at": "2026-08-20T16:10:00Z"
+         *     }
+         */
+        NativeAuthorizationStartResponse: {
+            /** Authorization Url */
+            authorization_url: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+        };
+        /** NativeLogoutRequest */
+        NativeLogoutRequest: {
+            /** Refresh Token */
+            refresh_token: string;
+        };
+        /** NativeRefreshRequest */
+        NativeRefreshRequest: {
+            /**
+             * Grant Type
+             * @enum {string}
+             */
+            grant_type: "refresh_token";
+            /** Refresh Token */
+            refresh_token: string;
+        };
+        /** NativeSignInRequest */
+        NativeSignInRequest: {
+            /** Code Challenge */
+            code_challenge: string;
+            /**
+             * Code Challenge Method
+             * @enum {string}
+             */
+            code_challenge_method: "S256";
+            /** Redirect Uri */
+            redirect_uri: string;
+            /** State */
+            state: string;
+        };
+        /** NativeTokenExchangeRequest */
+        NativeTokenExchangeRequest: {
+            /** Code */
+            code: string;
+            /** Code Verifier */
+            code_verifier: string;
+            /**
+             * Grant Type
+             * @enum {string}
+             */
+            grant_type: "authorization_code";
+            /** Redirect Uri */
+            redirect_uri: string;
+        };
+        /**
+         * NativeTokenResponse
+         * @example {
+         *       "access_token": "<short-lived-cloud-jwt>",
+         *       "expires_in": 600,
+         *       "refresh_expires_in": 1209600,
+         *       "refresh_token": "<rotating-opaque-cloud-token>",
+         *       "session_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+         *       "token_type": "Bearer"
+         *     }
+         */
+        NativeTokenResponse: {
+            /** Access Token */
+            access_token: string;
+            /** Expires In */
+            expires_in: number;
+            /** Refresh Expires In */
+            refresh_expires_in: number;
+            /** Refresh Token */
+            refresh_token: string;
+            /**
+             * Session Id
+             * Format: uuid
+             */
+            session_id: string;
+            /**
+             * Token Type
+             * @constant
+             */
+            token_type: "Bearer";
+        };
+        /** OnboardingAttemptRequest */
+        OnboardingAttemptRequest: {
+            appearance: components["schemas"]["AppearanceInput"];
+            /** Job */
+            job: string;
+            /** Name */
+            name: string;
+            /** Personality */
+            personality: string;
+        };
+        /** OnboardingAttemptResponse */
+        OnboardingAttemptResponse: {
+            /** Attempt Token */
+            attempt_token: string;
+            /** Greeting */
+            greeting: string;
+        };
         /** PreparedAvatarResponse */
         PreparedAvatarResponse: {
-            /** Asset Id */
+            /**
+             * Asset Id
+             * Format: uuid
+             */
             asset_id: string;
             /**
              * Expires At
@@ -608,6 +997,11 @@ export interface components {
              */
             redirect_to: string;
         };
+        /** SendMessageRequest */
+        SendMessageRequest: {
+            /** Content */
+            content: string;
+        };
         /** SessionResponse */
         SessionResponse: {
             /**
@@ -615,8 +1009,78 @@ export interface components {
              * Format: date-time
              */
             expires_at: string;
-            /** Id */
+            /**
+             * Id
+             * Format: uuid
+             */
             id: string;
+        };
+        /**
+         * SuccessResponse[ActivitySnapshotResponse]
+         * @example {
+         *       "data": {
+         *         "activities": [
+         *           {
+         *             "conversation_turn_ordinal": 3,
+         *             "created_at": "2026-08-20T16:01:01Z",
+         *             "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
+         *             "kind": "assistant_delta",
+         *             "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
+         *             "sequence": 1,
+         *             "state": "running",
+         *             "text": "I can help with that."
+         *           }
+         *         ],
+         *         "conversation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+         *         "last_contiguous_sequence": 2,
+         *         "state": "running"
+         *       },
+         *       "message": "Activities loaded",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_ActivitySnapshotResponse_: {
+            data: components["schemas"]["ActivitySnapshotResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[AllyResponse]
+         * @example {
+         *       "data": {
+         *         "appearance": {
+         *           "catalog_version": "v1",
+         *           "key": "sunrise"
+         *         },
+         *         "binding_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d77",
+         *         "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+         *         "job": "Study partner",
+         *         "name": "Mira",
+         *         "operation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d78",
+         *         "personality": "Calm, curious, and specific.",
+         *         "provisioning_state": "pending",
+         *         "retryable": false
+         *       },
+         *       "message": "Ally loaded",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_AllyResponse_: {
+            data: components["schemas"]["AllyResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
         };
         /**
          * SuccessResponse[AuthorizationStartResponse]
@@ -643,7 +1107,7 @@ export interface components {
          * SuccessResponse[AvatarResponse]
          * @example {
          *       "data": {
-         *         "asset_id": "avt_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
+         *         "asset_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
          *         "expires_at": "2026-08-12T12:00:00Z",
          *         "url": "https://media.example/avatar"
          *       },
@@ -653,6 +1117,39 @@ export interface components {
          */
         SuccessResponse_AvatarResponse_: {
             data: components["schemas"]["AvatarResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[ConversationResponse]
+         * @example {
+         *       "data": {
+         *         "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+         *         "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+         *         "messages": [
+         *           {
+         *             "content": "Hello! What should we work on first?",
+         *             "created_at": "2026-08-20T16:00:00Z",
+         *             "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d80",
+         *             "sender": "assistant",
+         *             "sequence": 1,
+         *             "status": "completed"
+         *           }
+         *         ],
+         *         "next_cursor": null
+         *       },
+         *       "message": "Conversation loaded",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_ConversationResponse_: {
+            data: components["schemas"]["ConversationResponse"];
             /** Message */
             message: string;
             /**
@@ -693,16 +1190,16 @@ export interface components {
          *         },
          *         "session": {
          *           "expires_at": "2026-08-12T12:00:00Z",
-         *           "id": "ses_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d73"
+         *           "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d73"
          *         },
          *         "user": {
-         *           "id": "usr_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"
+         *           "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"
          *         },
          *         "workspace": {
          *           "capabilities": [
          *             "workspace:manage"
          *           ],
-         *           "id": "wsp_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
+         *           "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
          *           "name": "Personal Workspace",
          *           "role": "owner"
          *         }
@@ -723,10 +1220,111 @@ export interface components {
             status: "success";
         };
         /**
+         * SuccessResponse[MessageAcceptanceResponse]
+         * @example {
+         *       "data": {
+         *         "conversation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+         *         "execution": null,
+         *         "message": {
+         *           "content": "Help me plan tomorrow's study block.",
+         *           "created_at": "2026-08-20T16:01:00Z",
+         *           "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
+         *           "sender": "user",
+         *           "sequence": 3,
+         *           "status": "queued"
+         *         },
+         *         "replayed": false
+         *       },
+         *       "message": "Message accepted",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_MessageAcceptanceResponse_: {
+            data: components["schemas"]["MessageAcceptanceResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[NativeAuthorizationStartResponse]
+         * @example {
+         *       "data": {
+         *         "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth?...",
+         *         "expires_at": "2026-08-20T16:10:00Z"
+         *       },
+         *       "message": "Native sign-in started",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_NativeAuthorizationStartResponse_: {
+            data: components["schemas"]["NativeAuthorizationStartResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[NativeTokenResponse]
+         * @example {
+         *       "data": {
+         *         "access_token": "<short-lived-cloud-jwt>",
+         *         "expires_in": 600,
+         *         "refresh_expires_in": 1209600,
+         *         "refresh_token": "<rotating-opaque-cloud-token>",
+         *         "session_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+         *         "token_type": "Bearer"
+         *       },
+         *       "message": "Native session issued",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_NativeTokenResponse_: {
+            data: components["schemas"]["NativeTokenResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[OnboardingAttemptResponse]
+         * @example {
+         *       "data": {
+         *         "attempt_token": "opaque-onboarding-attempt",
+         *         "greeting": "Hello! What should we work on first?"
+         *       },
+         *       "message": "Onboarding started",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_OnboardingAttemptResponse_: {
+            data: components["schemas"]["OnboardingAttemptResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
          * SuccessResponse[PreparedAvatarResponse]
          * @example {
          *       "data": {
-         *         "asset_id": "avt_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
+         *         "asset_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
          *         "expires_at": "2026-08-12T12:00:00Z",
          *         "headers": {
          *           "Content-Type": "image/png"
@@ -820,7 +1418,7 @@ export interface components {
          *         "capabilities": [
          *           "workspace:manage"
          *         ],
-         *         "id": "wsp_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
+         *         "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
          *         "name": "Personal Workspace",
          *         "role": "owner"
          *       },
@@ -842,11 +1440,14 @@ export interface components {
         /**
          * UserResponse
          * @example {
-         *       "id": "usr_018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"
+         *       "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72"
          *     }
          */
         UserResponse: {
-            /** Id */
+            /**
+             * Id
+             * Format: uuid
+             */
             id: string;
         };
         /** WaitlistEntryCompletionRequest */
@@ -894,7 +1495,10 @@ export interface components {
         WorkspaceContextResponse: {
             /** Capabilities */
             capabilities: string[];
-            /** Id */
+            /**
+             * Id
+             * Format: uuid
+             */
             id: string;
             /** Name */
             name: string;
@@ -905,70 +1509,31 @@ export interface components {
         WorkspaceResponse: {
             /** Capabilities */
             capabilities: string[];
-            /** Id */
+            /**
+             * Id
+             * Format: uuid
+             */
             id: string;
             /** Name */
             name: string;
             /** Role */
             role: string;
         };
-    };
-    responses: {
-        /** @description Bad Request */
-        NativeBadRequest: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
-            };
-        };
-        /** @description Conflict */
-        NativeConflict: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
-            };
-        };
-        /** @description Too Many Requests */
-        NativeRateLimited: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
-            };
-        };
-        /** @description Internal Server Error */
-        NativeServerError: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
-            };
-        };
-        /** @description Service Unavailable */
-        NativeServiceUnavailable: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
-            };
-        };
-        /** @description Unauthorized */
-        NativeUnauthorized: {
-            headers: {
-                [name: string]: unknown;
-            };
-            content: {
-                "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
-            };
+        /** WorkspaceScope */
+        WorkspaceScope: {
+            /**
+             * Cloud Workspace Id
+             * Format: uuid
+             */
+            cloud_workspace_id: string;
+            /**
+             * Kind
+             * @constant
+             */
+            kind: "workspace";
         };
     };
+    responses: never;
     parameters: never;
     requestBodies: never;
     headers: never;
@@ -976,147 +1541,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    native_authentication_sign_in_google: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NativeAuthorizationStartRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuccessResponse_NativeAuthorizationStartResponse_"];
-                };
-            };
-            400: components["responses"]["NativeBadRequest"];
-            429: components["responses"]["NativeRateLimited"];
-            500: components["responses"]["NativeServerError"];
-            503: components["responses"]["NativeServiceUnavailable"];
-        };
-    };
-    native_authentication_callback_google: {
-        parameters: {
-            query?: {
-                code?: string;
-                state?: string;
-                error?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description See Other */
-            303: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            400: components["responses"]["NativeBadRequest"];
-            409: components["responses"]["NativeConflict"];
-            429: components["responses"]["NativeRateLimited"];
-            500: components["responses"]["NativeServerError"];
-            503: components["responses"]["NativeServiceUnavailable"];
-        };
-    };
-    native_authentication_token: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NativeAuthorizationTokenRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuccessResponse_NativeSessionResponse_"];
-                };
-            };
-            400: components["responses"]["NativeBadRequest"];
-            401: components["responses"]["NativeUnauthorized"];
-            429: components["responses"]["NativeRateLimited"];
-            500: components["responses"]["NativeServerError"];
-            503: components["responses"]["NativeServiceUnavailable"];
-        };
-    };
-    native_authentication_token_refresh: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NativeRefreshTokenRequest"];
-            };
-        };
-        responses: {
-            /** @description OK */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SuccessResponse_NativeSessionResponse_"];
-                };
-            };
-            400: components["responses"]["NativeBadRequest"];
-            401: components["responses"]["NativeUnauthorized"];
-            429: components["responses"]["NativeRateLimited"];
-            500: components["responses"]["NativeServerError"];
-            503: components["responses"]["NativeServiceUnavailable"];
-        };
-    };
-    native_authentication_logout: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["NativeLogoutRequest"];
-            };
-        };
-        responses: {
-            /** @description No Content */
-            204: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            400: components["responses"]["NativeBadRequest"];
-            401: components["responses"]["NativeUnauthorized"];
-            429: components["responses"]["NativeRateLimited"];
-            500: components["responses"]["NativeServerError"];
-            503: components["responses"]["NativeServiceUnavailable"];
-        };
-    };
-    authentication_callback_ddd2379f: {
+    authentication_callback_fcae9a6d: {
         parameters: {
             query?: {
                 code?: string;
@@ -1203,7 +1628,7 @@ export interface operations {
             };
         };
     };
-    authentication_csrf_cc9fcff5: {
+    authentication_csrf_bf3fb71f: {
         parameters: {
             query?: never;
             header?: never;
@@ -1237,7 +1662,7 @@ export interface operations {
             };
         };
     };
-    identity_link_99eb23ab: {
+    identity_link_88f3d5a9: {
         parameters: {
             query?: never;
             header?: never;
@@ -1407,7 +1832,7 @@ export interface operations {
             };
         };
     };
-    session_logout_1681f0c2: {
+    session_logout_12155845: {
         parameters: {
             query?: never;
             header?: never;
@@ -1457,7 +1882,7 @@ export interface operations {
             };
         };
     };
-    profile_me_dd549e3d: {
+    profile_me_200b7614: {
         parameters: {
             query?: never;
             header?: never;
@@ -1509,7 +1934,7 @@ export interface operations {
             };
         };
     };
-    avatar_delete_3676889b: {
+    avatar_delete_b1360519: {
         parameters: {
             query?: never;
             header?: never;
@@ -1623,7 +2048,7 @@ export interface operations {
             };
         };
     };
-    avatar_complete_0b4079b8: {
+    avatar_complete_46fa714b: {
         parameters: {
             query?: never;
             header?: never;
@@ -1773,7 +2198,7 @@ export interface operations {
             };
         };
     };
-    avatar_read_fcf8fea4: {
+    avatar_read_f9645c8f: {
         parameters: {
             query?: never;
             header?: never;
@@ -1857,7 +2282,7 @@ export interface operations {
             };
         };
     };
-    avatar_prepare_558212b3: {
+    avatar_prepare_49cd6e7a: {
         parameters: {
             query?: never;
             header?: never;
@@ -1993,7 +2418,7 @@ export interface operations {
             };
         };
     };
-    profile_profile_cb35f70a: {
+    profile_profile_5d8a1a7c: {
         parameters: {
             query?: never;
             header?: never;
@@ -2097,7 +2522,503 @@ export interface operations {
             };
         };
     };
-    session_refresh_8f84733f: {
+    nativeauthentication_callback_22d9fe5e: {
+        parameters: {
+            query?: {
+                code?: string;
+                state?: string;
+                error?: string;
+            };
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description See Other */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    nativeauthentication_logout_ebca3ae6: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeLogoutRequest"];
+            };
+        };
+        responses: {
+            /** @description No Content */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    nativeauthentication_sign_in_58709063: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeSignInRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_NativeAuthorizationStartResponse_"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    nativeauthentication_token_fa0b3d38: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeTokenExchangeRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @example no-store */
+                    "Cache-Control"?: string;
+                    /** @example no-cache */
+                    Pragma?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_NativeTokenResponse_"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    /** @example no-store */
+                    "Cache-Control"?: string;
+                    /** @example no-cache */
+                    Pragma?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    /** @example no-store */
+                    "Cache-Control"?: string;
+                    /** @example no-cache */
+                    Pragma?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    /** @example no-store */
+                    "Cache-Control"?: string;
+                    /** @example no-cache */
+                    Pragma?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    /** @example no-store */
+                    "Cache-Control"?: string;
+                    /** @example no-cache */
+                    Pragma?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    nativeauthentication_refresh_0e23f697: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NativeRefreshRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    /** @example no-store */
+                    "Cache-Control"?: string;
+                    /** @example no-cache */
+                    Pragma?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_NativeTokenResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    /** @example no-store */
+                    "Cache-Control"?: string;
+                    /** @example no-cache */
+                    Pragma?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    /** @example no-store */
+                    "Cache-Control"?: string;
+                    /** @example no-cache */
+                    Pragma?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    /** @example no-store */
+                    "Cache-Control"?: string;
+                    /** @example no-cache */
+                    Pragma?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    /** @example no-store */
+                    "Cache-Control"?: string;
+                    /** @example no-cache */
+                    Pragma?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    session_refresh_4b6e5e00: {
         parameters: {
             query?: never;
             header?: never;
@@ -2195,7 +3116,7 @@ export interface operations {
             };
         };
     };
-    authentication_sign_in_0fdc4354: {
+    authentication_sign_in_31cc7864: {
         parameters: {
             query?: never;
             header?: never;
@@ -2333,7 +3254,7 @@ export interface operations {
             };
         };
     };
-    health_health_c84a8c4b: {
+    health_health_8e7a121e: {
         parameters: {
             query?: never;
             header?: never;
@@ -2385,7 +3306,117 @@ export interface operations {
             };
         };
     };
-    waitlist_create_836a660b: {
+    activities_api_register_foundry_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FoundryEventEnvelope"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    onboarding_begin_9dace418: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OnboardingAttemptRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_OnboardingAttemptResponse_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    waitlist_create_56fd18b0: {
         parameters: {
             query?: never;
             header?: {
@@ -2459,7 +3490,7 @@ export interface operations {
             };
         };
     };
-    waitlist_complete_c6c912b4: {
+    waitlist_complete_bbf07bf2: {
         parameters: {
             query?: never;
             header?: {
@@ -2533,7 +3564,7 @@ export interface operations {
             };
         };
     };
-    workspace_context_657b1a0f: {
+    workspace_context_717ab08d: {
         parameters: {
             query?: never;
             header?: never;
@@ -2553,8 +3584,633 @@ export interface operations {
                     "application/json": components["schemas"]["SuccessResponse_WorkspaceContextResponse_"];
                 };
             };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    ally_create_ededc968: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for repeating the exact create request; changed content with the same key conflicts. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateAllyRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_AllyResponse_"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_AllyResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    ally_retrieve_582da5aa: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                ally_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_AllyResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    conversation_by_ally_caf784dc: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+                ally_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_ConversationResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    conversation_by_conversation_5f4609f1: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_ConversationResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    activity_snapshot_3d85cbc3: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_ActivitySnapshotResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    conversation_send_b646b8e0: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for repeating the exact text send. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendMessageRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_MessageAcceptanceResponse_"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_MessageAcceptanceResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -4,7 +4,8 @@ import { useState, type ReactNode } from 'react';
 import { createMobileCloudClient, type MobileCloudClient } from '../cloud/native-cloud-client';
 import { getMobileEnvironment } from '../env';
 import { createQueryClient } from '../query/create-query-client';
-import { NativeSessionProvider } from '../session/session-context';
+import { AllySessionIndexProvider } from '../../features/allies/ally-session-index';
+import { NativeSessionProvider, useNativeSession } from '../session/session-context';
 import { createSecureSessionStore } from '../session/secure-session-store';
 
 function createConfiguredClient(): MobileCloudClient | null {
@@ -30,8 +31,17 @@ export function AppProviders({ children }: { children: ReactNode }) {
         nativeAuthRedirectUri={client?.nativeAuthRedirectUri}
         onSessionCleared={() => queryClient.clear()}
         store={store ?? undefined}>
-        {children}
+        <SessionScopedAllyIndex>{children}</SessionScopedAllyIndex>
       </NativeSessionProvider>
     </QueryClientProvider>
   );
+}
+
+function SessionScopedAllyIndex({ children }: { children: ReactNode }) {
+  const session = useNativeSession();
+  const identity = session.status === 'signed-in' && session.account
+    ? `${session.account.userId}:${session.account.workspace.id}`
+    : session.status;
+
+  return <AllySessionIndexProvider key={identity}>{children}</AllySessionIndexProvider>;
 }

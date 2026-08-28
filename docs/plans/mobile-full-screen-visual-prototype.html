@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Allies mobile full-screen visual prototype</title>
+  <style>
+    :root { color-scheme: light; --orange:#ff5800; --ink:#111; --muted:#686868; --surface:#f3f3f3; --line:#dedede; }
+    * { box-sizing:border-box; }
+    body { margin:0; background:#fff; color:var(--ink); font-family:Arial,sans-serif; }
+    main { width:min(1080px,calc(100% - 32px)); margin:0 auto; padding:56px 0 72px; }
+    header { display:grid; grid-template-columns:1.4fr .6fr; gap:40px; align-items:end; padding-bottom:40px; border-bottom:1px solid var(--line); }
+    h1 { margin:0; max-width:720px; font-size:clamp(40px,7vw,76px); line-height:.96; letter-spacing:-4px; }
+    header p { margin:0; color:var(--muted); font-size:17px; line-height:1.5; }
+    h2 { margin:0 0 20px; font-size:28px; letter-spacing:-1px; }
+    section { padding:48px 0; border-bottom:1px solid var(--line); }
+    .roots { display:grid; grid-template-columns:repeat(3,1fr); gap:16px; }
+    .root { min-height:220px; padding:24px; border-radius:28px; background:var(--surface); display:flex; flex-direction:column; justify-content:space-between; }
+    .root strong { font-size:26px; }
+    .root span { color:var(--muted); line-height:1.45; }
+    .root.active { background:var(--orange); color:white; }
+    .root.active span { color:white; opacity:.82; }
+    .map { display:grid; grid-template-columns:180px 1fr; gap:20px 32px; }
+    .map h3 { margin:0; color:var(--orange); font-size:16px; }
+    .map ul { margin:0; padding:0; list-style:none; display:flex; flex-wrap:wrap; gap:10px; }
+    .map li { padding:10px 14px; border:1px solid var(--line); border-radius:999px; }
+    .boundary { display:grid; grid-template-columns:1fr 1fr; gap:24px; }
+    .boundary div { padding:24px 0; }
+    .boundary p { color:var(--muted); line-height:1.55; }
+    .preview { color:var(--orange); font-weight:700; }
+    @media (max-width:720px) { header,.boundary { grid-template-columns:1fr; } .roots { grid-template-columns:1fr; } .map { grid-template-columns:1fr; } h1 { letter-spacing:-2px; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>A complete mobile app you can walk through.</h1>
+      <p>The real M2 create-and-talk loop remains intact. M3 and M4 become an honest visual prototype, with no fake persistence or connected future actions.</p>
+    </header>
+    <section>
+      <h2>Three stable roots</h2>
+      <div class="roots">
+        <article class="root active"><strong>Allies</strong><span>Create, recognize, open, and continue each relationship.</span></article>
+        <article class="root"><strong>Activity</strong><span>Results, waiting work, approvals, failures, and routine outcomes.</span></article>
+        <article class="root"><strong>Settings</strong><span>Profile, preferences, connections, usage, billing, privacy, and sessions.</span></article>
+      </div>
+    </section>
+    <section>
+      <h2>Screen map</h2>
+      <div class="map">
+        <h3>Implemented M2</h3><ul><li>Workspace</li><li>Create Ally</li><li>Conversation</li><li>Identity</li></ul>
+        <h3>Activity and trust</h3><ul><li>Result receipt</li><li>Waiting work</li><li>Approval</li><li>Failure and recovery</li><li>Routine outcome</li></ul>
+        <h3>Global settings</h3><ul><li>Profile</li><li>Preferences</li><li>Connections</li><li>Connection detail</li><li>Usage and billing</li><li>Usage limit</li><li>Privacy</li><li>Sessions</li></ul>
+        <h3>Ally settings</h3><ul><li>Identity editor</li><li>Responsibilities</li><li>Routines</li><li>Access</li><li>Delete Ally</li></ul>
+      </div>
+    </section>
+    <section class="boundary">
+      <div><h2>What is real</h2><p>Authentication, account, onboarding, Cloud Ally creation, the current-session Workspace, continuous conversation, activity polling, read-only identity, and pending-command recovery.</p></div>
+      <div><h2 class="preview">What is Preview</h2><p>All later settings, integrations, routines, responsibilities, approvals, usage, billing, notifications, deletion, and recovery actions. They are navigable and polished, but visibly not connected.</p></div>
+    </section>
+  </main>
+</body>
+</html>
