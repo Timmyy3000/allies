@@ -24,7 +24,7 @@ export function getSessionRouteAction(
   pathname: string,
   returnTo?: unknown,
 ): SessionRouteAction | null {
-  if (pathname === '/auth/return' || status === 'checking' || status === 'refreshing' || status === 'unavailable') {
+  if (status === 'checking' || status === 'refreshing' || status === 'unavailable') {
     return null;
   }
 
@@ -39,7 +39,7 @@ export function getSessionRouteAction(
   }
 
   if (pathname === '/') return { type: 'replace', path: '/allies' };
-  if (pathname === '/sign-in') {
+  if (pathname === '/sign-in' || pathname === '/auth/return') {
     return { type: 'replace', path: isSafeSignedInReturnTo(returnTo) ? (returnTo as string) : '/allies' };
   }
 

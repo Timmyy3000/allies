@@ -16,7 +16,6 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  isCloudError,
   type ActivitySnapshotViewModel,
   type AllyViewModel,
   type ConversationPageViewModel,
@@ -31,20 +30,18 @@ import { pendingCommandStore, type PendingMessageCommand } from '@/lib/pending-c
 import { useNativeSession } from '@/lib/session/session-context';
 
 import {
+  createConversationScrollIntent,
   insertAcceptedMessage,
   isActivityPollingAllowed,
   mergeConversationMessages,
   replaceNewestConversationPage,
+  shouldKeepPendingMessage,
 } from '@/features/conversation/conversation-state';
 
 const MESSAGE_MAX_LENGTH = 4000;
 const CONVERSATION_PAGE_LIMIT = 50;
 const ACTIVITY_LIMIT = 20;
 const ACTIVE_ACTIVITY_STATES = new Set(['queued', 'in_progress', 'running']);
-
-function isTransient(error: unknown): boolean {
-  return isCloudError(error) && ['network', 'timeout', 'server', 'throttled'].includes(error.kind);
-}
 
 function allyIdFromParam(value: string | string[] | undefined): string | null {
   const allyId = Array.isArray(value) ? value[0] : value;
@@ -83,6 +80,8 @@ export default function AllyConversationScreen() {
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [pendingMessage, setPendingMessage] = useState<PendingMessageCommand | null>(null);
+  const conversationScrollRef = useRef<ScrollView>(null);
+  const scrollIntent = useRef(createConversationScrollIntent()).current;
   const pollingStartedAt = useRef<number | null>(null);
   const pollingConversationId = useRef<string | null>(null);
 
@@ -100,11 +99,12 @@ export default function AllyConversationScreen() {
       { limit: CONVERSATION_PAGE_LIMIT, cursor: null },
       signal,
     ));
+    scrollIntent.requestLatest();
     queryClient.setQueryData<InfiniteData<ConversationPageViewModel, string | null>>(
       conversationQueryKey,
       (current) => current ? { ...current, pages: replaceNewestConversationPage(current.pages, newest) } : current,
     );
-  }, [allyId, conversationQueryKey, queryClient, session.accountClient, session.adapter, workspaceId]);
+  }, [allyId, conversationQueryKey, queryClient, scrollIntent, session.accountClient, session.adapter, workspaceId]);
   const allyQuery = useQuery<AllyViewModel>({
     queryKey: ['allies', workspaceId, allyId],
     enabled: canRequest,
@@ -254,6 +254,7 @@ export default function AllyConversationScreen() {
       ));
       let cacheConflict = false;
       try {
+        scrollIntent.requestLatest();
         queryClient.setQueryData<InfiniteData<ConversationPageViewModel, string | null>>(
           conversationQueryKey,
           (current) => current ? { ...current, pages: insertAcceptedMessage(current.pages, acceptance.message) } : current,
@@ -276,7 +277,7 @@ export default function AllyConversationScreen() {
       }
       if (cacheConflict) setMessage('Your message was sent, but the conversation data changed unexpectedly. Refresh to reconcile it.');
     } catch (error) {
-      if (isTransient(error)) {
+      if (shouldKeepPendingMessage(error)) {
         setMessage('We could not confirm your message. Retry the saved message.');
       } else {
         await pendingCommandStore.deleteMessage(conversationId);
@@ -308,6 +309,11 @@ export default function AllyConversationScreen() {
         <ScrollView
           contentContainerStyle={styles.conversationContent}
           keyboardShouldPersistTaps="handled"
+          maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
+          onContentSizeChange={() => {
+            if (scrollIntent.consumeLatest()) conversationScrollRef.current?.scrollToEnd({ animated: false });
+          }}
+          ref={conversationScrollRef}
           showsVerticalScrollIndicator={false}>
           {messages.conflict ? (
             <Text style={styles.errorText}>We received conflicting conversation data. Refresh to try again.</Text>
@@ -339,7 +345,10 @@ export default function AllyConversationScreen() {
             <Pressable
               accessibilityRole="button"
               disabled={conversationQuery.isFetchingNextPage}
-              onPress={() => void conversationQuery.fetchNextPage()}
+              onPress={() => {
+                scrollIntent.preservePosition();
+                void conversationQuery.fetchNextPage();
+              }}
               style={styles.loadEarlier}>
               <Text style={styles.loadEarlierText}>{conversationQuery.isFetchingNextPage ? 'Loading…' : 'Load earlier'}</Text>
             </Pressable>
@@ -368,6 +377,7 @@ export default function AllyConversationScreen() {
             <Pressable
               accessibilityRole="button"
               onPress={() => {
+                scrollIntent.requestLatest();
                 void Promise.all([refreshNewestConversation(), activityQuery.refetch()]).catch(() => {
                   setMessage('We could not refresh this conversation. Try again.');
                 });

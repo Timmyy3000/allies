@@ -11,9 +11,16 @@ describe('getSessionRouteAction', () => {
     expect(getSessionRouteAction(status, pathname, returnTo)).toBeNull();
   });
 
-  it('keeps the auth return route exempt from redirects', () => {
+  it('keeps the auth return route exempt until sign-in completes', () => {
     expect(getSessionRouteAction('signed-out', '/auth/return')).toBeNull();
-    expect(getSessionRouteAction('signed-in', '/auth/return', '/allies/new/complete')).toBeNull();
+    expect(getSessionRouteAction('signed-in', '/auth/return', '/allies/new/complete')).toEqual({
+      type: 'replace',
+      path: '/allies/new/complete',
+    });
+    expect(getSessionRouteAction('signed-in', '/auth/return', 'https://evil.example')).toEqual({
+      type: 'replace',
+      path: '/allies',
+    });
   });
 
   it.each([

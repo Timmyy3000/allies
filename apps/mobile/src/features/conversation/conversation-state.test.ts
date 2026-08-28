@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  createConversationScrollIntent,
   insertAcceptedMessage,
   isActivityPollingAllowed,
   mergeConversationMessages,
   replaceNewestConversationPage,
+  shouldKeepPendingMessage,
 } from './conversation-state';
 
 const message = (id: string, sequence: number, content = id) => ({
@@ -77,5 +79,31 @@ describe('conversation state', () => {
   it('stops polling after ten minutes or when the screen is blurred', () => {
     expect(isActivityPollingAllowed({ focused: true, state: 'running', startedAt: 0, now: 600_000 })).toBe(false);
     expect(isActivityPollingAllowed({ focused: false, state: 'running', startedAt: 0, now: 1_000 })).toBe(false);
+  });
+
+  it.each([
+    ['network', true],
+    ['timeout', true],
+    ['server', true],
+    ['throttled', true],
+    ['contract', true],
+    ['validation', false],
+    ['unauthorized', false],
+  ] as const)('keeps a pending message after a %s outcome: %s', (kind, expected) => {
+    expect(shouldKeepPendingMessage({ kind })).toBe(expected);
+  });
+
+  it('scrolls to latest content initially and after new activity, but preserves position for older history', () => {
+    const intent = createConversationScrollIntent();
+
+    expect(intent.consumeLatest()).toBe(true);
+    expect(intent.consumeLatest()).toBe(false);
+
+    intent.requestLatest();
+    expect(intent.consumeLatest()).toBe(true);
+
+    intent.requestLatest();
+    intent.preservePosition();
+    expect(intent.consumeLatest()).toBe(false);
   });
 });
