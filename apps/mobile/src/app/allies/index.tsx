@@ -11,6 +11,7 @@ import { getAllyAppearance } from '@/features/allies/ally-appearance';
 import { useAllySessionIndex } from '@/features/allies/ally-session-index';
 import { pendingCommandStore } from '@/lib/pending-command-store';
 import { useNativeSession } from '@/lib/session/session-context';
+import { AppBottomNav } from '@/features/app-preview/preview-ui';
 
 const PAGE_SIZE = 12;
 
@@ -103,7 +104,7 @@ export default function AlliesScreen() {
           </View>
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} style={styles.scroll}>
           <Text style={styles.title}>Your Allies</Text>
           <Text style={styles.subtitle}>Open an Ally to continue where you left off.</Text>
 
@@ -140,6 +141,7 @@ export default function AlliesScreen() {
             </Pressable>
           ) : null}
         </ScrollView>
+        <AppBottomNav active="allies" />
       </SafeAreaView>
     </View>
   );
@@ -289,6 +291,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
   },
   safeArea: {
+    flex: 1,
+  },
+  scroll: {
     flex: 1,
   },
   state: {
