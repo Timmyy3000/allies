@@ -6,6 +6,8 @@ import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-nati
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AlliesLogo } from '@/features/onboarding/allies-logo';
+import { MockCompleteScreen } from '@/features/mock/mock-screens';
+import { useMockApp } from '@/features/mock/mock-app';
 import { pendingCommandStore } from '@/lib/pending-command-store';
 import { useNativeSession } from '@/lib/session/session-context';
 
@@ -18,6 +20,11 @@ function isInvalidAttempt(error: unknown): boolean {
 }
 
 export default function CompleteAllyCreationScreen() {
+  const mock = useMockApp();
+  return mock.isMock ? <MockCompleteScreen /> : <CloudCompleteAllyCreationScreen />;
+}
+
+function CloudCompleteAllyCreationScreen() {
   const router = useRouter();
   const session = useNativeSession();
   const [attempt, setAttempt] = useState(0);

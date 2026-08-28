@@ -11,7 +11,9 @@ describe('preview screen map', () => {
     expect(new Set(screens.map((screen) => screen.family))).toEqual(
       new Set(['activity', 'settings', 'connection', 'ally']),
     );
-    expect(screens.flatMap((screen) => screen.actions ?? []).every((action) => !action.href || action.href.startsWith('/'))).toBe(true);
+    const actions = screens.flatMap((screen) => screen.actions ?? []);
+    expect(actions.every((action) => action.href?.startsWith('/'))).toBe(true);
+    expect(actions.every((action) => !action.label.includes('Preview'))).toBe(true);
     expect(getPreviewScreen('settings', 'account-security')?.title).toBe('Account and security');
     expect(getPreviewScreen('activity', 'missing')).toBeNull();
   });

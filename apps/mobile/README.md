@@ -1,9 +1,11 @@
 # Allies mobile
 
-Expo / React Native client for Allies. The current mobile implementation includes
-the native auth/account boundary, the first Cloud-backed Ally workspace, creation,
-conversation, and read-only identity slice, and a navigable visual prototype of the
-accepted M3 and M4 destinations on branch `mobile/app-surface-foundation`.
+Expo / React Native client for Allies. The current mobile build is a self-contained
+product walkthrough: onboarding, account access, Ally creation, conversation,
+activity, settings, connections, and account screens use deterministic local data so
+the app can be reviewed like a finished product without external services. The real
+Cloud boundary remains isolated for later integration on branch
+`mobile/app-surface-foundation`.
 
 This file is an agent handoff and a living mirror of the mobile implementation. The
 full implementation record is maintained in Nabu at:
@@ -87,52 +89,42 @@ a build when the current request has not authorized those actions.
 
 ## Current scope and boundary
 
-Implemented here is the first usable mobile loop:
+Implemented here is the complete local product loop:
 
-`welcome -> name -> look -> job -> personality -> confirm -> sign in or create account -> create Ally -> workspace -> conversation -> identity`
+`welcome -> name -> look -> job -> personality -> Ally response -> workspace -> conversation -> identity`
 
-The onboarding screens keep their existing design and flow-local state, but the final
-confirmation now creates a real Cloud onboarding attempt and Ally. A signed-out user
-can continue through native authentication without losing the confirmed command.
-The app encrypts one pending create command, or pending conversation sends, on the
-device. It binds the command to the first authenticated user and Workspace, expires
-it after seven days, and deletes mismatched or explicitly cancelled work.
+The onboarding screens keep their existing design and flow-local state. In the current
+proof-of-concept mode, account access, Ally creation, greeting generation, and message
+replies are local and deterministic. No API request, password, token, or external
+account is used by the running app.
 
 The signed-in app has these implemented destinations:
 
-- `/allies` — a Workspace surface for the real Ally records reached in the current
-  app session, with a maximum of 12 visible records at a time;
-- `/allies/new` and `/allies/new/complete` — the reused onboarding flow and its
-  authenticated completion boundary;
-- `/allies/[allyId]` — one continuous Cloud conversation for an Ally, with older-page
-  loading, bounded activity polling, retry, and offline/error recovery;
-- `/allies/[allyId]/identity` — read-only Ally name, job, personality, appearance,
-  and provisioning state;
-- `/sign-in` and `/create-account` — live Google account access plus the honest
-  username-and-password interface boundary;
-- `/account` — the existing personal account and Workspace surface;
-- `/activity` and `/activity/[item]` — a visual attention feed for results, waiting
-  work, approvals, failures, and routine outcomes;
-- `/settings`, `/settings/[section]`, and `/settings/connection/[service]` — visual
-  previews for account security, preferences, connections, usage and billing,
-  privacy, sessions, and the complete mobile screen map;
-- `/allies/[allyId]/settings` and `/allies/[allyId]/settings/[section]` — visual
-  previews for Ally identity, responsibilities, routines, connection access, and
-  deletion.
+- `/allies` — a seeded Ally workspace with a working create-Ally entry point;
+- `/allies/new` and `/allies/new/complete` — the full onboarding flow and completion
+  state;
+- `/allies/[allyId]` — a local conversation with a thinking state and deterministic
+  Ally response after each message;
+- `/allies/[allyId]/identity` — Ally name, job, personality, and appearance;
+- `/sign-in` and `/create-account` — working local Google and username/password paths;
+- `/account` — local profile, username, workspace, and account-access details;
+- `/activity` and `/activity/[item]` — result, waiting, approval, failure, and routine
+  states with usable navigation;
+- `/settings`, `/settings/[section]`, and `/settings/connection/[service]` — account
+  security, preferences, connected services, usage, privacy, and sessions;
+- `/allies/[allyId]/settings` and `/allies/[allyId]/settings/[section]` — Ally
+  identity, responsibilities, routines, connection access, and deletion surfaces.
 
-This is an honest M2 slice, not the complete M2 return-later experience. The pinned
-Cloud contract has no `GET /workspaces/{workspace_id}/allies` collection endpoint.
-The app therefore does not invent a local or fake durable Ally catalog. It shows only
-real Ally IDs reached during the current app session, plus a recoverable pending
-creation. A process restart can lose the in-memory index until Cloud provides the
-collection endpoint. The M3 and M4 routes are design prototypes, not implemented
-product capability. Every future surface has a visible `Preview` label. Actions that
-would change data, permissions, billing, approvals, sessions, integrations, routines,
-or deletion stay disabled until an accepted contract owns the behavior.
+This build is intentionally a visual and interaction proof of concept. The mock state
+is in `src/features/mock/mock-app.tsx`; the mock screens are in
+`src/features/mock/mock-screens.tsx`. `MOCK_MODE` disables Cloud client creation at
+the provider boundary, so the active walkthrough cannot make accidental network
+requests. The Cloud implementation remains in place for a later, contract-backed
+switch. Mock actions navigate to the relevant screen but do not claim durable writes.
 
-The current mobile onboarding implementation is a UI handoff, not a replacement for
-the accepted web/waitlist contract. Final copy and choreography remain subject to
-the canonical product/design notes.
+The current mobile onboarding implementation follows the accepted visual direction
+and web design language. Product and Cloud contracts remain the source of truth when
+real services are connected.
 
 ## INT-008 native Google auth and personal account
 
@@ -163,30 +155,29 @@ The local implementation is deliberately thin around the shared Cloud client:
   actual bytes, uses the exact signed upload URL/headers, and completes only after a
   successful direct upload. It never adds a Cloud bearer to object storage.
 
-The current owner direction supports Google sign-in, Google account creation, and a
-future username-and-password account. Google is live through the existing native
-provider flow: a new Google identity creates an account and a returning identity signs
-in. The username and password fields are visible on both account-entry modes, but their
-submit actions are disabled and labeled `Preview`. The published Cloud contract does
-not provide credential account creation, credential sign-in, password reset, password
-recovery, or username management. Mobile does not store a password or invent a local
-account while that contract is absent. Settings exposes the same boundary at
-`/settings/account-security`, including profile and signed-in-device navigation.
+In the current product walkthrough, Google sign-in, Google account creation, and
+username/password account access complete locally with no external request. The fields
+validate the minimum interaction needed for the walkthrough, but the app does not store
+or transmit the entered password. Settings exposes the same account choices at
+`/settings/account-security`. The existing native Google and Cloud session modules
+remain isolated behind `MOCK_MODE` and can be reconnected when their accepted contract
+is ready.
 
 ### Local configuration
 
-Copy `apps/mobile/.env.example` to an ignored local environment file and replace the
-placeholder return URL with the exact HTTPS URL registered with Cloud and the mobile
-platform. An unconfigured build truthfully shows Cloud-dependent actions as
-unavailable instead of using browser cookies, a WebView, or local demo data.
+No Cloud environment variables are required for the current walkthrough. `MOCK_MODE`
+in `src/features/mock/mock-app.tsx` is the single switch for this proof-of-concept
+build. When the real services are enabled, copy `apps/mobile/.env.example` to an
+ignored local environment file and replace the placeholder return URL with the exact
+HTTPS URL registered with Cloud and the mobile platform.
 `app.config.ts` derives Android App Links and iOS Associated Domains from that same
 exact URL when it is supplied at build time. Complete the domain association and
 platform registration before device sign-in proof.
 
-The auth/account dependency and config changes are native. They require a new EAS
-binary with app/runtime version `1.0.2`; the installed `1.0.1` APK cannot receive the
-new SecureStore/ImagePicker/auth configuration through OTA. After the compatible APK
-exists, later JavaScript-only account/UI changes can use the normal preview OTA path.
+The current mock-mode change is JavaScript-only and remains compatible with the
+existing `1.0.2` runtime. Later JavaScript-only account/UI changes can use the normal
+OTA path. Re-enabling native auth or changing native configuration still requires a
+new compatible EAS binary.
 
 ## EAS build and OTA workflow
 
@@ -403,13 +394,14 @@ every local edit. Native changes still require a new APK.
 - `src/app/index.tsx` — public first-Ally onboarding entry point.
 - `src/app/_layout.tsx` — fonts, splash lifecycle, providers, and signed-in route
   redirection.
-- `src/app/allies/index.tsx` — current-session Workspace surface for real Cloud Ally
-  records and recoverable pending creation.
+- `src/app/allies/index.tsx` — local Ally workspace in mock mode, with the Cloud
+  workspace implementation retained behind the mock boundary.
 - `src/app/allies/new/index.tsx` and `src/app/allies/new/complete.tsx` — reused
   onboarding and the authenticated create boundary.
-- `src/app/allies/[allyId]/index.tsx` — continuous conversation, history paging,
-  accepted-send insertion, activity polling, and recovery UI.
-- `src/app/allies/[allyId]/identity.tsx` — read-only Cloud Ally identity.
+- `src/app/allies/[allyId]/index.tsx` — local conversation, thinking state, response
+  delay, message composer, and the retained Cloud conversation implementation.
+- `src/app/allies/[allyId]/identity.tsx` — local Ally identity with a retained Cloud
+  identity implementation.
 - `app.config.ts` — derives native App Links/Associated Domains from the exact
   registered HTTPS return URL when build-time configuration is present.
 - `src/lib/native-link-config.test.ts` — validates the native link allowlist shape
@@ -450,8 +442,8 @@ every local edit. Native changes still require a new APK.
 - `src/app/sign-in.tsx`, `src/app/create-account.tsx`, `src/app/auth/return.tsx`, and
   `src/app/account.tsx` — account entry, cold-return fallback, and the guarded personal
   account surface.
-- `src/features/auth/account-access-screen.tsx` — shared Google and credential-preview
-  presentation for returning and new users.
+- `src/features/auth/account-access-screen.tsx` — shared Google and credential
+  presentation for returning and new users; both paths complete locally in mock mode.
 - `src/features/auth/` — in-memory PKCE/state flow and system-browser return parsing.
 - `src/features/account/` — profile validation, account queries, and signed avatar
   upload lifecycle.
@@ -466,6 +458,10 @@ every local edit. Native changes still require a new APK.
   send commands with seven-day expiry and account/Workspace binding.
 - `src/lib/cloud/native-cloud-client.ts` — shared Cloud transport with an explicit
   authenticated route allowlist.
+- `src/features/mock/mock-app.tsx` — the single local prototype state boundary for
+  account access, Ally creation, seeded messages, and delayed replies.
+- `src/features/mock/mock-screens.tsx` — finished product surfaces for the local Ally
+  workspace, conversation, account, identity, and completion states.
 
 ### Motion and reusable UI
 
@@ -601,11 +597,13 @@ every local edit. Native changes still require a new APK.
   independently, and outside taps dismiss the keyboard without treating the tooltip
   as an input tap.
 
-### Preview and first conversation surface
+### Creation and first conversation surface
 
-- The preview greeting and one-time attempt token come from `POST
-  /api/v1/onboarding/attempts`; the app does not generate a local fallback greeting.
-  A confirmed reply is required before `POST /api/v1/workspaces/{workspace_id}/allies`.
+- The running proof of concept generates a deterministic local greeting from the Ally
+  name and job, then creates the Ally in local state after the first reply.
+- After creation, the first user message is preserved in the conversation and the Ally
+  responds after a short thinking state. Later messages use the same deterministic
+  local response path.
 - `Coming alive....` uses a lightweight per-character wave. The letters move in a
   short staggered wave rather than appearing as a single unanimated label. Reduced
   motion renders the settled text directly.
@@ -628,17 +626,16 @@ every local edit. Native changes still require a new APK.
 - Greeting body text uses Open Runde Medium, 16px, 22px line height, and `-0.5px`
   letter spacing. Bold inline content uses Open Runde Semibold with the same size,
   line height, and letter spacing.
-- The preview header Ally is 24x24, the name has a 12px gap from the Ally, and the
+- The conversation header Ally is 24x24, the name has a 12px gap from the Ally, and the
   greeting starts 18px below the header row. The name uses a 24px line box with
   Android font padding enabled so descenders such as `y` remain visible.
 - The composer starts with a 100px radius and uses Open Runde Medium at 16px with
   16px line height and `-0.5px` letter spacing. It becomes less rounded as its
   content grows. Tapping outside it dismisses the keyboard. The send control uses
   the selected Ally color.
-- After creation, the continuous conversation composer sends an exact encrypted
-  pending command with a stable idempotency key. The accepted response is inserted
-  immediately, and active execution is polled every three seconds for up to ten
-  minutes. Polling stops on terminal or unknown state, screen blur, or unmount.
+- In mock mode, the conversation composer appends the message locally and schedules a
+  short deterministic response. The encrypted pending-command and polling code stays
+  behind the Cloud implementation boundary for later integration.
 
 ## Motion contract
 
@@ -651,7 +648,7 @@ values include:
 | Check pop | Initial scale `0.84`; spring damping `18`, stiffness `300`, mass `0.7` |
 | Coming-alive wave | 1350ms cycle, 70ms character stagger, 4px amplitude |
 | Carousel nudge | 24px; 300ms delay; 300ms return; repeat every 5000ms until interaction |
-| Preview entrance | 2400ms staged entrance timing |
+| Ally entrance | 2400ms staged entrance timing |
 | Thinking shine | 1700ms sweep cycle |
 | Ally name typewriter | 55ms per character, after the Ally handoff |
 | Greeting typewriter | 12ms cadence; adaptive chunks with a 2400ms reveal budget |
@@ -667,12 +664,12 @@ interaction. Every meaningful animation needs a reduced-motion path.
 The latest completed local validation for the full mobile visual walkthrough was:
 
 ```text
-bun run test:run       # 57 test files, 342 tests passed
+  bun run test:run       # 58 test files, 344 tests passed
 bun run typecheck      # cloud-client, web, and mobile passed
 bun run lint           # 0 errors; 8 pre-existing web warnings
 bun run build:web      # passed
 bun run bundle:mobile  # Expo iOS export passed
-cd apps/mobile && bunx expo export --platform android --output-dir dist/android-preview-check
+cd apps/mobile && bunx expo export --platform android --output-dir dist/android-mock-check
 bun run cloud:generate # generated the shared client from the pinned contract
 bun run cloud:verify   # pinned snapshot verification passed
 git diff --check       # passed before commit
@@ -680,9 +677,9 @@ git diff --check       # passed before commit
 
 Focused tests cover onboarding state, Cloud input conversion, route guards, encrypted
 pending commands, appearance parsing, session indexing, conversation page merging,
-polling decisions, the visual screen map, the native Cloud client, and shared
-Cloud-client contracts. Run the relevant focused test while iterating, then run the
-full checks before handoff.
+polling decisions, the screen map, local mock copy, the native Cloud client, and
+shared Cloud-client contracts. Run the relevant focused test while iterating, then run
+the full checks before handoff.
 
 The 2026-08-28 Android smoke used Expo Go 57.0.9 on the API 36.1 emulator. The first
 run exposed `src/app/app-config.test.ts` as an invalid Router route and imported
@@ -700,12 +697,11 @@ the configured splash needs the preview binary for proof.
   adding a dependency.
 - Keep user-facing copy, timing, spacing, and asset decisions in the owning feature
   modules with tests for stable values.
-- Keep Cloud creation, pending-command recovery, and continuous conversation behind
-  their pinned contracts. Do not add a fake durable Ally catalog while the Cloud
-  collection endpoint is absent.
-- Keep the M3 and M4 prototype surfaces honest. Replace static descriptors with real
-  feature ownership only after the related contract is accepted. Do not connect a
-  disabled preview action to fake persistence or a fake success state.
+- Keep `MOCK_MODE` as the one switch for the self-contained product walkthrough. Do
+  not scatter mock branches through individual controls or add a mock API client.
+- Keep Cloud creation, pending-command recovery, and managed conversation behind
+  their pinned contracts. When real services are enabled, replace the mock provider
+  boundary rather than duplicating screen composition.
 - Run mobile lint, typecheck, targeted tests, and the full test suite before handoff.
 - Update Nabu and this README together after meaningful changes, following the sync
   contract above.

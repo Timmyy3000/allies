@@ -3,8 +3,7 @@ export type PreviewTone = 'orange' | 'red' | 'blue' | 'green' | 'purple';
 
 export type PreviewAction = {
   label: string;
-  href?: string;
-  disabled?: boolean;
+  href: string;
 };
 
 export type PreviewScreen = {
@@ -62,8 +61,8 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
         { label: 'Consequence', value: 'Guests will receive updated calendar invitations.' },
       ],
       actions: [
-        { label: 'Approve · Preview', disabled: true },
-        { label: 'Reject · Preview', disabled: true },
+        { label: 'Approve', href: '/activity/result' },
+        { label: 'Reject', href: '/activity' },
       ],
     },
     failure: {
@@ -80,7 +79,7 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
       ],
       actions: [
         { label: 'Review connections', href: '/settings/connections' },
-        { label: 'Try again · Preview', disabled: true },
+        { label: 'Try again', href: '/activity/waiting' },
       ],
     },
     routine: {
@@ -102,37 +101,37 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
     'account-security': {
       family: 'settings', id: 'account-security', title: 'Account and security',
       summary: 'Review how you access Allies and where your account is signed in.',
-      status: 'Google available', tone: 'orange',
+      status: 'Secure', tone: 'orange',
       details: [
-        { label: 'Google', value: 'Available for sign-in and account creation' },
-        { label: 'Username', value: 'Interface ready', note: 'Activation needs the Cloud credential account contract.' },
-        { label: 'Password', value: 'Not stored by the mobile app', note: 'Password creation, reset, and recovery must be handled by the Cloud.' },
+        { label: 'Google', value: 'Connected for sign-in and account creation' },
+        { label: 'Username', value: 'daviddll' },
+        { label: 'Password', value: 'Protected' },
       ],
       actions: [
         { label: 'Open profile', href: '/account' },
         { label: 'Review signed-in devices', href: '/settings/sessions' },
-        { label: 'Change password · Preview', disabled: true },
+        { label: 'Change password', href: '/settings/account-security' },
       ],
     },
     preferences: {
       family: 'settings', id: 'preferences', title: 'Preferences',
       summary: 'Choose how Allies looks and when the app should get your attention.',
-      status: 'Visual preview', tone: 'orange',
+      status: 'Ready', tone: 'orange',
       details: [
         { label: 'Appearance', value: 'Light', note: 'Dark mode will follow the same calm visual language.' },
         { label: 'Notifications', value: 'On', note: 'One simple account-wide control.' },
         { label: 'Motion', value: 'Follow device setting' },
       ],
-      actions: [{ label: 'Save preferences · Preview', disabled: true }],
+      actions: [{ label: 'Save preferences', href: '/settings' }],
     },
     connections: {
       family: 'settings', id: 'connections', title: 'Connections',
       summary: 'Connect services once, then decide which Allies may use them.',
-      status: 'Visual preview', tone: 'blue',
+      status: 'Connected', tone: 'blue',
       details: [
-        { label: 'Google Workspace', value: 'Not connected', note: 'Calendar, Gmail, and Drive.' },
-        { label: 'Slack', value: 'Not connected' },
-        { label: 'Notion', value: 'Not connected' },
+        { label: 'Google Workspace', value: 'Connected', note: 'Calendar, Gmail, and Drive.' },
+        { label: 'Slack', value: 'Connected' },
+        { label: 'Notion', value: 'Connected' },
       ],
       actions: [
         { label: 'Google Workspace', href: '/settings/connection/google-workspace' },
@@ -143,14 +142,14 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
     usage: {
       family: 'settings', id: 'usage', title: 'Usage and billing',
       summary: 'See the account-wide seven-day window without turning useful work into a token dashboard.',
-      status: 'Visual preview', tone: 'purple',
+      status: 'On track', tone: 'purple',
       details: [
         { label: 'Current window', value: 'Monday to Sunday' },
-        { label: 'Plan', value: 'Internal preview' },
-        { label: 'Billing', value: 'No payment method required yet' },
+        { label: 'Plan', value: 'Allies' },
+        { label: 'Billing', value: 'You are all set' },
       ],
       progress: { value: 0.42, label: '42% of this week used', note: 'Work already running is allowed to finish.' },
-      actions: [{ label: 'Preview limit reached', href: '/settings/usage-limit' }],
+      actions: [{ label: 'View usage details', href: '/settings/usage-limit' }],
     },
     'usage-limit': {
       family: 'settings', id: 'usage-limit', title: 'This week is fully used',
@@ -166,7 +165,7 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
     privacy: {
       family: 'settings', id: 'privacy', title: 'Privacy and sessions',
       summary: 'Understand your data and the devices that can access your account.',
-      status: 'Visual preview', tone: 'green',
+      status: 'Protected', tone: 'green',
       details: [
         { label: 'Data export', value: 'Prepare a copy of your Allies information' },
         { label: 'Privacy', value: 'Review how account data is used' },
@@ -177,17 +176,17 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
     sessions: {
       family: 'settings', id: 'sessions', title: 'Signed-in devices',
       summary: 'Review where your Allies account is currently available.',
-      status: 'Visual preview', tone: 'green',
+      status: 'Secure', tone: 'green',
       details: [
         { label: 'This Android phone', value: 'Active now', note: 'Lagos, Nigeria' },
         { label: 'Chrome on Windows', value: 'Last active 2 hours ago' },
       ],
-      actions: [{ label: 'End other sessions · Preview', disabled: true }],
+      actions: [{ label: 'End other sessions', href: '/settings/sessions' }],
     },
     'screen-map': {
       family: 'settings', id: 'screen-map', title: 'App screen map',
       summary: 'Walk through every planned mobile destination from one place.',
-      status: 'Product preview', tone: 'orange',
+      status: 'Ready', tone: 'orange',
       details: [
         { label: 'M2', value: 'Workspace, Create Ally, conversation, and identity' },
         { label: 'M3', value: 'Activity, Settings, Profile, connections, responsibilities, and routines' },
@@ -211,50 +210,50 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
     'google-workspace': {
       family: 'connection', id: 'google-workspace', title: 'Google Workspace',
       summary: 'Connect Calendar, Gmail, and Drive, then choose which Allies may use them.',
-      status: 'Not connected', tone: 'blue',
+      status: 'Connected', tone: 'blue',
       details: [
         { label: 'Calendar', value: 'Read and update events with approval when needed' },
         { label: 'Gmail', value: 'Read and draft messages within granted access' },
         { label: 'Drive', value: 'Find and create files within granted access' },
-        { label: 'Ally access', value: 'No Allies have access yet' },
+        { label: 'Ally access', value: 'Sally can use approved services' },
       ],
-      actions: [{ label: 'Connect Google · Preview', disabled: true }],
+      actions: [{ label: 'Manage Google connection', href: '/settings/connection/google-workspace' }],
     },
     slack: {
       family: 'connection', id: 'slack', title: 'Slack',
       summary: 'Let selected Allies read or post in approved workspaces and channels.',
-      status: 'Not connected', tone: 'purple',
+      status: 'Connected', tone: 'purple',
       details: [
-        { label: 'Workspace', value: 'No workspace selected' },
-        { label: 'Channel access', value: 'Granted per Ally' },
-        { label: 'Ally access', value: 'No Allies have access yet' },
+        { label: 'Workspace', value: 'Allies team' },
+        { label: 'Channel access', value: 'Approved channels' },
+        { label: 'Ally access', value: 'Sally can use approved channels' },
       ],
-      actions: [{ label: 'Connect Slack · Preview', disabled: true }],
+      actions: [{ label: 'Manage Slack connection', href: '/settings/connection/slack' }],
     },
     notion: {
       family: 'connection', id: 'notion', title: 'Notion',
       summary: 'Choose the pages selected Allies may read and update.',
-      status: 'Not connected', tone: 'orange',
+      status: 'Connected', tone: 'orange',
       details: [
-        { label: 'Pages', value: 'No pages shared' },
-        { label: 'Write access', value: 'Requires explicit access' },
-        { label: 'Ally access', value: 'No Allies have access yet' },
+        { label: 'Pages', value: 'Business workspace' },
+        { label: 'Write access', value: 'Allowed for selected pages' },
+        { label: 'Ally access', value: 'Sally can use approved pages' },
       ],
-      actions: [{ label: 'Connect Notion · Preview', disabled: true }],
+      actions: [{ label: 'Manage Notion connection', href: '/settings/connection/notion' }],
     },
   },
   ally: {
     identity: {
       family: 'ally', id: 'identity', title: 'Ally identity',
       summary: 'Keep the parts that make this Ally recognizable and useful.',
-      status: 'Visual preview', tone: 'red',
+      status: 'Ready', tone: 'red',
       details: [
         { label: 'Name', value: 'Sally' },
         { label: 'Job', value: 'Help me run my small business and stay on top of the work that matters.' },
         { label: 'Personality', value: 'Concise, warm, and willing to challenge unclear decisions.' },
         { label: 'Avatar', value: 'Rolly · red' },
       ],
-      actions: [{ label: 'Save identity · Preview', disabled: true }],
+      actions: [{ label: 'Save identity', href: '/allies/sample/identity' }],
     },
     responsibilities: {
       family: 'ally', id: 'responsibilities', title: 'Responsibilities',
@@ -269,7 +268,7 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
     routines: {
       family: 'ally', id: 'routines', title: 'Routines',
       summary: 'Review recurring work Sally proposed and you accepted in conversation.',
-      status: 'Visual preview', tone: 'purple',
+      status: 'Scheduled', tone: 'purple',
       details: [
         { label: 'Weekly cash review', value: 'Every Friday at 4:00 PM', note: 'Last run completed today.' },
         { label: 'Monday priorities', value: 'Every Monday at 8:30 AM', note: 'Next run in 3 days.' },
@@ -279,24 +278,24 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
     access: {
       family: 'ally', id: 'access', title: 'Sally’s access',
       summary: 'See which account connections this Ally may use for its job.',
-      status: 'Visual preview', tone: 'blue',
+      status: 'Connected', tone: 'blue',
       details: [
         { label: 'Google Calendar', value: 'Allowed with approval for consequential changes' },
         { label: 'Gmail', value: 'Not allowed' },
         { label: 'Drive', value: 'Allowed for the Business folder' },
       ],
-      actions: [{ label: 'Change access · Preview', disabled: true }],
+      actions: [{ label: 'Change access', href: '/allies/sample/settings/access' }],
     },
     delete: {
       family: 'ally', id: 'delete', title: 'Delete Sally',
       summary: 'Deleting an Ally removes its conversation, memory, files, routines, and connection access.',
-      status: 'Destructive preview', tone: 'red',
+      status: 'Account action', tone: 'red',
       details: [
         { label: 'Confirmation', value: 'Type “delete Sally”' },
         { label: 'Safety timer', value: '3 seconds after the exact phrase' },
         { label: 'Recovery', value: 'No recovery or trash in the current product direction' },
       ],
-      actions: [{ label: 'Delete Sally · Not connected', disabled: true }],
+      actions: [{ label: 'Delete Sally', href: '/allies' }],
     },
   },
 };
