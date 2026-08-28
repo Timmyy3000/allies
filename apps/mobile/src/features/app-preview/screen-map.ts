@@ -99,6 +99,21 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
     },
   },
   settings: {
+    'account-security': {
+      family: 'settings', id: 'account-security', title: 'Account and security',
+      summary: 'Review how you access Allies and where your account is signed in.',
+      status: 'Google available', tone: 'orange',
+      details: [
+        { label: 'Google', value: 'Available for sign-in and account creation' },
+        { label: 'Username', value: 'Interface ready', note: 'Activation needs the Cloud credential account contract.' },
+        { label: 'Password', value: 'Not stored by the mobile app', note: 'Password creation, reset, and recovery must be handled by the Cloud.' },
+      ],
+      actions: [
+        { label: 'Open profile', href: '/account' },
+        { label: 'Review signed-in devices', href: '/settings/sessions' },
+        { label: 'Change password · Preview', disabled: true },
+      ],
+    },
     preferences: {
       family: 'settings', id: 'preferences', title: 'Preferences',
       summary: 'Choose how Allies looks and when the app should get your attention.',
@@ -182,6 +197,7 @@ const screens: Record<PreviewFamily, Record<string, PreviewScreen>> = {
         { label: 'Activity result', href: '/activity/result' },
         { label: 'Approval request', href: '/activity/approval' },
         { label: 'Critical failure', href: '/activity/failure' },
+        { label: 'Account and security', href: '/settings/account-security' },
         { label: 'Preferences', href: '/settings/preferences' },
         { label: 'Connections', href: '/settings/connections' },
         { label: 'Usage and billing', href: '/settings/usage' },

@@ -9,9 +9,12 @@ export default function SettingsScreen() {
       title="Settings">
       <PreviewCard>
         <Text style={styles.profileName}>Your profile</Text>
-        <Text style={styles.profileDetail}>Manage your name, email, and profile picture.</Text>
+        <Text style={styles.profileDetail}>Manage your name and profile picture.</Text>
         <PreviewListRow detail="Connected account" href="/account" label="Open profile" tone="orange" />
       </PreviewCard>
+
+      <PreviewSectionTitle>Account</PreviewSectionTitle>
+      <PreviewListRow detail="Google, username, password, and signed-in devices" href="/settings/account-security" label="Account and security" />
 
       <PreviewSectionTitle>App</PreviewSectionTitle>
       <PreviewListRow detail="Appearance, notifications, and motion" href="/settings/preferences" label="Preferences" />

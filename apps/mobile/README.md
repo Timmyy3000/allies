@@ -89,7 +89,7 @@ a build when the current request has not authorized those actions.
 
 Implemented here is the first usable mobile loop:
 
-`welcome -> name -> look -> job -> personality -> confirm -> sign in -> create Ally -> workspace -> conversation -> identity`
+`welcome -> name -> look -> job -> personality -> confirm -> sign in or create account -> create Ally -> workspace -> conversation -> identity`
 
 The onboarding screens keep their existing design and flow-local state, but the final
 confirmation now creates a real Cloud onboarding attempt and Ally. A signed-out user
@@ -108,12 +108,14 @@ The signed-in app has these implemented destinations:
   loading, bounded activity polling, retry, and offline/error recovery;
 - `/allies/[allyId]/identity` — read-only Ally name, job, personality, appearance,
   and provisioning state;
+- `/sign-in` and `/create-account` — live Google account access plus the honest
+  username-and-password interface boundary;
 - `/account` — the existing personal account and Workspace surface;
 - `/activity` and `/activity/[item]` — a visual attention feed for results, waiting
   work, approvals, failures, and routine outcomes;
 - `/settings`, `/settings/[section]`, and `/settings/connection/[service]` — visual
-  previews for preferences, connections, usage and billing, privacy, sessions, and
-  the complete mobile screen map;
+  previews for account security, preferences, connections, usage and billing,
+  privacy, sessions, and the complete mobile screen map;
 - `/allies/[allyId]/settings` and `/allies/[allyId]/settings/[section]` — visual
   previews for Ally identity, responsibilities, routines, connection access, and
   deletion.
@@ -153,12 +155,23 @@ The local implementation is deliberately thin around the shared Cloud client:
   message, and activity routes used by the app surface. `POST
   /api/v1/onboarding/attempts` remains public. Native auth and direct object-storage
   requests remain cookie-free and bearer-free where required.
-- `src/app/sign-in.tsx`, `src/app/auth/return.tsx`, and `src/app/account.tsx` provide
-  the public sign-in entry, safe cold-return fallback, guarded account surface,
-  profile-name editing, personal Workspace details, and avatar controls.
+- `src/app/sign-in.tsx`, `src/app/create-account.tsx`, `src/app/auth/return.tsx`, and
+  `src/app/account.tsx` provide public account entry, safe cold-return fallback, the
+  guarded account surface, profile-name editing, personal Workspace details, and
+  avatar controls.
 - `src/features/account/avatar-upload.ts` bounds avatar files at 10 MiB, hashes the
   actual bytes, uses the exact signed upload URL/headers, and completes only after a
   successful direct upload. It never adds a Cloud bearer to object storage.
+
+The current owner direction supports Google sign-in, Google account creation, and a
+future username-and-password account. Google is live through the existing native
+provider flow: a new Google identity creates an account and a returning identity signs
+in. The username and password fields are visible on both account-entry modes, but their
+submit actions are disabled and labeled `Preview`. The published Cloud contract does
+not provide credential account creation, credential sign-in, password reset, password
+recovery, or username management. Mobile does not store a password or invent a local
+account while that contract is absent. Settings exposes the same boundary at
+`/settings/account-security`, including profile and signed-in-device navigation.
 
 ### Local configuration
 
@@ -346,6 +359,11 @@ channel/message at the release boundary.
   ambiguous message responses keep the same-key retry, and conversations open at the
   latest content while older-page loads preserve the visible position. App and runtime
   version stay at `1.0.2`; no OTA was published.
+- **2026-08-28 — Account-access expansion prepared:** added distinct sign-in and
+  account-creation presentations, live Google entry from both modes, username and
+  password preview fields, and Account and security Settings. The mobile app does not
+  accept or persist credentials until the Cloud publishes the required contract. This
+  is JavaScript-only; app and runtime version stay at `1.0.2`, and no OTA was published.
 
 ### GitHub merges and installed devices
 
@@ -429,8 +447,11 @@ every local edit. Native changes still require a new APK.
 - `src/features/onboarding/onboarding-ally-preview.tsx` and
   `src/features/onboarding/ally-character.tsx` — reusable Ally artwork and
   selected-color rendering.
-- `src/app/sign-in.tsx`, `src/app/auth/return.tsx`, and `src/app/account.tsx` —
-  native sign-in, cold-return fallback, and guarded personal account surface.
+- `src/app/sign-in.tsx`, `src/app/create-account.tsx`, `src/app/auth/return.tsx`, and
+  `src/app/account.tsx` — account entry, cold-return fallback, and the guarded personal
+  account surface.
+- `src/features/auth/account-access-screen.tsx` — shared Google and credential-preview
+  presentation for returning and new users.
 - `src/features/auth/` — in-memory PKCE/state flow and system-browser return parsing.
 - `src/features/account/` — profile validation, account queries, and signed avatar
   upload lifecycle.
@@ -646,7 +667,7 @@ interaction. Every meaningful animation needs a reduced-motion path.
 The latest completed local validation for the full mobile visual walkthrough was:
 
 ```text
-bun run test:run       # 57 test files, 338 tests passed
+bun run test:run       # 57 test files, 342 tests passed
 bun run typecheck      # cloud-client, web, and mobile passed
 bun run lint           # 0 errors; 8 pre-existing web warnings
 bun run build:web      # passed

@@ -12,6 +12,7 @@ describe('preview screen map', () => {
       new Set(['activity', 'settings', 'connection', 'ally']),
     );
     expect(screens.flatMap((screen) => screen.actions ?? []).every((action) => !action.href || action.href.startsWith('/'))).toBe(true);
+    expect(getPreviewScreen('settings', 'account-security')?.title).toBe('Account and security');
     expect(getPreviewScreen('activity', 'missing')).toBeNull();
   });
 });
