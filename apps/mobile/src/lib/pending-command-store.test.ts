@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   createPendingCommandStore,
+  toCloudCreateAllyInput,
   type PendingCommandCrypto,
   type PendingCreateCommand,
   type PendingMessageCommand,
@@ -120,6 +121,18 @@ const messageCommand: PendingMessageCommand = {
 };
 
 describe('pending command store', () => {
+  it('maps the persisted create intent to the shared Cloud contract without changing user input', () => {
+    expect(toCloudCreateAllyInput(createCommand)).toEqual({
+      name: 'Maya',
+      job: 'Partner',
+      personality: 'Warm',
+      appearanceCatalogVersion: 'v1',
+      appearanceKey: 'ghosty:fd304f',
+      onboardingAttempt: 'attempt-1',
+      reply: 'Hello, Maya.',
+    });
+  });
+
   it('keeps a create command exact, binds once, and removes it on a mismatch', async () => {
     const memory = createMemoryDependencies();
     const store = createPendingCommandStore(memory.dependencies);

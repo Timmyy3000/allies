@@ -122,6 +122,39 @@ the provider boundary, so the active walkthrough cannot make accidental network
 requests. The Cloud implementation remains in place for a later, contract-backed
 switch. Mock actions navigate to the relevant screen but do not claim durable writes.
 
+## Cloud behavior parity
+
+When `MOCK_MODE` is disabled, the mobile Cloud path follows the behavior in web
+PR #15 and the pinned Cloud contract used by that change. It does not reuse web
+routes or components.
+
+- Onboarding begins with `POST /api/v1/onboarding/attempts`. Mobile keeps the
+  returned attempt token and greeting, requires the reply, then sends the exact
+  `name`, `job`, `personality`, `appearance`, `onboarding_attempt`, and `reply`
+  fields to Ally creation.
+- A saved create command keeps its idempotency key across retries. The key is
+  reused for the same configuration and reply; a changed intent gets a new key.
+  The saved command is encrypted and bound to the signed-in user and Workspace.
+- The Allies screen uses `GET /api/v1/workspaces/{workspace_id}/allies` as its
+  durable roster. The session-only ID index is only a compatibility fallback when
+  that collection cannot be loaded.
+- A message is saved before sending. Network, timeout, server, throttling, or
+  malformed-response uncertainty keeps the message and its idempotency key for a
+  retry. `replayed: true` is an accepted prior send and is deduplicated in the
+  newest conversation page; it is not rendered as a second message.
+- Older conversation pages merge by message ID and sequence without replacing
+  history after a send. A terminal send refetches the newest conversation and
+  activity snapshot. Activity polling stops when the screen blurs, the response
+  reaches a terminal state, a request fails, or the bounded two-minute window ends.
+- Activity deltas are ordered by sequence, deduplicated, and grouped by turn. A
+  terminal snapshot with a missing sequence keeps the partial response visible and
+  reports that reconciliation is required. Authorization and response validation
+  remain in the shared `@allies/cloud-client` boundary.
+
+The running product walkthrough still defaults to local mock mode so visual review
+does not require Cloud access. The mock path is an intentional mobile-only runtime
+choice; it does not change the real Cloud contract.
+
 The current mobile onboarding implementation follows the accepted visual direction
 and web design language. Product and Cloud contracts remain the source of truth when
 real services are connected.
@@ -143,7 +176,8 @@ The local implementation is deliberately thin around the shared Cloud client:
 - `src/lib/cloud/native-cloud-client.ts` reuses the shared transport and injects a
   bearer only for the exact authenticated routes `GET /api/v1/auths/me`, `PATCH
   /api/v1/auths/me/profile`, the avatar prepare/complete/read/delete routes, and
-  `GET /api/v1/workspaces/{workspace_id}`, plus the exact Ally, conversation,
+  `GET /api/v1/workspaces/{workspace_id}`, `GET
+  /api/v1/workspaces/{workspace_id}/allies`, plus the exact Ally, conversation,
   message, and activity routes used by the app surface. `POST
   /api/v1/onboarding/attempts` remains public. Native auth and direct object-storage
   requests remain cookie-free and bearer-free where required.

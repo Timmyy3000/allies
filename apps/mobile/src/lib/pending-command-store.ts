@@ -2,6 +2,7 @@ import { AESEncryptionKey, AESSealedData, aesDecryptAsync, aesEncryptAsync } fro
 import { File, Paths } from 'expo-file-system';
 import * as SecureStore from 'expo-secure-store';
 import { z } from 'zod';
+import type { CreateAllyInput } from '@allies/cloud-client';
 
 const PENDING_COMMAND_KEY = 'allies.pending-command.aes-key';
 const PENDING_COMMAND_FILE = 'allies-pending-commands.enc';
@@ -78,6 +79,18 @@ export interface PendingMessageCommand {
   createdAt: string;
   boundUserId: string;
   boundWorkspaceId: string;
+}
+
+export function toCloudCreateAllyInput(command: PendingCreateCommand): CreateAllyInput {
+  return {
+    name: command.name,
+    job: command.job,
+    personality: command.personality,
+    appearanceCatalogVersion: command.appearance.catalogVersion,
+    appearanceKey: command.appearance.key,
+    onboardingAttempt: command.onboardingAttempt,
+    reply: command.reply,
+  };
 }
 
 export interface PendingCommandCrypto {

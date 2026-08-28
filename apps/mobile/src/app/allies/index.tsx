@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import type { AllyViewModel } from '@allies/cloud-client';
 import { StatusBar } from 'expo-status-bar';
 import { useIsFocused, useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
@@ -18,9 +19,7 @@ import { MockAlliesScreen } from '@/features/mock/mock-screens';
 const PAGE_SIZE = 12;
 
 function AllyCard({ allyId }: { allyId: string }) {
-  const router = useRouter();
   const session = useNativeSession();
-  const { addReachableAllyId } = useAllySessionIndex();
   const workspaceId = session.status === 'signed-in' && session.account ? session.account.workspace.id : '';
   const query = useQuery({
     queryKey: ['allies', workspaceId, allyId],
@@ -43,27 +42,33 @@ function AllyCard({ allyId }: { allyId: string }) {
     );
   }
 
-  const appearance = getAllyAppearance(query.data.appearance.key);
+  return <AllyCardView ally={query.data} />;
+}
+
+function AllyCardView({ ally }: { ally: AllyViewModel }) {
+  const router = useRouter();
+  const { addReachableAllyId } = useAllySessionIndex();
+  const appearance = getAllyAppearance(ally.appearance.key);
   return (
     <Pressable
-      accessibilityLabel={`Open ${query.data.name}`}
+      accessibilityLabel={`Open ${ally.name}`}
       accessibilityRole="button"
       onPress={() => {
-        addReachableAllyId(allyId);
-        router.push(`/allies/${allyId}` as never);
+        addReachableAllyId(ally.id);
+        router.push(`/allies/${ally.id}` as never);
       }}
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}>
       <OnboardingAllyPreview
-        accessibilityLabel={`${query.data.name} Ally`}
+        accessibilityLabel={`${ally.name} Ally`}
         color={appearance.color}
         identity={appearance.shape}
         size={68}
       />
       <View style={styles.cardCopy}>
-        <Text numberOfLines={1} style={styles.allyName}>{query.data.name}</Text>
-        <Text numberOfLines={2} style={styles.allyJob}>{query.data.job}</Text>
+        <Text numberOfLines={1} style={styles.allyName}>{ally.name}</Text>
+        <Text numberOfLines={2} style={styles.allyJob}>{ally.job}</Text>
         <Text style={styles.state}>
-          {query.data.provisioningState}{query.data.retryable ? ' · retry available' : ''}
+          {ally.provisioningState}{ally.retryable ? ' · retry available' : ''}
         </Text>
       </View>
     </Pressable>
@@ -82,7 +87,17 @@ function CloudAlliesScreen() {
   const { reachableAllyIds } = useAllySessionIndex();
   const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
   const [pendingCreateName, setPendingCreateName] = useState<string | null>(null);
-  const visibleIds = reachableAllyIds.slice(0, visibleCount);
+  const workspaceId = session.status === 'signed-in' && session.account ? session.account.workspace.id : '';
+  const rosterQuery = useQuery<AllyViewModel[]>({
+    queryKey: ['workspaces', workspaceId, 'allies'],
+    enabled: Boolean(workspaceId && session.accountClient && session.adapter),
+    queryFn: ({ signal }) => session.adapter!.withRefresh(() => session.accountClient!.listAllies(workspaceId, signal)),
+    refetchOnWindowFocus: false,
+  });
+  const roster = rosterQuery.data;
+  const fallbackIds = !roster && rosterQuery.isError ? reachableAllyIds : [];
+  const visibleAllies = roster?.slice(0, visibleCount) ?? [];
+  const visibleIds = fallbackIds.slice(0, visibleCount);
 
   useEffect(() => {
     if (!focused || session.status !== 'signed-in' || !session.account) return;
@@ -130,19 +145,34 @@ function CloudAlliesScreen() {
             </Pressable>
           ) : null}
 
-          {visibleIds.length ? visibleIds.map((allyId) => <AllyCard allyId={allyId} key={allyId} />) : (
+          {rosterQuery.isPending ? <ActivityIndicator color="#FF5800" style={styles.rosterLoading} /> : null}
+          {rosterQuery.isError && fallbackIds.length ? (
+            <Text style={styles.notice}>The workspace roster is unavailable. Showing recently opened Allies.</Text>
+          ) : null}
+          {rosterQuery.isError && !fallbackIds.length ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyTitle}>No reachable Allies yet</Text>
+              <Text style={styles.emptyTitle}>We could not load your Allies</Text>
+              <Text style={styles.emptyText}>Reconnect and try again to load your workspace roster.</Text>
+              <Pressable accessibilityRole="button" onPress={() => void rosterQuery.refetch()} style={styles.primaryAction}>
+                <Text style={styles.primaryActionText}>Try again</Text>
+              </Pressable>
+            </View>
+          ) : null}
+          {roster?.length ? visibleAllies.map((ally) => <AllyCardView ally={ally} key={ally.id} />) : null}
+          {fallbackIds.length ? visibleIds.map((allyId) => <AllyCard allyId={allyId} key={allyId} />) : null}
+          {!rosterQuery.isPending && !rosterQuery.isError && roster?.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyTitle}>No Allies yet</Text>
               <Text style={styles.emptyText}>
-                This first mobile slice keeps a session-scoped list of Allies you create or open. Full workspace restoration is not yet available.
+                Create your first Ally to start your workspace.
               </Text>
               <Pressable accessibilityRole="button" onPress={() => router.push('/allies/new' as never)} style={styles.primaryAction}>
                 <Text style={styles.primaryActionText}>Create your first Ally</Text>
               </Pressable>
             </View>
-          )}
+          ) : null}
 
-          {visibleCount < reachableAllyIds.length ? (
+          {visibleCount < (roster?.length ?? fallbackIds.length) ? (
             <Pressable accessibilityRole="button" onPress={() => setVisibleCount((count) => count + PAGE_SIZE)} style={styles.loadMore}>
               <Text style={styles.loadMoreText}>Load more</Text>
             </Pressable>
@@ -291,6 +321,9 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: '#FFFFFF',
     flex: 1,
+  },
+  rosterLoading: {
+    marginTop: 28,
   },
   retryText: {
     color: '#FF5800',
