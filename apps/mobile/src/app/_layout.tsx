@@ -1,5 +1,13 @@
 import { useFonts } from 'expo-font';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider, usePathname, useRouter } from 'expo-router';
+import {
+  DarkTheme,
+  DefaultTheme,
+  Stack,
+  ThemeProvider,
+  useGlobalSearchParams,
+  usePathname,
+  useRouter,
+} from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
@@ -7,6 +15,7 @@ import { useColorScheme } from 'react-native';
 import { KeyboardDismissView } from '@/components/ui/keyboard-dismiss-view';
 import { AppProviders } from '@/lib/providers/app-providers';
 import { useNativeSession } from '@/lib/session/session-context';
+import { getSessionRouteAction } from '@/lib/session/session-route';
 
 SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 350, fade: true });
@@ -38,16 +47,14 @@ export default function RootLayout() {
 
 function SessionRouteRedirector() {
   const pathname = usePathname();
+  const { returnTo } = useGlobalSearchParams<{ returnTo?: string }>();
   const router = useRouter();
   const session = useNativeSession();
+  const action = getSessionRouteAction(session.status, pathname, returnTo);
 
   useEffect(() => {
-    if (session.status === 'signed-in' && pathname !== '/account') {
-      router.replace('/account');
-    } else if (session.status === 'signed-out' && pathname === '/account') {
-      router.replace('/sign-in');
-    }
-  }, [pathname, router, session.status]);
+    if (action) router.replace(action.path as never);
+  }, [action, router]);
 
   return null;
 }
