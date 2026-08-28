@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import appConfig from '../../app.json';
-import { getNativeLinkConfig } from '../../app.config';
+import appConfig from './app.json';
+import { getNativeLinkConfig } from './app.config';
 
 describe('mobile app config', () => {
   it('uses the next native runtime for the splash-screen build', () => {

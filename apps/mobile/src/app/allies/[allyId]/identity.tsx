@@ -83,6 +83,12 @@ export default function AllyIdentityScreen() {
           <IdentityField label="Job" value={ally.job} />
           <IdentityField label="Personality" value={ally.personality} />
           <IdentityField label="Appearance" value={ally.appearance.key} />
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => router.push(`/allies/${allyId}/settings` as never)}
+            style={styles.settingsLink}>
+            <Text style={styles.settingsLinkText}>Open Ally settings preview</Text>
+          </Pressable>
         </ScrollView>
       </SafeAreaView>
     </View>
@@ -189,6 +195,21 @@ const styles = StyleSheet.create({
   root: {
     backgroundColor: '#FFFFFF',
     flex: 1,
+  },
+  settingsLink: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    backgroundColor: '#111111',
+    borderRadius: 999,
+    marginTop: 24,
+    minHeight: 50,
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+  },
+  settingsLinkText: {
+    color: '#FFFFFF',
+    fontFamily: 'OpenRundeSemibold',
+    fontSize: 15,
   },
   safeArea: {
     flex: 1,

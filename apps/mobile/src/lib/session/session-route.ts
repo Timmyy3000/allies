@@ -5,7 +5,13 @@ import type { NativeSessionState } from './native-session-adapter';
 export type SessionRouteAction = { type: 'replace'; path: string };
 
 function isProtectedPath(pathname: string): boolean {
-  return pathname === '/account' || pathname === '/allies' || pathname.startsWith('/allies/');
+  return pathname === '/account'
+    || pathname === '/activity'
+    || pathname.startsWith('/activity/')
+    || pathname === '/allies'
+    || pathname.startsWith('/allies/')
+    || pathname === '/settings'
+    || pathname.startsWith('/settings/');
 }
 
 function isSafeSignedInReturnTo(value: unknown): value is string {

@@ -19,7 +19,9 @@ describe('getSessionRouteAction', () => {
   it.each([
     ['/allies', '/sign-in?returnTo=%2Fallies'],
     ['/allies/new', '/sign-in?returnTo=%2Fallies%2Fnew'],
+    ['/activity/approval', '/sign-in?returnTo=%2Factivity%2Fapproval'],
     ['/account', '/sign-in?returnTo=%2Faccount'],
+    ['/settings/connections', '/sign-in?returnTo=%2Fsettings%2Fconnections'],
   ] as const)('sends signed-out protected route %s to sign-in', (pathname, expected) => {
     expect(getSessionRouteAction('signed-out', pathname)).toEqual({ type: 'replace', path: expected });
   });
@@ -30,7 +32,9 @@ describe('getSessionRouteAction', () => {
 
   it.each([
     ['/allies/new/complete', '/allies/new/complete'],
+    ['/activity', '/activity'],
     ['/account', '/account'],
+    ['/settings/privacy', '/settings/privacy'],
   ] as const)('uses a safe signed-in return target: %s', (returnTo, expected) => {
     expect(getSessionRouteAction('signed-in', '/sign-in', returnTo)).toEqual({ type: 'replace', path: expected });
   });
