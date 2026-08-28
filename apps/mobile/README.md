@@ -230,9 +230,9 @@ project. The first preview build has completed. The current setup is:
 Run from `apps/mobile` after authenticating to the Allies Expo account:
 
 ```text
-bunx eas-cli login
-bunx eas-cli update:configure --platform android
-bunx eas-cli build --platform android --profile preview
+bunx eas-cli@22.2.0 login
+bunx eas-cli@22.2.0 update:configure --platform android
+bunx eas-cli@22.2.0 build --platform android --profile preview
 ```
 
 The configure command writes the real EAS project/update URL and project ID into the
@@ -248,8 +248,8 @@ changing it later creates a different Android application.
 After a meaningful code change is committed and pushed, run:
 
 ```text
-bunx eas-cli update --channel preview --environment preview --message "Short description of the change"
-bunx eas-cli update --channel production --environment production --message "Short description of the change"
+bunx eas-cli@22.2.0 update --channel preview --environment preview --message "Short description of the change"
+bunx eas-cli@22.2.0 update --channel production --environment production --message "Short description of the change"
 ```
 
 Use the `preview` command for the installed internal APK and the `production` command
@@ -274,7 +274,7 @@ now linked and the first preview APK artifact is available for installation.
 
 ### Current release metadata
 
-This is the local version state verified on 2026-08-28. Check EAS before making a
+This is the local version state verified on 2026-08-29. Check EAS before making a
 claim about the latest remote artifact or publish:
 
 | Item | Current value | Meaning |
@@ -294,13 +294,15 @@ claim about the latest remote artifact or publish:
 | Production profile | `production` channel | Profile exists; no production build or publish has been performed. |
 | EAS project link | Linked | `updates.url` and `extra.eas.projectId` are present in the Expo app config; credentials are not stored in the repository. |
 | EAS app version source | `remote` | Future Android build numbers are managed by EAS; `preview` and `production` profiles auto-increment them. |
-| Current change class | OTA-eligible after merge | The visual walkthrough and Router test-location fix use only JavaScript and native modules already present in the `1.0.2` runtime. No OTA was published. |
+| Latest preview OTA | Published — update group `4c02e6c8-95aa-4dde-90da-f1c91a3c556c` | Commit `921de416829bd4474d8a144baec7909223608c56`; Android update `01a04aa6-755f-74b6-a34a-4f0282b4eb76`; iOS update `01a04aa6-755f-7c64-84f1-66773ee7530f`; message `Align mobile Cloud behavior with web`. |
+| Current change class | OTA published | The Cloud parity implementation uses JavaScript and native modules already present in the `1.0.2` runtime. |
 
 The preview APK includes `expo-updates`; installing a development build does not prove
-OTA is active. Verify that a device has a compatible `1.0.2` preview binary before an
-owner publishes this JavaScript update. After each APK or OTA release, record the
-commit SHA, build ID or update group, artifact URL when applicable, and EAS update
-channel/message at the release boundary.
+OTA is active. The `1.0.2` preview OTA above is published on the `preview` channel.
+The installed app downloads it on launch and applies it after restart when the device
+has a compatible preview binary. After each APK or OTA release, record the commit SHA,
+build ID or update group, artifact URL when applicable, and EAS update channel/message
+at the release boundary.
 
 ### Version and release rules
 
@@ -389,6 +391,11 @@ channel/message at the release boundary.
   password preview fields, and Account and security Settings. The mobile app does not
   accept or persist credentials until the Cloud publishes the required contract. This
   is JavaScript-only; app and runtime version stay at `1.0.2`, and no OTA was published.
+- **2026-08-29 — Cloud behavior parity OTA published:** commit `921de416829bd4474d8a144baec7909223608c56`
+  was published to the `preview` channel with runtime `1.0.2` using EAS CLI `22.2.0`.
+  Update group `4c02e6c8-95aa-4dde-90da-f1c91a3c556c`; Android update
+  `01a04aa6-755f-74b6-a34a-4f0282b4eb76`; iOS update
+  `01a04aa6-755f-7c64-84f1-66773ee7530f`; message `Align mobile Cloud behavior with web`.
 
 ### GitHub merges and installed devices
 
@@ -413,7 +420,7 @@ The device owner is responsible for deciding when a merged visual update should 
 their phone and for running the publish command personally from `apps/mobile`:
 
 ```text
-bunx eas-cli update --channel preview --environment preview --message "Describe the changes"
+bunx eas-cli@22.2.0 update --channel preview --environment preview --message "Describe the changes"
 ```
 
 Coworkers and agents may prepare, review, commit, and push the code, but they must not
