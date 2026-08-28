@@ -31,6 +31,7 @@ export function isAuthenticatedCloudRequest(request: Request): boolean {
     (method === 'GET' && pathname === '/api/v1/auths/me/avatar/read') ||
     (method === 'DELETE' && pathname === '/api/v1/auths/me/avatar') ||
     (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+$/u.test(pathname)) ||
+    (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/allies$/u.test(pathname)) ||
     (method === 'POST' && /^\/api\/v1\/workspaces\/[^/]+\/allies$/u.test(pathname)) ||
     (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/allies\/[^/]+$/u.test(pathname)) ||
     (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/allies\/[^/]+\/conversation$/u.test(pathname)) ||
