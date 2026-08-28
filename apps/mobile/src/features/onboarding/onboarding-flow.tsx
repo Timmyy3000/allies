@@ -8,7 +8,7 @@ import { isCloudError, type CloudError } from '@allies/cloud-client';
 
 import { PrimaryButton } from '@/components/ui/primary-button';
 import { useAllySessionIndex } from '@/features/allies/ally-session-index';
-import { pendingCommandStore, type PendingCreateCommand } from '@/lib/pending-command-store';
+import { pendingCommandStore, toCloudCreateAllyInput, type PendingCreateCommand } from '@/lib/pending-command-store';
 import { useNativeSession } from '@/lib/session/session-context';
 import { getMockGreeting, useMockApp } from '@/features/mock/mock-app';
 
@@ -62,9 +62,18 @@ function createCommand(
   reply: string,
 ): PendingCreateCommand {
   const createdAt = Date.now();
+  const input = toCreateAllyInput(flow, attemptToken, reply);
   return {
     kind: 'create',
-    ...toCreateAllyInput(flow, attemptToken, reply),
+    name: input.name,
+    job: input.job,
+    personality: input.personality,
+    appearance: {
+      catalogVersion: input.appearanceCatalogVersion,
+      key: input.appearanceKey,
+    },
+    onboardingAttempt: input.onboardingAttempt,
+    reply: input.reply,
     idempotencyKey: Crypto.randomUUID(),
     createdAt: new Date(createdAt).toISOString(),
     expiresAt: new Date(createdAt + PENDING_CREATE_LIFETIME_MS).toISOString(),
@@ -83,12 +92,12 @@ function commandMatches(
 }
 
 function commandMatchesConfig(command: PendingCreateCommand, flow: OnboardingFlowState): boolean {
-  return JSON.stringify({
-    name: command.name,
-    job: command.job,
-    personality: command.personality,
-    appearance: command.appearance,
-  }) === JSON.stringify(toOnboardingAttemptInput(flow));
+  const input = toOnboardingAttemptInput(flow);
+  return command.name === input.name
+    && command.job === input.job
+    && command.personality === input.personality
+    && command.appearance.catalogVersion === input.appearanceCatalogVersion
+    && command.appearance.key === input.appearanceKey;
 }
 
 function messageForCreateError(error: unknown): string {
@@ -153,7 +162,7 @@ export default function OnboardingFlow() {
     void (async () => {
       try {
         if (!session.accountClient) throw { kind: 'client' } satisfies CloudError;
-        const attempt = await session.accountClient.beginOnboardingAttempt(cloudInput, controller.signal);
+        const attempt = await session.accountClient.beginOnboarding(cloudInput, controller.signal);
         if (controller.signal.aborted) return;
         setCloudAttempt({ inputKey: cloudInputKey, ...attempt });
         setCloudMessage(null);
@@ -247,7 +256,7 @@ export default function OnboardingFlow() {
 
       const ally = await session.adapter.withRefresh(() => session.accountClient!.createAlly(
         session.account!.workspace.id,
-        boundCommand,
+        toCloudCreateAllyInput(boundCommand),
         boundCommand.idempotencyKey,
       ));
       await pendingCommandStore.deleteCreate();

@@ -15,6 +15,7 @@ const accountResponse = {
 
 describe('createMobileCloudClient', () => {
   it.each([
+    ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/allies'],
     ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/allies'],
     ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/allies/ally'],
     ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/allies/ally/conversation'],
@@ -27,7 +28,6 @@ describe('createMobileCloudClient', () => {
 
   it.each([
     ['POST', 'https://cloud.example.com/api/v1/onboarding/attempts'],
-    ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/allies'],
     ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/allies/ally'],
     ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation'],
     ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/messages'],

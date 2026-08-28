@@ -8,7 +8,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { AlliesLogo } from '@/features/onboarding/allies-logo';
 import { MockCompleteScreen } from '@/features/mock/mock-screens';
 import { useMockApp } from '@/features/mock/mock-app';
-import { pendingCommandStore } from '@/lib/pending-command-store';
+import { pendingCommandStore, toCloudCreateAllyInput } from '@/lib/pending-command-store';
 import { useNativeSession } from '@/lib/session/session-context';
 
 function isTransient(error: unknown): boolean {
@@ -48,7 +48,7 @@ function CloudCompleteAllyCreationScreen() {
       try {
         const ally = await adapter.withRefresh(() => accountClient.createAlly(
           account.workspace.id,
-          command,
+          toCloudCreateAllyInput(command),
           command.idempotencyKey,
           controller.signal,
         ));
