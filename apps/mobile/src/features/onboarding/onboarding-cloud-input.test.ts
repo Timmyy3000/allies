@@ -20,14 +20,15 @@ describe('onboarding Cloud input', () => {
       name: 'Maya',
       job: 'Study partner',
       personality: 'I want you to be analytical',
-      appearance: { catalogVersion: 'v1', key: 'ghosty:fd304f' },
+      appearanceCatalogVersion: 'v1',
+      appearanceKey: 'ghosty:fd304f',
     });
   });
 
   it('keeps the final reply as the exact create input', () => {
-    expect(toCreateAllyInput(flow, 'attempt-token', ' Keep this reply. ')).toEqual({
+    expect(toCreateAllyInput(flow, 'a'.repeat(32), ' Keep this reply. ')).toEqual({
       ...toOnboardingAttemptInput(flow),
-      onboardingAttempt: 'attempt-token',
+      onboardingAttempt: 'a'.repeat(32),
       reply: ' Keep this reply. ',
     });
   });

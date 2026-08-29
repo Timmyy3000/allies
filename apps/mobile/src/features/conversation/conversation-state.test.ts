@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
+import type { MessageViewModel } from '@allies/cloud-client';
 
 import {
   createConversationScrollIntent,
   insertAcceptedMessage,
   isActivityPollingAllowed,
+  isMessageTerminal,
   mergeConversationMessages,
   replaceNewestConversationPage,
   shouldKeepPendingMessage,
@@ -11,12 +13,12 @@ import {
 
 const message = (id: string, sequence: number, content = id) => ({
   id,
-  sender: id === 'ally-message' ? 'ally' : 'user',
+  sender: (id === 'ally-message' ? 'assistant' : 'user') as MessageViewModel['sender'],
   content,
   sequence,
-  status: 'accepted',
+  status: 'completed' as MessageViewModel['status'],
   createdAt: '2026-08-28T00:00:00.000Z',
-});
+}) satisfies MessageViewModel;
 
 describe('conversation state', () => {
   it('deduplicates immutable messages and sorts them by sequence', () => {
@@ -36,8 +38,8 @@ describe('conversation state', () => {
   });
 
   it('keeps the newest-page copy when mutable message status differs', () => {
-    const newest = { ...message('same', 1), status: 'completed' };
-    const older = { ...message('same', 1), status: 'accepted' };
+    const newest: MessageViewModel = { ...message('same', 1), status: 'completed' };
+    const older: MessageViewModel = { ...message('same', 1), status: 'queued' };
 
     expect(mergeConversationMessages([
       { id: 'conversation', allyId: 'ally-1', messages: [newest], nextCursor: 'older' },
@@ -63,6 +65,22 @@ describe('conversation state', () => {
     expect(() => insertAcceptedMessage([page], message('same', 1, 'new'))).toThrow('Conflicting message copies');
   });
 
+  it('does not duplicate a replayed acceptance already present in the newest page', () => {
+    const page = { id: 'conversation', allyId: 'ally-1', messages: [message('same', 1)], nextCursor: null };
+
+    expect(insertAcceptedMessage([page], message('same', 1))).toEqual([page]);
+  });
+
+  it('moves a replayed acceptance out of an older page without dropping that page', () => {
+    const newest = { id: 'conversation', allyId: 'ally-1', messages: [message('new', 3)], nextCursor: 'older' };
+    const older = { id: 'conversation', allyId: 'ally-1', messages: [message('same', 1)], nextCursor: null };
+
+    expect(insertAcceptedMessage([newest, older], message('same', 1))).toEqual([
+      { ...newest, messages: [message('same', 1), message('new', 3)] },
+      { ...older, messages: [] },
+    ]);
+  });
+
   it.each([
     ['queued', true],
     ['in_progress', true],
@@ -76,8 +94,19 @@ describe('conversation state', () => {
     expect(isActivityPollingAllowed({ focused: true, state, startedAt: 0, now: 1_000 })).toBe(expected);
   });
 
-  it('stops polling after ten minutes or when the screen is blurred', () => {
-    expect(isActivityPollingAllowed({ focused: true, state: 'running', startedAt: 0, now: 600_000 })).toBe(false);
+  it.each([
+    ['queued', false],
+    ['in_progress', false],
+    ['awaiting_action', true],
+    ['completed', true],
+    ['failed', true],
+    ['stopped', true],
+  ] as const)('identifies terminal accepted message state %s', (status, expected) => {
+    expect(isMessageTerminal(status)).toBe(expected);
+  });
+
+  it('stops polling after two minutes or when the screen is blurred', () => {
+    expect(isActivityPollingAllowed({ focused: true, state: 'running', startedAt: 0, now: 120_000 })).toBe(false);
     expect(isActivityPollingAllowed({ focused: false, state: 'running', startedAt: 0, now: 1_000 })).toBe(false);
   });
 

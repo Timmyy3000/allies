@@ -1,13 +1,13 @@
 import {
   isCloudError,
   type ActivitySnapshotViewModel,
-  type ConversationPageViewModel,
+  type ConversationViewModel,
   type MessageViewModel,
 } from '@allies/cloud-client';
 
 const ACTIVE_ACTIVITY_STATES = new Set(['queued', 'in_progress', 'running']);
 const AMBIGUOUS_MESSAGE_ERROR_KINDS = new Set(['network', 'timeout', 'server', 'throttled', 'contract']);
-const ACTIVITY_POLL_WINDOW_MS = 10 * 60 * 1000;
+const ACTIVITY_POLL_WINDOW_MS = 2 * 60 * 1000;
 
 function sameMessage(left: MessageViewModel, right: MessageViewModel): boolean {
   return left.id === right.id
@@ -16,7 +16,7 @@ function sameMessage(left: MessageViewModel, right: MessageViewModel): boolean {
     && left.sequence === right.sequence;
 }
 
-export function mergeConversationMessages(pages: readonly ConversationPageViewModel[]): MessageViewModel[] {
+export function mergeConversationMessages(pages: readonly ConversationViewModel[]): MessageViewModel[] {
   const messages = new Map<string, MessageViewModel>();
 
   for (const page of pages) {
@@ -31,27 +31,34 @@ export function mergeConversationMessages(pages: readonly ConversationPageViewMo
 }
 
 export function replaceNewestConversationPage(
-  pages: readonly ConversationPageViewModel[],
-  newest: ConversationPageViewModel,
-): ConversationPageViewModel[] {
+  pages: readonly ConversationViewModel[],
+  newest: ConversationViewModel,
+): ConversationViewModel[] {
   return pages.length ? [newest, ...pages.slice(1)] : [newest];
 }
 
 export function insertAcceptedMessage(
-  pages: readonly ConversationPageViewModel[],
+  pages: readonly ConversationViewModel[],
   message: MessageViewModel,
-): ConversationPageViewModel[] {
+): ConversationViewModel[] {
   if (!pages.length) return [];
   const newest = pages[0];
-  const existing = newest.messages.find((current) => current.id === message.id);
+  const existing = pages.flatMap((page) => page.messages).find((current) => current.id === message.id);
   if (existing && !sameMessage(existing, message)) throw new Error('Conflicting message copies');
   return [
     {
       ...newest,
       messages: [message, ...newest.messages.filter((current) => current.id !== message.id)],
     },
-    ...pages.slice(1),
+    ...pages.slice(1).map((page) => ({
+      ...page,
+      messages: page.messages.filter((current) => current.id !== message.id),
+    })),
   ];
+}
+
+export function isMessageTerminal(status: string): boolean {
+  return status !== 'queued' && status !== 'in_progress';
 }
 
 export function isActivityPollingAllowed(input: {

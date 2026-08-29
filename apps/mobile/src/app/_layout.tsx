@@ -13,6 +13,7 @@ import { useEffect } from 'react';
 import { useColorScheme } from 'react-native';
 
 import { KeyboardDismissView } from '@/components/ui/keyboard-dismiss-view';
+import { useMockApp } from '@/features/mock/mock-app';
 import { AppProviders } from '@/lib/providers/app-providers';
 import { useNativeSession } from '@/lib/session/session-context';
 import { getSessionRouteAction } from '@/lib/session/session-route';
@@ -46,6 +47,7 @@ export default function RootLayout() {
 }
 
 function SessionRouteRedirector() {
+  const mock = useMockApp();
   const pathname = usePathname();
   const { returnTo } = useGlobalSearchParams<{ returnTo?: string }>();
   const router = useRouter();
@@ -53,8 +55,11 @@ function SessionRouteRedirector() {
   const action = getSessionRouteAction(session.status, pathname, returnTo);
 
   useEffect(() => {
+    if (mock.isMock) return;
     if (action) router.replace(action.path as never);
-  }, [action, router]);
+  }, [action, mock.isMock, router]);
+
+  if (mock.isMock) return null;
 
   return null;
 }
