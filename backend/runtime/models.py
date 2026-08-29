@@ -386,7 +386,7 @@ class ConversationBinding(models.Model):
         primary_key=True,
     )
     cloud_conversation_ref = models.CharField(max_length=255, unique=True)
-    hermes_session_id = models.CharField(max_length=255)
+    hermes_session_id = models.CharField(max_length=255, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

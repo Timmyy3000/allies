@@ -307,6 +307,28 @@ async def test_worker_refills_free_slot_while_an_existing_turn_is_held(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_profile_reconciliation_retry_uses_bounded_exponential_backoff(
+    monkeypatch,
+):
+    worker = FoundryWorker(object(), object(), profile_reconciler=object())
+    delays: list[float] = []
+
+    async def fail_reconciliation(*, force=False):
+        raise ServiceUnavailableError("temporarily unavailable")
+
+    async def record_sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(worker, "_reconcile_profiles", fail_reconciliation)
+    monkeypatch.setattr(asyncio, "sleep", record_sleep)
+
+    for _ in range(5):
+        assert not await worker._reconcile_profiles_or_wait(retry_delay=1.0)
+
+    assert delays == [1.0, 2.0, 4.0, 5.0, 5.0]
+
+
+@pytest.mark.asyncio
 async def test_worker_renewal_loss_closes_stream_and_stops_before_completion():
     claim = {**CLAIM, "hermes_profile_key": "ally-a"}
     foundry, transport = client(

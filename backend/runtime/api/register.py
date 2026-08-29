@@ -15,7 +15,6 @@ from runtime.exceptions import (
     RuntimeNotFoundError,
     RuntimeValidationError,
 )
-from runtime.models import Workspace
 from runtime.services.attempts import complete_attempt, fail_attempt
 from runtime.services.claims import claim_next_execution
 from runtime.services.events import append_runtime_event
@@ -33,6 +32,7 @@ from runtime.services.profiles import (
 )
 from runtime.services.runtime_auth import authenticate_runtime_token
 from runtime.services.sessions import update_session_binding
+from runtime.services.workspaces import register_workspace
 
 from .schemas import (
     ClaimRequest,
@@ -153,11 +153,7 @@ def register(api: NinjaExtraAPI) -> None:
     ):
         try:
             _authenticate_cloud_service(request)
-            workspace = Workspace.objects.filter(
-                tenant_ref=payload.workspace_id
-            ).first()
-            if workspace is None:
-                raise RuntimeValidationError("workspace does not exist")
+            workspace = register_workspace(payload.workspace_id)
             profile = ensure_runtime_profile(
                 workspace.id,
                 _profile_id_for_binding(payload.binding_id),
@@ -167,7 +163,9 @@ def register(api: NinjaExtraAPI) -> None:
                     provider=settings.PROFILE_PROVISIONING_PROVIDER,
                     model=settings.PROFILE_PROVISIONING_MODEL,
                     base_url=settings.PROFILE_PROVISIONING_BASE_URL,
-                    first_chat_instruction=_first_chat_instruction(payload.job),
+                    first_chat_instruction=_first_chat_instruction(
+                        payload.name, payload.job
+                    ),
                     credential_refs=settings.PROFILE_PROVISIONING_CREDENTIAL_REFS,
                 ),
             )
@@ -350,9 +348,16 @@ def _profile_id_for_binding(binding_id: str) -> UUID:
     return uuid5(_PROFILE_ID_NAMESPACE, binding_id)
 
 
-def _first_chat_instruction(job: str) -> str:
+def _first_chat_instruction(name: str, job: str) -> str:
+    identity = (
+        f"Your name is {name}. When asked your name, answer with {name}. "
+        "Do not identify yourself as Hermes; Hermes is only your private runtime. "
+        if name
+        else ""
+    )
     return (
-        "Start the first chat by asking one useful question that helps with the "
+        identity
+        + "Start the first chat by asking one useful question that helps with the "
         f"user's job. Job: {job}"
     )
 

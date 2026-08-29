@@ -18,7 +18,11 @@ from runtime.contracts import (
     command_fingerprint,
     event_fingerprint,
 )
-from runtime.exceptions import RuntimeConflictError, RuntimeValidationError
+from runtime.exceptions import (
+    RuntimeConflictError,
+    RuntimeNotFoundError,
+    RuntimeValidationError,
+)
 from runtime.models import (
     ConversationBinding,
     Execution,
@@ -163,6 +167,39 @@ def test_command_exact_replay_and_conflict_do_not_duplicate(binding, contract):
         create_execution_intent(changed)
     assert "different execution" in str(error.value)
     assert Execution.objects.count() == 1
+
+
+def test_first_execution_can_create_the_runtime_session(binding, contract):
+    _workspace, profile = binding
+    ConversationBinding.objects.filter(profile=profile).delete()
+
+    receipt = create_execution_intent(
+        ExecutionCommand.model_validate(contract["command"])
+    )
+
+    assert receipt.status == "accepted"
+    execution = Execution.objects.get()
+    assert execution.profile == profile
+    assert execution.input_payload["cloud_conversation_ref"] == str(
+        contract["command"]["cloud"]["conversation_id"]
+    )
+    reserved = ConversationBinding.objects.get(profile=profile)
+    assert reserved.cloud_conversation_ref == str(
+        contract["command"]["cloud"]["conversation_id"]
+    )
+    assert reserved.hermes_session_id is None
+
+
+def test_existing_profile_conversation_must_match_cloud_command(binding, contract):
+    _workspace, profile = binding
+    ConversationBinding.objects.filter(profile=profile).update(
+        cloud_conversation_ref="another-conversation"
+    )
+
+    with pytest.raises(RuntimeNotFoundError, match="binding is unavailable"):
+        create_execution_intent(ExecutionCommand.model_validate(contract["command"]))
+
+    assert not Execution.objects.exists()
 
 
 def test_command_api_is_authenticated_and_reconciles(binding, contract, configured):

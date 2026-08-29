@@ -88,6 +88,28 @@ class WorkspaceStaleOperationError(RuntimeConflictError):
     code = "stale_operation"
 
 
+def register_workspace(workspace_id: UUID | str) -> Workspace:
+    """Register Cloud's workspace identity as Foundry desired state.
+
+    Registration is intentionally separate from provider provisioning.  It is
+    safe to replay and gives profile provisioning a durable parent while the
+    Fly lifecycle converges independently.
+    """
+
+    tenant_ref = str(workspace_id).strip()
+    if not tenant_ref or len(tenant_ref) > 255 or "\x00" in tenant_ref:
+        raise RuntimeValidationError("workspace_id is invalid")
+
+    @transaction.atomic
+    def register_once() -> Workspace:
+        workspace, _ = Workspace.objects.get_or_create(
+            tenant_ref=tenant_ref,
+        )
+        return workspace
+
+    return run_with_sqlite_lock_retry(register_once)
+
+
 @dataclass(frozen=True, slots=True)
 class WorkspaceSpec:
     """Deployment input for one tenant Machine.
@@ -358,6 +380,47 @@ class WorkspaceLifecycle:
             )
         )
         return result
+
+    def verify_workspace_ready(
+        self,
+        workspace_id: UUID | str,
+        spec: WorkspaceSpec,
+    ) -> WorkspaceBinding:
+        """Verify the recorded workspace binding and live Machine readiness.
+
+        A non-zero generation is only a durable identity/version marker.  It
+        does not prove that the recorded Machine still exists, is started, or
+        has the required containers running.  Activation uses this read-only
+        gate when it encounters an already-idled Workspace.
+        """
+
+        workspace_id = _uuid(workspace_id)
+        workspace = Workspace.objects.filter(pk=workspace_id).first()
+        if workspace is None:
+            raise RuntimeValidationError("workspace does not exist")
+        if workspace.provisioning_phase != WorkspaceProvisioningPhase.IDLE:
+            raise ProviderRetryableError(
+                "workspace provisioning is still in progress",
+                operation="verify_workspace",
+            )
+
+        binding = WorkspaceBinding.from_workspace(workspace)
+        app_name = deterministic_resource_names(workspace_id).app
+        machine = self._inspect_machine_by_id(app_name, binding.machine_ref)
+        if machine is None or machine.state is MachineState.DESTROYED:
+            raise WorkspaceReplacementRequiredError(
+                "workspace binding points to a missing Machine"
+            )
+        if (
+            machine.state is not MachineState.STARTED
+            or machine.health is None
+            or not _healthy_containers(machine.health, spec)
+        ):
+            raise ProviderRetryableError(
+                "workspace Machine is not ready",
+                operation="verify_workspace",
+            )
+        return binding
 
     def _ensure_workspace(
         self,
@@ -979,9 +1042,7 @@ class WorkspaceLifecycle:
                 continue
             if machine.state is MachineState.STARTED:
                 return
-            self.sleep(
-                min(HEALTH_POLL_SECONDS, max(0.0, deadline - time.monotonic()))
-            )
+            self.sleep(min(HEALTH_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
         raise ProviderRetryableError(
             "workspace Machine did not start before deadline",
             operation="wait_machine_start",
@@ -1020,9 +1081,7 @@ class WorkspaceLifecycle:
                         health = inspected.health if inspected else None
                 if health is not None and _healthy_containers(health, spec):
                     return machine
-            self.sleep(
-                min(HEALTH_POLL_SECONDS, max(0.0, deadline - time.monotonic()))
-            )
+            self.sleep(min(HEALTH_POLL_SECONDS, max(0.0, deadline - time.monotonic())))
         raise ProviderRetryableError(
             "workspace Machine did not become healthy before deadline",
             operation="wait_machine",
@@ -1154,8 +1213,7 @@ class WorkspaceLifecycle:
         self, workspace_id: UUID, claim: _Claim, error: ProviderError
     ) -> None:
         will_retry = (
-            error.retryable
-            and self._phase_attempts.get(claim.phase, 0) < MAX_ATTEMPTS
+            error.retryable and self._phase_attempts.get(claim.phase, 0) < MAX_ATTEMPTS
         )
         if error.retryable:
             if will_retry:
@@ -1269,6 +1327,12 @@ def ensure_workspace(workspace_id: UUID | str, spec: WorkspaceSpec) -> Workspace
     return _service().ensure_workspace(workspace_id, spec)
 
 
+def verify_workspace_ready(
+    workspace_id: UUID | str, spec: WorkspaceSpec
+) -> WorkspaceBinding:
+    return _service().verify_workspace_ready(workspace_id, spec)
+
+
 def replace_machine(
     workspace_id: UUID | str,
     spec: WorkspaceSpec,
@@ -1324,4 +1388,5 @@ __all__ = [
     "configure_workspace_provider",
     "ensure_workspace",
     "replace_machine",
+    "verify_workspace_ready",
 ]

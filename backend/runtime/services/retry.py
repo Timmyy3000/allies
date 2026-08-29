@@ -21,7 +21,9 @@ def run_with_sqlite_lock_retry[T](operation: Callable[[], T]) -> T:
             if not is_lock_error(exc):
                 raise
             if retry_index == len(_LOCK_BACKOFF_SECONDS):
-                raise RuntimeConflictError("database transaction was serialized") from exc
+                raise RuntimeConflictError(
+                    "database transaction was serialized"
+                ) from exc
             jitter = (monotonic_ns() % 250_000_000) / 1_000_000_000
             sleep(_LOCK_BACKOFF_SECONDS[retry_index] + jitter)
     raise AssertionError("lock retry loop did not return or raise")

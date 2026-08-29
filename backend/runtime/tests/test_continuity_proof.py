@@ -315,7 +315,9 @@ def test_hermes_proof_command_refuses_persisted_gateway_state_symlink(tmp_path):
     (data / "gateway_state.json").symlink_to(victim)
     script = "".join(hermes.command[4:]).replace("/opt/data", str(data))
     script = script.replace("exec hermes gateway run --no-supervise", "exit 99")
-    chunks = tuple(script[offset : offset + 200] for offset in range(0, len(script), 200))
+    chunks = tuple(
+        script[offset : offset + 200] for offset in range(0, len(script), 200)
+    )
     env = {
         **os.environ,
         "ALLIES_FND008_HERMES_KEY": base64.b64encode(b"synthetic-key").decode(),
@@ -358,7 +360,9 @@ def test_hermes_proof_command_preserves_state_on_prerename_failure(tmp_path):
     script = "".join(hermes.command[4:]).replace("/opt/data", str(data))
     script = script.replace('chown 10000:10000 "$t"', "false")
     script = script.replace("exec hermes gateway run --no-supervise", "exit 99")
-    chunks = tuple(script[offset : offset + 200] for offset in range(0, len(script), 200))
+    chunks = tuple(
+        script[offset : offset + 200] for offset in range(0, len(script), 200)
+    )
     env = {
         **os.environ,
         "ALLIES_FND008_HERMES_KEY": base64.b64encode(b"synthetic-key").decode(),
@@ -506,6 +510,7 @@ def test_fly_secret_store_deploys_post_release_secrets(monkeypatch):
     from runtime.services import continuity_proof
 
     calls = []
+
     def run(args, **kwargs):
         calls.append((args, kwargs))
         stdout = (
@@ -834,7 +839,9 @@ def test_cleanup_retries_transient_provider_actions():
         def delete_volume(self, _app_ref, _volume_ref):
             self.delete_attempts += 1
             if self.delete_attempts == 1:
-                raise ProviderRetryableError("still attached", operation="delete_volume")
+                raise ProviderRetryableError(
+                    "still attached", operation="delete_volume"
+                )
 
         def delete_app(self, _app_ref):
             return None
@@ -878,7 +885,9 @@ def test_machine_replacement_proof_runs_full_deterministic_path():
                 ConversationBinding.objects.update_or_create(
                     profile_id=profile_id,
                     defaults={
-                        "cloud_conversation_ref": f"conversation-{index}",
+                        "cloud_conversation_ref": (
+                            f"{config.run_id}-{config.profiles[index].alias}"
+                        ),
                         "hermes_session_id": f"session-{index}",
                     },
                 )
@@ -1029,9 +1038,10 @@ def test_uncertain_app_creation_is_reconciled_during_cleanup():
 
     assert result.status == "fail"
     assert result.cleanup == "complete"
-    assert result.resources["app"] == config.workspace_spec.app_spec(
-        config.workspace_id
-    ).name
+    assert (
+        result.resources["app"]
+        == config.workspace_spec.app_spec(config.workspace_id).name
+    )
     assert provider.app is None
     assert not Workspace.objects.filter(pk=config.workspace_id).exists()
 

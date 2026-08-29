@@ -135,10 +135,10 @@ def _resolve_command_binding(
     ).first()
     if profile is None:
         raise RuntimeNotFoundError("execution binding is unavailable")
-    if not ConversationBinding.objects.filter(
-        profile_id=profile.id,
-        cloud_conversation_ref=str(command.cloud.conversation_id),
-    ).exists():
+    binding = ConversationBinding.objects.filter(profile_id=profile.id).first()
+    if binding is not None and binding.cloud_conversation_ref != str(
+        command.cloud.conversation_id
+    ):
         raise RuntimeNotFoundError("execution binding is unavailable")
     return workspace, profile
 
@@ -155,11 +155,11 @@ def _create_contract_execution_once(
     )
     if profile.ally_ref != str(command.cloud.ally_id):
         raise RuntimeNotFoundError("execution binding is unavailable")
-    if not ConversationBinding.objects.filter(
-        profile_id=profile.id,
-        cloud_conversation_ref=str(command.cloud.conversation_id),
-    ).exists():
-        raise RuntimeNotFoundError("execution binding is unavailable")
+    _ensure_conversation_binding(
+        profile,
+        str(command.cloud.conversation_id),
+        mismatch_error=RuntimeNotFoundError,
+    )
     existing = (
         Execution.objects.select_for_update()
         .filter(workspace_id=workspace.id, idempotency_key=str(command.idempotency_key))
@@ -230,6 +230,18 @@ def _create_execution_once(
     payload: dict,
     payload_digest: str,
 ) -> Execution:
+    workspace = Workspace.objects.select_for_update().get(pk=workspace_id)
+    profile = RuntimeProfile.objects.select_for_update().get(
+        pk=profile_id, workspace_id=workspace.id
+    )
+    conversation_ref = payload.get("cloud_conversation_ref")
+    if conversation_ref is not None:
+        validate_nonempty(
+            conversation_ref,
+            "cloud_conversation_ref",
+            max_length=255,
+        )
+        _ensure_conversation_binding(profile, conversation_ref)
     try:
         with transaction.atomic():
             return Execution.objects.create(
@@ -251,6 +263,55 @@ def _create_execution_once(
             raise
         _ensure_exact_retry(existing, profile_id, payload_digest)
         return existing
+
+
+def _ensure_conversation_binding(
+    profile: RuntimeProfile,
+    cloud_conversation_ref: str,
+    *,
+    mismatch_error: type[RuntimeConflictError] = RuntimeConflictError,
+) -> ConversationBinding:
+    """Reserve one profile conversation while its row is already locked."""
+
+    validate_nonempty(
+        cloud_conversation_ref,
+        "cloud_conversation_ref",
+        max_length=255,
+    )
+    binding = (
+        ConversationBinding.objects.select_for_update()
+        .filter(profile_id=profile.id)
+        .first()
+    )
+    if binding is not None:
+        if binding.cloud_conversation_ref != cloud_conversation_ref:
+            raise mismatch_error("execution binding is unavailable")
+        return binding
+    try:
+        with transaction.atomic():
+            return ConversationBinding.objects.create(
+                profile=profile,
+                cloud_conversation_ref=cloud_conversation_ref,
+                hermes_session_id=None,
+            )
+    except IntegrityError as exc:
+        # On PostgreSQL the profile lock serializes this path.  SQLite's
+        # select_for_update is a no-op, so two first executions can race on
+        # the OneToOne insert.  Re-read after the savepoint before deciding
+        # whether the winner reserved the same conversation or a conflict.
+        binding = (
+            ConversationBinding.objects.select_for_update()
+            .filter(profile_id=profile.id)
+            .first()
+        )
+        if (
+            binding is not None
+            and binding.cloud_conversation_ref == cloud_conversation_ref
+        ):
+            return binding
+        raise mismatch_error(
+            "conversation binding conflicts with existing state"
+        ) from exc
 
 
 def _ensure_exact_retry(

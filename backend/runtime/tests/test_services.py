@@ -176,6 +176,93 @@ def test_concurrent_execution_exact_retries_share_one_execution(workspace, profi
     )
 
 
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_first_executions_reserve_one_conversation(workspace, profiles):
+    barrier = Barrier(2)
+    outcomes = [None, None]
+    errors = [None, None]
+
+    def create(index):
+        close_old_connections()
+        try:
+            barrier.wait(timeout=5)
+            outcomes[index] = create_execution(
+                workspace.id,
+                profiles[0].id,
+                f"conversation-race-{index}",
+                {
+                    "message": f"message-{index}",
+                    "cloud_conversation_ref": "conversation-one",
+                },
+            ).id
+        except Exception as exc:  # noqa: BLE001 - surfaced below
+            errors[index] = exc
+        finally:
+            close_old_connections()
+
+    threads = [Thread(target=create, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert errors == [None, None], errors
+    assert outcomes[0] is not None
+    assert outcomes[1] is not None
+    assert outcomes[0] != outcomes[1]
+    binding = ConversationBinding.objects.get(profile=profiles[0])
+    assert binding.cloud_conversation_ref == "conversation-one"
+    assert binding.hermes_session_id is None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_first_executions_with_different_conversations_conflict(
+    workspace,
+    profiles,
+):
+    barrier = Barrier(2)
+    outcomes = [None, None]
+    errors = [None, None]
+
+    def create(index):
+        close_old_connections()
+        try:
+            barrier.wait(timeout=5)
+            create_execution(
+                workspace.id,
+                profiles[0].id,
+                f"conversation-mismatch-{index}",
+                {
+                    "message": f"message-{index}",
+                    "cloud_conversation_ref": f"conversation-{index}",
+                },
+            )
+        except RuntimeConflictError:
+            outcomes[index] = "conflict"
+        except Exception as exc:  # noqa: BLE001 - surfaced below
+            errors[index] = exc
+        else:
+            outcomes[index] = "created"
+        finally:
+            close_old_connections()
+
+    threads = [Thread(target=create, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert errors == [None, None], errors
+    assert outcomes.count("created") == 1, outcomes
+    assert outcomes.count("conflict") == 1, outcomes
+    assert ConversationBinding.objects.get(
+        profile=profiles[0]
+    ).cloud_conversation_ref in {
+        "conversation-0",
+        "conversation-1",
+    }
+
+
 @pytest.mark.parametrize("payload", [["not", "an", "object"], "text", None])
 def test_execution_payload_must_be_a_bounded_object(workspace, profiles, payload):
     with pytest.raises(RuntimeValidationError):

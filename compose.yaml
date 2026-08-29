@@ -1,0 +1,81 @@
+name: allies-foundry-local-fly
+
+x-foundry-service: &foundry-service
+  build:
+    context: .
+  image: allies-foundry-local:dev
+  env_file:
+    - env.fly.local
+  environment: &foundry-environment
+    DATABASE_URL: postgresql://foundry:foundry-local-only@postgres:5432/foundry
+    DJANGO_DEBUG: "true"
+    ALLIES_CLOUD_EVENT_DELIVERY_ENABLED: ${ALLIES_CLOUD_EVENT_DELIVERY_ENABLED:-false}
+    ALLIES_CLOUD_URL: ${ALLIES_CLOUD_URL:-}
+    ALLIES_CLOUD_EVENT_SERVICE_TOKEN: ${ALLIES_CLOUD_EVENT_SERVICE_TOKEN:-}
+    PROFILE_PROVISIONING_PROVIDER: ${PROFILE_PROVISIONING_PROVIDER:-openai-api}
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: foundry
+      POSTGRES_USER: foundry
+      POSTGRES_PASSWORD: foundry-local-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foundry -d foundry"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  migrate:
+    <<: *foundry-service
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  foundry:
+    <<: *foundry-service
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz', timeout=3)
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    ports:
+      - "127.0.0.1:8100:8000"
+
+  event-publisher:
+    <<: *foundry-service
+    # The bounded --max-runs watch exits by design; do not restart it forever.
+    restart: "no"
+    command:
+      - uv
+      - run
+      - --no-sync
+      - python
+      - manage.py
+      - publish_event_deliveries
+      - --watch
+      - --interval
+      - "1"
+      - --max-runs
+      - "1440"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:

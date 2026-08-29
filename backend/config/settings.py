@@ -29,6 +29,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
 
+
 def env_bool(name: str, *, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
@@ -37,7 +38,9 @@ def env_bool(name: str, *, default: bool) -> bool:
 
 
 def env_list(name: str, *, default: str = "") -> list[str]:
-    return [item.strip() for item in os.getenv(name, default).split(",") if item.strip()]
+    return [
+        item.strip() for item in os.getenv(name, default).split(",") if item.strip()
+    ]
 
 
 def env_networks(name: str) -> tuple[IPv4Network | IPv6Network, ...]:
@@ -115,7 +118,7 @@ if ALLIES_CLOUD_EVENT_DELIVERY_ENABLED:
         )
 
 PROFILE_PROVISIONING_PROVIDER = env_profile_text(
-    "PROFILE_PROVISIONING_PROVIDER", "openai", max_length=128
+    "PROFILE_PROVISIONING_PROVIDER", "openai-api", max_length=128  # gitleaks:allow - provider identifier, not a credential
 )
 PROFILE_PROVISIONING_MODEL = env_profile_text(
     "PROFILE_PROVISIONING_MODEL", "gpt-5.6-luna", max_length=255
@@ -155,9 +158,7 @@ if profile_credential_ref.lower().startswith(
     ("bearer ", "token=", "key=", "sk-", "api_key=")
 ):
     raise ImproperlyConfigured("PROFILE_PROVISIONING_CREDENTIAL_REF is invalid")
-PROFILE_PROVISIONING_CREDENTIAL_REFS = {
-    profile_credential_name: profile_credential_ref
-}
+PROFILE_PROVISIONING_CREDENTIAL_REFS = {profile_credential_name: profile_credential_ref}
 
 SECRET_KEY = os.getenv("DJANGO_SECRET_KEY")
 if not SECRET_KEY:
@@ -267,7 +268,9 @@ if database_url:
     DATABASES = {"default": database_config}
 else:
     if not DEBUG:
-        raise ImproperlyConfigured("DATABASE_URL is required when DJANGO_DEBUG is false")
+        raise ImproperlyConfigured(
+            "DATABASE_URL is required when DJANGO_DEBUG is false"
+        )
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.sqlite3",

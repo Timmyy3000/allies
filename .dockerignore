@@ -1,0 +1,13 @@
+.git
+.forest
+.agent
+.lavish
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+**/*.pyc
+backend/db.sqlite3
+backend/staticfiles
+backend/media
+env.fly.local

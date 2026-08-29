@@ -140,7 +140,10 @@ def update_session_binding(
                 attempt, request_digest, token_digest, effective_session_id
             )
             return binding
-        if expected_session_id != binding.hermes_session_id:
+        if expected_session_id is None:
+            if binding.hermes_session_id is not None:
+                raise RuntimeLeaseConflictError("session binding is stale")
+        elif expected_session_id != binding.hermes_session_id:
             raise RuntimeLeaseConflictError("session binding is stale")
         binding.hermes_session_id = effective_session_id
         binding.save(update_fields=["hermes_session_id", "updated_at"])

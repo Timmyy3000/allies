@@ -122,7 +122,9 @@ class FlyCliSecretStore:
                 if isinstance(item, dict)
             }
         except (TypeError, json.JSONDecodeError) as exc:
-            raise _FlySecretCommandError("fly_secret_cleanup_verification_invalid") from exc
+            raise _FlySecretCommandError(
+                "fly_secret_cleanup_verification_invalid"
+            ) from exc
         if remaining.intersection(secret_names):
             raise _FlySecretCommandError("fly_secret_cleanup_incomplete")
 
@@ -187,9 +189,7 @@ class FlyCliSecretStore:
                     str(item["config"]["metadata"]["fly_release_version"]),
                 )
                 for item in machines
-                if item.get("config", {})
-                .get("metadata", {})
-                .get("fly_release_id")
+                if item.get("config", {}).get("metadata", {}).get("fly_release_id")
             ]
         except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
             raise _FlySecretCommandError("fly_release_metadata_invalid") from exc
@@ -200,9 +200,7 @@ class FlyCliSecretStore:
             raise _FlySecretCommandError("fly_release_metadata_invalid")
         return release_id, version
 
-    def _stop_bootstrap_machine(
-        self, app_ref: str, release: tuple[str, str]
-    ) -> None:
+    def _stop_bootstrap_machine(self, app_ref: str, release: tuple[str, str]) -> None:
         completed = self._run(("machine", "list", "--app", app_ref, "--json"))
         try:
             machines = json.loads(completed.stdout)
@@ -908,6 +906,7 @@ def run_machine_replacement_proof(
             state,
             execution_ids=tuple(item.id for item in (*active, queued, *resumed)),
         )
+
         def replacement_recovered() -> bool:
             failed_receipt = (
                 Attempt.objects.filter(
@@ -927,13 +926,11 @@ def run_machine_replacement_proof(
                 )
                 failure = RuntimeError(f"replacement_recovery_{safe_code}")
                 raise failure
-            return (
-                Execution.objects.filter(
-                    pk__in=tuple(item.id for item in active),
-                    status=ExecutionStatus.FAILED,
-                ).count()
-                == 2
-                and _executions_succeeded(tuple(item.id for item in (queued, *resumed)))
+            return Execution.objects.filter(
+                pk__in=tuple(item.id for item in active),
+                status=ExecutionStatus.FAILED,
+            ).count() == 2 and _executions_succeeded(
+                tuple(item.id for item in (queued, *resumed))
             )
 
         _wait_for(
@@ -1025,9 +1022,7 @@ def run_machine_replacement_proof(
             # Destroying the app authoritatively removes its scoped Fly secrets.
             # Recover only when every independently stored bearer is also proven
             # revoked; a database cleanup failure must remain fail-closed.
-            credential_cleanup_complete = _proof_credentials_revoked(
-                tuple(handles)
-            )
+            credential_cleanup_complete = _proof_credentials_revoked(tuple(handles))
         cleanup_complete = credential_cleanup_complete and provider_cleanup_complete
         if cleanup_complete and workspace_created:
             Workspace.objects.filter(pk=config.workspace_id).delete()
@@ -1056,27 +1051,30 @@ def run_machine_replacement_proof(
     )
 
 
-def _spec_for_handle(
-    config: ContinuityProofConfig,
+def proof_workspace_spec(
+    workspace_spec: WorkspaceSpec,
+    foundry_origin: str,
     handle: ProofCredentialHandle,
     dependency_handle: ProofDependencyCredentialHandle | None = None,
 ) -> WorkspaceSpec:
-    containers = config.workspace_spec.containers
-    runtime_credential_ref = config.workspace_spec.runtime_credential_ref
+    """Build the proof container topology from opaque credential handles.
+
+    This is public so activation and other bounded lifecycle entry points can
+    share the exact secret-file and command contract without constructing a
+    private proof configuration object.
+    """
+
+    containers = workspace_spec.containers
+    runtime_credential_ref = workspace_spec.runtime_credential_ref
     if dependency_handle is not None:
-        if (
-            not config.workspace_spec.hermes_image
-            or not config.workspace_spec.runtime_image
-        ):
+        if not workspace_spec.hermes_image or not workspace_spec.runtime_image:
             raise ValueError("proof dependency files require both runtime images")
         containers = (
             ContainerSpec(
                 "hermes",
-                config.workspace_spec.hermes_image,
+                workspace_spec.hermes_image,
                 command=_hermes_proof_command(dependency_handle),
-                healthchecks=(
-                    _proof_process_healthcheck("hermes"),
-                ),
+                healthchecks=(_proof_process_healthcheck("hermes"),),
                 environment={
                     "HERMES_HOME": "/opt/data",
                     "API_SERVER_HOST": "127.0.0.1",
@@ -1092,7 +1090,7 @@ def _spec_for_handle(
             ),
             ContainerSpec(
                 "allies-runtime",
-                config.workspace_spec.runtime_image,
+                workspace_spec.runtime_image,
                 entrypoint=_runtime_proof_command(handle, dependency_handle),
                 environment={
                     "HERMES_REQUEST_TIMEOUT": "180",
@@ -1122,12 +1120,27 @@ def _spec_for_handle(
         )
         runtime_credential_ref = dependency_handle.hermes_credential_ref
     return replace(
-        config.workspace_spec,
+        workspace_spec,
         containers=containers,
         runtime_credential_ref=runtime_credential_ref,
-        foundry_origin=config.foundry_origin,
+        foundry_origin=foundry_origin,
         foundry_runtime_credential_ref=handle.credential_ref,
         foundry_runtime_credential_secret_name=handle.secret_name,
+    )
+
+
+def _spec_for_handle(
+    config: ContinuityProofConfig,
+    handle: ProofCredentialHandle,
+    dependency_handle: ProofDependencyCredentialHandle | None = None,
+) -> WorkspaceSpec:
+    """Compatibility wrapper for the continuity-proof runner."""
+
+    return proof_workspace_spec(
+        config.workspace_spec,
+        config.foundry_origin,
+        handle,
+        dependency_handle,
     )
 
 
@@ -1149,19 +1162,17 @@ def _set_provider_release_metadata(provider: Any, metadata: Any) -> None:
 def _hermes_proof_command(
     dependency_handle: ProofDependencyCredentialHandle,
 ) -> tuple[str, ...]:
-    if not _SAFE_FLY_SECRET_NAME.fullmatch(
-        dependency_handle.hermes_key_secret_name
-    ):
+    if not _SAFE_FLY_SECRET_NAME.fullmatch(dependency_handle.hermes_key_secret_name):
         raise ValueError("Fly secret name is invalid")
     secret_name = dependency_handle.hermes_key_secret_name
     command = (
         f"p={_HERMES_KEY_PATH};umask 77;mkdir -p ${{p%/*}};"
         f'[ -s $p ]||printf %s "${secret_name}"|base64 -d >$p||exit 1;'
         f"unset {secret_name};"
-        's=/opt/data/gateway_state.json;'
+        "s=/opt/data/gateway_state.json;"
         '[ ! -L "$s" ]&&{ [ ! -e "$s" ]||[ -f "$s" ]; }||exit 1;'
-        't=$(mktemp /opt/data/.gateway-state.XXXXXX)||exit 1;'
-        "echo '{\"desired_state\":\"stopped\"}'>\"$t\"&&"
+        "t=$(mktemp /opt/data/.gateway-state.XXXXXX)||exit 1;"
+        'echo \'{"desired_state":"stopped"}\'>"$t"&&'
         'chown 10000:10000 "$t"&&mv -fT -- "$t" "$s"'
         '||{ rm -f -- "$t";exit 1; };'
         'export API_SERVER_KEY="$(cat $p)";'
@@ -1374,9 +1385,7 @@ def _assert_profile_fact_continuity(
             re.findall(r"[a-z0-9]+", _execution_text(execution.id).casefold())
         )
         expected_tokens = _recognizable_fact_tokens(profile.recognizable_fact)
-        other_tokens = _recognizable_fact_tokens(
-            profiles[1 - index].recognizable_fact
-        )
+        other_tokens = _recognizable_fact_tokens(profiles[1 - index].recognizable_fact)
         if not expected_tokens <= output_tokens or other_tokens <= output_tokens:
             raise RuntimeError("profile_fact_continuity_failed")
 
@@ -1641,5 +1650,6 @@ __all__ = [
     "ProofProfile",
     "ProofRunState",
     "ProofSecretStore",
+    "proof_workspace_spec",
     "run_machine_replacement_proof",
 ]

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import unicodedata
 from typing import Any
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import ConfigDict, Field, StrictInt, StrictStr
+from pydantic import ConfigDict, Field, StrictInt, StrictStr, field_validator
 
 from runtime.contracts import (
     ExecutionCommand,
@@ -125,18 +126,33 @@ class ProfileProvisioningRequest(Schema):
         max_length=64,
         pattern=r"^[0-9a-f]{64}$",
     )
+    name: StrictStr = Field(
+        default="",
+        max_length=80,
+        pattern=r"^[^\x00-\x1f\x7f]*$",
+    )
     job: StrictStr = Field(
         ...,
         min_length=1,
         max_length=200,
-        pattern=r"^[^\x00\r]*$",
+        pattern=r"^[^\x00-\x1f\x7f]*$",
     )
     personality: StrictStr = Field(
         ...,
         min_length=1,
         max_length=4000,
-        pattern=r"^[^\x00\r]*$",
+        pattern=r"^[^\x00-\x1f\x7f]*$",
     )
+
+    @field_validator("name", "job", "personality")
+    @classmethod
+    def reject_prompt_control_characters(cls, value: str) -> str:
+        if any(
+            unicodedata.category(character) in {"Cc", "Cf", "Zl", "Zp"}
+            for character in value
+        ):
+            raise ValueError("name, job, and personality must not contain control characters")
+        return value
 
 
 class ProfileProvisioningReceipt(Schema):

@@ -19,6 +19,7 @@ staticfiles/
 .env
 .env.*
 !.env.example
+env.fly.local
 .coverage
 .coverage.*
 coverage.xml
