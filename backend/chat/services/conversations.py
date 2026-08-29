@@ -6,7 +6,7 @@ from uuid import UUID
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 
-from allies.models import Ally, OnboardingAttempt
+from allies.models import Ally, AllyBinding, BindingStatus, OnboardingAttempt
 from auths.models import User
 from chat.exceptions import (
     ConversationUnavailable,
@@ -24,7 +24,14 @@ from chat.models import (
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 
-from .messages import _parse_uuid, parse_cursor, serialize_cursor
+from .messages import (
+    _digest,
+    _fingerprint,
+    _parse_uuid,
+    normalize_content,
+    parse_cursor,
+    serialize_cursor,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,21 +60,40 @@ def _validate_imported_history(
     )
     if len(rows) < 2:
         raise OnboardingHandoffRepairRequired("onboarding handoff needs repair")
-    expected = (
-        (MessageSender.ASSISTANT, greeting or rows[0].content),
-        (MessageSender.USER, reply or rows[1].content),
+    greeting_row, reply_row = rows
+    expected_greeting = _handoff_text(
+        greeting if greeting is not None else greeting_row.content
     )
-    for row, (sender, content) in zip(rows[:2], expected, strict=True):
-        if (
-            row.sequence != (1 if sender == MessageSender.ASSISTANT else 2)
-            or row.sender != sender
-            or row.origin != MessageOrigin.ONBOARDING
-            or row.status != MessageLifecycle.COMPLETED
-            or row.send_key_digest
-            or row.content_fingerprint
-            or row.content != content
-        ):
-            raise OnboardingHandoffRepairRequired("onboarding handoff needs repair")
+    expected_reply = _handoff_text(reply if reply is not None else reply_row.content)
+    if (
+        greeting_row.sequence != 1
+        or greeting_row.sender != MessageSender.ASSISTANT
+        or greeting_row.origin != MessageOrigin.ONBOARDING
+        or greeting_row.status != MessageLifecycle.COMPLETED
+        or greeting_row.send_key_digest
+        or greeting_row.content_fingerprint
+        or greeting_row.content != expected_greeting
+    ):
+        raise OnboardingHandoffRepairRequired("onboarding handoff needs repair")
+    reply_is_preview = (
+        reply_row.origin == MessageOrigin.ONBOARDING
+        and reply_row.status == MessageLifecycle.COMPLETED
+        and not reply_row.send_key_digest
+        and not reply_row.content_fingerprint
+    )
+    reply_is_turn = (
+        reply_row.origin == MessageOrigin.SEND
+        and reply_row.status in MessageLifecycle.values
+        and bool(reply_row.send_key_digest)
+        and bool(reply_row.content_fingerprint)
+    )
+    if (
+        reply_row.sequence != 2
+        or reply_row.sender != MessageSender.USER
+        or reply_row.content != expected_reply
+        or not (reply_is_preview or reply_is_turn)
+    ):
+        raise OnboardingHandoffRepairRequired("onboarding handoff needs repair")
     return conversation
 
 
@@ -128,6 +154,104 @@ def ensure_default_conversation(
         if conversation is None:
             raise
         return _validate_imported_history(conversation, greeting=greeting, reply=reply)
+
+
+def activate_onboarding_reply(*, ally: Ally) -> Message:
+    """Promote the retained onboarding reply into the first real conversation turn."""
+
+    with transaction.atomic():
+        conversation = (
+            Conversation.objects.select_for_update()
+            .filter(ally=ally, is_default=True)
+            .order_by("id")
+            .first()
+        )
+        if conversation is None:
+            raise OnboardingHandoffUnavailable("onboarding handoff unavailable")
+        try:
+            attempt = ally.onboarding_attempt
+        except OnboardingAttempt.DoesNotExist:
+            expected_greeting = expected_reply = None
+        else:
+            expected_greeting = _handoff_text(attempt.greeting)
+            expected_reply = _handoff_text(attempt.reply)
+        _validate_imported_history(
+            conversation,
+            greeting=expected_greeting,
+            reply=expected_reply,
+        )
+        try:
+            message = Message.objects.select_for_update().get(
+                conversation=conversation,
+                sequence=2,
+                sender=MessageSender.USER,
+            )
+        except Message.DoesNotExist as exc:
+            raise OnboardingHandoffRepairRequired(
+                "onboarding handoff needs repair"
+            ) from exc
+        if message.origin == MessageOrigin.ONBOARDING:
+            content = normalize_content(message.content)
+            message.origin = MessageOrigin.SEND
+            message.content = content
+            message.status = MessageLifecycle.QUEUED
+            message.send_key_digest = _digest(f"onboarding-reply:{ally.pk}")
+            message.content_fingerprint = _fingerprint(content)
+            message.save(
+                update_fields=(
+                    "origin",
+                    "content",
+                    "status",
+                    "send_key_digest",
+                    "content_fingerprint",
+                    "updated_at",
+                )
+            )
+        elif message.origin != MessageOrigin.SEND:
+            raise OnboardingHandoffRepairRequired("onboarding handoff needs repair")
+
+        from .dispatch import ensure_dispatch_after_accept
+
+        ensure_dispatch_after_accept(message)
+        return message
+
+
+def reconcile_onboarding_reply(*, ally: Ally) -> Message | None:
+    """Repair a bound Ally whose retained onboarding reply was never promoted."""
+
+    try:
+        binding = AllyBinding.objects.only("status").get(ally_id=ally.pk)
+    except AllyBinding.DoesNotExist:
+        return None
+    if binding.status != BindingStatus.BOUND:
+        return None
+    conversation = (
+        Conversation.objects.filter(ally_id=ally.pk, is_default=True)
+        .order_by("id")
+        .first()
+    )
+    if conversation is None:
+        return None
+    reply = (
+        Message.objects.filter(
+            conversation=conversation,
+            sequence=2,
+            sender=MessageSender.USER,
+        )
+        .only("id", "origin", "status")
+        .first()
+    )
+    if reply is None:
+        return None
+    if reply.origin == MessageOrigin.ONBOARDING:
+        return activate_onboarding_reply(ally=ally)
+    if reply.origin == MessageOrigin.SEND:
+        if reply.status in {MessageLifecycle.QUEUED, MessageLifecycle.IN_PROGRESS}:
+            from .dispatch import ensure_dispatch_after_accept
+
+            ensure_dispatch_after_accept(reply)
+        return reply
+    raise OnboardingHandoffRepairRequired("onboarding handoff needs repair")
 
 
 def reconcile_ally_conversation(*, ally: Ally) -> Conversation:
@@ -219,6 +343,7 @@ def retrieve_conversation(
                 greeting=_handoff_text(attempt.greeting),
                 reply=_handoff_text(attempt.reply),
             )
+        reconcile_onboarding_reply(ally=conversation.ally)
     else:
         try:
             ally = Ally.objects.select_related("workspace").get(
@@ -244,6 +369,7 @@ def retrieve_conversation(
                     greeting=_handoff_text(attempt.greeting),
                     reply=_handoff_text(attempt.reply),
                 )
+        reconcile_onboarding_reply(ally=conversation.ally)
     messages, next_cursor = _messages_page(
         conversation=conversation, limit=limit, cursor=cursor
     )

@@ -5,6 +5,7 @@ from ninja import Header
 from ninja_extra import ControllerBase, api_controller, http_get, http_post
 
 from allies.api.schemas import (
+    AllyListResponse,
     AllyResponse,
     CreateAllyRequest,
     OnboardingAttemptRequest,
@@ -16,7 +17,7 @@ from allies.exceptions import (
     OnboardingUnavailable,
 )
 from allies.models import Ally, ProvisioningStatus
-from allies.services.creation import create_ally, retrieve_ally
+from allies.services.creation import create_ally, list_allies, retrieve_ally
 from allies.services.onboarding import begin_onboarding
 from auths.api.common import (
     _client_identity,
@@ -87,6 +88,26 @@ class OnboardingController(ControllerBase):
 
 @api_controller("/workspaces/{workspace_id}/allies", tags=["Allies"])
 class AllyController(ControllerBase):
+    @http_get(
+        "",
+        response={
+            200: SuccessResponse[AllyListResponse],
+            **error_responses(401, 404, 500),
+        },
+    )
+    def list(self, request: HttpRequest, workspace_id: CanonicalUUID):
+        try:
+            session = _session(request)
+            allies = list_allies(user=session.user, workspace_id=workspace_id)
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        except (WorkspaceAccessDenied, ValueError):
+            return error_json("ally_unavailable", "Ally unavailable", 404)
+        return success_json(
+            AllyListResponse(allies=[_response(ally) for ally in allies]),
+            "Allies loaded",
+        )
+
     @http_post(
         "",
         response={

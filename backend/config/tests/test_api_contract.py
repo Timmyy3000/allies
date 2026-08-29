@@ -106,6 +106,26 @@ def test_waitlist_openapi_declares_two_public_origin_checked_mutations():
         assert "trusted frontend origin" in operation["description"]
 
 
+def test_allies_collection_openapi_declares_list_envelope_and_safe_errors():
+    schema = api.get_openapi_schema()
+    operation = schema["paths"]["/api/v1/workspaces/{workspace_id}/allies"]["get"]
+
+    assert operation["responses"][200]["content"]["application/json"]["schema"][
+        "$ref"
+    ].endswith("/SuccessResponse_AllyListResponse_")
+    assert set(operation["responses"]) == {200, 401, 404, 500}
+    assert (
+        schema["components"]["schemas"]["AllyListResponse"]["properties"]["allies"][
+            "type"
+        ]
+        == "array"
+    )
+    assert (
+        schema["components"]["schemas"]["SuccessResponse_AllyListResponse_"]["example"]
+        == STANDARD_RESPONSE_EXAMPLES["SuccessResponse_AllyListResponse_"]
+    )
+
+
 def test_unhandled_error_logs_only_safe_metadata_and_returns_generic_envelope(caplog):
     request = RequestFactory().get("/api/v1/test")
     error = RuntimeError("private failure detail")

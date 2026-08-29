@@ -1,6 +1,8 @@
 import base64
 import hashlib
+import io
 import time
+from urllib.error import HTTPError
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -8,7 +10,7 @@ from django.test import override_settings
 
 from auths.exceptions import ProviderRejected
 from auths.providers.base import ProviderFlow, ProviderKey, VerifiedIdentity
-from auths.providers.google import GoogleProvider
+from auths.providers.google import GoogleProvider, _safe_provider_error_code
 
 
 @override_settings(
@@ -118,6 +120,38 @@ def test_google_rejects_http_endpoints_and_bad_discovery(monkeypatch):
         provider._discovery()
 
 
+@override_settings(DEBUG=True, ALLIES_AUTH_GOOGLE_CLIENT_ID="client-id")
+def test_google_allows_http_loopback_redirect_in_debug():
+    url = GoogleProvider().authorization_url(
+        ProviderFlow(
+            provider=ProviderKey.GOOGLE,
+            state="state",
+            nonce="nonce",
+            redirect_uri="http://localhost:8000/api/v1/auths/callback/google",
+            pkce_verifier="verifier",
+        )
+    )
+
+    assert parse_qs(urlparse(url).query)["redirect_uri"] == [
+        "http://localhost:8000/api/v1/auths/callback/google"
+    ]
+
+
+@pytest.mark.parametrize("debug", [True, False])
+def test_google_rejects_unsafe_http_redirects(debug, settings):
+    settings.DEBUG = debug
+    provider = GoogleProvider()
+
+    with pytest.raises(ProviderRejected):
+        provider._https_url("http://cloud.example/callback", allow_debug_loopback=True)
+
+    if not debug:
+        with pytest.raises(ProviderRejected):
+            provider._https_url(
+                "http://localhost:8000/callback", allow_debug_loopback=True
+            )
+
+
 def test_google_fetch_json_bounds_and_decode_fail_closed(monkeypatch):
     class Response:
         def __init__(self, body):
@@ -155,18 +189,40 @@ def test_google_fetch_json_bounds_and_decode_fail_closed(monkeypatch):
         )
 
 
-def test_google_jwks_cache_is_populated_with_uri_and_value(monkeypatch):
+def test_google_http_failure_keeps_only_safe_provider_code(monkeypatch):
+    error = HTTPError(
+        "https://oauth2.googleapis.com/token",
+        400,
+        "Bad Request",
+        {},
+        io.BytesIO(b'{"error":"invalid_grant","error_description":"private detail"}'),
+    )
+    monkeypatch.setattr(
+        "auths.providers.google.urlopen",
+        lambda request, timeout: (_ for _ in ()).throw(error),
+    )
+
+    with pytest.raises(
+        ProviderRejected, match=r"^google provider HTTP 400 \(invalid_grant\)$"
+    ) as captured:
+        GoogleProvider()._fetch_json("https://oauth2.googleapis.com/token")
+
+    assert "private detail" not in str(captured.value)
+    assert _safe_provider_error_code({"error": "line\nbreak"}) == ""
+
+
+def test_google_jwks_cache_uses_current_pyjwt_contract(monkeypatch):
     import jwt
 
     cache_calls = []
-    jwk_set = object()
+    jwk_set = {"keys": [{"kid": "test"}]}
 
     class Cache:
-        def get(self, key):
-            del key
+        def get(self):
+            return None
 
-        def put(self, *args):
-            cache_calls.append(args)
+        def put(self, value):
+            cache_calls.append(value)
 
     def init(client, uri, **kwargs):
         client.uri = uri
@@ -179,7 +235,6 @@ def test_google_jwks_cache_is_populated_with_uri_and_value(monkeypatch):
 
     monkeypatch.setattr(jwt.PyJWKClient, "__init__", init)
     monkeypatch.setattr(jwt.PyJWKClient, "get_signing_key_from_jwt", get_signing_key)
-    monkeypatch.setattr(jwt.api_jwk.PyJWKSet, "from_dict", lambda payload: jwk_set)
     provider = GoogleProvider()
     monkeypatch.setattr(
         provider,
@@ -192,7 +247,7 @@ def test_google_jwks_cache_is_populated_with_uri_and_value(monkeypatch):
             "signed-token", {"jwks_uri": "https://example.test/jwks"}
         )
 
-    assert cache_calls == [("https://example.test/jwks", jwk_set)]
+    assert cache_calls == [jwk_set]
 
 
 def test_google_provider_bounds_http_timeout_by_flow_deadline(monkeypatch):

@@ -16,6 +16,7 @@ import re
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from corsheaders.defaults import default_headers
 from django.core.exceptions import ImproperlyConfigured
 from django.utils.log import DEFAULT_LOGGING
 
@@ -353,6 +354,7 @@ CORS_ALLOWED_ORIGIN_REGEXES = [
     if "*" in origin
 ]
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_HEADERS = [*default_headers, "idempotency-key"]
 CORS_EXPOSE_HEADERS = ["X-CSRFToken", "X-Request-ID"]
 
 LOGGING = {
@@ -403,10 +405,10 @@ LOGGING = {
 
 SESSION_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_HTTPONLY = True
-SESSION_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SAMESITE = "Lax" if DEBUG else "None"
 CSRF_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_HTTPONLY = False
-CSRF_COOKIE_SAMESITE = "None"
+CSRF_COOKIE_SAMESITE = "Lax" if DEBUG else "None"
 CSRF_COOKIE_PATH = "/"
 
 ALLIES_TRUST_FORWARDED_PROTO = env_bool("ALLIES_TRUST_FORWARDED_PROTO", False)
@@ -441,7 +443,7 @@ ALLIES_AUTH_REFRESH_COOKIE_PATH = "/api/v1/auths/"
 ALLIES_AUTH_FLOW_COOKIE_PATH = "/api/v1/auths/callback/"
 ALLIES_AUTH_THROTTLE_COOKIE_PATH = "/api/"
 ALLIES_AUTH_COOKIE_SECURE = not DEBUG
-ALLIES_AUTH_COOKIE_SAMESITE = "None"
+ALLIES_AUTH_COOKIE_SAMESITE = "Lax" if DEBUG else "None"
 ALLIES_AUTH_ACCESS_TTL_SECONDS = int(
     os.environ.get("ALLIES_AUTH_ACCESS_TTL_SECONDS", "600")
 )

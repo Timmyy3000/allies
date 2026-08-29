@@ -17,6 +17,10 @@ from allies.gateways.contracts import (
 )
 from allies.models import Ally, AllyBinding, BindingStatus
 from auths.models import User
+from chat.exceptions import (
+    OnboardingHandoffRepairRequired,
+    OnboardingHandoffUnavailable,
+)
 from chat.models import (
     Conversation,
     DispatchOutbox,
@@ -29,6 +33,7 @@ from chat.models import (
 from chat.services.dispatch import (
     dispatch_accepted_message,
     dispatch_pending_messages,
+    ensure_dispatch_after_accept,
 )
 from chat.services.messages import accept_message
 from workspaces.models import Membership, Workspace
@@ -113,6 +118,196 @@ def test_dispatch_is_one_to_one_and_transmits_persisted_canonical_bytes(
     assert command.command_id == message.id
     assert command.idempotency_key == message.id
     assert command.conversation_turn_ordinal == message.sequence
+
+
+@pytest.mark.django_db
+def test_accept_persists_outbox_while_execution_is_disabled_then_recovers(
+    dispatch_records, monkeypatch
+):
+    _workspace, _binding, _conversation, message = dispatch_records
+
+    with override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=False):
+        ensure_dispatch_after_accept(message)
+
+    outbox = DispatchOutbox.objects.get(message=message)
+    assert outbox.status == DispatchState.PENDING
+    assert outbox.command_bytes
+
+    with override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=True):
+        monkeypatch.setattr(
+            "chat.services.dispatch.create_execution_intent",
+            lambda command, **_kwargs: receipt_for(command),
+        )
+        report = dispatch_pending_messages(now=timezone.now())
+
+    assert report.accepted == 1
+    assert DispatchOutbox.objects.get(message=message).status == DispatchState.ACCEPTED
+
+
+@pytest.mark.django_db
+@override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=True)
+def test_sequence_two_onboarding_reply_is_dispatched_before_later_send(
+    dispatch_records, monkeypatch
+):
+    _workspace, binding, conversation, existing = dispatch_records
+    existing.delete()
+    Message.objects.create(
+        conversation=conversation,
+        sequence=1,
+        sender=MessageSender.ASSISTANT,
+        origin=MessageOrigin.ONBOARDING,
+        content="Hello",
+        status=MessageLifecycle.COMPLETED,
+    )
+    Message.objects.create(
+        conversation=conversation,
+        sequence=2,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.ONBOARDING,
+        content="normalized user text",
+        status=MessageLifecycle.COMPLETED,
+    )
+    later = Message.objects.create(
+        conversation=conversation,
+        sequence=3,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content="Later send",
+        status=MessageLifecycle.QUEUED,
+        send_key_digest="b" * 64,
+        content_fingerprint=hashlib.sha256(b"Later send").hexdigest(),
+    )
+    binding.status = BindingStatus.PENDING
+    binding.save(update_fields=("status", "updated_at"))
+    dispatch_accepted_message(later)
+    binding.status = BindingStatus.BOUND
+    binding.receipt_digest = "d" * 64
+    binding.save(update_fields=("status", "receipt_digest", "updated_at"))
+
+    calls: list[int] = []
+
+    def create(command, **_kwargs):
+        calls.append(command.conversation_turn_ordinal)
+        return receipt_for(command)
+
+    monkeypatch.setattr("chat.services.dispatch.create_execution_intent", create)
+    now = timezone.now()
+
+    first = dispatch_pending_messages(now=now)
+    assert first.deferred == 1
+    assert calls == []
+    promoted = conversation.messages.get(sequence=2)
+    assert promoted.origin == MessageOrigin.SEND
+    assert promoted.status == MessageLifecycle.QUEUED
+    assert DispatchOutbox.objects.filter(message=promoted).exists()
+
+    DispatchOutbox.objects.filter(message__conversation=conversation).update(
+        next_attempt_at=now
+    )
+    second = dispatch_pending_messages(now=now)
+
+    assert second.accepted == 2
+    assert calls == [2, 3]
+
+
+@pytest.mark.django_db
+@override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=True)
+def test_missing_onboarding_handoff_is_terminal_and_does_not_starve_batch(
+    dispatch_records, monkeypatch
+):
+    workspace, _binding, conversation, message = dispatch_records
+    message.sequence = 3
+    message.save(update_fields=("sequence", "updated_at"))
+    Message.objects.create(
+        conversation=conversation,
+        sequence=1,
+        sender=MessageSender.ASSISTANT,
+        origin=MessageOrigin.ONBOARDING,
+        content="Hello",
+        status=MessageLifecycle.COMPLETED,
+    )
+    dispatch_accepted_message(message)
+
+    other_ally = Ally.objects.create(
+        workspace=workspace,
+        name="Nia",
+        job="Planning partner",
+        personality="Precise",
+        appearance_catalog_version="v1",
+        appearance_key="sunrise",
+    )
+    AllyBinding.objects.create(
+        ally=other_ally,
+        status=BindingStatus.BOUND,
+        receipt_digest="d" * 64,
+    )
+    other_conversation = Conversation.objects.create(ally=other_ally)
+    other_message = Message.objects.create(
+        conversation=other_conversation,
+        sequence=1,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content="Other work",
+        status=MessageLifecycle.QUEUED,
+        send_key_digest="e" * 64,
+        content_fingerprint="f" * 64,
+    )
+    dispatch_accepted_message(other_message)
+
+    calls: list[str] = []
+
+    def create(command, **_kwargs):
+        calls.append(str(command.cloud.message_id))
+        return receipt_for(command)
+
+    monkeypatch.setattr("chat.services.dispatch.create_execution_intent", create)
+    now = timezone.now()
+    report = dispatch_pending_messages(now=now)
+
+    missing_outbox = DispatchOutbox.objects.get(message=message)
+    other_outbox = DispatchOutbox.objects.get(message=other_message)
+    assert report.claimed == 2
+    assert report.accepted == 1
+    assert missing_outbox.status == DispatchState.FAILED
+    assert missing_outbox.safe_error_code == "onboarding_handoff_unavailable"
+    assert missing_outbox.lease_expires_at is None
+    assert missing_outbox.next_attempt_at is None
+    assert other_outbox.status == DispatchState.ACCEPTED
+    assert calls == [str(other_message.id)]
+    assert dispatch_pending_messages(now=now + timedelta(days=1)).claimed == 0
+
+
+@pytest.mark.django_db
+@override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=True)
+@pytest.mark.parametrize(
+    ("handoff_error", "safe_error_code"),
+    [
+        (OnboardingHandoffUnavailable, "onboarding_handoff_unavailable"),
+        (OnboardingHandoffRepairRequired, "onboarding_handoff_repair_required"),
+    ],
+)
+def test_handoff_reconciliation_errors_are_terminal_after_claim(
+    dispatch_records, monkeypatch, handoff_error, safe_error_code
+):
+    _workspace, _binding, _conversation, message = dispatch_records
+    dispatch_accepted_message(message)
+
+    def fail_reconcile(**_kwargs):
+        raise handoff_error()
+
+    monkeypatch.setattr(
+        "chat.services.conversations.reconcile_onboarding_reply",
+        fail_reconcile,
+    )
+
+    report = dispatch_pending_messages(now=timezone.now())
+
+    outbox = DispatchOutbox.objects.get(message=message)
+    assert report.claimed == 1
+    assert outbox.status == DispatchState.FAILED
+    assert outbox.safe_error_code == safe_error_code
+    assert outbox.lease_expires_at is None
+    assert outbox.next_attempt_at is None
 
 
 @pytest.mark.django_db

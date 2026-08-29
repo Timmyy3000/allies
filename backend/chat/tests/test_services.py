@@ -7,12 +7,19 @@ from django.core.cache import cache
 from django.db import DatabaseError
 from django.utils import timezone
 
-from allies.models import Ally
+from allies.models import (
+    Ally,
+    AllyBinding,
+    BindingStatus,
+    ProvisioningOperation,
+    ProvisioningStatus,
+)
 from auths.models import User
 from chat.exceptions import (
     CursorInvalid,
     IdempotencyConflict,
     MessageValidation,
+    OnboardingHandoffRepairRequired,
     QueueFull,
     SendRateLimited,
     TurnConflict,
@@ -91,6 +98,39 @@ def test_onboarding_history_and_exactly_once_send(account):
             content="different",
             idempotency_key="chat-send-key-0001",
         )
+
+
+@pytest.mark.django_db
+def test_repair_required_ally_rejects_new_sends(account):
+    user, workspace, ally = account
+    binding = AllyBinding.objects.create(
+        ally=ally,
+        status=BindingStatus.BOUND,
+        receipt_digest="a" * 64,
+    )
+    ProvisioningOperation.objects.create(
+        binding=binding,
+        workspace=workspace,
+        user=user,
+        api_idempotency_key_digest="b" * 64,
+        content_fingerprint="c" * 64,
+        status=ProvisioningStatus.REPAIR_REQUIRED,
+        expires_at=timezone.now() + timedelta(hours=1),
+    )
+    conversation = ensure_default_conversation(
+        ally=ally, greeting="Hello", reply="Retained reply"
+    )
+
+    with pytest.raises(OnboardingHandoffRepairRequired):
+        accept_message(
+            user=user,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
+            content="Please continue",
+            idempotency_key="chat-repair-key-0001",
+        )
+
+    assert Message.objects.filter(conversation=conversation).count() == 2
 
 
 @pytest.mark.django_db

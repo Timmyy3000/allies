@@ -120,6 +120,25 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             "retryable": False,
         },
     },
+    "SuccessResponse_AllyListResponse_": {
+        "status": "success",
+        "message": "Allies loaded",
+        "data": {
+            "allies": [
+                {
+                    "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+                    "binding_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d77",
+                    "operation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d78",
+                    "name": "Mira",
+                    "job": "Study partner",
+                    "personality": "Calm, curious, and specific.",
+                    "appearance": {"catalog_version": "v1", "key": "sunrise"},
+                    "provisioning_state": "bound",
+                    "retryable": False,
+                }
+            ]
+        },
+    },
     "SuccessResponse_ConversationResponse_": {
         "status": "success",
         "message": "Conversation loaded",

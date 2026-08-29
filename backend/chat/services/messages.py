@@ -16,6 +16,7 @@ from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
+from allies.models import ProvisioningStatus
 from auths.config import digest_key
 from auths.models import User
 from auths.throttle import (
@@ -31,6 +32,7 @@ from chat.exceptions import (
     CursorInvalid,
     IdempotencyConflict,
     MessageValidation,
+    OnboardingHandoffRepairRequired,
     QueueFull,
     SendRateLimited,
     TurnConflict,
@@ -176,6 +178,14 @@ def accept_message(
             conversation = _conversation_for_send(
                 workspace=context.workspace, conversation_id=conversation_id
             )
+            if (
+                conversation.ally.provisioning_state
+                == ProvisioningStatus.REPAIR_REQUIRED
+            ):
+                raise OnboardingHandoffRepairRequired("onboarding handoff needs repair")
+            from .conversations import reconcile_onboarding_reply
+
+            reconcile_onboarding_reply(ally=conversation.ally)
             duplicate = (
                 Message.objects.filter(
                     conversation=conversation,

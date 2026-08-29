@@ -10,8 +10,11 @@ import base64
 import hashlib
 import json
 import time
+from urllib.error import HTTPError
 from urllib.parse import urlencode, urlparse
 from urllib.request import Request, urlopen
+
+from django.conf import settings
 
 from auths.config import setting
 from auths.exceptions import ProviderRejected
@@ -19,6 +22,15 @@ from auths.exceptions import ProviderRejected
 from .base import OIDCProvider, ProviderFlow, ProviderKey, VerifiedIdentity
 
 GOOGLE_ISSUERS = ("https://accounts.google.com", "accounts.google.com")
+
+
+def _safe_provider_error_code(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    value = payload.get("error")
+    if isinstance(value, str) and len(value) <= 64 and value.replace("_", "").isalnum():
+        return value
+    return ""
 
 
 class GoogleProvider(OIDCProvider):
@@ -61,9 +73,17 @@ class GoogleProvider(OIDCProvider):
         return b"".join(chunks)
 
     @staticmethod
-    def _https_url(value: str) -> str:
+    def _https_url(value: str, *, allow_debug_loopback: bool = False) -> str:
         parsed = urlparse(value)
-        if parsed.scheme != "https" or not parsed.netloc:
+        is_debug_loopback = (
+            allow_debug_loopback
+            and settings.DEBUG
+            and parsed.scheme == "http"
+            and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+            and parsed.username is None
+            and parsed.password is None
+        )
+        if (parsed.scheme != "https" or not parsed.netloc) and not is_debug_loopback:
             raise ProviderRejected("google endpoint must use https")
         return value
 
@@ -72,7 +92,7 @@ class GoogleProvider(OIDCProvider):
         redirect_uri = flow.redirect_uri
         if not client_id or not redirect_uri:
             raise ProviderRejected("google provider is incomplete")
-        redirect_uri = self._https_url(redirect_uri)
+        redirect_uri = self._https_url(redirect_uri, allow_debug_loopback=True)
         endpoint = self._https_url(
             str(
                 setting(
@@ -124,6 +144,13 @@ class GoogleProvider(OIDCProvider):
                 payload = json.loads(body)
         except ProviderRejected:
             raise
+        except HTTPError as exc:
+            try:
+                error_code = _safe_provider_error_code(json.loads(exc.read(4097)))
+            except (json.JSONDecodeError, OSError, UnicodeDecodeError):
+                error_code = ""
+            detail = f" ({error_code})" if error_code else ""
+            raise ProviderRejected(f"google provider HTTP {exc.code}{detail}") from exc
         except TimeoutError as exc:
             if flow is not None and flow.deadline_monotonic is not None:
                 raise ProviderRejected("google provider attempt timed out") from exc
@@ -153,21 +180,18 @@ class GoogleProvider(OIDCProvider):
     ) -> dict:
         try:
             import jwt
-            from jwt.api_jwk import PyJWKSet
 
             provider = self
 
             class DeadlineJWKClient(jwt.PyJWKClient):
                 def fetch_data(client):
                     if client.jwk_set_cache is not None:
-                        cached = client.jwk_set_cache.get(client.uri)
+                        cached = client.jwk_set_cache.get()
                         if cached is not None:
                             return cached
-                    jwk_set = PyJWKSet.from_dict(
-                        provider._fetch_json(client.uri, flow=flow)
-                    )
+                    jwk_set = provider._fetch_json(client.uri, flow=flow)
                     if client.jwk_set_cache is not None:
-                        client.jwk_set_cache.put(client.uri, jwk_set)
+                        client.jwk_set_cache.put(jwk_set)
                     return jwk_set
 
             jwks_client = DeadlineJWKClient(
@@ -206,7 +230,7 @@ class GoogleProvider(OIDCProvider):
         redirect_uri = flow.redirect_uri
         if not token_endpoint or not client_id or not client_secret:
             raise ProviderRejected("google provider is incomplete")
-        redirect_uri = self._https_url(redirect_uri)
+        redirect_uri = self._https_url(redirect_uri, allow_debug_loopback=True)
         form = urlencode(
             {
                 "code": code,

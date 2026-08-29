@@ -2,18 +2,21 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import timedelta
+from uuid import UUID
 
 import pytest
 from django.utils import timezone
 
+from allies.api.controllers import _response
 from allies.exceptions import IdempotencyConflict, OnboardingInvalid
-from allies.models import Ally, OnboardingAttempt
-from allies.services.creation import create_ally, retrieve_ally
+from allies.models import Ally, AllyBinding, OnboardingAttempt, ProvisioningOperation
+from allies.services.creation import create_ally, list_allies, retrieve_ally
 from allies.services.onboarding import (
     begin_onboarding,
     cleanup_expired_onboarding_attempts,
     digest_value,
 )
+from auths.exceptions import WorkspaceAccessDenied
 from auths.models import User
 from workspaces.models import Membership, Workspace
 
@@ -45,6 +48,28 @@ def payload():
         "appearance_catalog_version": "v1",
         "appearance_key": "sunrise",
     }
+
+
+def seed_ally(*, workspace, user, ally_id: str) -> Ally:
+    ally = Ally.objects.create(
+        id=UUID(ally_id),
+        workspace=workspace,
+        name="Mira",
+        job="Study partner",
+        personality="Calm, curious, and specific.",
+        appearance_catalog_version="v1",
+        appearance_key="sunrise",
+    )
+    binding = AllyBinding.objects.create(ally=ally)
+    digest = ally_id.replace("-", "")
+    ProvisioningOperation.objects.create(
+        binding=binding,
+        workspace=workspace,
+        user=user,
+        api_idempotency_key_digest=(digest * 2)[:64],
+        content_fingerprint=(digest[::-1] * 2)[:64],
+    )
+    return ally
 
 
 @pytest.mark.django_db
@@ -155,6 +180,44 @@ def test_retrieve_is_workspace_scoped(account):
             workspace_id=workspace.id,
             ally_id=result.ally.id,
         )
+
+
+@pytest.mark.django_db
+def test_list_is_workspace_scoped_ordered_and_relation_loaded(
+    account, django_assert_num_queries
+):
+    user, workspace = account
+    oldest = seed_ally(
+        workspace=workspace,
+        user=user,
+        ally_id="00000000-0000-4000-8000-000000000001",
+    )
+    tie_low = seed_ally(
+        workspace=workspace,
+        user=user,
+        ally_id="00000000-0000-4000-8000-000000000002",
+    )
+    tie_high = seed_ally(
+        workspace=workspace,
+        user=user,
+        ally_id="00000000-0000-4000-8000-000000000003",
+    )
+    stamp = timezone.now()
+    Ally.objects.filter(pk=oldest.pk).update(created_at=stamp - timedelta(seconds=1))
+    Ally.objects.filter(pk__in=[tie_low.pk, tie_high.pk]).update(created_at=stamp)
+
+    with django_assert_num_queries(2):
+        rows = list_allies(user=user, workspace_id=workspace.id)
+        serialized = [_response(ally) for ally in rows]
+
+    assert [item.id for item in serialized] == [
+        tie_high.id,
+        tie_low.id,
+        oldest.id,
+    ]
+    stranger = User.objects.create_user()
+    with pytest.raises(WorkspaceAccessDenied):
+        list_allies(user=stranger, workspace_id=workspace.id)
 
 
 @pytest.mark.django_db

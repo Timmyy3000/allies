@@ -14,7 +14,10 @@ from allies.services.onboarding import digest_value, normalize_seed
 from auths.config import digest_key
 from auths.models import User
 from chat.exceptions import ChatError
-from chat.services.conversations import ensure_default_conversation
+from chat.services.conversations import (
+    ensure_default_conversation,
+    reconcile_onboarding_reply,
+)
 from common.uuids import canonical_uuid
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
@@ -198,8 +201,22 @@ def retrieve_ally(*, user: User, workspace_id: UUID | str, ally_id: UUID | str) 
                 greeting=attempt.greeting,
                 reply=attempt.reply,
             )
+            reconcile_onboarding_reply(ally=ally)
         except ChatError:
             # Conversation repair remains owned by the chat read boundary; Ally
             # retrieval retains its existing product contract for malformed data.
             pass
     return ally
+
+
+def list_allies(*, user: User, workspace_id: UUID | str) -> tuple[Ally, ...]:
+    context = require_workspace_capability(
+        user=user,
+        workspace_id=workspace_id,
+        capability=Capability.PROFILE_READ,
+    )
+    return tuple(
+        Ally.objects.select_related("binding", "binding__provisioning_operation")
+        .filter(workspace=context.workspace)
+        .order_by("-created_at", "-id")
+    )

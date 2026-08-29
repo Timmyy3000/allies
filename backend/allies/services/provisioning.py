@@ -18,6 +18,10 @@ from allies.gateways.foundry import (
     provision_profile,
 )
 from allies.models import BindingStatus, ProvisioningOperation, ProvisioningStatus
+from chat.exceptions import (
+    OnboardingHandoffRepairRequired,
+    OnboardingHandoffUnavailable,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +30,7 @@ class DispatchReport:
     succeeded: int = 0
     deferred: int = 0
     failed: int = 0
+    repair_required: int = 0
 
     def as_dict(self):
         return {
@@ -33,6 +38,7 @@ class DispatchReport:
             "succeeded": self.succeeded,
             "deferred": self.deferred,
             "failed": self.failed,
+            "repair_required": self.repair_required,
         }
 
 
@@ -119,15 +125,33 @@ def _dispatch_one(pk: UUID, fence: int, *, now) -> str:
     operation = ProvisioningOperation.objects.select_related(
         "workspace", "binding__ally"
     ).get(pk=pk)
-    request = ProfileProvisioningRequest(
-        workspace_id=str(operation.workspace.id),
-        binding_id=str(operation.binding.id),
-        ally_ref=str(operation.binding.ally.id),
-        operation_id=str(operation.id),
-        request_fingerprint=operation.content_fingerprint,
-        job=operation.binding.ally.job,
-        personality=operation.binding.ally.personality,
-    )
+    try:
+        request = ProfileProvisioningRequest(
+            workspace_id=str(operation.workspace.id),
+            binding_id=str(operation.binding.id),
+            ally_ref=str(operation.binding.ally.id),
+            operation_id=str(operation.id),
+            request_fingerprint=operation.content_fingerprint,
+            name=operation.binding.ally.name,
+            job=operation.binding.ally.job,
+            personality=operation.binding.ally.personality,
+        )
+    except ValueError:
+        with transaction.atomic():
+            updated = ProvisioningOperation.objects.filter(
+                pk=pk,
+                attempt_count=fence,
+                status=ProvisioningStatus.IN_PROGRESS,
+            ).update(
+                status=ProvisioningStatus.REPAIR_REQUIRED,
+                safe_error_code="stored_ally_invalid",
+                lease_expires_at=None,
+                completed_at=now,
+            )
+            if updated:
+                operation.binding.status = BindingStatus.INCOMPATIBLE
+                operation.binding.save(update_fields=("status", "updated_at"))
+        return "repair_required"
     try:
         receipt = provision_profile(request)
     except ProvisioningRetryable:
@@ -164,6 +188,7 @@ def _dispatch_one(pk: UUID, fence: int, *, now) -> str:
         return "failed"
     digest = _receipt_digest(receipt)
     if receipt.status == "active":
+        activation_repair_required = False
         with transaction.atomic():
             updated = ProvisioningOperation.objects.filter(
                 pk=pk,
@@ -182,6 +207,29 @@ def _dispatch_one(pk: UUID, fence: int, *, now) -> str:
                 operation.binding.save(
                     update_fields=("status", "receipt_digest", "updated_at")
                 )
+                try:
+                    from chat.services.conversations import activate_onboarding_reply
+
+                    activate_onboarding_reply(ally=operation.binding.ally)
+                except (
+                    OnboardingHandoffUnavailable,
+                    OnboardingHandoffRepairRequired,
+                ) as exc:
+                    activation_repair_required = True
+                    # Foundry has active compute; retain the bound identity and
+                    # stop provisioning retries while recording handoff repair.
+                    ProvisioningOperation.objects.filter(
+                        pk=pk,
+                        attempt_count=fence,
+                        status=ProvisioningStatus.SUCCEEDED,
+                    ).update(
+                        status=ProvisioningStatus.REPAIR_REQUIRED,
+                        safe_error_code=exc.code,
+                        lease_expires_at=None,
+                        completed_at=now,
+                    )
+        if activation_repair_required:
+            return "repair_required"
         return "succeeded" if updated else "deferred"
     if receipt.status == "pending":
         _defer(pk, fence, "materialization_pending", now=now)
@@ -214,4 +262,5 @@ def dispatch_due_provisioning(*, now=None, limit: int = 20) -> DispatchReport:
         succeeded=outcomes.count("succeeded"),
         deferred=outcomes.count("deferred"),
         failed=outcomes.count("failed"),
+        repair_required=outcomes.count("repair_required"),
     )
