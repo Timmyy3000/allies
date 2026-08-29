@@ -5,10 +5,12 @@ import { createMobileCloudClient, type MobileCloudClient } from '../cloud/native
 import { getMobileEnvironment } from '../env';
 import { createQueryClient } from '../query/create-query-client';
 import { AllySessionIndexProvider } from '../../features/allies/ally-session-index';
+import { MOCK_MODE, MockAppProvider } from '../../features/mock/mock-app';
 import { NativeSessionProvider, useNativeSession } from '../session/session-context';
 import { createSecureSessionStore } from '../session/secure-session-store';
 
 function createConfiguredClient(): MobileCloudClient | null {
+  if (MOCK_MODE) return null;
   try {
     const environment = getMobileEnvironment();
     if (environment.cloudApiUrl === 'https://cloud.invalid') return null;
@@ -31,7 +33,9 @@ export function AppProviders({ children }: { children: ReactNode }) {
         nativeAuthRedirectUri={client?.nativeAuthRedirectUri}
         onSessionCleared={() => queryClient.clear()}
         store={store ?? undefined}>
-        <SessionScopedAllyIndex>{children}</SessionScopedAllyIndex>
+        <MockAppProvider>
+          <SessionScopedAllyIndex>{children}</SessionScopedAllyIndex>
+        </MockAppProvider>
       </NativeSessionProvider>
     </QueryClientProvider>
   );

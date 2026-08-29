@@ -8,8 +8,9 @@ import { isCloudError, type CloudError } from '@allies/cloud-client';
 
 import { PrimaryButton } from '@/components/ui/primary-button';
 import { useAllySessionIndex } from '@/features/allies/ally-session-index';
-import { pendingCommandStore, type PendingCreateCommand } from '@/lib/pending-command-store';
+import { pendingCommandStore, toCloudCreateAllyInput, type PendingCreateCommand } from '@/lib/pending-command-store';
 import { useNativeSession } from '@/lib/session/session-context';
+import { getMockGreeting, useMockApp } from '@/features/mock/mock-app';
 
 import OnboardingScreen from './onboarding-screen';
 import { AllyNameScreen } from './ally-name-screen';
@@ -61,9 +62,18 @@ function createCommand(
   reply: string,
 ): PendingCreateCommand {
   const createdAt = Date.now();
+  const input = toCreateAllyInput(flow, attemptToken, reply);
   return {
     kind: 'create',
-    ...toCreateAllyInput(flow, attemptToken, reply),
+    name: input.name,
+    job: input.job,
+    personality: input.personality,
+    appearance: {
+      catalogVersion: input.appearanceCatalogVersion,
+      key: input.appearanceKey,
+    },
+    onboardingAttempt: input.onboardingAttempt,
+    reply: input.reply,
     idempotencyKey: Crypto.randomUUID(),
     createdAt: new Date(createdAt).toISOString(),
     expiresAt: new Date(createdAt + PENDING_CREATE_LIFETIME_MS).toISOString(),
@@ -82,12 +92,12 @@ function commandMatches(
 }
 
 function commandMatchesConfig(command: PendingCreateCommand, flow: OnboardingFlowState): boolean {
-  return JSON.stringify({
-    name: command.name,
-    job: command.job,
-    personality: command.personality,
-    appearance: command.appearance,
-  }) === JSON.stringify(toOnboardingAttemptInput(flow));
+  const input = toOnboardingAttemptInput(flow);
+  return command.name === input.name
+    && command.job === input.job
+    && command.personality === input.personality
+    && command.appearance.catalogVersion === input.appearanceCatalogVersion
+    && command.appearance.key === input.appearanceKey;
 }
 
 function messageForCreateError(error: unknown): string {
@@ -98,6 +108,7 @@ function messageForCreateError(error: unknown): string {
 
 export default function OnboardingFlow() {
   const router = useRouter();
+  const mock = useMockApp();
   const session = useNativeSession();
   const { addReachableAllyId } = useAllySessionIndex();
   const [flow, setFlow] = useState<OnboardingFlowState>(INITIAL_ONBOARDING_FLOW);
@@ -113,6 +124,7 @@ export default function OnboardingFlow() {
   const cloudInputKey = JSON.stringify(cloudInput);
 
   useEffect(() => {
+    if (mock.isMock) return undefined;
     if (flow.step !== 'welcome' || session.status !== 'signed-in' || !session.account) return;
 
     let active = true;
@@ -141,16 +153,16 @@ export default function OnboardingFlow() {
     return () => {
       active = false;
     };
-  }, [flow.step, session.account, session.status]);
+  }, [flow.step, mock.isMock, session.account, session.status]);
 
   useEffect(() => {
-    if (flow.step !== 'preview') return undefined;
+    if (mock.isMock || flow.step !== 'preview') return undefined;
 
     const controller = new AbortController();
     void (async () => {
       try {
         if (!session.accountClient) throw { kind: 'client' } satisfies CloudError;
-        const attempt = await session.accountClient.beginOnboardingAttempt(cloudInput, controller.signal);
+        const attempt = await session.accountClient.beginOnboarding(cloudInput, controller.signal);
         if (controller.signal.aborted) return;
         setCloudAttempt({ inputKey: cloudInputKey, ...attempt });
         setCloudMessage(null);
@@ -162,9 +174,20 @@ export default function OnboardingFlow() {
     })();
 
     return () => controller.abort();
-  }, [cloudAttemptRequest, cloudInput, cloudInputKey, flow.step, session.accountClient]);
+  }, [cloudAttemptRequest, cloudInput, cloudInputKey, flow.allyName, flow.jobDescription, flow.step, mock.isMock, session.accountClient]);
 
   const handleCloudReply = useCallback(async (reply: string): Promise<boolean> => {
+    if (mock.isMock) {
+      mock.createAlly({
+        color: flow.selectedColor ?? '#FF5800',
+        job: flow.jobDescription,
+        name: flow.allyName.trim(),
+        personality: flow.personalityNote,
+        shape: flow.allyShape,
+      }, reply);
+      router.replace('/allies/mock-ally' as never);
+      return true;
+    }
     if (!cloudAttempt || cloudAttempt.inputKey !== cloudInputKey) {
       setCloudMessage('The preview expired. We are preparing a new one. Review your reply and send it again.');
       setCloudAttempt(null);
@@ -233,7 +256,7 @@ export default function OnboardingFlow() {
 
       const ally = await session.adapter.withRefresh(() => session.accountClient!.createAlly(
         session.account!.workspace.id,
-        boundCommand,
+        toCloudCreateAllyInput(boundCommand),
         boundCommand.idempotencyKey,
       ));
       await pendingCommandStore.deleteCreate();
@@ -262,7 +285,7 @@ export default function OnboardingFlow() {
     } finally {
       setCloudSubmitting(false);
     }
-  }, [addReachableAllyId, cloudAttempt, cloudInputKey, flow, pendingCreate, router, session]);
+  }, [addReachableAllyId, cloudAttempt, cloudInputKey, flow, mock, pendingCreate, router, session]);
 
   const handleCancelPending = useCallback(async () => {
     try {
@@ -284,7 +307,7 @@ export default function OnboardingFlow() {
 
   const handleNext = () => {
     setPersonalityHelpOpen(false);
-    if (flow.step === 'personality') {
+    if (flow.step === 'personality' && !mock.isMock) {
       setCloudAttempt(null);
       setCloudAttemptBusy(true);
       setCloudMessage('Preparing your Ally preview…');
@@ -318,17 +341,20 @@ export default function OnboardingFlow() {
   }
 
   if (step === 'preview') {
+    const greeting = mock.isMock
+      ? getMockGreeting(flow.allyName, flow.jobDescription)
+      : cloudAttempt?.inputKey === cloudInputKey ? cloudAttempt.greeting : '';
     return (
       <OnboardingPreviewScreen
         allyName={flow.allyName}
         allyShape={flow.allyShape}
-        greeting={cloudAttempt?.inputKey === cloudInputKey ? cloudAttempt.greeting : ''}
-        isSubmitting={cloudSubmitting || cloudAttemptBusy}
+        greeting={greeting}
+        isSubmitting={mock.isMock ? false : cloudSubmitting || cloudAttemptBusy}
         onCancelPending={retryPending ? handleCancelPending : undefined}
         onReplySubmit={handleCloudReply}
         retryPending={retryPending}
         selectedColor={flow.selectedColor}
-        statusMessage={cloudMessage}
+        statusMessage={mock.isMock ? null : cloudMessage}
         initialReply={pendingCreate?.reply}
       />
     );

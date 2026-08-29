@@ -25,8 +25,6 @@ export default function SettingsScreen() {
       <PreviewSectionTitle>Allies</PreviewSectionTitle>
       <PreviewListRow detail="Identity, responsibilities, routines, access, and deletion" href="/allies/sample/settings" label="Ally settings" tone="red" />
 
-      <PreviewSectionTitle>Product preview</PreviewSectionTitle>
-      <PreviewListRow detail="See every planned mobile destination" href="/settings/screen-map" label="App screen map" />
     </PreviewPage>
   );
 }

@@ -9,6 +9,8 @@ import { PrimaryButton } from '@/components/ui/primary-button';
 import { AlliesLogo } from '@/features/onboarding/allies-logo';
 import { useNativeSession } from '@/lib/session/session-context';
 import { pendingCommandStore } from '@/lib/pending-command-store';
+import { useMockApp } from '@/features/mock/mock-app';
+import { MockAccountScreen } from '@/features/mock/mock-screens';
 
 import {
   useAvatar,
@@ -21,6 +23,11 @@ import { profileFormSchema } from '@/features/account/profile-schema';
 import { useAvatarUpload } from '@/features/account/use-avatar-upload';
 
 export default function AccountScreen() {
+  const mock = useMockApp();
+  return mock.isMock ? <MockAccountScreen /> : <CloudAccountScreen />;
+}
+
+function CloudAccountScreen() {
   const router = useRouter();
   const session = useNativeSession();
   const accountQuery = useCurrentAccount();

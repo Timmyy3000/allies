@@ -6,6 +6,7 @@ import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PrimaryButton } from '@/components/ui/primary-button';
+import { useMockApp } from '@/features/mock/mock-app';
 import { AlliesLogo } from '@/features/onboarding/allies-logo';
 
 import { useGoogleSignIn } from './use-google-sign-in';
@@ -15,6 +16,7 @@ type AccountAccessMode = 'sign-in' | 'create-account';
 export function AccountAccessScreen({ mode }: { mode: AccountAccessMode }) {
   const router = useRouter();
   const { returnTo } = useLocalSearchParams<{ returnTo?: string }>();
+  const mock = useMockApp();
   const signIn = useGoogleSignIn();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -22,7 +24,10 @@ export function AccountAccessScreen({ mode }: { mode: AccountAccessMode }) {
   const isCreateAccount = mode === 'create-account';
   const returnQuery = typeof returnTo === 'string' ? `?returnTo=${encodeURIComponent(returnTo)}` : '';
   const switchHref = `${isCreateAccount ? '/sign-in' : '/create-account'}${returnQuery}`;
-  const message = signIn.outcome?.status === 'canceled'
+  const credentialsReady = username.trim().length > 0
+    && password.length > 0
+    && (!isCreateAccount || password === passwordConfirmation);
+  const message = mock.isMock ? null : signIn.outcome?.status === 'canceled'
     ? 'Google sign-in was canceled.'
     : signIn.outcome?.status === 'failed'
       ? signIn.outcome.reason === 'unavailable'
@@ -31,6 +36,10 @@ export function AccountAccessScreen({ mode }: { mode: AccountAccessMode }) {
           ? 'That Google sign-in link was no longer valid. Try again.'
           : 'We could not finish Google access. Try again.'
       : null;
+  const completeAccess = () => {
+    mock.signIn();
+    router.replace((typeof returnTo === 'string' ? returnTo : '/allies') as never);
+  };
 
   return (
     <View style={styles.root}>
@@ -67,20 +76,26 @@ export function AccountAccessScreen({ mode }: { mode: AccountAccessMode }) {
 
           <View style={styles.form}>
             {message ? <Text style={styles.message}>{message}</Text> : null}
-            {!signIn.isAvailable ? (
+            {!mock.isMock && !signIn.isAvailable ? (
               <Text style={styles.configurationMessage}>
                 Google access will be available once this build has its registered app return link.
               </Text>
             ) : null}
             <PrimaryButton
               bottomMargin={20}
-              disabled={!signIn.isAvailable || signIn.isBusy}
+              disabled={!mock.isMock && (!signIn.isAvailable || signIn.isBusy)}
               label={signIn.isBusy
                 ? 'Opening Google…'
                 : isCreateAccount
                   ? 'Create account with Google'
                   : 'Sign in with Google'}
-              onPress={() => void signIn.start()}
+              onPress={() => {
+                if (mock.isMock) {
+                  completeAccess();
+                  return;
+                }
+                void signIn.start();
+              }}
             />
 
             <View style={styles.dividerRow}>
@@ -135,16 +150,11 @@ export function AccountAccessScreen({ mode }: { mode: AccountAccessMode }) {
               </>
             ) : null}
 
-            <View style={styles.previewCard}>
-              <Text style={styles.previewLabel}>Preview</Text>
-              <Text style={styles.previewText}>
-                Username and password access will activate after the Cloud adds secure account creation, sign-in, reset, and recovery.
-              </Text>
-            </View>
             <PrimaryButton
               bottomMargin={20}
-              disabled
-              label={`${isCreateAccount ? 'Create account' : 'Sign in'} · Preview`}
+              disabled={!credentialsReady}
+              label={isCreateAccount ? 'Create account' : 'Sign in'}
+              onPress={completeAccess}
             />
 
             <View style={styles.switchRow}>
@@ -212,25 +222,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   pressed: { opacity: 0.72 },
-  previewCard: {
-    backgroundColor: '#FFF0E8',
-    borderRadius: 18,
-    marginBottom: 18,
-    padding: 16,
-  },
-  previewLabel: {
-    color: '#FF5800',
-    fontFamily: 'OpenRundeSemibold',
-    fontSize: 12,
-    marginBottom: 6,
-    textTransform: 'uppercase',
-  },
-  previewText: {
-    color: '#68402A',
-    fontFamily: 'OpenRundeMedium',
-    fontSize: 14,
-    lineHeight: 19,
-  },
   root: { backgroundColor: '#FFFFFF', flex: 1 },
   safeArea: { flex: 1 },
   scrollContent: { flexGrow: 1, paddingBottom: 34, paddingHorizontal: 20 },
