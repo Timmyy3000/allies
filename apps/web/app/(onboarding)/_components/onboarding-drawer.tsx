@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useRef,
   useSyncExternalStore,
   type MouseEvent,
   type ReactNode,
@@ -38,21 +39,62 @@ export default function OnboardingDrawer({
   children: ReactNode;
 }) {
   const isPhone = useIsPhone();
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
 
     const previousOverflow = document.body.style.overflow;
+    const previousFocus = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
     document.body.style.overflow = "hidden";
 
+    const focusableSelector = [
+      "a[href]",
+      "button:not([disabled])",
+      "input:not([disabled])",
+      "textarea:not([disabled])",
+      "select:not([disabled])",
+      "[tabindex]:not([tabindex='-1'])",
+    ].join(",");
+
+    const focusFrame = window.requestAnimationFrame(() => {
+      const focusable = panelRef.current?.querySelector<HTMLElement>(focusableSelector);
+      (focusable ?? panelRef.current)?.focus();
+    });
+
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== "Tab" || !panelRef.current) return;
+      const focusable = [...panelRef.current.querySelectorAll<HTMLElement>(focusableSelector)]
+        .filter((element) => element.offsetParent !== null);
+      if (!focusable.length) {
+        event.preventDefault();
+        panelRef.current.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
 
     window.addEventListener("keydown", handleKeyDown);
     return () => {
+      window.cancelAnimationFrame(focusFrame);
       document.body.style.overflow = previousOverflow;
       window.removeEventListener("keydown", handleKeyDown);
+      previousFocus?.focus();
     };
   }, [onClose, open]);
 
@@ -91,6 +133,8 @@ export default function OnboardingDrawer({
             }}
           >
             <div
+              ref={panelRef}
+              tabIndex={-1}
               data-testid="onboarding-drawer"
               role="dialog"
               aria-modal="true"

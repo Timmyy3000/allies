@@ -69,12 +69,14 @@ describe("account query options", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(CURRENT_ACCOUNT_QUERY_KEY, account);
     queryClient.setQueryData(AVATAR_READ_QUERY_KEY, avatar);
+    queryClient.setQueryData(["workspaces", "wsp_example", "allies"], [{ id: "ally" }]);
     queryClient.setQueryData(["waitlist", "entry"], { greeting: "Hello" });
 
     removePrivateAccountQueries(queryClient);
 
     expect(queryClient.getQueryData(CURRENT_ACCOUNT_QUERY_KEY)).toBeUndefined();
     expect(queryClient.getQueryData(AVATAR_READ_QUERY_KEY)).toBeUndefined();
+    expect(queryClient.getQueryData(["workspaces", "wsp_example", "allies"])).toBeUndefined();
     expect(queryClient.getQueryData(["waitlist", "entry"])).toEqual({ greeting: "Hello" });
   });
 });
