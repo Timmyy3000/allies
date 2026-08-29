@@ -30,7 +30,12 @@ from allies.gateways.contracts import (
 )
 from allies.gateways.foundry import create_execution_intent, reconcile_execution_intent
 from allies.models import AllyBinding, BindingStatus
-from chat.exceptions import DispatchConflict, DispatchUnavailable
+from chat.exceptions import (
+    DispatchConflict,
+    DispatchUnavailable,
+    OnboardingHandoffRepairRequired,
+    OnboardingHandoffUnavailable,
+)
 from chat.models import (
     DispatchOutbox,
     DispatchState,
@@ -123,9 +128,7 @@ def dispatch_accepted_message(message: Message) -> DispatchReceipt:
     with transaction.atomic():
         locked = (
             Message.objects.select_for_update()
-            .select_related(
-                "conversation__ally__workspace", "conversation__ally__binding"
-            )
+            .select_related("conversation__ally__workspace")
             .get(pk=message.pk)
         )
         existing = (
@@ -155,14 +158,15 @@ def dispatch_accepted_message(message: Message) -> DispatchReceipt:
 
 
 def _schedule_dispatch() -> None:
-    from chat.tasks import dispatch_pending_messages_task
+    try:
+        from chat.tasks import dispatch_pending_messages_task
 
-    dispatch_pending_messages_task.delay()
+        dispatch_pending_messages_task.delay()
+    except Exception:  # noqa: BLE001 - the durable outbox is the recovery path
+        return
 
 
 def ensure_dispatch_after_accept(message: Message) -> None:
-    if not _enabled():
-        return
     try:
         dispatch_accepted_message(message)
     except DispatchUnavailable:
@@ -178,7 +182,8 @@ def ensure_dispatch_after_accept(message: Message) -> None:
             },
         )
         return
-    transaction.on_commit(_schedule_dispatch)
+    if _enabled():
+        transaction.on_commit(_schedule_dispatch)
 
 
 def _claim_due(*, now, limit: int) -> list[tuple[UUID, int, bool]]:
@@ -192,7 +197,9 @@ def _claim_due(*, now, limit: int) -> list[tuple[UUID, int, bool]]:
         & lease_available
     ) | Q(status=DispatchState.IN_PROGRESS, lease_expires_at__lte=now)
     with transaction.atomic():
-        query = DispatchOutbox.objects.filter(due).order_by("next_attempt_at", "id")
+        query = DispatchOutbox.objects.filter(due).order_by(
+            "message__conversation_id", "message__sequence", "next_attempt_at", "id"
+        )
         query = query.select_for_update(
             skip_locked=connection.features.has_select_for_update_skip_locked
         )
@@ -270,6 +277,98 @@ def _mark_binding_pending(pk: UUID, fence: int, *, now) -> bool:
             lease_expires_at=None,
         )
     )
+
+
+def _mark_prior_turn_pending(pk: UUID, fence: int, *, now) -> bool:
+    return bool(
+        DispatchOutbox.objects.filter(
+            pk=pk, attempt_count=fence, status=DispatchState.IN_PROGRESS
+        ).update(
+            status=DispatchState.PENDING,
+            attempt_count=max(0, fence - 1),
+            safe_error_code="prior_turn_pending",
+            next_attempt_at=now + timedelta(seconds=_backoff_seconds(fence)),
+            lease_expires_at=None,
+        )
+    )
+
+
+def _prior_turn_ready(message: Message) -> bool:
+    prior = (
+        Message.objects.filter(
+            conversation_id=message.conversation_id,
+            sender=MessageSender.USER,
+            sequence__lt=message.sequence,
+        )
+        .order_by("-sequence", "-id")
+        .first()
+    )
+    if prior is None:
+        return True
+    if prior.origin == MessageOrigin.ONBOARDING:
+        return False
+    if prior.origin != MessageOrigin.SEND:
+        return False
+    prior_outbox = (
+        DispatchOutbox.objects.filter(message_id=prior.id)
+        .only("status", "next_attempt_at")
+        .first()
+    )
+    if prior_outbox is None:
+        try:
+            dispatch_accepted_message(prior)
+        except DispatchUnavailable:
+            DispatchOutbox.objects.get_or_create(
+                message=prior,
+                defaults={
+                    "status": DispatchState.FAILED,
+                    "safe_error_code": "binding_unavailable",
+                    "next_attempt_at": None,
+                    "completed_at": timezone.now(),
+                },
+            )
+        except (DispatchConflict, ValueError):
+            DispatchOutbox.objects.get_or_create(
+                message=prior,
+                defaults={
+                    "status": DispatchState.FAILED,
+                    "safe_error_code": "command_invalid",
+                    "next_attempt_at": None,
+                    "completed_at": timezone.now(),
+                },
+            )
+        prior_outbox = (
+            DispatchOutbox.objects.filter(message_id=prior.id)
+            .only("status", "next_attempt_at")
+            .first()
+        )
+    if prior_outbox is None:
+        return False
+    if (
+        prior_outbox.status == DispatchState.RECONCILIATION_NEEDED
+        and prior_outbox.next_attempt_at is None
+    ):
+        return True
+    return prior_outbox.status in {
+        DispatchState.ACCEPTED,
+        DispatchState.FAILED,
+    }
+
+
+def _reconcile_onboarding_before_dispatch(message: Message) -> None:
+    from .conversations import reconcile_onboarding_reply
+
+    reconcile_onboarding_reply(ally=message.conversation.ally)
+    if (
+        message.conversation.is_default
+        and message.sequence > 2
+        and not Message.objects.filter(
+            conversation_id=message.conversation_id,
+            sequence=2,
+            sender=MessageSender.USER,
+        ).exists()
+    ):
+        raise OnboardingHandoffUnavailable("onboarding handoff unavailable")
 
 
 def _mark_terminal(
@@ -390,6 +489,14 @@ def _dispatch_one(pk: UUID, fence: int, reconcile_first: bool, *, now) -> str:
         return "failed"
     if binding_status != BindingStatus.BOUND:
         _mark_binding_pending(pk, fence, now=now)
+        return "deferred"
+    try:
+        _reconcile_onboarding_before_dispatch(outbox.message)
+    except (OnboardingHandoffUnavailable, OnboardingHandoffRepairRequired) as exc:
+        _mark_terminal(pk, fence, DispatchState.FAILED, exc.code, now=now)
+        return "failed"
+    if not _prior_turn_ready(outbox.message):
+        _mark_prior_turn_pending(pk, fence, now=now)
         return "deferred"
     if reconcile_first:
         reconciled = _reconcile_one(pk, fence, outbox, now=now, permit_post=True)

@@ -76,14 +76,23 @@ class Ally(models.Model):
         except AllyBinding.DoesNotExist:
             return BindingStatus.PENDING
 
+        try:
+            operation = binding.provisioning_operation
+        except ProvisioningOperation.DoesNotExist:
+            operation = None
+
+        if operation is not None and operation.status in {
+            ProvisioningStatus.REPAIR_REQUIRED,
+            ProvisioningStatus.EXPIRED,
+        }:
+            return ProvisioningStatus.REPAIR_REQUIRED
+
         if binding.status == BindingStatus.BOUND:
             return BindingStatus.BOUND
         if binding.status == BindingStatus.INCOMPATIBLE:
             return BindingStatus.INCOMPATIBLE
 
-        try:
-            operation = binding.provisioning_operation
-        except ProvisioningOperation.DoesNotExist:
+        if operation is None:
             return binding.status
 
         return {

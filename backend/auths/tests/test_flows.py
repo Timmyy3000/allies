@@ -24,10 +24,17 @@ TRUSTED_ORIGIN = "http://localhost:3000"
 
 @pytest.mark.django_db
 @override_settings(
+    DEBUG=True,
     ALLIES_AUTH_FAKE_PROVIDER_ENABLED=True,
     CSRF_TRUSTED_ORIGINS=[TRUSTED_ORIGIN],
 )
-def test_fake_flow_requires_both_bindings_and_consumes_on_provider_failure():
+def test_fake_flow_requires_both_bindings_and_consumes_on_provider_failure(
+    monkeypatch,
+):
+    warnings = []
+    monkeypatch.setattr(
+        flow_service.logger, "warning", lambda *args: warnings.append(args)
+    )
     start = begin_auth_flow(
         provider="fake",
         purpose=FlowPurpose.SIGN_IN,
@@ -44,6 +51,13 @@ def test_fake_flow_requires_both_bindings_and_consumes_on_provider_failure():
             browser_binding=b"csrf-cookie",
             flow_cookie=start.flow_cookie,
         )
+    assert warnings == [
+        (
+            "auth provider callback rejected in debug mode: provider=%s reason=%s",
+            "fake",
+            "fake callback code is malformed",
+        )
+    ]
     with pytest.raises(FlowReplay):
         complete_auth_flow(
             provider="fake",

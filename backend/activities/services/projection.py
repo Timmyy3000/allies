@@ -395,7 +395,13 @@ def read_activity_snapshot(
         .order_by("-sequence", "-id")
         .first()
     )
-    state = latest.status if latest is not None else ProjectionState.COMPLETED
+    state = (
+        ProjectionState.RUNNING
+        if latest is not None and latest.status == MessageLifecycle.IN_PROGRESS
+        else latest.status
+        if latest is not None
+        else ProjectionState.COMPLETED
+    )
     last_contiguous = 0
     if latest is not None:
         latest_receipt = (

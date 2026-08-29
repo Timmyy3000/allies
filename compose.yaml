@@ -1,0 +1,143 @@
+name: allies-cloud-local-staging
+
+x-cloud-service: &cloud-service
+  build:
+    context: .
+  image: allies-cloud-local:dev
+  env_file:
+    - env.staging
+  environment: &cloud-environment
+    DATABASE_URL: postgresql://allies:allies-local-only@postgres:5432/allies
+    CACHE_URL: redis://redis:6379/0
+    ALLIES_ENVIRONMENT: local-staging
+    DJANGO_DEBUG: "true"
+    DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend,.outray.app
+    ALLIES_TRUSTED_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
+    ALLIES_RAILWAY_PROXY_MODE: "false"
+    ALLIES_AUTH_GOOGLE_REDIRECT_URI: http://localhost:8000/api/v1/auths/callback/google
+    ALLIES_AUTH_NATIVE_ENABLED: "false"
+    ALLIES_WAITLIST_ENABLED: "false"
+    ALLIES_R2_ENABLED: "false"
+    # Do not inherit copied Railway Foundry settings from env.staging. Local
+    # Foundry access is an explicit host-environment opt-in.
+    ALLIES_FOUNDRY_URL: "${ALLIES_LOCAL_FOUNDRY_URL:-http://host.docker.internal:8100}"
+    ALLIES_FOUNDRY_SERVICE_TOKEN: "${ALLIES_LOCAL_FOUNDRY_SERVICE_TOKEN:-local-staging-foundry-service-token-change-me-32-bytes}"
+    ALLIES_FOUNDRY_EXECUTION_ENABLED: "${ALLIES_LOCAL_FOUNDRY_EXECUTION_ENABLED:-false}"
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+  volumes:
+    - ./backend:/app
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: allies
+      POSTGRES_USER: allies
+      POSTGRES_PASSWORD: allies-local-only
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U allies -d allies"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  migrate:
+    <<: *cloud-service
+    command: ["uv", "run", "python", "manage.py", "migrate", "--noinput"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    <<: *cloud-service
+    command:
+      - sh
+      - -c
+      - >-
+        uv run python manage.py collectstatic --noinput &&
+        uv run gunicorn config.wsgi:application
+        --bind 0.0.0.0:8000
+        --worker-class gthread
+        --workers $${WEB_CONCURRENCY:-2}
+        --threads $${WEB_THREADS:-4}
+        --timeout $${WEB_TIMEOUT:-120}
+        --graceful-timeout $${WEB_GRACEFUL_TIMEOUT:-10}
+        --max-requests $${WEB_MAX_REQUESTS:-1000}
+        --max-requests-jitter $${WEB_MAX_REQUESTS_JITTER:-100}
+        --access-logfile -
+        --access-logformat '%(h)s %(l)s %(t)s "%(m)s %(U)s %(H)s" %(s)s %(b)s "%(f)s" "%(a)s"'
+        --error-logfile -
+        --capture-output
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3)
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  worker:
+    <<: *cloud-service
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - config.celery:app
+      - worker
+      - --loglevel=INFO
+      - --pool=prefork
+      - --concurrency=1
+      - --prefetch-multiplier=1
+      - --max-tasks-per-child=50
+      - --hostname=worker@%h
+      - --queues=cloud
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  beat:
+    <<: *cloud-service
+    command:
+      - uv
+      - run
+      - celery
+      - -A
+      - config.celery:app
+      - beat
+      - --loglevel=INFO
+      - --schedule=/tmp/celerybeat-schedule
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:
+  redis-data:

@@ -26,6 +26,7 @@ def request_payload() -> ProfileProvisioningRequest:
         ally_ref="00000000-0000-4000-8000-000000000003",
         operation_id="00000000-0000-4000-8000-000000000004",
         request_fingerprint="a" * 64,
+        name="Mira",
         job="Study partner",
         personality="Calm and specific",
     )
@@ -81,6 +82,37 @@ def test_gateway_sends_one_bearer_authenticated_command(monkeypatch, settings):
         "authorization": "Bearer service-secret",
         "timeout": settings.ALLIES_FOUNDRY_TIMEOUT_SECONDS,
     }
+
+
+def test_gateway_allows_debug_docker_host_origin(monkeypatch, settings):
+    settings.DEBUG = True
+    settings.ALLIES_FOUNDRY_URL = "http://host.docker.internal:8100"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    captured = {}
+
+    class Opener:
+        def open(self, request, *, timeout):
+            captured["url"] = request.full_url
+            return Response(receipt())
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+
+    provision_profile(request_payload())
+
+    assert captured["url"] == (
+        "http://host.docker.internal:8100/api/v1/internal/profile-provisioning"
+    )
+
+
+def test_gateway_rejects_plain_http_outside_debug(settings):
+    settings.DEBUG = False
+    settings.ALLIES_FOUNDRY_URL = "http://host.docker.internal:8100"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+
+    with pytest.raises(ProvisioningRetryable):
+        provision_profile(request_payload())
 
 
 @pytest.mark.parametrize(

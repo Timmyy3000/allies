@@ -272,6 +272,18 @@ def test_trusted_origin_wildcards_become_cors_regexes():
     assert result.returncode == 0, result.stderr
 
 
+def test_cors_allows_idempotent_browser_mutations():
+    result = _settings_subprocess(
+        {"DJANGO_DEBUG": "true"},
+        (
+            "import config.settings as s; "
+            "assert 'idempotency-key' in s.CORS_ALLOW_HEADERS"
+        ),
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_fractional_health_timeout_is_valid_and_separate_from_db_connect_timeout():
     result = _settings_subprocess(
         {
@@ -425,6 +437,23 @@ def test_only_health_path_is_exempt_from_https_redirect():
     assert settings.SECURE_REDIRECT_EXEMPT == []
 
 
+def test_debug_settings_use_http_compatible_same_site_cookies():
+    result = _settings_subprocess(
+        {"DJANGO_DEBUG": "true"},
+        (
+            "import config.settings as s; "
+            "assert s.SESSION_COOKIE_SECURE is False; "
+            "assert s.CSRF_COOKIE_SECURE is False; "
+            "assert s.ALLIES_AUTH_COOKIE_SECURE is False; "
+            "assert s.SESSION_COOKIE_SAMESITE == 'Lax'; "
+            "assert s.CSRF_COOKIE_SAMESITE == 'Lax'; "
+            "assert s.ALLIES_AUTH_COOKIE_SAMESITE == 'Lax'"
+        ),
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_railway_mode_lets_the_managed_edge_enforce_https():
     result = _settings_subprocess(
         {
@@ -444,6 +473,9 @@ def test_railway_mode_lets_the_managed_edge_enforce_https():
             "assert s.SECURE_PROXY_SSL_HEADER == ('HTTP_X_FORWARDED_PROTO', 'https'); "
             "assert s.SECURE_SSL_REDIRECT is True; "
             "assert s.SECURE_REDIRECT_EXEMPT == [r'^/?api/v1/health$']; "
+            "assert s.SESSION_COOKIE_SAMESITE == 'None'; "
+            "assert s.CSRF_COOKIE_SAMESITE == 'None'; "
+            "assert s.ALLIES_AUTH_COOKIE_SAMESITE == 'None'; "
             "assert s.MIDDLEWARE[:2] == ['config.middleware.TrustedProxyHeadersMiddleware', "
             "'observability.middleware.WideEventMiddleware']"
         ),

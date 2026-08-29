@@ -68,6 +68,23 @@ def test_ally_has_seed_fields_without_persisted_provisioning_state():
 
 
 @pytest.mark.django_db
+def test_repair_required_operation_takes_precedence_over_bound_binding():
+    workspace, user = _workspace_and_user()
+    ally = _ally(workspace=workspace)
+    operation = _operation(
+        ally=ally,
+        workspace=workspace,
+        user=user,
+        status=ProvisioningStatus.REPAIR_REQUIRED,
+    )
+    operation.binding.status = BindingStatus.BOUND
+    operation.binding.receipt_digest = "c" * 64
+    operation.binding.save(update_fields=("status", "receipt_digest", "updated_at"))
+
+    assert ally.provisioning_state == ProvisioningStatus.REPAIR_REQUIRED
+
+
+@pytest.mark.django_db
 def test_binding_identity_is_uuid_and_one_to_one():
     workspace, _ = _workspace_and_user()
     ally = _ally(workspace=workspace)
