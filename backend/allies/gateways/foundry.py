@@ -43,6 +43,7 @@ class ProfileProvisioningRequest(BaseModel):
     request_fingerprint: StrictStr = Field(
         min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
     )
+    name: StrictStr = Field(min_length=1, max_length=80, pattern=r"^[^\x00\r]*$")
     job: StrictStr = Field(min_length=1, max_length=200, pattern=r"^[^\x00\r]*$")
     personality: StrictStr = Field(
         min_length=1, max_length=4000, pattern=r"^[^\x00\r]*$"
@@ -76,8 +77,14 @@ def _foundry_origin() -> tuple[str, str]:
     token = str(getattr(settings, "ALLIES_FOUNDRY_SERVICE_TOKEN", ""))
     try:
         parsed = urlparse(origin)
+        local_http = (
+            bool(getattr(settings, "DEBUG", False))
+            and parsed.scheme == "http"
+            and parsed.hostname
+            in {"localhost", "127.0.0.1", "host.docker.internal", "foundry"}
+        )
         safe_origin = (
-            parsed.scheme == "https"
+            (parsed.scheme == "https" or local_http)
             and bool(parsed.hostname)
             and not parsed.username
             and not parsed.password
@@ -192,11 +199,10 @@ def reconcile_execution_intent(
 def provision_profile(
     payload: ProfileProvisioningRequest,
 ) -> ProfileProvisioningReceipt:
-    origin = str(getattr(settings, "ALLIES_FOUNDRY_URL", ""))
-    token = str(getattr(settings, "ALLIES_FOUNDRY_SERVICE_TOKEN", ""))
-    parsed = urlparse(origin)
-    if not token or parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise ProvisioningRetryable("foundry unavailable")
+    try:
+        origin, token = _foundry_origin()
+    except FoundryGatewayRetryable as exc:
+        raise ProvisioningRetryable("foundry unavailable") from exc
     request = Request(
         urljoin(origin.rstrip("/") + "/", "api/v1/internal/profile-provisioning"),
         data=payload.model_dump_json().encode(),

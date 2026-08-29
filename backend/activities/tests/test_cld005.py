@@ -545,6 +545,20 @@ def test_activity_snapshot_is_bounded_and_capability_scoped(conversation_records
         )
 
 
+def test_activity_snapshot_maps_active_message_to_running(conversation_records):
+    user, workspace, _ally, _binding, conversation, message = conversation_records
+    message.status = MessageLifecycle.IN_PROGRESS
+    message.save(update_fields=("status", "updated_at"))
+
+    snapshot = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+    )
+
+    assert snapshot.state == ProjectionState.RUNNING
+
+
 @pytest.mark.django_db
 @override_settings(
     ALLOWED_HOSTS=["testserver"],

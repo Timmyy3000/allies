@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import logging
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
@@ -33,6 +34,8 @@ from auths.providers.base import (
 from auths.services.accounts import UserBootstrap, resolve_or_create_user
 from auths.services.identities import link_identity
 from auths.services.sessions import IssuedSession, issue_session
+
+logger = logging.getLogger("allies.auth")
 
 
 @dataclass(frozen=True)
@@ -263,6 +266,12 @@ def complete_auth_flow(
             ),
         )
     except ProviderRejected as exc:
+        if settings.DEBUG:
+            logger.warning(
+                "auth provider callback rejected in debug mode: provider=%s reason=%s",
+                provider_key.value,
+                str(exc),
+            )
         emit_auth_event(
             "auth.flow.rejected",
             outcome="rejected",

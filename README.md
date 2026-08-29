@@ -24,6 +24,10 @@ Create Allies domain apps from the repository root as they become necessary:
 make app NAME=<domain>
 ```
 
+For a containerized replica of the staging process topology with local
+PostgreSQL and Redis, see
+[`docs/engineering/local-staging-docker.md`](docs/engineering/local-staging-docker.md).
+
 Run `make help` for the available commands. The underlying Django and uv
 commands remain available from `backend/` when a command needs to be run
 directly.

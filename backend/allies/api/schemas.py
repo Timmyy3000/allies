@@ -44,3 +44,7 @@ class AllyResponse(Schema):
     appearance: AppearanceInput
     provisioning_state: str
     retryable: bool
+
+
+class AllyListResponse(Schema):
+    allies: list[AllyResponse]
