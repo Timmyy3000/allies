@@ -16,9 +16,14 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
+  ACTIVE_ACTIVITY_STATES,
+  EMPTY_ACTIVITY_PROJECTION,
+  hasPermanentActivityGap,
+  projectActivitySnapshot,
+  type ActivityProjection,
   type ActivitySnapshotViewModel,
   type AllyViewModel,
-  type ConversationPageViewModel,
+  type ConversationViewModel,
   type MessageViewModel,
 } from '@allies/cloud-client';
 import * as Crypto from 'expo-crypto';
@@ -28,11 +33,14 @@ import { useAllySessionIndex } from '@/features/allies/ally-session-index';
 import { getAllyAppearance } from '@/features/allies/ally-appearance';
 import { pendingCommandStore, type PendingMessageCommand } from '@/lib/pending-command-store';
 import { useNativeSession } from '@/lib/session/session-context';
+import { useMockApp } from '@/features/mock/mock-app';
+import { MockConversationScreen } from '@/features/mock/mock-screens';
 
 import {
   createConversationScrollIntent,
   insertAcceptedMessage,
   isActivityPollingAllowed,
+  isMessageTerminal,
   mergeConversationMessages,
   replaceNewestConversationPage,
   shouldKeepPendingMessage,
@@ -40,8 +48,7 @@ import {
 
 const MESSAGE_MAX_LENGTH = 4000;
 const CONVERSATION_PAGE_LIMIT = 50;
-const ACTIVITY_LIMIT = 20;
-const ACTIVE_ACTIVITY_STATES = new Set(['queued', 'in_progress', 'running']);
+const ACTIVITY_LIMIT = 200;
 
 function allyIdFromParam(value: string | string[] | undefined): string | null {
   const allyId = Array.isArray(value) ? value[0] : value;
@@ -57,6 +64,7 @@ function activityLabel(state: string): string {
     completed: 'Complete',
     failed: 'Could not complete',
     stopped: 'Stopped',
+    reconciliation_needed: 'Needs reconciliation',
     unknown: 'Status unavailable',
   }[state] ?? 'Status unavailable';
 }
@@ -68,6 +76,11 @@ function messageLabel(sender: string): string {
 }
 
 export default function AllyConversationScreen() {
+  const mock = useMockApp();
+  return mock.isMock ? <MockConversationScreen /> : <CloudAllyConversationScreen />;
+}
+
+function CloudAllyConversationScreen() {
   const { allyId: allyIdParam } = useLocalSearchParams<{ allyId?: string }>();
   const allyId = allyIdFromParam(allyIdParam);
   const router = useRouter();
@@ -80,27 +93,29 @@ export default function AllyConversationScreen() {
   const [sending, setSending] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [pendingMessage, setPendingMessage] = useState<PendingMessageCommand | null>(null);
+  const [activityProjection, setActivityProjection] = useState<ActivityProjection>(EMPTY_ACTIVITY_PROJECTION);
   const conversationScrollRef = useRef<ScrollView>(null);
   const scrollIntent = useRef(createConversationScrollIntent()).current;
   const pollingStartedAt = useRef<number | null>(null);
   const pollingConversationId = useRef<string | null>(null);
+  const projectionConversationId = useRef<string | null>(null);
+  const wasFocused = useRef(focused);
 
   const workspaceId = session.status === 'signed-in' && session.account ? session.account.workspace.id : '';
   const canRequest = Boolean(allyId && workspaceId && session.accountClient && session.adapter);
   const conversationQueryKey = useMemo(
-    () => ['allies', 'conversation', workspaceId, allyId] as const,
+    () => ['workspaces', workspaceId, 'allies', allyId, 'conversation'] as const,
     [allyId, workspaceId],
   );
   const refreshNewestConversation = useCallback(async (signal?: AbortSignal) => {
     if (!allyId || !workspaceId || !session.accountClient || !session.adapter) return;
-    const newest = await session.adapter.withRefresh(() => session.accountClient!.getConversationByAlly(
+    const newest = await session.adapter.withRefresh(() => session.accountClient!.getAllyConversation(
       workspaceId,
       allyId,
-      { limit: CONVERSATION_PAGE_LIMIT, cursor: null },
-      signal,
+      { limit: CONVERSATION_PAGE_LIMIT, signal },
     ));
     scrollIntent.requestLatest();
-    queryClient.setQueryData<InfiniteData<ConversationPageViewModel, string | null>>(
+    queryClient.setQueryData<InfiniteData<ConversationViewModel, string | null>>(
       conversationQueryKey,
       (current) => current ? { ...current, pages: replaceNewestConversationPage(current.pages, newest) } : current,
     );
@@ -115,20 +130,19 @@ export default function AllyConversationScreen() {
     queryKey: conversationQueryKey,
     enabled: canRequest,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam, signal }) => session.adapter!.withRefresh(() => session.accountClient!.getConversationByAlly(
+    queryFn: ({ pageParam, signal }) => session.adapter!.withRefresh(() => session.accountClient!.getAllyConversation(
       workspaceId,
       allyId!,
-      { limit: CONVERSATION_PAGE_LIMIT, cursor: pageParam },
-      signal,
+      { limit: CONVERSATION_PAGE_LIMIT, cursor: pageParam ?? undefined, signal },
     )),
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     refetchOnWindowFocus: false,
   });
   const conversationId = conversationQuery.data?.pages[0]?.id ?? null;
   const activityQuery = useQuery({
-    queryKey: ['allies', 'activity', workspaceId, conversationId],
+    queryKey: ['workspaces', workspaceId, 'conversations', conversationId, 'activities'],
     enabled: Boolean(canRequest && conversationId),
-    queryFn: ({ signal }) => session.adapter!.withRefresh(() => session.accountClient!.getActivitySnapshot(
+    queryFn: ({ signal }) => session.adapter!.withRefresh(() => session.accountClient!.getActivities(
       workspaceId,
       conversationId!,
       ACTIVITY_LIMIT,
@@ -141,7 +155,7 @@ export default function AllyConversationScreen() {
         pollingConversationId.current = conversationId;
         pollingStartedAt.current = null;
       }
-      if (!focused || !ACTIVE_ACTIVITY_STATES.has(state)) {
+      if (query.state.error || !focused || !ACTIVE_ACTIVITY_STATES.includes(state as ActivitySnapshotViewModel['state'])) {
         pollingStartedAt.current = null;
         return false;
       }
@@ -154,6 +168,20 @@ export default function AllyConversationScreen() {
       }) ? 3000 : false;
     },
   });
+  const refetchAlly = allyQuery.refetch;
+  const refetchConversation = conversationQuery.refetch;
+  const refetchActivity = activityQuery.refetch;
+
+  useEffect(() => {
+    if (!activityQuery.data || !conversationId) return;
+    setActivityProjection((current) => {
+      if (projectionConversationId.current !== conversationId) {
+        projectionConversationId.current = conversationId;
+        return projectActivitySnapshot(EMPTY_ACTIVITY_PROJECTION, activityQuery.data);
+      }
+      return projectActivitySnapshot(current, activityQuery.data);
+    });
+  }, [activityQuery.data, activityQuery.dataUpdatedAt, conversationId]);
 
   useEffect(() => {
     if (activityQuery.dataUpdatedAt <= 0) return;
@@ -161,6 +189,13 @@ export default function AllyConversationScreen() {
     void refreshNewestConversation(controller.signal).catch(() => undefined);
     return () => controller.abort();
   }, [activityQuery.dataUpdatedAt, refreshNewestConversation]);
+
+  useEffect(() => {
+    const regainedFocus = focused && !wasFocused.current;
+    wasFocused.current = focused;
+    if (!regainedFocus) return;
+    void Promise.all([refetchAlly(), refetchConversation(), refetchActivity()]).catch(() => undefined);
+  }, [focused, refetchActivity, refetchAlly, refetchConversation]);
 
   useEffect(() => {
     if (!conversationId || session.status !== 'signed-in' || !session.account) return;
@@ -224,7 +259,6 @@ export default function AllyConversationScreen() {
 
   const ally = allyQuery.data;
   const appearance = getAllyAppearance(ally.appearance.key);
-  const activityText = activityQuery.data?.activities ?? [];
   const canSend = Boolean((pendingMessage?.content ?? draft).trim()) && !sending && session.status === 'signed-in';
 
   const send = async () => {
@@ -255,7 +289,7 @@ export default function AllyConversationScreen() {
       let cacheConflict = false;
       try {
         scrollIntent.requestLatest();
-        queryClient.setQueryData<InfiniteData<ConversationPageViewModel, string | null>>(
+        queryClient.setQueryData<InfiniteData<ConversationViewModel, string | null>>(
           conversationQueryKey,
           (current) => current ? { ...current, pages: insertAcceptedMessage(current.pages, acceptance.message) } : current,
         );
@@ -271,7 +305,11 @@ export default function AllyConversationScreen() {
       setPendingMessage(null);
       setDraft('');
       try {
-        await Promise.all([refreshNewestConversation(), activityQuery.refetch()]);
+        if (isMessageTerminal(acceptance.message.status)) {
+          await Promise.all([refreshNewestConversation(), activityQuery.refetch()]);
+        } else {
+          await activityQuery.refetch();
+        }
       } catch {
         setMessage('Your message was sent. Refresh when your connection is stable.');
       }
@@ -333,14 +371,28 @@ export default function AllyConversationScreen() {
             </View>
           )) : <Text style={styles.emptyText}>Your conversation will appear here.</Text>}
 
-          {activityText.map((activity) => (
-            <View key={activity.id} style={styles.activityBlock}>
-              <Text style={styles.activityState}>{activityLabel(activity.state)}</Text>
-              <Text style={styles.activityText}>{activity.text}</Text>
+          {activityProjection.turns.map((turn) => (
+            <View key={`${turn.turnOrdinal}:${turn.messageId}`} style={styles.activityBlock}>
+              <Text style={styles.activityState}>{activityLabel(turn.state)}</Text>
+              <Text style={styles.activityText}>
+                {turn.assistantText || turn.state === 'failed'
+                  ? turn.assistantText || 'This response failed. Try sending your message again.'
+                  : turn.state === 'stopped'
+                    ? 'This response was stopped.'
+                    : 'Waiting for the Ally response…'}
+              </Text>
             </View>
           ))}
 
-          {activityQuery.data ? <Text style={styles.statusText}>{activityLabel(activityQuery.data.state)}</Text> : null}
+          {activityQuery.data ? <Text style={styles.statusText}>{activityLabel(activityProjection.state)}</Text> : null}
+          {activityQuery.isError ? (
+            <Pressable accessibilityRole="button" onPress={() => void activityQuery.refetch()}>
+              <Text style={styles.errorText}>We could not check the latest response status. Tap to retry.</Text>
+            </Pressable>
+          ) : null}
+          {hasPermanentActivityGap(activityProjection) ? (
+            <Text style={styles.errorText}>Part of this response is still being reconciled. Refresh to try again.</Text>
+          ) : null}
           {conversationQuery.hasNextPage ? (
             <Pressable
               accessibilityRole="button"

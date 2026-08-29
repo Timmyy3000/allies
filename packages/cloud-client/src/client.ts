@@ -5,6 +5,31 @@ import type { paths } from "./generated/openapi";
 import { isCloudError, normalizeCloudError, type CloudError } from "./errors";
 import { parsePublicCloudUrl } from "./environment";
 import { toAccountViewModel, type AccountViewModel } from "./mappers/account";
+import {
+  activitySnapshotResponseSchema,
+  allyListResponseSchema,
+  allySeedInputSchema,
+  allyResponseSchema,
+  conversationResponseSchema,
+  createAllyInputSchema,
+  messageAcceptanceResponseSchema,
+  onboardingAttemptResponseSchema,
+  toActivitySnapshotViewModel,
+  toAllyListViewModel,
+  toAllySeedRequest,
+  toAllyViewModel,
+  toConversationViewModel,
+  toCreateAllyRequest,
+  toMessageAcceptanceViewModel,
+  toOnboardingAttemptViewModel,
+  type ActivitySnapshotViewModel,
+  type AllySeedInput,
+  type AllyViewModel,
+  type ConversationViewModel,
+  type CreateAllyInput,
+  type MessageAcceptanceViewModel,
+  type OnboardingAttemptViewModel,
+} from "./mappers/allies";
 import { csrfTokenSchema, externalHttpsUrlSchema, type CloudCsrfToken } from "./schemas";
 import { createControlledFetch } from "./transport";
 
@@ -47,106 +72,6 @@ const waitlistEntrySchema = z.object({
   greeting: z.string().min(1),
 });
 const waitlistCompletionSchema = z.object({ email: maskedEmailSchema });
-const dateTimeSchema = z.iso.datetime({ offset: true });
-const appearanceSchema = z
-  .object({
-    catalog_version: z.string().min(1),
-    key: z.string().regex(/^[a-z][a-z0-9_-]*:[0-9a-f]{6}$/i),
-  })
-  .loose();
-const onboardingAttemptSchema = z
-  .object({
-    attempt_token: z.string().min(1),
-    greeting: z.string().min(1),
-  })
-  .loose();
-const allySchema = z
-  .object({
-    appearance: appearanceSchema,
-    binding_id: z.string().min(1),
-    id: z.string().min(1),
-    job: z.string().min(1),
-    name: z.string().min(1),
-    operation_id: z.string().min(1),
-    personality: z.string().min(1),
-    provisioning_state: z.string().min(1),
-    retryable: z.boolean(),
-  })
-  .loose();
-const messageSchema = z
-  .object({
-    content: z.string().min(1),
-    created_at: dateTimeSchema,
-    id: z.string().min(1),
-    sender: z.string().min(1),
-    sequence: z.number().int().nonnegative(),
-    status: z.string().min(1),
-  })
-  .loose();
-const conversationSchema = z
-  .object({
-    ally_id: z.string().min(1),
-    id: z.string().min(1),
-    messages: z.array(messageSchema),
-    next_cursor: z.string().nullable().optional(),
-  })
-  .loose();
-const activitySchema = z
-  .object({
-    conversation_turn_ordinal: z.number().int().nonnegative(),
-    created_at: dateTimeSchema,
-    id: z.string().min(1),
-    kind: z.string().min(1),
-    message_id: z.string().min(1),
-    sequence: z.number().int().nonnegative(),
-    state: z.string().min(1),
-    text: z.string().min(1),
-  })
-  .loose();
-const activitySnapshotSchema = z
-  .object({
-    activities: z.array(activitySchema),
-    conversation_id: z.string().min(1),
-    last_contiguous_sequence: z.number().int().nonnegative(),
-    state: z.string().min(1),
-  })
-  .loose();
-const messageAcceptanceSchema = z
-  .object({
-    conversation_id: z.string().min(1),
-    execution: z.record(z.string(), z.unknown()).nullable().optional(),
-    message: messageSchema,
-    replayed: z.boolean(),
-  })
-  .loose();
-const appearanceInputSchema = z
-  .object({
-    catalogVersion: z.string().min(1),
-    key: z.string().regex(/^[a-z][a-z0-9_-]*:[0-9a-f]{6}$/i),
-  })
-  .loose();
-const onboardingAttemptInputSchema = z
-  .object({
-    appearance: appearanceInputSchema,
-    job: z.string().min(1),
-    name: z.string().min(1),
-    personality: z.string().min(1),
-  })
-  .loose();
-const createAllyInputSchema = onboardingAttemptInputSchema
-  .extend({
-    onboardingAttempt: z.string().min(1),
-    reply: z.string().min(1).max(4000),
-  })
-  .loose();
-const messageContentSchema = z.string().min(1).max(4000).refine((value) => value.trim().length > 0);
-const pathIdSchema = z.string().trim().min(1);
-const idempotencyKeySchema = z
-  .string()
-  .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i);
-const pageLimitSchema = z.number().int().min(1).max(100);
-const DEFAULT_CONVERSATION_PAGE_LIMIT = 50;
-const DEFAULT_ACTIVITY_LIMIT = 50;
 
 function normalizeRequestSignal(signal?: AbortSignal): AbortSignal | undefined {
   if (!signal) return undefined;
@@ -181,79 +106,6 @@ export interface WorkspaceViewModel {
   name: string;
   role: string;
   capabilities: string[];
-}
-
-export interface AppearanceViewModel {
-  catalogVersion: string;
-  key: string;
-}
-
-export interface OnboardingAttemptInput {
-  name: string;
-  job: string;
-  personality: string;
-  appearance: AppearanceViewModel;
-}
-
-export interface OnboardingAttemptViewModel {
-  attemptToken: string;
-  greeting: string;
-}
-
-export interface CreateAllyInput extends OnboardingAttemptInput {
-  onboardingAttempt: string;
-  reply: string;
-}
-
-export interface AllyViewModel {
-  id: string;
-  name: string;
-  job: string;
-  personality: string;
-  appearance: AppearanceViewModel;
-  provisioningState: string;
-  retryable: boolean;
-}
-
-export interface MessageViewModel {
-  id: string;
-  sender: string;
-  content: string;
-  sequence: number;
-  status: string;
-  createdAt: string;
-}
-
-export interface ConversationPageViewModel {
-  id: string;
-  allyId: string;
-  messages: MessageViewModel[];
-  nextCursor: string | null;
-}
-
-export interface MessageAcceptanceViewModel {
-  conversationId: string;
-  message: MessageViewModel;
-}
-
-export interface ActivityViewModel {
-  id: string;
-  text: string;
-  sequence: number;
-  state: string;
-  createdAt: string;
-}
-
-export interface ActivitySnapshotViewModel {
-  conversationId: string;
-  activities: ActivityViewModel[];
-  state: string;
-  lastContiguousSequence: number;
-}
-
-export interface ConversationPageInput {
-  limit?: number;
-  cursor?: string | null;
 }
 
 export interface WaitlistEntryInput {
@@ -295,10 +147,17 @@ interface ApiResult {
   response: Response;
 }
 
-async function unwrap<T>(operation: Promise<ApiResult>, map: (data: unknown) => T): Promise<T> {
+async function unwrap<T>(
+  operation: Promise<ApiResult>,
+  map: (data: unknown) => T,
+  expectedStatuses?: readonly number[],
+): Promise<T> {
   try {
     const result = await operation;
     if (!result.response.ok) throw normalizeCloudError(result.response.status, result.error);
+    if (expectedStatuses && !expectedStatuses.includes(result.response.status)) {
+      throw { kind: "contract" } satisfies CloudError;
+    }
     try {
       return map(result.data);
     } catch (error) {
@@ -319,64 +178,54 @@ function rejectPreAborted(signal?: AbortSignal): void {
   if (signal?.aborted) throw { kind: "aborted" } satisfies CloudError;
 }
 
-function parseRequest<T>(schema: z.ZodType<T>, input: unknown): T {
-  try {
-    return schema.parse(input);
-  } catch {
-    throw { kind: "bad-request" } satisfies CloudError;
-  }
+const pathSegmentSchema = z
+  .string()
+  .min(1)
+  .max(256)
+  .refine((value) => !/[\\/\u0000-\u001f\u007f]/u.test(value));
+const idempotencyKeySchema = z
+  .string()
+  .min(16)
+  .max(128)
+  .refine((value) => !/[\r\n\u0000]/u.test(value));
+const conversationOptionsSchema = z.object({
+  limit: z.number().int().min(1).max(100).optional(),
+  cursor: z.string().min(1).max(512).optional(),
+});
+const activityLimitSchema = z.number().int().min(1).max(200);
+const messageContentSchema = z.string().min(1).max(16_000);
+
+export interface ConversationOptions {
+  limit?: number;
+  cursor?: string;
+  signal?: AbortSignal;
 }
 
-function mapMessage(message: z.infer<typeof messageSchema>): MessageViewModel {
-  return {
-    id: message.id,
-    sender: message.sender,
-    content: message.content,
-    sequence: message.sequence,
-    status: message.status,
-    createdAt: message.created_at,
-  };
+function parseInput<T>(schema: z.ZodType<T>, input: unknown): T {
+  const result = schema.safeParse(input);
+  if (!result.success) throw { kind: "bad-request" } satisfies CloudError;
+  return result.data;
 }
 
-function mapAlly(data: unknown): AllyViewModel {
-  const ally = successEnvelope(allySchema).parse(data).data;
-  return {
-    id: ally.id,
-    name: ally.name,
-    job: ally.job,
-    personality: ally.personality,
-    appearance: {
-      catalogVersion: ally.appearance.catalog_version,
-      key: ally.appearance.key,
-    },
-    provisioningState: ally.provisioning_state,
-    retryable: ally.retryable,
-  };
+function parsePathSegment(value: string): string {
+  return parseInput(pathSegmentSchema, value);
 }
 
-function mapConversation(data: unknown): ConversationPageViewModel {
-  const conversation = successEnvelope(conversationSchema).parse(data).data;
-  return {
-    id: conversation.id,
-    allyId: conversation.ally_id,
-    messages: conversation.messages.map(mapMessage),
-    nextCursor: conversation.next_cursor ?? null,
-  };
+function parseIdempotencyKey(value: string): string {
+  return parseInput(idempotencyKeySchema, value);
 }
 
-function mapActivitySnapshot(data: unknown): ActivitySnapshotViewModel {
-  const snapshot = successEnvelope(activitySnapshotSchema).parse(data).data;
+function parseConversationOptions(options?: ConversationOptions): {
+  query?: { limit?: number; cursor?: string };
+  signal?: AbortSignal;
+} {
+  const query = parseInput(conversationOptionsSchema, {
+    ...(options?.limit === undefined ? {} : { limit: options.limit }),
+    ...(options?.cursor === undefined ? {} : { cursor: options.cursor }),
+  });
   return {
-    conversationId: snapshot.conversation_id,
-    activities: snapshot.activities.map((activity) => ({
-      id: activity.id,
-      text: activity.text,
-      sequence: activity.sequence,
-      state: activity.state,
-      createdAt: activity.created_at,
-    })),
-    state: snapshot.state,
-    lastContiguousSequence: snapshot.last_contiguous_sequence,
+    ...(Object.keys(query).length ? { query } : {}),
+    ...(options?.signal ? { signal: options.signal } : {}),
   };
 }
 
@@ -545,29 +394,44 @@ export function createCloudClient(options: CloudClientOptions) {
       );
     },
 
-    async beginOnboardingAttempt(
-      input: OnboardingAttemptInput,
-      signal?: AbortSignal,
-    ): Promise<OnboardingAttemptViewModel> {
+    async beginOnboarding(input: AllySeedInput, signal?: AbortSignal): Promise<OnboardingAttemptViewModel> {
       rejectPreAborted(signal);
-      const values = parseRequest(onboardingAttemptInputSchema, input);
+      const seed = toAllySeedRequest(parseInput(allySeedInputSchema, input));
       return unwrap(
         api.POST("/api/v1/onboarding/attempts", {
-          body: {
-            name: values.name,
-            job: values.job,
-            personality: values.personality,
-            appearance: {
-              catalog_version: values.appearance.catalogVersion,
-              key: values.appearance.key,
-            },
-          },
+          body: seed,
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
-        (data) => {
-          const attempt = successEnvelope(onboardingAttemptSchema).parse(data).data;
-          return { attemptToken: attempt.attempt_token, greeting: attempt.greeting };
-        },
+        (data) =>
+          toOnboardingAttemptViewModel(successEnvelope(onboardingAttemptResponseSchema).parse(data).data),
+        [200],
+      );
+    },
+
+    async listAllies(workspaceId: string, signal?: AbortSignal): Promise<AllyViewModel[]> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/allies", {
+          params: { path: { workspace_id: workspace } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toAllyListViewModel(successEnvelope(allyListResponseSchema).parse(data).data),
+        [200],
+      );
+    },
+
+    async getAlly(workspaceId: string, allyId: string, signal?: AbortSignal): Promise<AllyViewModel> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const ally = parsePathSegment(allyId);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/allies/{ally_id}", {
+          params: { path: { workspace_id: workspace, ally_id: ally } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toAllyViewModel(successEnvelope(allyResponseSchema).parse(data).data),
+        [200],
       );
     },
 
@@ -578,64 +442,66 @@ export function createCloudClient(options: CloudClientOptions) {
       signal?: AbortSignal,
     ): Promise<AllyViewModel> {
       rejectPreAborted(signal);
-      const values = parseRequest(createAllyInputSchema, input);
-      const path = parseRequest(pathIdSchema, workspaceId);
-      const key = parseRequest(idempotencyKeySchema, idempotencyKey);
+      const workspace = parsePathSegment(workspaceId);
+      const body = toCreateAllyRequest(parseInput(createAllyInputSchema, input));
+      const key = parseIdempotencyKey(idempotencyKey);
       return unwrap(
         api.POST("/api/v1/workspaces/{workspace_id}/allies", {
-          params: { path: { workspace_id: path }, header: { "Idempotency-Key": key } },
-          body: {
-            name: values.name,
-            job: values.job,
-            personality: values.personality,
-            appearance: {
-              catalog_version: values.appearance.catalogVersion,
-              key: values.appearance.key,
-            },
-            onboarding_attempt: values.onboardingAttempt,
-            reply: values.reply,
+          params: {
+            path: { workspace_id: workspace },
+            header: { "Idempotency-Key": key },
           },
+          body,
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
-        mapAlly,
+        (data) => toAllyViewModel(successEnvelope(allyResponseSchema).parse(data).data),
+        [201, 202],
       );
     },
 
-    async getAlly(workspaceId: string, allyId: string, signal?: AbortSignal): Promise<AllyViewModel> {
-      rejectPreAborted(signal);
-      const workspace = parseRequest(pathIdSchema, workspaceId);
-      const ally = parseRequest(pathIdSchema, allyId);
-      return unwrap(
-        api.GET("/api/v1/workspaces/{workspace_id}/allies/{ally_id}", {
-          params: { path: { workspace_id: workspace, ally_id: ally } },
-          signal: normalizeRequestSignal(signal),
-        }) as Promise<ApiResult>,
-        mapAlly,
-      );
-    },
-
-    async getConversationByAlly(
+    async getAllyConversation(
       workspaceId: string,
       allyId: string,
-      page?: ConversationPageInput,
-      signal?: AbortSignal,
-    ): Promise<ConversationPageViewModel> {
+      options?: ConversationOptions,
+    ): Promise<ConversationViewModel> {
+      const signal = options?.signal;
       rejectPreAborted(signal);
-      const workspace = parseRequest(pathIdSchema, workspaceId);
-      const ally = parseRequest(pathIdSchema, allyId);
-      const values = page
-        ? parseRequest(z.object({ limit: pageLimitSchema.optional(), cursor: z.string().nullable().optional() }).loose(), page)
-        : {};
-      const limit = values.limit ?? DEFAULT_CONVERSATION_PAGE_LIMIT;
+      const workspace = parsePathSegment(workspaceId);
+      const ally = parsePathSegment(allyId);
+      const { query, signal: requestSignal } = parseConversationOptions(options);
       return unwrap(
         api.GET("/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation", {
           params: {
             path: { workspace_id: workspace, ally_id: ally },
-            query: { limit, ...(values.cursor ? { cursor: values.cursor } : {}) },
+            ...(query ? { query } : {}),
           },
-          signal: normalizeRequestSignal(signal),
+          signal: normalizeRequestSignal(requestSignal),
         }) as Promise<ApiResult>,
-        mapConversation,
+        (data) => toConversationViewModel(successEnvelope(conversationResponseSchema).parse(data).data),
+        [200],
+      );
+    },
+
+    async getConversation(
+      workspaceId: string,
+      conversationId: string,
+      options?: ConversationOptions,
+    ): Promise<ConversationViewModel> {
+      const signal = options?.signal;
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const conversation = parsePathSegment(conversationId);
+      const { query, signal: requestSignal } = parseConversationOptions(options);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}", {
+          params: {
+            path: { workspace_id: workspace, conversation_id: conversation },
+            ...(query ? { query } : {}),
+          },
+          signal: normalizeRequestSignal(requestSignal),
+        }) as Promise<ApiResult>,
+        (data) => toConversationViewModel(successEnvelope(conversationResponseSchema).parse(data).data),
+        [200],
       );
     },
 
@@ -647,10 +513,10 @@ export function createCloudClient(options: CloudClientOptions) {
       signal?: AbortSignal,
     ): Promise<MessageAcceptanceViewModel> {
       rejectPreAborted(signal);
-      const workspace = parseRequest(pathIdSchema, workspaceId);
-      const conversation = parseRequest(pathIdSchema, conversationId);
-      const body = parseRequest(messageContentSchema, content);
-      const key = parseRequest(idempotencyKeySchema, idempotencyKey);
+      const workspace = parsePathSegment(workspaceId);
+      const conversation = parsePathSegment(conversationId);
+      const body = parseInput(messageContentSchema, content);
+      const key = parseIdempotencyKey(idempotencyKey);
       return unwrap(
         api.POST("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages", {
           params: {
@@ -660,35 +526,31 @@ export function createCloudClient(options: CloudClientOptions) {
           body: { content: body },
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
-        (data) => {
-          const acceptance = successEnvelope(messageAcceptanceSchema).parse(data).data;
-          return {
-            conversationId: acceptance.conversation_id,
-            message: mapMessage(acceptance.message),
-          };
-        },
+        (data) => toMessageAcceptanceViewModel(successEnvelope(messageAcceptanceResponseSchema).parse(data).data),
+        [200, 201],
       );
     },
 
-    async getActivitySnapshot(
+    async getActivities(
       workspaceId: string,
       conversationId: string,
       limit?: number,
       signal?: AbortSignal,
     ): Promise<ActivitySnapshotViewModel> {
       rejectPreAborted(signal);
-      const workspace = parseRequest(pathIdSchema, workspaceId);
-      const conversation = parseRequest(pathIdSchema, conversationId);
-      const boundedLimit = parseRequest(pageLimitSchema, limit ?? DEFAULT_ACTIVITY_LIMIT);
+      const workspace = parsePathSegment(workspaceId);
+      const conversation = parsePathSegment(conversationId);
+      const parsedLimit = limit === undefined ? undefined : parseInput(activityLimitSchema, limit);
       return unwrap(
         api.GET("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities", {
           params: {
             path: { workspace_id: workspace, conversation_id: conversation },
-            query: { limit: boundedLimit },
+            ...(parsedLimit === undefined ? {} : { query: { limit: parsedLimit } }),
           },
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
-        mapActivitySnapshot,
+        (data) => toActivitySnapshotViewModel(successEnvelope(activitySnapshotResponseSchema).parse(data).data),
+        [200],
       );
     },
 

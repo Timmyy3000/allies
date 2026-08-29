@@ -11,6 +11,8 @@ import { useAllySessionIndex } from '@/features/allies/ally-session-index';
 import { getAllyAppearance } from '@/features/allies/ally-appearance';
 import { OnboardingAllyPreview } from '@/features/onboarding/onboarding-ally-preview';
 import { useNativeSession } from '@/lib/session/session-context';
+import { useMockApp } from '@/features/mock/mock-app';
+import { MockIdentityScreen } from '@/features/mock/mock-screens';
 
 function allyIdFromParam(value: string | string[] | undefined): string | null {
   const allyId = Array.isArray(value) ? value[0] : value;
@@ -18,6 +20,11 @@ function allyIdFromParam(value: string | string[] | undefined): string | null {
 }
 
 export default function AllyIdentityScreen() {
+  const mock = useMockApp();
+  return mock.isMock ? <MockIdentityScreen /> : <CloudAllyIdentityScreen />;
+}
+
+function CloudAllyIdentityScreen() {
   const { allyId: allyIdParam } = useLocalSearchParams<{ allyId?: string }>();
   const allyId = allyIdFromParam(allyIdParam);
   const router = useRouter();
@@ -87,7 +94,7 @@ export default function AllyIdentityScreen() {
             accessibilityRole="button"
             onPress={() => router.push(`/allies/${allyId}/settings` as never)}
             style={styles.settingsLink}>
-            <Text style={styles.settingsLinkText}>Open Ally settings preview</Text>
+            <Text style={styles.settingsLinkText}>Open Ally settings</Text>
           </Pressable>
         </ScrollView>
       </SafeAreaView>
