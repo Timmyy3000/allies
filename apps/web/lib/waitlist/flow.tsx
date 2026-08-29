@@ -13,7 +13,10 @@ import { greetingFingerprintForSerialized, serializeConfiguration, type Waitlist
 export type WaitlistAction = "configuration" | "join";
 export type WaitlistFlowStatus = "disabled" | "ready" | "error";
 
-interface LocalSnapshot {
+export type AllyPreviewAction = WaitlistAction;
+export type AllyPreviewFlowStatus = WaitlistFlowStatus;
+
+export interface AllyPreviewSnapshot {
   lifecycle: "configuring" | "greeting_ready" | "reply_pending" | "pending_claim";
   configuration: { name: string | null; appearanceCatalogVersion: string | null; appearanceKey: string | null; job: string | null; personality: string | null };
   greeting: { text: string } | null;
@@ -21,21 +24,29 @@ interface LocalSnapshot {
   join: { email: string } | null;
 }
 
-interface WaitlistFlowValue {
+export interface AllyPreviewFlowValue {
+  completionMode: "waitlist" | "authenticated";
   featureEnabled: boolean;
   consentVersion: string | null;
-  status: WaitlistFlowStatus;
-  snapshot: LocalSnapshot;
+  status: AllyPreviewFlowStatus;
+  snapshot: AllyPreviewSnapshot;
   error: CloudError | null;
-  pendingAction: WaitlistAction | null;
-  lastAction: WaitlistAction | null;
-  saveConfiguration(payload: WaitlistConfigurationPayload): Promise<LocalSnapshot>;
-  recordReply(text: string): Promise<LocalSnapshot>;
-  join(email: string): Promise<WaitlistCompletionViewModel>;
+  pendingAction: AllyPreviewAction | null;
+  lastAction: AllyPreviewAction | null;
+  saveConfiguration(payload: WaitlistConfigurationPayload): Promise<AllyPreviewSnapshot>;
+  recordReply(text: string): Promise<AllyPreviewSnapshot>;
+  join?: (email: string) => Promise<WaitlistCompletionViewModel>;
   retry(): Promise<void>;
 }
 
-const EMPTY_SNAPSHOT: LocalSnapshot = {
+export interface WaitlistFlowValue extends AllyPreviewFlowValue {
+  completionMode: "waitlist";
+  join: (email: string) => Promise<WaitlistCompletionViewModel>;
+}
+
+type LocalSnapshot = AllyPreviewSnapshot;
+
+const EMPTY_SNAPSHOT: AllyPreviewSnapshot = {
   lifecycle: "configuring",
   configuration: { name: null, appearanceCatalogVersion: null, appearanceKey: null, job: null, personality: null },
   greeting: null,
@@ -43,7 +54,7 @@ const EMPTY_SNAPSHOT: LocalSnapshot = {
   join: null,
 };
 
-const WaitlistFlowContext = createContext<WaitlistFlowValue | null>(null);
+export const AllyPreviewFlowContext = createContext<AllyPreviewFlowValue | null>(null);
 
 function normalizeFlowError(error: unknown): CloudError {
   if (isCloudError(error)) return error;
@@ -102,7 +113,7 @@ export function WaitlistFlowProvider({ featureEnabled, consentVersion, children 
       personality: payload.personality ?? "",
     });
     attemptToken.current = entry.attemptToken;
-    const next: LocalSnapshot = {
+    const next: AllyPreviewSnapshot = {
       lifecycle: "greeting_ready",
       configuration: {
         name: payload.name,
@@ -149,6 +160,7 @@ export function WaitlistFlowProvider({ featureEnabled, consentVersion, children 
   }, [lastAction, run]);
 
   const value = useMemo<WaitlistFlowValue>(() => ({
+    completionMode: "waitlist",
     featureEnabled,
     consentVersion,
     status: featureEnabled ? (error ? "error" : "ready") : "disabled",
@@ -162,13 +174,22 @@ export function WaitlistFlowProvider({ featureEnabled, consentVersion, children 
     retry,
   }), [consentVersion, error, featureEnabled, join, lastAction, pendingAction, recordReply, retry, saveConfiguration, snapshot]);
 
-  return <WaitlistFlowContext.Provider value={value}>{children}</WaitlistFlowContext.Provider>;
+  return <AllyPreviewFlowContext.Provider value={value}>{children}</AllyPreviewFlowContext.Provider>;
+}
+
+export function useAllyPreviewFlow(): AllyPreviewFlowValue {
+  const value = useContext(AllyPreviewFlowContext);
+  if (!value) throw new Error("useAllyPreviewFlow must be used within an Ally preview flow provider");
+  return value;
 }
 
 export function useWaitlistFlow(): WaitlistFlowValue {
-  const value = useContext(WaitlistFlowContext);
+  const value = useAllyPreviewFlow();
   if (!value) throw new Error("useWaitlistFlow must be used within WaitlistFlowProvider");
-  return value;
+  if (value.completionMode !== "waitlist" || !value.join) {
+    throw new Error("useWaitlistFlow must be used within WaitlistFlowProvider");
+  }
+  return value as WaitlistFlowValue;
 }
 
 export function serializeOnboardingConfiguration(input: WaitlistConfigurationInput) {

@@ -12,7 +12,7 @@ export const AUTH_RETURN_ERROR_CODES = [
 export type AuthReturnErrorCode = (typeof AUTH_RETURN_ERROR_CODES)[number];
 
 export function selectAuthReturnTo(value: unknown): string {
-  return parseSafeReturnPath(value) ?? "/account";
+  return parseSafeReturnPath(value) ?? "/home";
 }
 
 export function selectAuthError(value: unknown): AuthReturnErrorCode | undefined {

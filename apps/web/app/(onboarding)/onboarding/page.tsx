@@ -1,18 +1,5 @@
-import Onboarding from "../_components";
-import { OnboardingStateProvider } from "../_store/onboarding-store";
-import { getWebEnvironment } from "../../../lib/env";
-import { WaitlistFlowProvider } from "../../../lib/waitlist/flow";
+import { OnboardingPageClient } from "./onboarding-page-client";
 
 export default function OnboardingPage() {
-  const environment = getWebEnvironment();
-  return (
-    <OnboardingStateProvider initialStep="name">
-      <WaitlistFlowProvider
-        featureEnabled={environment.waitlistEnabled}
-        consentVersion={environment.waitlistConsentVersion}
-      >
-        <Onboarding waitlistEnabled={environment.waitlistEnabled} />
-      </WaitlistFlowProvider>
-    </OnboardingStateProvider>
-  );
+  return <OnboardingPageClient />;
 }

@@ -43,4 +43,5 @@ export function avatarReadQueryOptions(
 
 export function removePrivateAccountQueries(queryClient: QueryClient): void {
   queryClient.removeQueries({ queryKey: ["account"] });
+  queryClient.removeQueries({ queryKey: ["workspaces"] });
 }

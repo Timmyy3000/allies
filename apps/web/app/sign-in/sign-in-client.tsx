@@ -1,10 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { useRef, useState } from "react";
 
 import { isCloudError } from "@allies/cloud-client";
-import { AllyAvatar } from "../../components/ally-avatar";
 import { useSession } from "../../lib/session/session-context";
 
 import styles from "./sign-in.module.css";
@@ -38,26 +36,6 @@ function GoogleMark() {
   );
 }
 
-function SignInArtwork() {
-  return (
-    <div className={styles.artwork} aria-hidden="true">
-      <div className={`${styles.orbit} ${styles.orbitBlue}`}>
-        <AllyAvatar shape="ghosty" color="#0d92fd" size={52} motion="system" />
-      </div>
-      <div className={`${styles.orbit} ${styles.orbitYellow}`}>
-        <AllyAvatar shape="rolly" color="#f5700a" size={44} motion="system" />
-      </div>
-      <div className={`${styles.orbit} ${styles.orbitRed}`}>
-        <AllyAvatar shape="rocky" color="#fd304f" size={50} motion="system" />
-      </div>
-      <div className={styles.heroAlly}>
-        <AllyAvatar shape="ghosty" color="#ff5800" size="clamp(132px, 20vw, 196px)" motion="system" />
-      </div>
-      <span className={styles.artworkCaption}>A little help, right when you need it.</span>
-    </div>
-  );
-}
-
 export function SignInClient({ returnTo }: { returnTo: string }) {
   const { client, runCloudOperation } = useSession();
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -86,18 +64,7 @@ export function SignInClient({ returnTo }: { returnTo: string }) {
   return (
     <main className={styles.page}>
       <div className={styles.shell}>
-        <SignInArtwork />
-        <section className={styles.panel} aria-labelledby="sign-in-title">
-          <Link className={styles.backLink} href="/">
-            <span aria-hidden="true">←</span> Back to Allies
-          </Link>
-          <div className={styles.panelCopy}>
-            <p className={styles.eyebrow}>Your personal allies</p>
-            <h1 id="sign-in-title">Sign in to continue</h1>
-            <p className={styles.description}>
-              Pick up where you left off with the helpers built around what matters to you.
-            </p>
-          </div>
+        <section className={styles.panel} aria-label="Google sign-in">
           <button
             ref={buttonRef}
             type="button"
@@ -109,7 +76,6 @@ export function SignInClient({ returnTo }: { returnTo: string }) {
             <GoogleMark />
             <span>{state === "redirecting" ? "Opening Google…" : "Continue with Google"}</span>
           </button>
-          <p className={styles.privacyNote}>Google is the only sign-in option for Allies.</p>
           <div className={styles.statusRegion} aria-live="polite" aria-atomic="true">
             {state === "redirecting" ? "Opening a secure Google sign-in…" : null}
           </div>

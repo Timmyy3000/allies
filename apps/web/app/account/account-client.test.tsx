@@ -141,7 +141,7 @@ describe("AccountClient", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Retry avatar upload" }));
     await waitFor(() => expect(avatarUploadMock.uploadAvatar).toHaveBeenCalledTimes(2));
-    expect(screen.getByText("Avatar saved")).toBeTruthy();
+    expect(await screen.findByText("Avatar saved")).toBeTruthy();
     expect(client.getWorkspace).not.toHaveBeenCalled();
   });
 

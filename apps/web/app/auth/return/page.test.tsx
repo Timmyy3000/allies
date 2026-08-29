@@ -5,7 +5,7 @@ import { selectAuthError, selectAuthReturnTo } from "../../../lib/session/auth-r
 describe("auth return query selection", () => {
   it("keeps only safe local return paths", () => {
     expect(selectAuthReturnTo("/account?source=google")).toBe("/account?source=google");
-    expect(selectAuthReturnTo("//evil.example")).toBe("/account");
+    expect(selectAuthReturnTo("//evil.example")).toBe("/home");
   });
 
   it("allowlists callback categories without exposing raw query values", () => {

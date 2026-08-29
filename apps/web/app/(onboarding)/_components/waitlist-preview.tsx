@@ -25,7 +25,7 @@ import { useOnboardingStore } from "../_store/onboarding-store";
 import { WaitlistMappingError } from "../../../lib/waitlist/catalog";
 import {
   serializeOnboardingConfiguration,
-  useWaitlistFlow,
+  useAllyPreviewFlow,
   waitlistGreetingFingerprint,
 } from "../../../lib/waitlist/flow";
 import {
@@ -387,7 +387,8 @@ export function WaitlistPreviewScreen() {
     join,
     consentVersion,
     retry,
-  } = useWaitlistFlow();
+    completionMode,
+  } = useAllyPreviewFlow();
 
   const configuration = useMemo(() => {
     try {
@@ -515,7 +516,7 @@ export function WaitlistPreviewScreen() {
   const greetingText = snapshot?.greeting?.text ?? "";
   const renderedGreeting =
     visibleGreeting.source === greetingText ? visibleGreeting.text : "";
-  const joinedEmail = snapshot?.join?.email ?? null;
+  const joinedEmail = completionMode === "waitlist" ? snapshot?.join?.email ?? null : null;
   const palette = getAccentPalette(color);
   const { accent } = palette;
 
@@ -773,7 +774,9 @@ export function WaitlistPreviewScreen() {
               ) {
                 const reply = replyText.trim();
                 void recordReply(reply)
-                  .then(() => setShowSaveModal(true))
+                  .then(() => {
+                    if (completionMode === "waitlist") setShowSaveModal(true);
+                  })
                   .catch(() => undefined);
               }
             }}
@@ -811,7 +814,7 @@ export function WaitlistPreviewScreen() {
         </div>
 
         <AnimatePresence initial={false}>
-          {showSaveModal ? (
+          {completionMode === "waitlist" && showSaveModal ? (
             <motion.div
               key="save-modal"
               role="dialog"
@@ -857,6 +860,7 @@ export function WaitlistPreviewScreen() {
                       email.trim() &&
                       consentVersion
                     ) {
+                      if (!join) return;
                       void join(email.trim())
                         .then(() => {
                           setReplyDraft(null);
