@@ -235,7 +235,8 @@ def _claim_from_records(
         lease.machine_generation,
     )
     conversation_id = binding.cloud_conversation_ref if binding else None
-    session_id = binding.hermes_session_id if binding else None
+    # A conversation can be reserved before its first Hermes session exists.
+    session_id = (binding.hermes_session_id or None) if binding else None
     return Claim(
         attempt_id=attempt.id,
         execution_id=attempt.execution_id,

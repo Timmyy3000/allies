@@ -53,9 +53,7 @@ def _validate_json_value(value: Any, *, depth: int) -> None:
     if value_type is dict:
         for key, item in value.items():
             if type(key) is not str:
-                raise RuntimeValidationError(
-                    "payload object keys must be strings"
-                )
+                raise RuntimeValidationError("payload object keys must be strings")
             _validate_json_value(item, depth=depth + 1)
         return
     raise RuntimeValidationError(
@@ -66,9 +64,7 @@ def _validate_json_value(value: Any, *, depth: int) -> None:
 def validate_object_payload(payload: Any, *, max_bytes: int) -> dict[str, Any]:
     encoded = canonical_json_bytes(payload)
     if len(encoded) > max_bytes:
-        raise RuntimeValidationError(
-            f"payload exceeds the {max_bytes} byte limit"
-        )
+        raise RuntimeValidationError(f"payload exceeds the {max_bytes} byte limit")
     return payload
 
 
@@ -80,13 +76,17 @@ def digest_lease_token(token: str) -> str:
 
 def validate_token_digest(token_digest: str) -> str:
     if not isinstance(token_digest, str) or not _DIGEST_RE.fullmatch(token_digest):
-        raise RuntimeValidationError("token_digest must be a lowercase SHA-256 hex digest")
+        raise RuntimeValidationError(
+            "token_digest must be a lowercase SHA-256 hex digest"
+        )
     return token_digest
 
 
 def validate_nonempty(value: str, name: str, *, max_length: int) -> str:
     if not isinstance(value, str) or not value or len(value) > max_length:
-        raise RuntimeValidationError(f"{name} must be a non-empty string of at most {max_length} characters")
+        raise RuntimeValidationError(
+            f"{name} must be a non-empty string of at most {max_length} characters"
+        )
     return value
 
 

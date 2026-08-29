@@ -16,6 +16,7 @@ print(settings.STATIC_ROOT)
 print(settings.SECURE_PROXY_SSL_HEADER)
 print(settings.SECURE_SSL_REDIRECT)
 print(settings.SECURE_HSTS_SECONDS)
+print(settings.PROFILE_PROVISIONING_PROVIDER)
 """
 
 
@@ -58,6 +59,13 @@ def test_development_mode_keeps_sqlite_fallback():
     assert "True" in result.stdout
     assert "False" in result.stdout
     assert "django.db.backends.sqlite3" in result.stdout
+
+
+def test_profile_provisioning_defaults_to_hermes_openai_api_provider():
+    result = run_settings_probe(DJANGO_DEBUG="true")
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-1] == "openai-api"
 
 
 def test_production_mode_requires_secret_key():

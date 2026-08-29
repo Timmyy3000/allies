@@ -6,6 +6,9 @@ The Django application lives in `backend/`. Repository-wide deployment,
 infrastructure, automation, SDKs, examples, and engineering configuration
 belong at the repository root.
 
+For a Docker-based local control plane that can use a real Fly account, see
+[`docs/operations/local-fly-docker.md`](docs/operations/local-fly-docker.md).
+
 ## Development
 
 POSIX shells:

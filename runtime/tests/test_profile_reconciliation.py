@@ -11,6 +11,7 @@ from allies_runtime.foundry import (
     ProfileDesiredState,
     ProfileReceipt,
     RepairRequiredError,
+    ResponseLossError,
 )
 from allies_runtime.profile_store import (
     CleanupReceipt,
@@ -459,6 +460,34 @@ async def test_foundry_worker_reconciles_again_after_startup():
     await worker.run(idle_cycles=2)
 
     assert reconciliations >= 2
+
+
+@pytest.mark.asyncio
+async def test_foundry_worker_retries_lost_profile_reconciliation_response():
+    class RecoveringReconciler:
+        def __init__(self):
+            self.calls = 0
+
+        async def reconcile(self):
+            self.calls += 1
+            if self.calls == 1:
+                raise ResponseLossError("response lost")
+
+    class IdleFoundry:
+        async def claim(self, *_args, **_kwargs):
+            return None
+
+    reconciler = RecoveringReconciler()
+    worker = FoundryWorker(
+        IdleFoundry(),
+        object(),
+        profile_reconciler=reconciler,
+    )
+
+    result = await worker.run(idle_cycles=1)
+
+    assert result == ()
+    assert reconciler.calls == 2
 
 
 @pytest.mark.asyncio

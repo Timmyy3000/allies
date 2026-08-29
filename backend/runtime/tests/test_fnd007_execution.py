@@ -12,6 +12,7 @@ from runtime.exceptions import (
 from runtime.models import (
     Attempt,
     AttemptStatus,
+    ConversationBinding,
     Execution,
     ExecutionEvent,
     ExecutionStatus,
@@ -58,10 +59,24 @@ def claimed_execution(db):
         idempotency_key="turn-1",
         input_payload={"message": "hello", "cloud_conversation_ref": "cloud-1"},
     )
+    ConversationBinding.objects.create(
+        profile=profile,
+        cloud_conversation_ref="cloud-1",
+        hermes_session_id=None,
+    )
     issued = issue_runtime_credential(workspace.id, "runtime-secret")
     context = authenticate_runtime_token(issued.raw_token)
     claim = claim_next_execution(context, uuid4(), 2)
     return context, execution, claim
+
+
+def test_claim_exposes_reserved_conversation_before_hermes_session(
+    claimed_execution,
+):
+    _context, _execution, claim = claimed_execution
+
+    assert claim.conversation_id == "cloud-1"
+    assert claim.session_id is None
 
 
 def dispatch(context, claim):

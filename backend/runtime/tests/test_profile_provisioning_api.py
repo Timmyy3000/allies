@@ -92,7 +92,61 @@ def test_fixture_request_creates_pending_profile_without_private_receipt_fields(
     profile = RuntimeProfile.objects.get(ally_ref=contract["request"]["ally_ref"])
     assert profile.lifecycle_state == RuntimeProfileLifecycleState.PENDING
     assert profile.seed_payload["personality"] == contract["request"]["personality"]
+    assert (
+        f"Your name is {contract['request']['name']}."
+        in profile.seed_payload["first_chat_instruction"]
+    )
+    assert (
+        "Do not identify yourself as Hermes"
+        in profile.seed_payload["first_chat_instruction"]
+    )
     assert contract["request"]["job"] in profile.seed_payload["first_chat_instruction"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("name", "Mira\nInjected instruction"),
+        ("name", "Mira\x00Injected instruction"),
+        ("name", "Mira\x85Injected instruction"),
+        ("job", "Study\tpartner"),
+        ("job", "Study\x1bpartner"),
+        ("job", "Study\u2028partner"),
+        ("personality", "Calm\nInjected instruction"),
+        ("personality", "Calm\u2029Injected instruction"),
+    ],
+)
+def test_prompt_interpolation_fields_reject_control_characters(
+    workspace,
+    contract,
+    service_token,
+    field,
+    value,
+):
+    payload = dict(contract["request"])
+    payload[field] = value
+
+    response = post_profile(payload)
+
+    assert response.status_code == 422
+    assert RuntimeProfile.objects.count() == 0
+
+
+def test_prompt_interpolation_fields_accept_normal_unicode(
+    workspace,
+    contract,
+    service_token,
+):
+    payload = dict(contract["request"])
+    payload.update({"name": "Zoë 🧭", "job": "Étudier — 日本語"})
+
+    response = post_profile(payload)
+
+    assert response.status_code == 200, response.content
+    profile = RuntimeProfile.objects.get(workspace=workspace)
+    instruction = profile.seed_payload["first_chat_instruction"]
+    assert payload["name"] in instruction
+    assert payload["job"] in instruction
 
 
 def test_provisioning_seed_uses_deployment_settings(
@@ -178,17 +232,29 @@ def test_missing_or_invalid_service_bearer_is_the_same_401(
     assert service_token not in response.content.decode()
 
 
-def test_missing_workspace_fails_closed_without_echoing_identity(
+def test_missing_workspace_registers_desired_state_before_profile(
     db, contract, service_token
 ):
     response = post_profile(contract["request"])
 
-    assert response.status_code == 422
-    assert response.json() == {
-        "code": "INVALID_REQUEST",
-        "message": "request is invalid",
-    }
-    assert contract["request"]["workspace_id"] not in response.content.decode()
+    assert response.status_code == 200
+    assert response.json()["status"] == "pending"
+    workspace = Workspace.objects.get(tenant_ref=contract["request"]["workspace_id"])
+    assert workspace.machine_generation == 0
+    assert workspace.fly_app_ref is None
+    assert workspace.volume_ref is None
+    assert workspace.machine_ref is None
+    assert RuntimeProfile.objects.filter(workspace=workspace).count() == 1
+
+
+def test_workspace_registration_is_idempotent(db, contract, service_token):
+    first = post_profile(contract["request"])
+    replay = post_profile(contract["request"])
+
+    assert first.status_code == 200
+    assert replay.json() == first.json()
+    assert Workspace.objects.count() == 1
+    assert RuntimeProfile.objects.count() == 1
 
 
 @pytest.mark.parametrize("version", [0, 2])

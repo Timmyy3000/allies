@@ -30,6 +30,7 @@ LEASE_SECONDS = 60.0
 DEFAULT_RENEW_INTERVAL = 20.0
 DEFAULT_STOP_SAFETY_MARGIN = 5.0
 DEFAULT_PROFILE_RECONCILE_INTERVAL = 5.0
+MAX_PROFILE_RECONCILIATION_RETRY_DELAY = 5.0
 
 
 class FoundryTransport(Protocol):
@@ -977,6 +978,7 @@ class FoundryWorker:
         self._profiles_reconciled = profile_reconciler is None
         self._profile_reconcile_interval = profile_reconcile_interval
         self._last_profile_reconciliation: float | None = None
+        self._profile_reconciliation_retry_attempts = 0
         self._active: set[asyncio.Task[Any]] = set()
         self._ambiguous_claims: dict[str, float] = {}
         self._stopping = False
@@ -1050,9 +1052,7 @@ class FoundryWorker:
             identifiers = stable_session_identifiers(claim.profile_id, conversation_id)
             session_id = claim.session_id or identifiers.candidate_id
             history_verified = False
-            expected_history_marker = claim.payload.get(
-                "proof_expected_history_marker"
-            )
+            expected_history_marker = claim.payload.get("proof_expected_history_marker")
             if expected_history_marker is not None:
                 forbidden_history_marker = claim.payload.get(
                     "proof_forbidden_history_marker"
@@ -1353,12 +1353,17 @@ class FoundryWorker:
             raise ValueError("max_turns must be positive")
         if idle_cycles is not None and idle_cycles < 1:
             raise ValueError("idle_cycles must be positive")
-        await self._reconcile_profiles(force=True)
         results: list[Any] = []
         empty = 0
         poll_delay = max(idle_delay, 0.01)
+        while not self._stopping:
+            if await self._reconcile_profiles_or_wait(
+                force=True, retry_delay=poll_delay
+            ):
+                break
         while not self._stopping and (max_turns is None or len(results) < max_turns):
-            await self._reconcile_profiles()
+            if not await self._reconcile_profiles_or_wait(retry_delay=poll_delay):
+                continue
             now = self._clock()
             expired = [
                 claim_id
@@ -1428,6 +1433,33 @@ class FoundryWorker:
             for task in done:
                 results.append(task.result() if not task.cancelled() else None)
         return tuple(results)
+
+    async def _reconcile_profiles_or_wait(
+        self, *, force: bool = False, retry_delay: float
+    ) -> bool:
+        try:
+            await self._reconcile_profiles(force=force)
+        except (ResponseLossError, RateLimitedError, ServiceUnavailableError) as error:
+            self._profiles_reconciled = False
+            self._profile_reconciliation_retry_attempts += 1
+            base_delay = max(retry_delay, 0.01)
+            exponent = min(self._profile_reconciliation_retry_attempts - 1, 8)
+            bounded_delay = min(
+                MAX_PROFILE_RECONCILIATION_RETRY_DELAY,
+                base_delay * (2**exponent),
+            )
+            emit_runtime_event(
+                build_event(
+                    "runtime.operation.retried",
+                    operation="profile_reconciliation",
+                    outcome="retry",
+                    error_type=type(error).__name__,
+                )
+            )
+            await asyncio.sleep(bounded_delay)
+            return False
+        self._profile_reconciliation_retry_attempts = 0
+        return True
 
     async def _reconcile_profiles(self, *, force: bool = False) -> None:
         if self.profile_reconciler is None:
