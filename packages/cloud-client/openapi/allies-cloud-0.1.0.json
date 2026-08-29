@@ -1886,7 +1886,7 @@
   "paths": {
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_786cee12",
+        "operationId": "authentication_callback_997e0d55",
         "parameters": [
           {
             "in": "path",
@@ -1991,7 +1991,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_bcf97320",
+        "operationId": "authentication_csrf_7292a9e6",
         "parameters": [],
         "responses": {
           "204": {
@@ -2021,7 +2021,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_b9520287",
+        "operationId": "identity_link_d3db836b",
         "parameters": [
           {
             "in": "path",
@@ -2198,7 +2198,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_bbf9dc2e",
+        "operationId": "session_logout_b35851de",
         "parameters": [],
         "responses": {
           "204": {
@@ -2243,7 +2243,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_fe329434",
+        "operationId": "profile_me_f3ec90cd",
         "parameters": [],
         "responses": {
           "200": {
@@ -2300,7 +2300,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_8469a01c",
+        "operationId": "avatar_delete_9865de96",
         "parameters": [],
         "responses": {
           "204": {
@@ -2410,7 +2410,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_eb9e8445",
+        "operationId": "avatar_complete_6885f237",
         "parameters": [
           {
             "in": "path",
@@ -2568,7 +2568,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_c7240bd9",
+        "operationId": "avatar_read_1310b915",
         "parameters": [],
         "responses": {
           "200": {
@@ -2655,7 +2655,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_1f806768",
+        "operationId": "avatar_prepare_4f6ba326",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -2797,7 +2797,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_c2644f36",
+        "operationId": "profile_profile_a9252d5f",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -2910,7 +2910,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_bb8bb267",
+        "operationId": "nativeauthentication_callback_76136de3",
         "parameters": [
           {
             "in": "path",
@@ -3042,7 +3042,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_065fb1eb",
+        "operationId": "nativeauthentication_logout_48ef7c0f",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3134,7 +3134,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_dd7e95e3",
+        "operationId": "nativeauthentication_sign_in_1c3cf1e1",
         "parameters": [
           {
             "in": "path",
@@ -3238,7 +3238,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_a86769b2",
+        "operationId": "nativeauthentication_token_1dd0f7cd",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3402,7 +3402,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_90949354",
+        "operationId": "nativeauthentication_refresh_2b7a0259",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3565,7 +3565,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_8884522f",
+        "operationId": "session_refresh_2a3206af",
         "parameters": [],
         "responses": {
           "204": {
@@ -3655,7 +3655,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_a114dbb8",
+        "operationId": "authentication_sign_in_ddc0d2fd",
         "parameters": [
           {
             "in": "path",
@@ -3802,7 +3802,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_4502e09b",
+        "operationId": "health_health_786dbe84",
         "parameters": [],
         "responses": {
           "200": {
@@ -3876,7 +3876,7 @@
     },
     "/api/v1/onboarding/attempts": {
       "post": {
-        "operationId": "onboarding_begin_1c948452",
+        "operationId": "onboarding_begin_930d39a6",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3969,7 +3969,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_a6aca549",
+        "operationId": "waitlist_create_dfaca2b3",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -4150,7 +4150,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_dc020c2c",
+        "operationId": "waitlist_complete_42479bb0",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -4320,7 +4320,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_2b2b9eef",
+        "operationId": "workspace_context_58df49c0",
         "parameters": [
           {
             "in": "path",
@@ -4403,7 +4403,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_65ca97dd",
+        "operationId": "ally_list_b0964f4f",
         "parameters": [
           {
             "in": "path",
@@ -4479,7 +4479,7 @@
         ]
       },
       "post": {
-        "operationId": "ally_create_b6bd2e9a",
+        "operationId": "ally_create_8f217a98",
         "parameters": [
           {
             "in": "path",
@@ -4635,7 +4635,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_f042edae",
+        "operationId": "ally_retrieve_f20678fa",
         "parameters": [
           {
             "in": "path",
@@ -4723,7 +4723,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_58189db0",
+        "operationId": "conversation_by_ally_d8cbc131",
         "parameters": [
           {
             "in": "path",
@@ -4854,7 +4854,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_e8a13c94",
+        "operationId": "conversation_by_conversation_d29987b3",
         "parameters": [
           {
             "in": "path",
@@ -4985,7 +4985,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_79b893b6",
+        "operationId": "activity_snapshot_ea093521",
         "parameters": [
           {
             "in": "path",
@@ -5100,7 +5100,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
-        "operationId": "conversation_send_9e252a75",
+        "operationId": "conversation_send_8e94b730",
         "parameters": [
           {
             "in": "path",

@@ -8,8 +8,8 @@ describe("sign-in return path selection", () => {
   });
 
   it("falls back for unsafe or malformed paths", () => {
-    expect(selectAuthReturnTo("https://evil.example/account")).toBe("/account");
-    expect(selectAuthReturnTo("/%252F%252Fevil.example")).toBe("/account");
-    expect(selectAuthReturnTo(undefined)).toBe("/account");
+    expect(selectAuthReturnTo("https://evil.example/account")).toBe("/home");
+    expect(selectAuthReturnTo("/%252F%252Fevil.example")).toBe("/home");
+    expect(selectAuthReturnTo(undefined)).toBe("/home");
   });
 });

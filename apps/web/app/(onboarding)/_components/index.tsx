@@ -109,10 +109,14 @@ export default function Onboarding({
   waitlistEnabled = false,
   ctaHref,
   presentation = "route",
+  exitHref = "/",
+  onExit,
 }: {
   waitlistEnabled?: boolean;
   ctaHref?: string;
   presentation?: "route" | "drawer";
+  exitHref?: string;
+  onExit?: () => void;
 }) {
   const step = useOnboardingStore((state) => state.step);
   const goTo = useOnboardingStore((state) => state.goTo);
@@ -135,12 +139,16 @@ export default function Onboarding({
   }, [goTo]);
 
   const exitOnboarding = useCallback(() => {
+    if (onExit) {
+      onExit();
+      return;
+    }
     if (isDrawerPresentation) {
       setDrawerOpen(false);
       return;
     }
-    router.push("/");
-  }, [isDrawerPresentation, router]);
+    router.push(exitHref);
+  }, [exitHref, isDrawerPresentation, onExit, router]);
 
   if (!isDrawerPresentation) {
     return <OnboardingStepFlow onExit={exitOnboarding} presentation="route" />;
@@ -548,7 +556,7 @@ function SkipStoryButton({
   );
 }
 
-function MeetAllyButton({
+export function MeetAllyButton({
   enabled = true,
   href,
   onOpen,
