@@ -54,6 +54,29 @@ describe("activity projection", () => {
     ]);
   });
 
+  it("advances conversation activity when attempt-local continuity resets", () => {
+    const firstTurn = snapshot([1, 2, 3], "completed", 3);
+    firstTurn.activities.forEach((activity) => {
+      activity.conversationTurnOrdinal = 2;
+      activity.messageId = "00000000-0000-4000-8000-000000000002";
+    });
+    const first = projectActivitySnapshot(EMPTY_ACTIVITY_PROJECTION, firstTurn);
+
+    const secondTurn = snapshot([1, 2, 3, 4, 5, 6], "completed", 3);
+    secondTurn.activities.slice(3).forEach((activity) => {
+      activity.conversationTurnOrdinal = 4;
+      activity.messageId = "00000000-0000-4000-8000-000000000004";
+    });
+    const second = projectActivitySnapshot(first, secondTurn);
+
+    expect(second.turns).toEqual([
+      expect.objectContaining({ turnOrdinal: 2, assistantText: "123" }),
+      expect.objectContaining({ turnOrdinal: 4, assistantText: "456" }),
+    ]);
+    expect(second.lastContiguousSequence).toBe(6);
+    expect(second.pendingActivities).toBeUndefined();
+  });
+
   it("holds deltas after a sequence gap and surfaces a terminal gap", () => {
     const partial = projectActivitySnapshot(EMPTY_ACTIVITY_PROJECTION, snapshot([1, 3], "completed", 1));
     expect(partial.turns[0]?.assistantText).toBe("1");

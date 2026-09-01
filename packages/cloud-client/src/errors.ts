@@ -7,6 +7,9 @@ export type CloudErrorKind =
   | "forbidden"
   | "not-found"
   | "conflict"
+  | "activity-cursor-gap"
+  | "activity-cursor-expired"
+  | "activity-cursor-invalid"
   | "too-large"
   | "unsupported-media"
   | "validation"
@@ -63,9 +66,12 @@ function kindForStatus(status: number, code?: string): CloudErrorKind {
   if (status === 403 && code && /csrf|origin/i.test(code)) return "security";
   if (status === 403) return "forbidden";
   if (status === 404) return "not-found";
+  if (status === 409 && code === "activity_cursor_gap") return "activity-cursor-gap";
   if (status === 409) return "conflict";
+  if (status === 410 && code === "activity_cursor_expired") return "activity-cursor-expired";
   if (status === 413) return "too-large";
   if (status === 415) return "unsupported-media";
+  if (status === 422 && code === "activity_cursor_invalid") return "activity-cursor-invalid";
   if (status === 422) return "validation";
   if (status === 429) return "throttled";
   if (status >= 500) return "server";
