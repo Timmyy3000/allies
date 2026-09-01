@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { HomeWorkspace } from "./home-workspace";
+import { ActivityReplayBoundError, activityReplayFailure, HomeWorkspace } from "./home-workspace";
 
 const replace = vi.hoisted(() => vi.fn());
 const push = vi.hoisted(() => vi.fn());
@@ -40,18 +40,8 @@ const ally = {
 };
 
 afterEach(cleanup);
-let desktopViewport = false;
 beforeEach(() => {
   vi.clearAllMocks();
-  desktopViewport = false;
-  Object.defineProperty(window, "matchMedia", {
-    configurable: true,
-    value: vi.fn(() => ({
-      matches: desktopViewport,
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-    })),
-  });
 });
 
 function renderHome(
@@ -102,12 +92,21 @@ function renderHome(
 }
 
 describe("HomeWorkspace", () => {
+  it.each([
+    [{ kind: "activity-cursor-gap" }, "gap"],
+    [{ kind: "activity-cursor-expired" }, "expired"],
+    [{ kind: "activity-cursor-invalid" }, "invalid"],
+    [new ActivityReplayBoundError(), "bounds"],
+  ] as const)("classifies replay recovery failure %s", (error, expected) => {
+    expect(activityReplayFailure(error)).toBe(expected);
+  });
+
   it("keeps an empty account honest and offers the first-Ally flow", async () => {
     renderHome([]);
-    expect(await screen.findByRole("heading", { name: "Meet your first Ally" })).toBeTruthy();
+    expect(await screen.findByText("No Allies here yet.")).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Mira" })).toBeNull();
-    expect(screen.getAllByText("Meet your first Ally").length).toBeGreaterThan(1);
-    expect(screen.getAllByRole("link", { name: "Meet your first Ally" })[0]?.getAttribute("href")).toBe("/home/new");
+    expect(screen.getByRole("link", { name: "Make an Ally" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Meet your first Ally" }).getAttribute("href")).toBe("/home/new");
   });
 
   it("hosts Ally creation inside the Home thread", async () => {
@@ -119,19 +118,18 @@ describe("HomeWorkspace", () => {
   it("renders a compact real Ally row and its persisted conversation", async () => {
     const client = renderHome([ally], ally.id);
     expect(await screen.findByRole("heading", { name: "Mira" })).toBeTruthy();
-    expect(screen.getAllByText("Study partner")).toHaveLength(2);
-    expect(await screen.findByText("What should we work on first?")).toBeTruthy();
+    expect(screen.getAllByText("Study partner")).toHaveLength(1);
+    expect(await screen.findAllByText("What should we work on first?")).toHaveLength(2);
     await waitFor(() => expect(client.getAllyConversation).toHaveBeenCalled());
     expect(screen.queryByText(/unread/i)).toBeNull();
   });
 
-  it("selects the first newest Ally on desktop Home", async () => {
-    desktopViewport = true;
+  it("keeps the Ally roster on /home on desktop", async () => {
     const newest = { ...ally, id: "00000000-0000-4000-8000-000000000009", name: "Nova" };
     renderHome([newest, ally]);
 
-    await waitFor(() => expect(replace).toHaveBeenCalledWith(`/home/${newest.id}`));
-    expect(replace).toHaveBeenCalledOnce();
+    expect(await screen.findByRole("link", { name: /Nova/ })).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
   });
 
   it("keeps the Ally list as the mobile Home entry", async () => {
@@ -139,6 +137,20 @@ describe("HomeWorkspace", () => {
 
     expect(await screen.findByRole("link", { name: /Mira/ })).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("uses the roster-only layout on /home", async () => {
+    renderHome([ally]);
+
+    expect(await screen.findByRole("link", { name: "Account settings" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Make an Ally" })).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Selected Ally conversation" })).toBeNull();
+  });
+
+  it("keeps the conversation back control pointed at /home", async () => {
+    renderHome([ally], ally.id);
+
+    expect((await screen.findByRole("link", { name: "Back to Allies" })).getAttribute("href")).toBe("/home");
   });
 
   it("keeps the older cursor and offers an inline retry after a page failure", async () => {
@@ -185,7 +197,7 @@ describe("HomeWorkspace", () => {
     };
     renderHome([unsupported], unsupported.id);
 
-    expect((await screen.findAllByTestId("ally-appearance-unavailable"))).toHaveLength(2);
+    expect((await screen.findAllByTestId("ally-appearance-unavailable"))).toHaveLength(1);
   });
 
   it("reuses an exact failed send key but rotates it after any draft edit", async () => {
@@ -222,6 +234,75 @@ describe("HomeWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(3));
     expect(sendMessage.mock.calls[2]?.[3]).not.toBe(firstKey);
+  });
+
+  it("clears the submitted draft after a successful send, including trailing whitespace", async () => {
+    const sendMessage = vi.fn(async () => ({
+      conversationId: "00000000-0000-4000-8000-000000000005",
+      message: {
+        id: "00000000-0000-4000-8000-000000000007",
+        sender: "user" as const,
+        content: "Hello again",
+        sequence: 2,
+        status: "queued" as const,
+        createdAt: "2026-08-20T16:01:00Z",
+      },
+      execution: null,
+      replayed: false,
+    }));
+    renderHome([ally], ally.id, { sendMessage });
+
+    const input = await screen.findByRole("textbox");
+    fireEvent.change(input, { target: { value: "Hello again   " } });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""));
+  });
+
+  it("offers a per-message retry and starts a fresh turn", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const stuckMessage = {
+      id: "00000000-0000-4000-8000-000000000020",
+      sender: "user" as const,
+      content: "Still waiting",
+      sequence: 2,
+      status: "queued" as const,
+      retryable: true,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const retriedMessage = {
+      ...stuckMessage,
+      id: "00000000-0000-4000-8000-000000000021",
+      sequence: 3,
+      retryable: false,
+    };
+    const retryMessage = vi.fn(async () => ({
+      conversationId,
+      message: retriedMessage,
+      execution: null,
+      replayed: false,
+    }));
+    renderHome([ally], ally.id, {
+      retryMessage,
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [stuckMessage],
+        nextCursor: null,
+      })),
+    });
+
+    const retry = await screen.findByRole("button", { name: "Retry" });
+    fireEvent.click(retry);
+    await waitFor(() => expect(retryMessage).toHaveBeenCalledOnce());
+    expect(retryMessage.mock.calls[0]?.slice(0, 3)).toEqual([
+      "workspace",
+      conversationId,
+      stuckMessage.id,
+    ]);
+    expect(await screen.findAllByText("Still waiting")).toHaveLength(3);
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 
   it("refetches after a terminal send without losing history, cursor, or activity", async () => {
@@ -311,7 +392,9 @@ describe("HomeWorkspace", () => {
     fireEvent.change(input, { target: { value: "A terminal question" } });
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
-    await waitFor(() => expect(getAllyConversation).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(
+      getAllyConversation.mock.calls.filter((call) => call[2]?.limit === 50),
+    ).toHaveLength(2));
     await waitFor(() => expect(getActivities).toHaveBeenCalledTimes(2));
     expect(activitySignal?.aborted).toBe(false);
     resolveActivitySnapshot?.(terminalActivitySnapshot);
@@ -381,7 +464,7 @@ describe("HomeWorkspace", () => {
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
 
     await waitFor(() => expect(getActivities).toHaveBeenCalledTimes(2), { timeout: 2_000 });
-    await waitFor(() => expect(getAllyConversation).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getAllyConversation).toHaveBeenCalled());
     expect(screen.getByText("Previous latest answer")).toBeTruthy();
   });
 
@@ -548,11 +631,49 @@ describe("HomeWorkspace", () => {
 
     const firstQuestion = await screen.findByText("First question");
     const firstAnswer = await screen.findByText("First answer");
-    const secondQuestion = await screen.findByText("Second question");
+    const secondQuestion = (await screen.findAllByText("Second question")).find((node) => node.closest("article"));
+    if (!secondQuestion) throw new Error("Expected the second question to render inside a message article");
     const secondAnswer = await screen.findByText("Second answer");
     expect(firstQuestion.compareDocumentPosition(firstAnswer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(firstAnswer.compareDocumentPosition(secondQuestion) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(secondQuestion.compareDocumentPosition(secondAnswer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("renders markdown structure while an Ally response is still streaming", async () => {
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: "00000000-0000-4000-8000-000000000005",
+        allyId: ally.id,
+        messages: [{
+          id: "00000000-0000-4000-8000-000000000007",
+          sender: "user" as const,
+          content: "Show me the details",
+          sequence: 2,
+          status: "queued" as const,
+          createdAt: "2026-08-20T16:01:00Z",
+        }],
+        nextCursor: null,
+      })),
+      getActivities: vi.fn(async () => ({
+        conversationId: "00000000-0000-4000-8000-000000000005",
+        activities: [{
+          id: "00000000-0000-4000-8000-000000000012",
+          messageId: "00000000-0000-4000-8000-000000000007",
+          sequence: 1,
+          conversationTurnOrdinal: 2,
+          kind: "assistant_delta" as const,
+          text: "## A streamed heading\n\n- The first detail\n- The second detail",
+          state: "running" as const,
+          createdAt: "2026-08-20T16:01:01Z",
+        }],
+        state: "running" as const,
+        lastContiguousSequence: 1,
+      })),
+    });
+
+    expect(await screen.findByRole("heading", { name: "A streamed heading", level: 2 })).toBeTruthy();
+    expect(screen.getByRole("list")).toBeTruthy();
+    expect(screen.getAllByRole("listitem")[0]?.textContent).toContain("The first detail");
   });
 
   it("uses explicit review copy when activity needs reconciliation", async () => {

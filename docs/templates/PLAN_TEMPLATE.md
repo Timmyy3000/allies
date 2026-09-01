@@ -7,6 +7,33 @@
 - Source docs/specs:
 - Success outcome:
 
+## Plan Hygiene and Evidence Boundaries
+
+Keep committed plans portable, reviewable, and safe to share. Include product
+and engineering contracts, not the operator's private workstation or a raw
+walkthrough transcript.
+
+- Do not commit personal filesystem paths, home-directory names, tunnel URLs,
+  credentials, tokens, private deployment URLs, or other machine-specific
+  connection details. Use repository-relative paths, service labels, and
+  environment placeholders such as `<cloud-staging-url>`.
+- Do not identify real users, customers, or conversations in examples. Use
+  synthetic fixtures such as “a seeded conversation exceeding the 200-row
+  bound”; omit names, timestamps, message text, and activity counts that could
+  identify a live record.
+- API route and event paths are allowed when they are part of the stable
+  contract being designed or changed. Distinguish those contract paths from
+  local navigation paths, tunnel addresses, and deployment URLs, which belong
+  in private operator notes or the test harness.
+- Keep manual walkthroughs at the level of behavior and expected evidence:
+  “send a message, reconnect, and verify monotonic replay.” Do not commit
+  click-by-click browser transcripts, copied browser URLs, screenshots with
+  live data, or temporary worktree instructions.
+- Before acceptance, scan both Markdown and HTML presentations for local
+  paths, private URLs, customer identifiers, credentials, and walkthrough
+  residue. Replace them with sanitized fixtures or move the operational detail
+  to an untracked/local-only note.
+
 ## User Stories
 
 1. As a `<user type>`, I want `<capability>`, so that `<outcome>`.

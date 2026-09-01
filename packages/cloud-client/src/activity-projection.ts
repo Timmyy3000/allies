@@ -14,6 +14,7 @@ export interface ActivityProjection {
   turns: AssistantTurnProjection[];
   state: ActivityState;
   lastContiguousSequence: number;
+  lastContiguousActivitySequence?: number;
   pendingActivities?: ActivityViewModel[];
 }
 
@@ -22,6 +23,7 @@ export const EMPTY_ACTIVITY_PROJECTION: ActivityProjection = {
   turns: [],
   state: "queued",
   lastContiguousSequence: 0,
+  lastContiguousActivitySequence: 0,
 };
 
 export function projectActivitySnapshot(
@@ -56,12 +58,15 @@ export function projectActivitySnapshot(
     );
   }
 
-  const contiguousLimit = Math.max(current.lastContiguousSequence, snapshot.lastContiguousSequence);
-  let lastContiguousSequence = Math.max(0, current.lastContiguousSequence);
-  while (lastContiguousSequence < contiguousLimit) {
+  let lastContiguousSequence = Math.max(
+    0,
+    current.lastContiguousSequence,
+    current.lastContiguousActivitySequence ?? 0,
+  );
+  // Snapshot continuity is attempt-local; visible activity sequences are conversation-global.
+  while (pending.has(lastContiguousSequence + 1)) {
     const nextSequence = lastContiguousSequence + 1;
-    const activity = pending.get(nextSequence);
-    if (!activity) break;
+    const activity = pending.get(nextSequence)!;
     pending.delete(nextSequence);
     seen.add(nextSequence);
     const existing = turns.get(activity.conversationTurnOrdinal);
@@ -87,6 +92,7 @@ export function projectActivitySnapshot(
     ),
     state: mergeActivityState(current.state, snapshot.state),
     lastContiguousSequence,
+    lastContiguousActivitySequence: lastContiguousSequence,
     ...(pendingActivities.length > 0 ? { pendingActivities } : {}),
   };
 }

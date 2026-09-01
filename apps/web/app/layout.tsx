@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "generative-loaders/styles.css";
+import "streamdown/styles.css";
 import "./globals.css";
 import AppProviders from "./providers";
 

@@ -27,7 +27,7 @@ const messageStatusSchema = z.enum([
   "failed",
   "stopped",
 ]);
-const activityStateSchema = z.enum([
+export const activityStateSchema = z.enum([
   "queued",
   "running",
   "awaiting_action",
@@ -36,7 +36,7 @@ const activityStateSchema = z.enum([
   "failed",
   "reconciliation_needed",
 ]);
-const activityKindSchema = z.enum([
+export const activityKindSchema = z.enum([
   "execution",
   "assistant_delta",
   "activity_started",
@@ -79,6 +79,7 @@ const messageResponseSchema = z
     sequence: z.number().int().positive(),
     status: messageStatusSchema,
     created_at: timestampSchema,
+    retryable: z.boolean().default(false),
   })
   .loose();
 
@@ -119,6 +120,12 @@ export const activitySnapshotResponseSchema = z
     activities: z.array(activityResponseSchema).max(200),
     state: activityStateSchema,
     last_contiguous_sequence: z.number().int().nonnegative(),
+    last_contiguous_activity_sequence: z.number().int().nonnegative().optional(),
+    resume_cursor: z.string().min(1).max(512).nullable().optional(),
+    next_cursor: z.string().min(1).max(512).nullable().optional(),
+    oldest_sequence: z.number().int().nonnegative().nullable().optional(),
+    latest_sequence: z.number().int().nonnegative().nullable().optional(),
+    retention_gap: z.boolean().optional(),
   })
   .loose();
 
@@ -182,6 +189,7 @@ export interface MessageViewModel {
   sequence: number;
   status: MessageStatus;
   createdAt: string;
+  retryable?: boolean;
 }
 
 export interface ConversationViewModel {
@@ -214,6 +222,12 @@ export interface ActivitySnapshotViewModel {
   activities: ActivityViewModel[];
   state: ActivityState;
   lastContiguousSequence: number;
+  lastContiguousActivitySequence?: number;
+  resumeCursor?: string | null;
+  nextCursor?: string | null;
+  oldestSequence?: number | null;
+  latestSequence?: number | null;
+  retentionGap?: boolean;
 }
 
 export function toAllyViewModel(input: unknown): AllyViewModel {
@@ -252,6 +266,7 @@ function toMessageViewModel(input: unknown): MessageViewModel {
     sequence: message.sequence,
     status: message.status,
     createdAt: message.created_at,
+    retryable: message.retryable,
   };
 }
 
@@ -296,6 +311,13 @@ export function toActivitySnapshotViewModel(input: unknown): ActivitySnapshotVie
     activities: snapshot.activities.map(toActivityViewModel),
     state: snapshot.state,
     lastContiguousSequence: snapshot.last_contiguous_sequence,
+    lastContiguousActivitySequence:
+      snapshot.last_contiguous_activity_sequence ?? snapshot.last_contiguous_sequence,
+    resumeCursor: snapshot.resume_cursor ?? null,
+    nextCursor: snapshot.next_cursor ?? null,
+    oldestSequence: snapshot.oldest_sequence ?? null,
+    latestSequence: snapshot.latest_sequence ?? null,
+    retentionGap: snapshot.retention_gap ?? false,
   };
 }
 
