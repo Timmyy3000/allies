@@ -76,6 +76,16 @@ def _settings_subprocess(
     )
 
 
+def test_activity_sse_is_enabled_by_default():
+    result = _settings_subprocess(
+        {},
+        "import config.settings as s; print(s.ALLIES_ACTIVITY_SSE_ENABLED)",
+    )
+
+    assert result.returncode == 0
+    assert result.stdout.strip() == "True"
+
+
 def test_production_settings_reject_missing_security_configuration():
     result = _settings_subprocess(
         {"DJANGO_DEBUG": "false", "DJANGO_SECRET_KEY": "x" * 32}
