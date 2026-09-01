@@ -9,6 +9,7 @@ from auths.config import cookie_name
 from auths.models import User
 from auths.services.sessions import issue_session
 from auths.throttle import ThrottleUnavailable
+from chat.models import Message, MessageLifecycle
 from chat.services.conversations import ensure_default_conversation
 from workspaces.models import Membership, Workspace
 
@@ -73,6 +74,16 @@ def test_conversation_read_send_and_replay_contract():
         replay.json()["data"]["message"]["id"]
         == created.json()["data"]["message"]["id"]
     )
+    created_message_id = created.json()["data"]["message"]["id"]
+    Message.objects.filter(pk=created_message_id).update(status=MessageLifecycle.FAILED)
+    retried = client.post(
+        f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/messages/"
+        f"{created_message_id}/retry",
+        "{}",
+        content_type="application/json",
+        **{**headers, "HTTP_IDEMPOTENCY_KEY": "chat-api-retry-key-0001"},
+    )
+    assert retried.status_code == 201
 
     foreign_user = User.objects.create_user()
     foreign_workspace = Workspace.objects.create(
@@ -110,9 +121,18 @@ def test_conversation_read_send_and_replay_contract():
         content_type="application/json",
         **{**headers, "HTTP_IDEMPOTENCY_KEY": "chat-foreign-key-0001"},
     )
+    foreign_message = foreign_conversation.messages.order_by("sequence").first()
+    denied_retry = client.post(
+        f"/api/v1/workspaces/{foreign_workspace.id}/conversations/"
+        f"{foreign_conversation.id}/messages/{foreign_message.id}/retry",
+        "{}",
+        content_type="application/json",
+        **{**headers, "HTTP_IDEMPOTENCY_KEY": "chat-foreign-retry-0001"},
+    )
     assert denied_get.status_code == 404
     assert denied_post.status_code == 404
-    assert denied_get.json() == denied_post.json()
+    assert denied_retry.status_code == 404
+    assert denied_get.json() == denied_post.json() == denied_retry.json()
 
 
 @pytest.mark.django_db

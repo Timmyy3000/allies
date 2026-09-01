@@ -16,3 +16,15 @@ class ProjectionInvalid(ProjectionError):
 
 class ProjectionSequenceGap(ProjectionError):
     code = "sequence_gap"
+
+
+class ProjectionCursorGap(ProjectionError):
+    code = "activity_cursor_gap"
+
+
+class ProjectionCursorExpired(ProjectionError):
+    code = "activity_cursor_expired"
+
+
+class ProjectionCursorInvalid(ProjectionError):
+    code = "activity_cursor_invalid"

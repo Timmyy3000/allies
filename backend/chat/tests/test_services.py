@@ -24,7 +24,14 @@ from chat.exceptions import (
     SendRateLimited,
     TurnConflict,
 )
-from chat.models import Message, MessageLifecycle, MessageOrigin, MessageSender
+from chat.models import (
+    DispatchOutbox,
+    DispatchState,
+    Message,
+    MessageLifecycle,
+    MessageOrigin,
+    MessageSender,
+)
 from chat.services.conversations import (
     ensure_default_conversation,
     reconcile_ally_conversation,
@@ -35,6 +42,7 @@ from chat.services.messages import (
     claim_next_turn,
     complete_turn,
     parse_cursor,
+    retry_message,
     serialize_cursor,
 )
 from workspaces.models import Membership, Workspace
@@ -185,6 +193,99 @@ def test_lifecycle_primitives_are_idempotent(account):
     assert replay.updated_at == timestamp
     with pytest.raises(TurnConflict):
         complete_turn(message_id=claimed.id, status=MessageLifecycle.FAILED)
+
+
+@pytest.mark.django_db
+def test_retry_message_requeues_a_stale_send_and_replays_by_retry_key(account):
+    user, workspace, ally = account
+    conversation = ensure_default_conversation(
+        ally=ally, greeting="Hello", reply="Reply"
+    )
+    original = accept_message(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        content="Please continue",
+        idempotency_key="chat-send-key-retry-01",
+    ).message
+    Message.objects.filter(pk=original.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=3)
+    )
+    DispatchOutbox.objects.create(message=original, status=DispatchState.ACCEPTED)
+
+    retried = retry_message(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        message_id=original.id,
+        idempotency_key="chat-retry-key-000001",
+    )
+    assert retried.replayed is False
+    assert retried.message.pk != original.pk
+    assert retried.message.content == original.content
+    assert retried.message.sequence == original.sequence + 1
+    assert retried.message.retry_of_id == original.id
+
+    replay = retry_message(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        message_id=original.id,
+        idempotency_key="chat-retry-key-000001",
+    )
+    assert replay.replayed is True
+    assert replay.message.pk == retried.message.pk
+
+
+@pytest.mark.django_db
+def test_retry_message_rejects_a_fresh_queued_send(account):
+    user, workspace, ally = account
+    conversation = ensure_default_conversation(
+        ally=ally, greeting="Hello", reply="Reply"
+    )
+    original = accept_message(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        content="Still working",
+        idempotency_key="chat-send-key-retry-02",
+    ).message
+
+    with pytest.raises(TurnConflict):
+        retry_message(
+            user=user,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
+            message_id=original.id,
+            idempotency_key="chat-retry-key-000002",
+        )
+
+
+@pytest.mark.django_db
+def test_retry_message_rejects_a_stale_queued_send_without_an_outbox(account):
+    user, workspace, ally = account
+    conversation = ensure_default_conversation(
+        ally=ally, greeting="Hello", reply="Reply"
+    )
+    original = accept_message(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        content="Still waiting for dispatch",
+        idempotency_key="chat-send-key-retry-03",
+    ).message
+    Message.objects.filter(pk=original.pk).update(
+        updated_at=timezone.now() - timedelta(minutes=3)
+    )
+
+    with pytest.raises(TurnConflict):
+        retry_message(
+            user=user,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
+            message_id=original.id,
+            idempotency_key="chat-retry-key-000003",
+        )
 
 
 @pytest.mark.django_db
