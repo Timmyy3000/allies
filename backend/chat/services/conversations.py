@@ -294,8 +294,10 @@ def _messages_page(
     if cursor:
         parsed = parse_cursor(cursor, conversation_id=str(conversation.id))
         before_sequence = parsed.before_sequence
-    query: QuerySet[Message, Message] = Message.objects.filter(
-        conversation=conversation
+    query: QuerySet[Message, Message] = (
+        Message.objects.filter(conversation=conversation)
+        .select_related("dispatch_outbox")
+        .prefetch_related("retries")
     )
     if before_sequence is not None:
         query = query.filter(sequence__lt=before_sequence)

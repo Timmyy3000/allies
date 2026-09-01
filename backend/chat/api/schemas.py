@@ -19,6 +19,7 @@ class MessageResponse(Schema):
     sequence: int
     status: str
     created_at: datetime
+    retryable: bool = False
 
 
 class ConversationResponse(Schema):

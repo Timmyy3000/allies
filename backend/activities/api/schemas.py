@@ -22,3 +22,9 @@ class ActivitySnapshotResponse(Schema):
     activities: list[ActivityResponse]
     state: str
     last_contiguous_sequence: int
+    last_contiguous_activity_sequence: int
+    resume_cursor: str | None = None
+    next_cursor: str | None = None
+    oldest_sequence: int | None = None
+    latest_sequence: int | None = None
+    retention_gap: bool = False
