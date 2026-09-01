@@ -194,6 +194,12 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             ],
             "state": "running",
             "last_contiguous_sequence": 2,
+            "last_contiguous_activity_sequence": 1,
+            "resume_cursor": "<signed-activity-cursor>",
+            "next_cursor": None,
+            "oldest_sequence": 1,
+            "latest_sequence": 1,
+            "retention_gap": False,
         },
     },
     "SuccessResponse_WaitlistEntryResponse_": {

@@ -77,6 +77,13 @@ class Message(models.Model):
     content_fingerprint = models.CharField(
         max_length=DIGEST_LENGTH, blank=True, default="", editable=False
     )
+    retry_of = models.ForeignKey(
+        "self",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="retries",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

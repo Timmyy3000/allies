@@ -2,27 +2,40 @@
 
 from __future__ import annotations
 
+import binascii
+import hashlib
+import hmac
+import json
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 from uuid import UUID
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Func, IntegerField, Sum
+from django.utils import timezone
 
 from allies.gateways.contracts import FoundryEventEnvelope
 from allies.models import AllyBinding, BindingStatus
 from chat.models import (
     Conversation,
+    DispatchOutbox,
+    DispatchState,
     Message,
     MessageLifecycle,
     MessageOrigin,
     MessageSender,
 )
+from common.cursors import b64decode, b64encode, cursor_keys
 from common.uuids import canonical_uuid
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 
 from ..exceptions import (
     ProjectionConflict,
+    ProjectionCursorExpired,
+    ProjectionCursorGap,
+    ProjectionCursorInvalid,
     ProjectionInvalid,
     ProjectionNotFound,
     ProjectionSequenceGap,
@@ -35,6 +48,7 @@ MAX_ACTIVITIES_PER_CONVERSATION = 8192
 MAX_EVENT_RECEIPTS_PER_MESSAGE = 513
 MAX_AGGREGATE_TEXT_BYTES = 64 * 1024
 MAX_CONVERSATION_TEXT_BYTES = 4 * 1024 * 1024
+STALE_QUEUED_TURN_SECONDS = 120
 _TERMINAL_STATES = {
     MessageLifecycle.COMPLETED,
     MessageLifecycle.FAILED,
@@ -69,6 +83,148 @@ class ActivitySnapshot:
     activities: tuple[Activity, ...]
     state: str
     last_contiguous_sequence: int
+    last_contiguous_activity_sequence: int = 0
+    resume_cursor: str | None = None
+    next_cursor: str | None = None
+    oldest_sequence: int | None = None
+    latest_sequence: int | None = None
+    retention_gap: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityCursor:
+    conversation_id: str
+    after_sequence: int
+    high_water_sequence: int
+    expires_at: int
+
+
+_ACTIVITY_CURSOR_FIELDS = frozenset({"v", "t", "c", "a", "h", "e"})
+_MAX_CURSOR_SEQUENCE = 2_147_483_647
+
+
+def _bounded_cursor_setting(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(getattr(settings, name, default))
+    except (TypeError, ValueError) as exc:
+        raise ProjectionInvalid("activity cursor configuration is invalid") from exc
+    if not minimum <= value <= maximum:
+        raise ProjectionInvalid("activity cursor configuration is invalid")
+    return value
+
+
+def serialize_activity_cursor(
+    conversation_id: UUID | str,
+    after_sequence: int = 0,
+    high_water_sequence: int | None = None,
+    now: datetime | None = None,
+) -> str:
+    """Return a signed cursor positioned immediately after an activity sequence."""
+
+    try:
+        parsed_conversation_id = str(canonical_uuid(conversation_id))
+        after_sequence = int(after_sequence)
+        high_water_sequence = (
+            after_sequence if high_water_sequence is None else int(high_water_sequence)
+        )
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ProjectionCursorInvalid("activity cursor is invalid") from exc
+    if (
+        after_sequence < 0
+        or high_water_sequence < after_sequence
+        or high_water_sequence > _MAX_CURSOR_SEQUENCE
+    ):
+        raise ProjectionCursorInvalid("activity cursor is invalid")
+    ttl = _bounded_cursor_setting("ALLIES_CHAT_CURSOR_TTL_SECONDS", 3600, 1, 86_400)
+    expires_at = int((now or timezone.now()).timestamp()) + ttl
+    payload = {
+        "v": 1,
+        "t": "activity",
+        "c": parsed_conversation_id,
+        "a": after_sequence,
+        "h": high_water_sequence,
+        "e": expires_at,
+    }
+    raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
+    _active_key_id, keys = cursor_keys()
+    key = keys.get(_active_key_id)
+    if not key:
+        raise ProjectionCursorInvalid("activity cursor is invalid")
+    signature = hmac.new(key, raw, hashlib.sha256).hexdigest()
+    return f"{b64encode(raw)}.{signature}"
+
+
+def parse_activity_cursor(
+    cursor: str,
+    conversation_id: UUID | str,
+    now: datetime | None = None,
+) -> ActivityCursor:
+    """Read a signed activity cursor without accepting message cursors."""
+
+    try:
+        expected_conversation_id = str(canonical_uuid(conversation_id))
+    except (TypeError, ValueError) as exc:
+        raise ProjectionCursorInvalid("activity cursor is invalid") from exc
+    if not isinstance(cursor, str) or not 1 <= len(cursor) <= 512:
+        raise ProjectionCursorInvalid("activity cursor is invalid")
+    try:
+        encoded, signature = cursor.split(".", 1)
+        raw = b64decode(encoded)
+        payload = json.loads(raw)
+        if not isinstance(payload, dict) or set(payload) != _ACTIVITY_CURSOR_FIELDS:
+            raise ValueError
+        if not isinstance(signature, str) or len(signature) != 64:
+            raise ValueError
+        if not any(
+            hmac.compare_digest(
+                signature,
+                hmac.new(key, raw, hashlib.sha256).hexdigest(),
+            )
+            for key in cursor_keys()[1].values()
+        ):
+            raise ValueError
+        if (
+            type(payload["v"]) is not int
+            or payload["v"] != 1
+            or payload["t"] != "activity"
+            or not isinstance(payload["c"], str)
+            or str(canonical_uuid(payload["c"])) != expected_conversation_id
+            or type(payload["a"]) is not int
+            or type(payload["h"]) is not int
+            or type(payload["e"]) is not int
+        ):
+            raise ValueError
+        after_sequence = payload["a"]
+        high_water_sequence = payload["h"]
+        expires_at = payload["e"]
+        if (
+            after_sequence < 0
+            or high_water_sequence < after_sequence
+            or high_water_sequence > _MAX_CURSOR_SEQUENCE
+            or expires_at <= 0
+        ):
+            raise ValueError
+    except ProjectionCursorExpired:
+        raise
+    except (
+        AttributeError,
+        KeyError,
+        TypeError,
+        ValueError,
+        IndexError,
+        OverflowError,
+        UnicodeError,
+        binascii.Error,
+    ):
+        raise ProjectionCursorInvalid("activity cursor is invalid") from None
+    if expires_at <= int((now or timezone.now()).timestamp()):
+        raise ProjectionCursorExpired("activity cursor expired")
+    return ActivityCursor(
+        expected_conversation_id,
+        after_sequence,
+        high_water_sequence,
+        expires_at,
+    )
 
 
 def _message_for_event(envelope: FoundryEventEnvelope) -> Message:
@@ -163,8 +319,14 @@ def _last_contiguous(message_id: UUID, attempt_id: UUID, generation: int) -> int
     return current
 
 
+def _last_contiguous_activity_sequence(queryset) -> int:
+    return (
+        queryset.order_by("-sequence").values_list("sequence", flat=True).first() or 0
+    )
+
+
 def _prior_turn_is_open(message: Message) -> bool:
-    return Message.objects.filter(
+    prior_turns = Message.objects.filter(
         conversation_id=message.conversation_id,
         sender=MessageSender.USER,
         origin=MessageOrigin.SEND,
@@ -174,7 +336,26 @@ def _prior_turn_is_open(message: Message) -> bool:
             MessageLifecycle.IN_PROGRESS,
             MessageLifecycle.AWAITING_ACTION,
         ),
-    ).exists()
+    )
+    for prior in prior_turns:
+        if prior.status != MessageLifecycle.QUEUED:
+            return True
+        outbox = DispatchOutbox.objects.filter(message_id=prior.id).first()
+        if (
+            outbox is not None
+            and outbox.status
+            in {
+                DispatchState.ACCEPTED,
+                DispatchState.FAILED,
+                DispatchState.RECONCILIATION_NEEDED,
+            }
+            and prior.updated_at
+            <= timezone.now() - timedelta(seconds=STALE_QUEUED_TURN_SECONDS)
+            and not Activity.objects.filter(message_id=prior.id).exists()
+        ):
+            continue
+        return True
+    return False
 
 
 def _text_bytes(queryset) -> int:
@@ -360,7 +541,13 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
 
 
 def read_activity_snapshot(
-    *, user, workspace_id: UUID | str, conversation_id: UUID | str, limit: int = 200
+    *,
+    user,
+    workspace_id: UUID | str,
+    conversation_id: UUID | str,
+    limit: int = 200,
+    cursor: str | None = None,
+    replay: bool = False,
 ) -> ActivitySnapshot:
     if not 1 <= limit <= MAX_ACTIVITY_SNAPSHOT:
         raise ProjectionInvalid("activity limit is invalid")
@@ -380,12 +567,61 @@ def read_activity_snapshot(
     )
     if conversation is None:
         raise ProjectionNotFound("projection unavailable")
-    rows = tuple(
-        Activity.objects.filter(conversation=conversation).order_by("-sequence", "-id")[
-            :limit
-        ]
+    activity_query = Activity.objects.filter(conversation=conversation)
+    oldest_sequence = (
+        activity_query.order_by("sequence", "id")
+        .values_list("sequence", flat=True)
+        .first()
     )
-    rows = tuple(reversed(rows))
+    latest_sequence = (
+        activity_query.order_by("-sequence", "-id")
+        .values_list("sequence", flat=True)
+        .first()
+    )
+    resume_cursor: str | None = None
+    next_cursor: str | None = None
+    retention_gap = False
+    if replay:
+        parsed_cursor = (
+            parse_activity_cursor(cursor, conversation.id) if cursor else None
+        )
+        after_sequence = parsed_cursor.after_sequence if parsed_cursor else 0
+        high_water_sequence = (
+            parsed_cursor.high_water_sequence
+            if parsed_cursor
+            else (latest_sequence or 0)
+        )
+        if parsed_cursor and after_sequence >= high_water_sequence:
+            high_water_sequence = max(after_sequence, latest_sequence or 0)
+
+        expected_count = max(0, high_water_sequence - after_sequence)
+        fixed_range_query = activity_query.filter(
+            sequence__gt=after_sequence,
+            sequence__lte=high_water_sequence,
+        )
+        if expected_count and fixed_range_query.count() != expected_count:
+            retention_gap = True
+            raise ProjectionCursorGap("activity cursor is no longer replayable")
+
+        replay_rows = list(
+            activity_query.filter(
+                sequence__gt=after_sequence,
+                sequence__lte=high_water_sequence,
+            ).order_by("sequence", "id")[: limit + 1]
+        )
+        has_more = len(replay_rows) > limit
+        rows = tuple(replay_rows[:limit])
+        resume_after = rows[-1].sequence if rows else after_sequence
+        resume_cursor = serialize_activity_cursor(
+            conversation.id,
+            resume_after,
+            high_water_sequence,
+        )
+        if has_more:
+            next_cursor = resume_cursor
+    else:
+        rows = tuple(activity_query.order_by("-sequence", "-id")[:limit])
+        rows = tuple(reversed(rows))
     latest = (
         Message.objects.filter(
             conversation=conversation,
@@ -413,12 +649,26 @@ def read_activity_snapshot(
             last_contiguous = _last_contiguous(
                 latest.id, latest_receipt.attempt_id, latest_receipt.generation
             )
-    return ActivitySnapshot(conversation, rows, state, last_contiguous)
+    return ActivitySnapshot(
+        conversation,
+        rows,
+        state,
+        last_contiguous,
+        _last_contiguous_activity_sequence(activity_query),
+        resume_cursor,
+        next_cursor,
+        oldest_sequence,
+        latest_sequence,
+        retention_gap,
+    )
 
 
 __all__ = [
+    "ActivityCursor",
     "ActivitySnapshot",
     "ProjectionResult",
+    "parse_activity_cursor",
     "project_foundry_event",
     "read_activity_snapshot",
+    "serialize_activity_cursor",
 ]

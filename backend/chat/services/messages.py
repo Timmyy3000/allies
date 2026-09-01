@@ -1,13 +1,11 @@
 from __future__ import annotations
 
-import base64
 import hashlib
 import hmac
 import json
 import unicodedata
-from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
@@ -40,14 +38,18 @@ from chat.exceptions import (
 from chat.models import (
     MESSAGE_CONTENT_MAX_LENGTH,
     Conversation,
+    DispatchState,
     Message,
     MessageLifecycle,
     MessageOrigin,
     MessageSender,
 )
+from common.cursors import b64decode, b64encode, cursor_keys
 from common.uuids import canonical_uuid
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
+
+MESSAGE_RETRY_STALE_SECONDS = 120
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +155,7 @@ def accept_message(
     conversation_id: UUID | str,
     content: object,
     idempotency_key: object,
+    retry_of: Message | None = None,
 ) -> MessageAcceptance:
     context = require_workspace_capability(
         user=user,
@@ -236,6 +239,7 @@ def accept_message(
                 status=MessageLifecycle.QUEUED,
                 send_key_digest=key_digest,
                 content_fingerprint=content_fingerprint,
+                retry_of=retry_of,
             )
             from .dispatch import ensure_dispatch_after_accept
 
@@ -245,6 +249,79 @@ def accept_message(
         if reservation is not None:
             reconcile_rate_limit(reservation, committed=False)
         raise
+
+
+def retry_message(
+    *,
+    user: User,
+    workspace_id: UUID | str,
+    conversation_id: UUID | str,
+    message_id: UUID | str,
+    idempotency_key: object,
+) -> MessageAcceptance:
+    """Create a new send turn for a terminal or demonstrably stale message."""
+    context = require_workspace_capability(
+        user=user,
+        workspace_id=workspace_id,
+        capability=Capability.WORKSPACE_WRITE,
+    )
+    parsed_message_id = _parse_uuid(message_id)
+    with transaction.atomic():
+        conversation = _conversation_for_send(
+            workspace=context.workspace, conversation_id=conversation_id
+        )
+        conversation = (
+            Conversation.objects.select_for_update()
+            .select_related("ally")
+            .get(pk=conversation.pk)
+        )
+        try:
+            original = (
+                Message.objects.select_for_update()
+                .select_related("conversation")
+                .get(pk=parsed_message_id, conversation=conversation)
+            )
+        except Message.DoesNotExist as exc:
+            raise ConversationUnavailable("conversation unavailable") from exc
+        retry_key_digest = _digest(_validate_send_key(idempotency_key))
+        previous_retry = (
+            Message.objects.filter(retry_of=original, send_key_digest=retry_key_digest)
+            .order_by("id")
+            .first()
+        )
+        if previous_retry is not None:
+            from .dispatch import ensure_dispatch_after_accept
+
+            ensure_dispatch_after_accept(previous_retry)
+            return MessageAcceptance(conversation, previous_retry, True)
+        conflicting_send = (
+            Message.objects.filter(
+                conversation=conversation,
+                sender=MessageSender.USER,
+                origin=MessageOrigin.SEND,
+                send_key_digest=retry_key_digest,
+            )
+            .exclude(retry_of=original)
+            .order_by("id")
+            .first()
+        )
+        if conflicting_send is not None:
+            raise IdempotencyConflict("idempotency key conflicts with another message")
+        retryable = is_message_retryable(original)
+        if (
+            original.sender != MessageSender.USER
+            or original.origin != MessageOrigin.SEND
+            or not retryable
+        ):
+            raise TurnConflict("message is not retryable")
+        return accept_message(
+            user=user,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            content=original.content,
+            idempotency_key=idempotency_key,
+            retry_of=original,
+        )
 
 
 def claim_next_turn(*, conversation_id: UUID | str) -> Message | None:
@@ -317,48 +394,6 @@ def complete_turn(*, message_id: UUID | str, status: str) -> Message:
         return message
 
 
-def _key_config(value: object) -> dict[str, bytes]:
-    if isinstance(value, Mapping):
-        return {
-            str(key): (item if isinstance(item, bytes) else str(item).encode())
-            for key, item in value.items()
-            if str(key) and item
-        }
-    if isinstance(value, str) and value.strip():
-        try:
-            parsed = json.loads(value)
-        except ValueError:
-            parsed = None
-        if isinstance(parsed, Mapping):
-            return _key_config(parsed)
-    return {}
-
-
-def _cursor_keys() -> tuple[str, dict[str, bytes]]:
-    active_id = str(getattr(settings, "ALLIES_CHAT_CURSOR_ACTIVE_KEY_ID", "v1"))
-    configured = _key_config(getattr(settings, "ALLIES_CHAT_CURSOR_KEYS", {}))
-    active_value = getattr(settings, "ALLIES_CHAT_CURSOR_KEY", "")
-    if active_id not in configured and active_value:
-        configured[active_id] = (
-            active_value
-            if isinstance(active_value, bytes)
-            else str(active_value).encode()
-        )
-    if active_id not in configured:
-        configured[active_id] = digest_key()
-    previous = _key_config(getattr(settings, "ALLIES_CHAT_CURSOR_PREVIOUS_KEYS", {}))
-    configured = {**previous, **configured}
-    return active_id, configured
-
-
-def _b64encode(value: bytes) -> str:
-    return base64.urlsafe_b64encode(value).decode().rstrip("=")
-
-
-def _b64decode(value: str) -> bytes:
-    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
-
-
 def serialize_cursor(
     conversation_id: UUID | str, before_sequence: int, now: datetime | None = None
 ) -> str:
@@ -372,7 +407,7 @@ def serialize_cursor(
         raise CursorInvalid("invalid cursor") from exc
     if before_sequence < 1:
         raise CursorInvalid("invalid cursor")
-    active_id, keys = _cursor_keys()
+    active_id, keys = cursor_keys()
     key = keys.get(active_id)
     if not key:
         raise CursorInvalid("invalid cursor")
@@ -387,7 +422,7 @@ def serialize_cursor(
     }
     raw = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
     signature = hmac.new(key, raw, hashlib.sha256).hexdigest()
-    return f"{_b64encode(raw)}.{signature}"
+    return f"{b64encode(raw)}.{signature}"
 
 
 def parse_cursor(
@@ -399,10 +434,10 @@ def parse_cursor(
         raise CursorInvalid("invalid cursor") from None
     try:
         encoded, signature = cursor.split(".", 1)
-        raw = _b64decode(encoded)
+        raw = b64decode(encoded)
         payload = json.loads(raw)
         key_id = str(payload["kid"])
-        expected = hmac.new(_cursor_keys()[1][key_id], raw, hashlib.sha256).hexdigest()
+        expected = hmac.new(cursor_keys()[1][key_id], raw, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, expected):
             raise ValueError
         if payload["v"] != 1 or payload["c"] != conversation_id:
@@ -434,4 +469,41 @@ def message_response(message: Message) -> dict[str, Any]:
         "sequence": message.sequence,
         "status": message.status,
         "created_at": message.created_at,
+        "retryable": is_message_retryable(message),
     }
+
+
+def is_message_retryable(message: Message) -> bool:
+    if (
+        message.sender != MessageSender.USER
+        or message.origin != MessageOrigin.SEND
+        or message.retry_of_id is not None
+        or message.retries.exists()
+    ):
+        return False
+    if message.status in {MessageLifecycle.FAILED, MessageLifecycle.STOPPED}:
+        return True
+    outbox = getattr(message, "dispatch_outbox", None)
+    if (
+        message.status == MessageLifecycle.QUEUED
+        and outbox is not None
+        and outbox.status
+        in {
+            DispatchState.FAILED,
+            DispatchState.RECONCILIATION_NEEDED,
+        }
+    ):
+        return True
+    return (
+        message.status == MessageLifecycle.QUEUED
+        and outbox is not None
+        and outbox.status
+        in {
+            DispatchState.ACCEPTED,
+            DispatchState.FAILED,
+            DispatchState.RECONCILIATION_NEEDED,
+        }
+        and message.updated_at
+        <= timezone.now() - timedelta(seconds=MESSAGE_RETRY_STALE_SECONDS)
+        and not message.activities.exists()
+    )

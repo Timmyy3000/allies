@@ -33,7 +33,7 @@ from chat.exceptions import (
     TurnConflict,
 )
 from chat.services.conversations import retrieve_conversation
-from chat.services.messages import accept_message, message_response
+from chat.services.messages import accept_message, message_response, retry_message
 from common.uuids import CanonicalUUID
 
 
@@ -196,5 +196,51 @@ class ConversationController(ControllerBase):
         return success_json(
             _acceptance_response(result),
             "Message accepted",
+            status=200 if result.replayed else 201,
+        )
+
+    @http_post(
+        "/conversations/{conversation_id}/messages/{message_id}/retry",
+        response={
+            200: SuccessResponse[MessageAcceptanceResponse],
+            201: SuccessResponse[MessageAcceptanceResponse],
+            **error_responses(401, 404, 409, 422, 429, 500),
+        },
+    )
+    def retry(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        conversation_id: CanonicalUUID,
+        message_id: CanonicalUUID,
+        idempotency_key: Annotated[
+            str,
+            Header(
+                alias="Idempotency-Key",
+                min_length=16,
+                max_length=128,
+                description="Stable key for repeating the same retry action.",
+            ),
+        ],
+    ):
+        if rejected := _require_origin(request):
+            return rejected
+        try:
+            session = _session(request)
+            result = retry_message(
+                user=session.user,
+                workspace_id=workspace_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                idempotency_key=idempotency_key,
+            )
+        except Exception as exc:
+            response = _read_error(exc, request)
+            if response is not None:
+                return response
+            raise
+        return success_json(
+            _acceptance_response(result),
+            "Message retry accepted",
             status=200 if result.replayed else 201,
         )

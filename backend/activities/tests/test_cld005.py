@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import base64
 import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from uuid import UUID, uuid4, uuid5
 
@@ -9,13 +11,19 @@ from django.test import Client, override_settings
 
 from activities.exceptions import (
     ProjectionConflict,
+    ProjectionCursorGap,
     ProjectionInvalid,
     ProjectionNotFound,
     ProjectionSequenceGap,
 )
 from activities.models import Activity, FoundryEventReceipt, ProjectionState
 from activities.services import projection as projection_service
-from activities.services.projection import project_foundry_event, read_activity_snapshot
+from activities.services.projection import (
+    parse_activity_cursor,
+    project_foundry_event,
+    read_activity_snapshot,
+    serialize_activity_cursor,
+)
 from allies.gateways.contracts import (
     ExecutionCommand,
     ExecutionReceipt,
@@ -559,11 +567,255 @@ def test_activity_snapshot_maps_active_message_to_running(conversation_records):
     assert snapshot.state == ProjectionState.RUNNING
 
 
+def test_activity_replay_pages_from_a_signed_cursor(conversation_records):
+    user, workspace, _ally, _binding, conversation, message = conversation_records
+    for sequence in range(1, 6):
+        Activity.objects.create(
+            conversation=conversation,
+            message=message,
+            sequence=sequence,
+            conversation_turn_ordinal=message.sequence,
+            generation=1,
+            attempt_id=uuid5(EVENT_NAMESPACE, f"replay-attempt-{sequence}"),
+            attempt_sequence=sequence,
+            event_id=uuid5(EVENT_NAMESPACE, f"replay-event-{sequence}"),
+            event_type="message.delta",
+            kind="assistant_delta",
+            text=f"part-{sequence}",
+            state=ProjectionState.RUNNING,
+            event_fingerprint="canonical-json-sha256:v1:" + "b" * 64,
+        )
+
+    first = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        limit=3,
+        replay=True,
+    )
+    assert [activity.sequence for activity in first.activities] == [1, 2, 3]
+    assert first.next_cursor == first.resume_cursor
+
+    second = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        limit=3,
+        cursor=first.next_cursor,
+        replay=True,
+    )
+    assert [activity.sequence for activity in second.activities] == [4, 5]
+    assert second.next_cursor is None
+    assert second.resume_cursor == serialize_activity_cursor(conversation.id, 5)
+
+
+def test_activity_replay_rejects_a_cursor_before_retained_history(conversation_records):
+    user, workspace, _ally, _binding, conversation, message = conversation_records
+    Activity.objects.create(
+        conversation=conversation,
+        message=message,
+        sequence=3,
+        conversation_turn_ordinal=message.sequence,
+        generation=1,
+        attempt_id=uuid5(EVENT_NAMESPACE, "gap-attempt"),
+        attempt_sequence=1,
+        event_id=uuid5(EVENT_NAMESPACE, "gap-event"),
+        event_type="message.delta",
+        kind="assistant_delta",
+        text="part-3",
+        state=ProjectionState.COMPLETED,
+        event_fingerprint="canonical-json-sha256:v1:" + "c" * 64,
+    )
+
+    with pytest.raises(ProjectionCursorGap):
+        read_activity_snapshot(
+            user=user,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
+            replay=True,
+        )
+
+
+def test_activity_cursor_has_exact_shape_and_forward_exclusive_origin(
+    conversation_records,
+):
+    user, workspace, _ally, _binding, conversation, message = conversation_records
+    for sequence in range(1, 4):
+        Activity.objects.create(
+            conversation=conversation,
+            message=message,
+            sequence=sequence,
+            conversation_turn_ordinal=message.sequence,
+            generation=1,
+            attempt_id=uuid5(EVENT_NAMESPACE, f"cursor-attempt-{sequence}"),
+            attempt_sequence=sequence,
+            event_id=uuid5(EVENT_NAMESPACE, f"cursor-event-{sequence}"),
+            event_type="message.delta",
+            kind="assistant_delta",
+            text=str(sequence),
+            state=ProjectionState.RUNNING,
+            event_fingerprint="canonical-json-sha256:v1:" + "d" * 64,
+        )
+
+    snapshot = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        limit=2,
+        replay=True,
+    )
+    assert [activity.sequence for activity in snapshot.activities] == [1, 2]
+    assert snapshot.last_contiguous_activity_sequence == 3
+    assert snapshot.resume_cursor is not None
+    encoded = snapshot.resume_cursor.split(".", 1)[0]
+    payload = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
+    assert set(payload) == {"v", "t", "c", "a", "h", "e"}
+    parsed = parse_activity_cursor(snapshot.resume_cursor, conversation.id)
+    assert parsed.after_sequence == 2
+    assert parsed.high_water_sequence == 3
+
+
+def test_activity_replay_holds_high_water_until_next_forward_poll(conversation_records):
+    user, workspace, _ally, _binding, conversation, message = conversation_records
+    for sequence in range(1, 4):
+        Activity.objects.create(
+            conversation=conversation,
+            message=message,
+            sequence=sequence,
+            conversation_turn_ordinal=message.sequence,
+            generation=1,
+            attempt_id=uuid5(EVENT_NAMESPACE, f"high-water-attempt-{sequence}"),
+            attempt_sequence=sequence,
+            event_id=uuid5(EVENT_NAMESPACE, f"high-water-event-{sequence}"),
+            event_type="message.delta",
+            kind="assistant_delta",
+            text=str(sequence),
+            state=ProjectionState.RUNNING,
+            event_fingerprint="canonical-json-sha256:v1:" + "e" * 64,
+        )
+
+    first = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        limit=2,
+        replay=True,
+    )
+    Activity.objects.create(
+        conversation=conversation,
+        message=message,
+        sequence=4,
+        conversation_turn_ordinal=message.sequence,
+        generation=1,
+        attempt_id=uuid5(EVENT_NAMESPACE, "high-water-attempt-4"),
+        attempt_sequence=4,
+        event_id=uuid5(EVENT_NAMESPACE, "high-water-event-4"),
+        event_type="message.delta",
+        kind="assistant_delta",
+        text="4",
+        state=ProjectionState.RUNNING,
+        event_fingerprint="canonical-json-sha256:v1:" + "e" * 64,
+    )
+    second = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        limit=2,
+        cursor=first.next_cursor,
+        replay=True,
+    )
+    assert [activity.sequence for activity in second.activities] == [3]
+    assert (
+        parse_activity_cursor(second.resume_cursor, conversation.id).high_water_sequence
+        == 3
+    )
+
+    forward = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        limit=2,
+        cursor=second.resume_cursor,
+        replay=True,
+    )
+    assert [activity.sequence for activity in forward.activities] == [4]
+    assert (
+        parse_activity_cursor(
+            forward.resume_cursor, conversation.id
+        ).high_water_sequence
+        == 4
+    )
+
+
+def test_activity_cursor_rejects_message_cursor_tampering_and_expiry(
+    conversation_records,
+):
+    _user, _workspace, _ally, _binding, conversation, _message = conversation_records
+    from chat.services.messages import serialize_cursor
+
+    message_cursor = serialize_cursor(conversation.id, 1)
+    with pytest.raises(projection_service.ProjectionCursorInvalid):
+        parse_activity_cursor(message_cursor, conversation.id)
+    with pytest.raises(projection_service.ProjectionCursorInvalid):
+        parse_activity_cursor("not-a-cursor", conversation.id)
+
+    activity_cursor = serialize_activity_cursor(conversation.id, 0, 0)
+    encoded, signature = activity_cursor.split(".", 1)
+    tampered = f"{encoded}.{'0' if signature[0] != '0' else '1'}{signature[1:]}"
+    with pytest.raises(projection_service.ProjectionCursorInvalid):
+        parse_activity_cursor(tampered, conversation.id)
+
+    issued = datetime(2026, 1, 1, tzinfo=UTC)
+    expired = serialize_activity_cursor(conversation.id, 0, 0, now=issued)
+    with pytest.raises(projection_service.ProjectionCursorExpired):
+        parse_activity_cursor(expired, conversation.id, now=issued + timedelta(hours=2))
+
+
+def test_empty_activity_replay_returns_zero_metadata_and_origin_cursor(
+    conversation_records,
+):
+    user, workspace, _ally, _binding, _conversation, _message = conversation_records
+    ally = Ally.objects.create(
+        workspace=workspace,
+        name="Nova",
+        job="Study partner",
+        personality="Calm",
+        appearance_catalog_version="v1",
+        appearance_key="sunrise",
+    )
+    AllyBinding.objects.create(
+        ally=ally,
+        status=BindingStatus.BOUND,
+        receipt_digest="c" * 64,
+    )
+    conversation = Conversation.objects.create(ally=ally)
+
+    snapshot = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        replay=True,
+    )
+
+    assert snapshot.activities == ()
+    assert snapshot.state == ProjectionState.COMPLETED
+    assert snapshot.last_contiguous_sequence == 0
+    assert snapshot.last_contiguous_activity_sequence == 0
+    assert snapshot.oldest_sequence is None
+    assert snapshot.latest_sequence is None
+    assert snapshot.next_cursor is None
+    assert (
+        parse_activity_cursor(snapshot.resume_cursor, conversation.id).after_sequence
+        == 0
+    )
+
+
 @pytest.mark.django_db
 @override_settings(
     ALLOWED_HOSTS=["testserver"],
     ALLIES_AUTH_DIGEST_KEY="d" * 32,
     ALLIES_AUTH_JWT_KEY="j" * 32,
+    ALLIES_ACTIVITY_SSE_ENABLED=True,
 )
 def test_activity_snapshot_api_is_bounded_and_hides_foreign_scope(conversation_records):
     user, workspace, _ally, _binding, conversation, _message = conversation_records
@@ -588,6 +840,12 @@ def test_activity_snapshot_api_is_bounded_and_hides_foreign_scope(conversation_r
         "message": "activity unavailable",
         "data": {"code": "activity_unavailable"},
     }
+    foreign_stream_response = client.get(
+        f"/api/v1/workspaces/{foreign_workspace.id}/conversations/"
+        f"{conversation.id}/activities/stream"
+    )
+    assert foreign_stream_response.status_code == 404
+    assert foreign_stream_response.json() == foreign_response.json()
 
 
 @pytest.mark.django_db
