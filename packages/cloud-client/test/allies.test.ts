@@ -61,6 +61,7 @@ const conversationResponse = defineApiFixture(
           content: "Hello! What should we work on first?",
           sequence: 1,
           status: "completed",
+          retryable: false,
           created_at: "2026-08-20T16:00:00Z",
         },
       ],
@@ -84,6 +85,7 @@ const acceptanceResponse = defineApiFixture(
         content: "Help me plan tomorrow.",
         sequence: 2,
         status: "queued",
+        retryable: false,
         created_at: "2026-08-20T16:01:00Z",
       },
       execution: null,
@@ -115,6 +117,8 @@ const activityResponse = defineApiFixture(
       ],
       state: "running",
       last_contiguous_sequence: 1,
+      last_contiguous_activity_sequence: 1,
+      retention_gap: false,
     },
   },
 ).body;
@@ -205,6 +209,11 @@ describe("Ally and conversation Cloud client boundary", () => {
       lastContiguousSequence: 1,
       activities: [{ kind: "assistant_delta", text: "I can help with that." }],
     });
+    await expect(client.getActivities(ids.workspace, ids.conversation, {
+      limit: 50,
+      cursor: "activity-cursor",
+      replay: true,
+    })).resolves.toMatchObject({ conversationId: ids.conversation });
 
     const onboardingRequest = requests.find((request) => request.url.endsWith("/onboarding/attempts"));
     expect(await onboardingRequest!.json()).toEqual({
@@ -221,6 +230,8 @@ describe("Ally and conversation Cloud client boundary", () => {
     expect(new URL(conversationRequest!.url).search).toBe("?limit=50&cursor=older");
     const activityRequest = requests.find((request) => new URL(request.url).pathname.endsWith("/activities"));
     expect(new URL(activityRequest!.url).search).toBe("?limit=200");
+    const replayActivityRequest = requests.find((request) => new URL(request.url).search.includes("replay=true"));
+    expect(new URL(replayActivityRequest!.url).search).toBe("?limit=50&cursor=activity-cursor&replay=true");
   });
 
   it("rejects invalid mutation input before making a request", async () => {

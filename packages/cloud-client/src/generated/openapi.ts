@@ -12,7 +12,7 @@ export interface paths {
             cookie?: never;
         };
         /** Callback */
-        get: operations["authentication_callback_997e0d55"];
+        get: operations["authentication_callback_e27cb868"];
         put?: never;
         post?: never;
         delete?: never;
@@ -29,7 +29,7 @@ export interface paths {
             cookie?: never;
         };
         /** Csrf */
-        get: operations["authentication_csrf_7292a9e6"];
+        get: operations["authentication_csrf_b3e3651d"];
         put?: never;
         post?: never;
         delete?: never;
@@ -48,7 +48,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Link */
-        post: operations["identity_link_d3db836b"];
+        post: operations["identity_link_3713ef25"];
         delete?: never;
         options?: never;
         head?: never;
@@ -65,7 +65,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Logout */
-        post: operations["session_logout_b35851de"];
+        post: operations["session_logout_f28b333b"];
         delete?: never;
         options?: never;
         head?: never;
@@ -80,7 +80,7 @@ export interface paths {
             cookie?: never;
         };
         /** Me */
-        get: operations["profile_me_f3ec90cd"];
+        get: operations["profile_me_3258b602"];
         put?: never;
         post?: never;
         delete?: never;
@@ -100,7 +100,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete */
-        delete: operations["avatar_delete_9865de96"];
+        delete: operations["avatar_delete_ab861289"];
         options?: never;
         head?: never;
         patch?: never;
@@ -116,7 +116,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Complete */
-        post: operations["avatar_complete_6885f237"];
+        post: operations["avatar_complete_1d554451"];
         delete?: never;
         options?: never;
         head?: never;
@@ -131,7 +131,7 @@ export interface paths {
             cookie?: never;
         };
         /** Read */
-        get: operations["avatar_read_1310b915"];
+        get: operations["avatar_read_6dacfa7f"];
         put?: never;
         post?: never;
         delete?: never;
@@ -150,7 +150,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Prepare */
-        post: operations["avatar_prepare_4f6ba326"];
+        post: operations["avatar_prepare_3ce21700"];
         delete?: never;
         options?: never;
         head?: never;
@@ -171,7 +171,7 @@ export interface paths {
         options?: never;
         head?: never;
         /** Profile */
-        patch: operations["profile_profile_a9252d5f"];
+        patch: operations["profile_profile_319d93cc"];
         trace?: never;
     };
     "/api/v1/auths/native/callback/{provider}": {
@@ -185,7 +185,7 @@ export interface paths {
          * Callback
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        get: operations["nativeauthentication_callback_76136de3"];
+        get: operations["nativeauthentication_callback_fd773da4"];
         put?: never;
         post?: never;
         delete?: never;
@@ -207,7 +207,7 @@ export interface paths {
          * Logout
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_logout_48ef7c0f"];
+        post: operations["nativeauthentication_logout_d2dd83b4"];
         delete?: never;
         options?: never;
         head?: never;
@@ -227,7 +227,7 @@ export interface paths {
          * Sign In
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_sign_in_1c3cf1e1"];
+        post: operations["nativeauthentication_sign_in_2ce22df2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -247,7 +247,7 @@ export interface paths {
          * Token
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_token_1dd0f7cd"];
+        post: operations["nativeauthentication_token_3ff330ad"];
         delete?: never;
         options?: never;
         head?: never;
@@ -267,7 +267,7 @@ export interface paths {
          * Refresh
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_refresh_2b7a0259"];
+        post: operations["nativeauthentication_refresh_bb75330a"];
         delete?: never;
         options?: never;
         head?: never;
@@ -284,7 +284,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Refresh */
-        post: operations["session_refresh_2a3206af"];
+        post: operations["session_refresh_78751887"];
         delete?: never;
         options?: never;
         head?: never;
@@ -301,7 +301,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Sign In */
-        post: operations["authentication_sign_in_ddc0d2fd"];
+        post: operations["authentication_sign_in_e94a6906"];
         delete?: never;
         options?: never;
         head?: never;
@@ -316,7 +316,7 @@ export interface paths {
             cookie?: never;
         };
         /** Health */
-        get: operations["health_health_786dbe84"];
+        get: operations["health_health_d8053d31"];
         put?: never;
         post?: never;
         delete?: never;
@@ -352,7 +352,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Begin */
-        post: operations["onboarding_begin_930d39a6"];
+        post: operations["onboarding_begin_e60fcf2d"];
         delete?: never;
         options?: never;
         head?: never;
@@ -372,7 +372,7 @@ export interface paths {
          * Create
          * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
          */
-        post: operations["waitlist_create_dfaca2b3"];
+        post: operations["waitlist_create_23cee2eb"];
         delete?: never;
         options?: never;
         head?: never;
@@ -392,7 +392,7 @@ export interface paths {
          * Complete
          * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
          */
-        post: operations["waitlist_complete_42479bb0"];
+        post: operations["waitlist_complete_edf9d8a3"];
         delete?: never;
         options?: never;
         head?: never;
@@ -407,7 +407,7 @@ export interface paths {
             cookie?: never;
         };
         /** Context */
-        get: operations["workspace_context_58df49c0"];
+        get: operations["workspace_context_140eed4d"];
         put?: never;
         post?: never;
         delete?: never;
@@ -424,10 +424,10 @@ export interface paths {
             cookie?: never;
         };
         /** List */
-        get: operations["ally_list_b0964f4f"];
+        get: operations["ally_list_7c7a08b2"];
         put?: never;
         /** Create */
-        post: operations["ally_create_8f217a98"];
+        post: operations["ally_create_b8a5c9ba"];
         delete?: never;
         options?: never;
         head?: never;
@@ -442,7 +442,7 @@ export interface paths {
             cookie?: never;
         };
         /** Retrieve */
-        get: operations["ally_retrieve_f20678fa"];
+        get: operations["ally_retrieve_70ce3dc8"];
         put?: never;
         post?: never;
         delete?: never;
@@ -459,7 +459,7 @@ export interface paths {
             cookie?: never;
         };
         /** By Ally */
-        get: operations["conversation_by_ally_d8cbc131"];
+        get: operations["conversation_by_ally_3055e031"];
         put?: never;
         post?: never;
         delete?: never;
@@ -476,7 +476,7 @@ export interface paths {
             cookie?: never;
         };
         /** By Conversation */
-        get: operations["conversation_by_conversation_d29987b3"];
+        get: operations["conversation_by_conversation_e96f2d93"];
         put?: never;
         post?: never;
         delete?: never;
@@ -493,7 +493,24 @@ export interface paths {
             cookie?: never;
         };
         /** Snapshot */
-        get: operations["activity_snapshot_ea093521"];
+        get: operations["activity_snapshot_27ae8448"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Stream */
+        get: operations["activity_stream_cf914703"];
         put?: never;
         post?: never;
         delete?: never;
@@ -512,7 +529,24 @@ export interface paths {
         get?: never;
         put?: never;
         /** Send */
-        post: operations["conversation_send_8e94b730"];
+        post: operations["conversation_send_608539d5"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry */
+        post: operations["conversation_retry_52098bd4"];
         delete?: never;
         options?: never;
         head?: never;
@@ -560,8 +594,23 @@ export interface components {
              * Format: uuid
              */
             conversation_id: string;
+            /** Last Contiguous Activity Sequence */
+            last_contiguous_activity_sequence: number;
             /** Last Contiguous Sequence */
             last_contiguous_sequence: number;
+            /** Latest Sequence */
+            latest_sequence?: number | null;
+            /** Next Cursor */
+            next_cursor?: string | null;
+            /** Oldest Sequence */
+            oldest_sequence?: number | null;
+            /** Resume Cursor */
+            resume_cursor?: string | null;
+            /**
+             * Retention Gap
+             * @default false
+             */
+            retention_gap: boolean;
             /** State */
             state: string;
         };
@@ -850,6 +899,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /**
+             * Retryable
+             * @default false
+             */
+            retryable: boolean;
             /** Sender */
             sender: string;
             /** Sequence */
@@ -1038,7 +1092,13 @@ export interface components {
          *           }
          *         ],
          *         "conversation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+         *         "last_contiguous_activity_sequence": 1,
          *         "last_contiguous_sequence": 2,
+         *         "latest_sequence": 1,
+         *         "next_cursor": null,
+         *         "oldest_sequence": 1,
+         *         "resume_cursor": "<signed-activity-cursor>",
+         *         "retention_gap": false,
          *         "state": "running"
          *       },
          *       "message": "Activities loaded",
@@ -1583,7 +1643,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    authentication_callback_997e0d55: {
+    authentication_callback_e27cb868: {
         parameters: {
             query?: {
                 code?: string;
@@ -1670,7 +1730,7 @@ export interface operations {
             };
         };
     };
-    authentication_csrf_7292a9e6: {
+    authentication_csrf_b3e3651d: {
         parameters: {
             query?: never;
             header?: never;
@@ -1704,7 +1764,7 @@ export interface operations {
             };
         };
     };
-    identity_link_d3db836b: {
+    identity_link_3713ef25: {
         parameters: {
             query?: never;
             header?: never;
@@ -1874,7 +1934,7 @@ export interface operations {
             };
         };
     };
-    session_logout_b35851de: {
+    session_logout_f28b333b: {
         parameters: {
             query?: never;
             header?: never;
@@ -1924,7 +1984,7 @@ export interface operations {
             };
         };
     };
-    profile_me_f3ec90cd: {
+    profile_me_3258b602: {
         parameters: {
             query?: never;
             header?: never;
@@ -1976,7 +2036,7 @@ export interface operations {
             };
         };
     };
-    avatar_delete_9865de96: {
+    avatar_delete_ab861289: {
         parameters: {
             query?: never;
             header?: never;
@@ -2090,7 +2150,7 @@ export interface operations {
             };
         };
     };
-    avatar_complete_6885f237: {
+    avatar_complete_1d554451: {
         parameters: {
             query?: never;
             header?: never;
@@ -2240,7 +2300,7 @@ export interface operations {
             };
         };
     };
-    avatar_read_1310b915: {
+    avatar_read_6dacfa7f: {
         parameters: {
             query?: never;
             header?: never;
@@ -2324,7 +2384,7 @@ export interface operations {
             };
         };
     };
-    avatar_prepare_4f6ba326: {
+    avatar_prepare_3ce21700: {
         parameters: {
             query?: never;
             header?: never;
@@ -2460,7 +2520,7 @@ export interface operations {
             };
         };
     };
-    profile_profile_a9252d5f: {
+    profile_profile_319d93cc: {
         parameters: {
             query?: never;
             header?: never;
@@ -2564,7 +2624,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_callback_76136de3: {
+    nativeauthentication_callback_fd773da4: {
         parameters: {
             query?: {
                 code?: string;
@@ -2668,7 +2728,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_logout_48ef7c0f: {
+    nativeauthentication_logout_d2dd83b4: {
         parameters: {
             query?: never;
             header?: never;
@@ -2754,7 +2814,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_sign_in_1c3cf1e1: {
+    nativeauthentication_sign_in_2ce22df2: {
         parameters: {
             query?: never;
             header?: never;
@@ -2844,7 +2904,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_token_1dd0f7cd: {
+    nativeauthentication_token_3ff330ad: {
         parameters: {
             query?: never;
             header?: never;
@@ -2952,7 +3012,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_refresh_2b7a0259: {
+    nativeauthentication_refresh_bb75330a: {
         parameters: {
             query?: never;
             header?: never;
@@ -3060,7 +3120,7 @@ export interface operations {
             };
         };
     };
-    session_refresh_2a3206af: {
+    session_refresh_78751887: {
         parameters: {
             query?: never;
             header?: never;
@@ -3158,7 +3218,7 @@ export interface operations {
             };
         };
     };
-    authentication_sign_in_ddc0d2fd: {
+    authentication_sign_in_e94a6906: {
         parameters: {
             query?: never;
             header?: never;
@@ -3296,7 +3356,7 @@ export interface operations {
             };
         };
     };
-    health_health_786dbe84: {
+    health_health_d8053d31: {
         parameters: {
             query?: never;
             header?: never;
@@ -3370,7 +3430,7 @@ export interface operations {
             };
         };
     };
-    onboarding_begin_930d39a6: {
+    onboarding_begin_e60fcf2d: {
         parameters: {
             query?: never;
             header?: never;
@@ -3458,7 +3518,7 @@ export interface operations {
             };
         };
     };
-    waitlist_create_dfaca2b3: {
+    waitlist_create_23cee2eb: {
         parameters: {
             query?: never;
             header?: {
@@ -3532,7 +3592,7 @@ export interface operations {
             };
         };
     };
-    waitlist_complete_42479bb0: {
+    waitlist_complete_edf9d8a3: {
         parameters: {
             query?: never;
             header?: {
@@ -3606,7 +3666,7 @@ export interface operations {
             };
         };
     };
-    workspace_context_58df49c0: {
+    workspace_context_140eed4d: {
         parameters: {
             query?: never;
             header?: never;
@@ -3676,7 +3736,7 @@ export interface operations {
             };
         };
     };
-    ally_list_b0964f4f: {
+    ally_list_7c7a08b2: {
         parameters: {
             query?: never;
             header?: never;
@@ -3746,7 +3806,7 @@ export interface operations {
             };
         };
     };
-    ally_create_8f217a98: {
+    ally_create_b8a5c9ba: {
         parameters: {
             query?: never;
             header: {
@@ -3880,7 +3940,7 @@ export interface operations {
             };
         };
     };
-    ally_retrieve_f20678fa: {
+    ally_retrieve_70ce3dc8: {
         parameters: {
             query?: never;
             header?: never;
@@ -3951,7 +4011,7 @@ export interface operations {
             };
         };
     };
-    conversation_by_ally_d8cbc131: {
+    conversation_by_ally_3055e031: {
         parameters: {
             query?: {
                 limit?: number;
@@ -4041,7 +4101,7 @@ export interface operations {
             };
         };
     };
-    conversation_by_conversation_d29987b3: {
+    conversation_by_conversation_e96f2d93: {
         parameters: {
             query?: {
                 limit?: number;
@@ -4131,10 +4191,12 @@ export interface operations {
             };
         };
     };
-    activity_snapshot_ea093521: {
+    activity_snapshot_27ae8448: {
         parameters: {
             query?: {
                 limit?: number;
+                cursor?: string | null;
+                replay?: boolean;
             };
             header?: never;
             path: {
@@ -4186,6 +4248,38 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
                 };
             };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Gone */
+            410: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
             /** @description Unprocessable Content */
             422: {
                 headers: {
@@ -4220,7 +4314,30 @@ export interface operations {
             };
         };
     };
-    conversation_send_8e94b730: {
+    activity_stream_cf914703: {
+        parameters: {
+            query?: {
+                cursor?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    conversation_send_608539d5: {
         parameters: {
             query?: never;
             header: {
@@ -4238,6 +4355,138 @@ export interface operations {
                 "application/json": components["schemas"]["SendMessageRequest"];
             };
         };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_MessageAcceptanceResponse_"];
+                };
+            };
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_MessageAcceptanceResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    conversation_retry_52098bd4: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable key for repeating the same retry action. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description OK */
             200: {

@@ -7,31 +7,36 @@ import type {
 } from "@allies/cloud-client";
 import {
   EMPTY_ACTIVITY_PROJECTION,
+  isCloudError,
   isActivityTerminal,
   projectActivitySnapshot,
   type ActivityProjection,
   type AssistantTurnProjection,
 } from "@allies/cloud-client";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Streamdown } from "streamdown";
 import {
   Fragment,
+  type CSSProperties,
   useCallback,
   useEffect,
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 
 import Onboarding from "../(onboarding)/_components";
 import { OnboardingStateProvider } from "../(onboarding)/_store/onboarding-store";
 import { AllyAvatar, ALLY_SHAPES, type AllyShape } from "../../components/ally-avatar";
+import { ShinyText } from "../../components/text-animations/shiny-text";
 import { currentAccountQueryOptions } from "../../lib/account/account-query";
 import { AuthenticatedAllyFlowProvider } from "../../lib/allies/authenticated-onboarding-flow";
 import { alliesQueryOptions, conversationQueryKey } from "../../lib/allies/queries";
 import { alliesQueryKey } from "../../lib/allies/query-keys";
+import { readActivityStream, type ActivityStreamHandle } from "../../lib/allies/activity-stream";
+import { getActivitySseEnabled, getWebEnvironment } from "../../lib/env";
 import { useSession } from "../../lib/session/session-context";
 import {
   WAITLIST_APPEARANCE_CATALOG_VERSION,
@@ -42,33 +47,32 @@ import styles from "./home.module.css";
 
 const ACTIVITY_INTERVAL_MS = 500;
 const ACTIVITY_POLL_LIMIT = 240;
-const DESKTOP_QUERY = "(min-width: 1024px)";
+const ACTIVITY_REPLAY_MAX_PAGES = 64;
+const ACTIVITY_REPLAY_MAX_BYTES = 4 * 1024 * 1024;
 const EMPTY_MESSAGES: MessageViewModel[] = [];
+const ALLY_PREVIEW_LIMIT = 32;
 
-function subscribeToDesktopQuery(callback: () => void) {
-  if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
-    return () => undefined;
+export class ActivityReplayBoundError extends Error {
+  constructor() {
+    super("activity replay bounds exceeded");
+    this.name = "ActivityReplayBoundError";
   }
-  const mediaQuery = window.matchMedia(DESKTOP_QUERY);
-  if (typeof mediaQuery.addEventListener === "function") {
-    mediaQuery.addEventListener("change", callback);
-    return () => mediaQuery.removeEventListener("change", callback);
-  }
-  if (typeof mediaQuery.addListener !== "function") return () => undefined;
-  mediaQuery.addListener(callback);
-  return () => {
-    if (typeof mediaQuery.removeListener === "function") mediaQuery.removeListener(callback);
-  };
 }
 
-function getDesktopQuerySnapshot() {
-  return typeof window !== "undefined"
-    && typeof window.matchMedia === "function"
-    && window.matchMedia(DESKTOP_QUERY).matches;
+type ActivityReplayFailure = "gap" | "expired" | "invalid" | "bounds" | null;
+
+export function activityReplayFailure(error: unknown): ActivityReplayFailure {
+  if (error instanceof ActivityReplayBoundError) return "bounds";
+  if (!isCloudError(error)) return null;
+  if (error.kind === "activity-cursor-gap") return "gap";
+  if (error.kind === "activity-cursor-expired") return "expired";
+  if (error.kind === "activity-cursor-invalid") return "invalid";
+  return null;
 }
 
-function useIsDesktop() {
-  return useSyncExternalStore(subscribeToDesktopQuery, getDesktopQuerySnapshot, () => false);
+function activitySnapshotBytes(snapshot: unknown): number {
+  const encoded = JSON.stringify(snapshot);
+  return new TextEncoder().encode(encoded).byteLength;
 }
 
 export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | null }) {
@@ -79,8 +83,6 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   const router = useRouter();
   const restoreStarted = useRef(false);
   const redirectStarted = useRef(false);
-  const defaultSelectionRef = useRef<string | null>(null);
-  const isDesktop = useIsDesktop();
 
   useEffect(() => {
     if (restoreStarted.current || sessionStatus !== "unknown") return;
@@ -108,25 +110,37 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     enabled: Boolean(workspaceId),
   });
   const allies = useMemo(() => alliesQuery.data ?? [], [alliesQuery.data]);
+  const allyPreviewQueries = useQueries({
+    queries: allies.slice(0, ALLY_PREVIEW_LIMIT).map((ally) => ({
+      queryKey: [...conversationQueryKey(workspaceId, ally.id), "preview"] as const,
+      queryFn: ({ signal }: { signal: AbortSignal }) => session.runCloudOperation(
+        (operationSignal) => session.client.getAllyConversation(workspaceId, ally.id, {
+          limit: 1,
+          signal: operationSignal,
+        }),
+        { signal },
+      ),
+      enabled: Boolean(workspaceId),
+      retry: false,
+      staleTime: 30_000,
+    })),
+  });
+  const allyPreviews = useMemo(
+    () => new Map(allies.slice(0, ALLY_PREVIEW_LIMIT).map((ally, index) => {
+      const query = allyPreviewQueries[index];
+      const messages = query?.data?.messages ?? [];
+      const latestMessage = messages.reduce<MessageViewModel | null>(
+        (latest, message) => (!latest || message.sequence > latest.sequence ? message : latest),
+        null,
+      );
+      return [ally.id, { latestMessage, isPending: Boolean(query?.isPending), isError: Boolean(query?.isError) }] as const;
+    })),
+    [allies, allyPreviewQueries],
+  );
   const selectedAlly = selectedAllyId
     ? allies.find((ally) => ally.id === selectedAllyId) ?? null
     : null;
   const creatingAlly = selectedAllyId === "new";
-
-  useEffect(() => {
-    if (
-      !isDesktop
-      || selectedAllyId
-      || alliesQuery.isPending
-      || alliesQuery.isFetching
-      || !accountQuery.data
-      || allies.length === 0
-    ) return;
-    const firstAlly = allies[0];
-    if (!firstAlly || defaultSelectionRef.current === firstAlly.id) return;
-    defaultSelectionRef.current = firstAlly.id;
-    router.replace(`/home/${encodeURIComponent(firstAlly.id)}`);
-  }, [allies, alliesQuery.isFetching, alliesQuery.isPending, accountQuery.data, isDesktop, router, selectedAllyId]);
 
   const handleCreated = useCallback(
     (ally: AllyViewModel) => {
@@ -182,23 +196,21 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   const invalidSelection = Boolean(selectedAllyId && !creatingAlly && !selectedAlly);
 
   return (
-    <main className={styles.page}>
+    <main className={`${styles.page} ${!selectedAllyId ? styles.rosterPage : ""}`}>
       <section
         className={`${styles.roster} ${selectedAllyId ? styles.rosterHiddenOnMobile : ""}`}
         aria-label="Ally conversations"
       >
         <header className={styles.rosterHeader}>
-          <div>
-            <span className={styles.eyebrow}>Allies</span>
-            <h2 className={styles.rosterTitle}>Your people</h2>
+          <div className={styles.rosterHeaderActions}>
+            <Link href="/account" className={styles.profileButton} aria-label="Account settings">
+              {initials(accountQuery.data.displayName)}
+            </Link>
+            <Link className={styles.newAllyButton} href="/home/new" aria-label="Meet another Ally">
+              <ChefIcon />
+            </Link>
           </div>
-          <Link
-            className={styles.newAllyButton}
-            href="/home/new"
-            aria-label="Meet another Ally"
-          >
-            <PlusIcon />
-          </Link>
+          <span className={styles.searchButton} aria-hidden="true"><SearchIcon /></span>
         </header>
 
         {hasBackgroundQueryError && !selectedAllyId ? (
@@ -212,6 +224,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
                 key={ally.id}
                 ally={ally}
                 selected={ally.id === selectedAllyId}
+                preview={allyPreviews.get(ally.id)}
               />
             ))}
           </nav>
@@ -228,48 +241,44 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
         )}
 
         <footer className={styles.rosterFooter}>
-          <Link href="/account" className={styles.accountLink}>
-            <span className={styles.accountMark} aria-hidden="true">
-              {initials(accountQuery.data.displayName)}
-            </span>
-            <span>{accountQuery.data.displayName || "Your account"}</span>
+          <Link className={`${styles.primaryAction} ${styles.mobileRosterCta}`} href="/home/new">
+            Make an Ally
           </Link>
         </footer>
       </section>
 
-      <section
-        className={`${styles.thread} ${!selectedAllyId ? styles.threadHiddenOnMobile : ""}`}
-        aria-label="Selected Ally conversation"
-      >
-        {creatingAlly ? (
-          <HomeAllyCreationPane workspaceId={workspaceId} onCreated={handleCreated} />
-        ) : invalidSelection ? (
-          <EmptyThread
-            title="That Ally isn't in this Workspace"
-            detail="Choose one of your Allies to keep talking."
-            action={<Link className={styles.primaryAction} href="/home">Back to Allies</Link>}
-          />
-        ) : selectedAlly ? (
-          <ConversationPane
-            key={selectedAlly.id}
-            workspaceId={workspaceId}
-            ally={selectedAlly}
-            workspaceRefreshError={hasBackgroundQueryError}
-            onRetryWorkspace={retryWorkspaceQueries}
-          />
-        ) : allies.length ? (
-          <EmptyThread
-            title="Choose an Ally"
-            detail="Every Ally has one continuous conversation waiting here."
-          />
-        ) : (
-          <EmptyThread
-            title="Meet your first Ally"
-            detail="Start with someone built around what matters to you."
-            action={<Link className={styles.primaryAction} href="/home/new">Meet your first Ally</Link>}
-          />
-        )}
-      </section>
+      {selectedAllyId ? (
+        <section className={styles.thread} aria-label="Selected Ally conversation">
+          {creatingAlly ? (
+            <HomeAllyCreationPane workspaceId={workspaceId} onCreated={handleCreated} />
+          ) : invalidSelection ? (
+            <EmptyThread
+              title="That Ally isn't in this Workspace"
+              detail="Choose one of your Allies to keep talking."
+              action={<Link className={styles.primaryAction} href="/home">Back to Allies</Link>}
+            />
+          ) : selectedAlly ? (
+            <ConversationPane
+              key={selectedAlly.id}
+              workspaceId={workspaceId}
+              ally={selectedAlly}
+              workspaceRefreshError={hasBackgroundQueryError}
+              onRetryWorkspace={retryWorkspaceQueries}
+            />
+          ) : allies.length ? (
+            <EmptyThread
+              title="Choose an Ally"
+              detail="Every Ally has one continuous conversation waiting here."
+            />
+          ) : (
+            <EmptyThread
+              title="Meet your first Ally"
+              detail="Start with someone built around what matters to you."
+              action={<Link className={styles.primaryAction} href="/home/new">Meet your first Ally</Link>}
+            />
+          )}
+        </section>
+      ) : null}
     </main>
   );
 }
@@ -304,7 +313,7 @@ export function resolveAllyAppearance(ally: AllyViewModel): ResolvedAllyAppearan
   return color ? { shape: rawShape as AllyShape, color } : null;
 }
 
-function AllyIdentityAvatar({ ally, size }: { ally: AllyViewModel; size: number }) {
+function AllyIdentityAvatar({ ally, size, thinking = false }: { ally: AllyViewModel; size: number; thinking?: boolean }) {
   const avatar = resolveAllyAppearance(ally);
   if (!avatar) {
     return (
@@ -323,24 +332,73 @@ function AllyIdentityAvatar({ ally, size }: { ally: AllyViewModel; size: number 
     <AllyAvatar
       shape={avatar.shape}
       color={avatar.color}
-      state={ally.provisioningState === "pending" ? "thinking" : "idle"}
+      state={thinking || ally.provisioningState === "pending" ? "thinking" : "idle"}
       size={size}
       label=""
     />
   );
 }
 
-function AllyConversationRow({ ally, selected }: { ally: AllyViewModel; selected: boolean }) {
+type AllyPreview = {
+  latestMessage: MessageViewModel | null;
+  isPending: boolean;
+  isError: boolean;
+};
+
+function previewText(message: MessageViewModel | null): string {
+  if (!message?.content.trim()) return "No messages yet";
+  return message.content
+    .replace(/[`*_>#\[\]]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function previewTimestamp(value: string | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const now = new Date();
+  if (date.toDateString() === now.toDateString()) {
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+  return date.toLocaleDateString([], { month: "short", day: "numeric" });
+}
+
+function AllyConversationRow({
+  ally,
+  selected,
+  preview,
+}: {
+  ally: AllyViewModel;
+  selected: boolean;
+  preview?: AllyPreview;
+}) {
+  const latestMessage = preview?.latestMessage ?? null;
   return (
     <Link
       href={`/home/${encodeURIComponent(ally.id)}`}
       className={`${styles.allyRow} ${selected ? styles.allyRowSelected : ""}`}
       aria-current={selected ? "page" : undefined}
     >
-      <AllyIdentityAvatar ally={ally} size={52} />
+      <span className={styles.allyAvatarWrap}>
+        <AllyIdentityAvatar ally={ally} size={54} />
+        <span
+          className={`${styles.presenceDot} ${ally.provisioningState === "bound" ? styles.presenceDotReady : styles.presenceDotQuiet}`}
+          aria-hidden="true"
+        />
+      </span>
       <span className={styles.allyCopy}>
-        <strong>{ally.name}</strong>
-        <span>{allySecondaryLine(ally)}</span>
+        <span className={styles.allyMeta}>
+          <strong>{ally.name}</strong>
+          {latestMessage ? <time dateTime={latestMessage.createdAt}>{previewTimestamp(latestMessage.createdAt)}</time> : null}
+        </span>
+        <span className={preview?.isPending ? styles.allyPreviewPending : styles.allyPreview}>
+          {preview === undefined || preview.isError
+            ? allySecondaryLine(ally)
+            : preview.isPending && !latestMessage
+              ? "Opening conversation…"
+              : previewText(latestMessage)}
+        </span>
       </span>
     </Link>
   );
@@ -365,22 +423,37 @@ function ConversationPane({
   const [olderLoadError, setOlderLoadError] = useState<string | null>(null);
   const [sentMessages, setSentMessages] = useState<MessageViewModel[]>([]);
   const [draft, setDraft] = useState("");
+  const draftRef = useRef("");
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
+  const [retriedMessageIds, setRetriedMessageIds] = useState<Set<string>>(() => new Set());
+  const [retryError, setRetryError] = useState<string | null>(null);
   const [activityError, setActivityError] = useState<string | null>(null);
   const [activityHistoryError, setActivityHistoryError] = useState<string | null>(null);
+  const [activityReplayUnavailable, setActivityReplayUnavailable] = useState(false);
   const intentRef = useRef<{ signature: string; key: string; draftRevision: number } | null>(null);
   const draftRevisionRef = useRef(0);
   const [activeTurn, setActiveTurn] = useState(false);
   const [pollingSettled, setPollingSettled] = useState(false);
+  const [streamConnected, setStreamConnected] = useState(false);
   const [pollBudgetReached, setPollBudgetReached] = useState(false);
   const [projection, setProjection] = useState<ActivityProjection>(EMPTY_ACTIVITY_PROJECTION);
   const pollingRef = useRef(false);
   const pollCountRef = useRef(0);
   const activityHistoryLoadedRef = useRef<string | null>(null);
+  const activityReplayRef = useRef<{
+    conversationId: string;
+    cursor: string | null;
+    afterSequence: number;
+    blocked: "gap" | "invalid" | null;
+  } | null>(null);
+  const activityReplayExpiredRestartedRef = useRef(false);
   const [activityHistoryRetry, setActivityHistoryRetry] = useState(0);
   const activityRequestRef = useRef<AbortController | null>(null);
   const activitySnapshotRequestRef = useRef<AbortController | null>(null);
+  const activityHistoryRequestRef = useRef<AbortController | null>(null);
+  const activityStreamRef = useRef<ActivityStreamHandle | null>(null);
   const turnGenerationRef = useRef(0);
   const olderRequestRef = useRef<AbortController | null>(null);
   const historyRevisionRef = useRef(0);
@@ -394,6 +467,8 @@ function ConversationPane({
       mountedRef.current = false;
       activityRequestRef.current?.abort();
       activitySnapshotRequestRef.current?.abort();
+      activityHistoryRequestRef.current?.abort();
+      activityStreamRef.current?.close();
       olderRequestRef.current?.abort();
     };
   }, []);
@@ -419,13 +494,16 @@ function ConversationPane({
     .at(-1);
   const persistedTurnActive = latestPersistedUserMessage?.status === "queued"
     || latestPersistedUserMessage?.status === "in_progress";
-  const shouldPoll = activeTurn || (!pollingSettled && persistedTurnActive);
+  const shouldPoll = !streamConnected && (activeTurn || (!pollingSettled && persistedTurnActive));
   const conversationId = conversation?.id;
 
   const messages = useMemo(
     () => mergeMessages(olderMessages, latestConversationMessages, sentMessages),
     [latestConversationMessages, olderMessages, sentMessages],
   );
+  const latestProjectedTurn = projection.turns.at(-1);
+  const showThinkingState = (shouldPoll || streamConnected)
+    && !(latestProjectedTurn?.state === "running" && latestProjectedTurn.assistantText.length > 0);
   const timelineSignature = useMemo(
     () => [
       messages.map((message) => `${message.id}:${message.status}`).join("|"),
@@ -475,30 +553,163 @@ function ConversationPane({
     historyRevisionRef.current += 1;
   }, []);
 
+  const loadActivityReplay = useCallback(async (
+    targetConversationId: string,
+    controllerSignal: AbortSignal,
+    fromOrigin = false,
+  ) => {
+    const previous = activityReplayRef.current;
+    if (fromOrigin || !previous || previous.conversationId !== targetConversationId) {
+      activityReplayRef.current = {
+        conversationId: targetConversationId,
+        cursor: null,
+        afterSequence: 0,
+        blocked: null,
+      };
+      if (previous?.conversationId !== targetConversationId) {
+        activityReplayExpiredRestartedRef.current = false;
+      }
+    }
+
+    const replayState = activityReplayRef.current;
+    if (!replayState || replayState.blocked) return null;
+
+    let cursor = replayState.cursor;
+    let bytes = 0;
+    const seenCursors = new Set<string>();
+
+    for (let page = 0; ; page += 1) {
+      if (page >= ACTIVITY_REPLAY_MAX_PAGES) throw new ActivityReplayBoundError();
+
+      const snapshot = await session.runCloudOperation(() =>
+        session.client.getActivities(
+          workspaceId,
+          targetConversationId,
+          {
+            limit: 200,
+            replay: true,
+            ...(cursor ? { cursor } : {}),
+          },
+          controllerSignal,
+        ), {
+          signal: controllerSignal,
+        });
+      if (controllerSignal.aborted || !mountedRef.current) return null;
+
+      bytes += activitySnapshotBytes(snapshot);
+      if (bytes > ACTIVITY_REPLAY_MAX_BYTES) throw new ActivityReplayBoundError();
+
+      setProjection((current) => projectActivitySnapshot(current, snapshot));
+      const currentState = activityReplayRef.current;
+      if (!currentState || currentState.conversationId !== targetConversationId) return null;
+      const pageLastSequence = snapshot.activities.reduce(
+        (latest, activity) => Math.max(latest, activity.sequence),
+        0,
+      );
+      activityReplayRef.current = {
+        ...currentState,
+        cursor: snapshot.resumeCursor ?? currentState.cursor,
+        afterSequence: Math.max(currentState.afterSequence, pageLastSequence),
+      };
+
+      const nextCursor = snapshot.nextCursor ?? null;
+      if (!nextCursor) {
+        activityReplayExpiredRestartedRef.current = false;
+        return snapshot;
+      }
+      if (nextCursor === cursor || seenCursors.has(nextCursor)) {
+        throw new ActivityReplayBoundError();
+      }
+      seenCursors.add(nextCursor);
+      cursor = nextCursor;
+    }
+  }, [session, workspaceId]);
+
+  const loadReplayWithRecovery = useCallback(async (
+    targetConversationId: string,
+    controllerSignal: AbortSignal,
+    fromOrigin = false,
+  ) => {
+    try {
+      return await loadActivityReplay(targetConversationId, controllerSignal, fromOrigin);
+    } catch (error) {
+      if (
+        activityReplayFailure(error) === "expired"
+        && !activityReplayExpiredRestartedRef.current
+      ) {
+        activityReplayExpiredRestartedRef.current = true;
+        activityReplayRef.current = {
+          conversationId: targetConversationId,
+          cursor: null,
+          afterSequence: 0,
+          blocked: null,
+        };
+        return loadActivityReplay(targetConversationId, controllerSignal, true);
+      }
+      throw error;
+    }
+  }, [loadActivityReplay]);
+
+  const handleActivityReplayFailure = useCallback((error: unknown): boolean => {
+    const failure = activityReplayFailure(error);
+    if (!failure || failure === "expired") return false;
+    const replayState = activityReplayRef.current;
+    if (replayState) {
+      activityReplayRef.current = {
+        ...replayState,
+        cursor: null,
+        blocked: failure === "gap" || failure === "invalid" ? failure : null,
+      };
+    }
+    setActivityError(null);
+    if (failure === "invalid") {
+      setActivityReplayUnavailable(true);
+      setActivityHistoryError(null);
+    } else if (failure === "gap") {
+      setActivityReplayUnavailable(false);
+      setActivityHistoryError("Some activity history needs repair. Check again.");
+    } else {
+      setActivityReplayUnavailable(false);
+      setActivityHistoryError("Activity history is too large to load safely. Check again.");
+    }
+    setActiveTurn(false);
+    setPollingSettled(true);
+    return true;
+  }, []);
+
   const refreshActivitySnapshot = useCallback(async (targetConversationId: string) => {
     if (!mountedRef.current) return;
     activitySnapshotRequestRef.current?.abort();
     const controller = new AbortController();
     activitySnapshotRequestRef.current = controller;
     try {
-      const snapshot = await session.runCloudOperation((signal) =>
-        session.client.getActivities(workspaceId, targetConversationId, 200, signal), {
-          signal: controller.signal,
-        });
+      const replayState = activityReplayRef.current;
+      const snapshot = replayState?.conversationId === targetConversationId
+        && replayState.cursor !== null
+        && replayState.blocked === null
+        ? await loadReplayWithRecovery(targetConversationId, controller.signal)
+        : await session.runCloudOperation(() =>
+          session.client.getActivities(workspaceId, targetConversationId, 200, controller.signal), {
+            signal: controller.signal,
+          });
       if (controller.signal.aborted || !mountedRef.current) return;
+      if (!snapshot) return;
       setProjection((current) => projectActivitySnapshot(current, snapshot));
       setActivityError(null);
       setActivityHistoryError(null);
-    } catch {
+      setActivityReplayUnavailable(false);
+    } catch (error) {
       if (!controller.signal.aborted && mountedRef.current) {
-        setActivityError("We couldn't check the latest response status.");
+        if (!handleActivityReplayFailure(error)) {
+          setActivityError("We couldn't check the latest response status.");
+        }
       }
     } finally {
       if (activitySnapshotRequestRef.current === controller) {
         activitySnapshotRequestRef.current = null;
       }
     }
-  }, [session, workspaceId]);
+  }, [handleActivityReplayFailure, loadReplayWithRecovery, session, workspaceId]);
 
   const submit = async () => {
     if (!conversation || sending || !canChat(ally)) return;
@@ -514,7 +725,6 @@ function ConversationPane({
     turnGenerationRef.current += 1;
     intentRef.current = { signature, key, draftRevision: draftRevisionRef.current };
     activityRequestRef.current?.abort();
-    activitySnapshotRequestRef.current?.abort();
     followLatestRef.current = true;
     setSending(true);
     setSendError(null);
@@ -524,7 +734,10 @@ function ConversationPane({
         { csrf: true },
       );
       setSentMessages((current) => mergeMessages(current, [accepted.message]));
-      setDraft((current) => (current === content ? "" : current));
+      if (draftRef.current.trim() === content) {
+        draftRef.current = "";
+        setDraft("");
+      }
       intentRef.current = null;
       setProjection((current) => ({
         ...current,
@@ -554,6 +767,33 @@ function ConversationPane({
     }
   };
 
+  const retry = async (message: MessageViewModel) => {
+    if (!conversation || retryingMessageId || !message.retryable) return;
+    const key = `message-retry-${message.id}-${message.sequence}`;
+    setRetryingMessageId(message.id);
+    setRetryError(null);
+    turnGenerationRef.current += 1;
+    activityRequestRef.current?.abort();
+    followLatestRef.current = true;
+    try {
+      const accepted = await session.runCloudOperation(
+        (signal) => session.client.retryMessage(workspaceId, conversation.id, message.id, key, signal),
+        { csrf: true },
+      );
+      setSentMessages((current) => mergeMessages(current, [accepted.message]));
+      setRetriedMessageIds((current) => new Set(current).add(message.id));
+      setProjection((current) => ({ ...current, state: activityStateFromMessage(accepted.message.status) }));
+      setPollingSettled(false);
+      setPollBudgetReached(false);
+      setActiveTurn(accepted.message.status === "queued" || accepted.message.status === "in_progress");
+      pollCountRef.current = 0;
+    } catch {
+      setRetryError("We couldn't retry that message. Try again in a moment.");
+    } finally {
+      setRetryingMessageId(null);
+    }
+  };
+
   const checkActivity = useCallback(async () => {
     if (
       !shouldPoll
@@ -574,13 +814,21 @@ function ConversationPane({
     pollingRef.current = true;
     pollCountRef.current += 1;
     try {
-      const snapshot = await session.runCloudOperation((signal) =>
-        session.client.getActivities(workspaceId, conversationId, 200, signal), {
-          signal: controller.signal,
-        });
+      const replayState = activityReplayRef.current;
+      const snapshot = replayState?.conversationId === conversationId
+        && replayState.cursor !== null
+        && replayState.blocked === null
+        ? await loadReplayWithRecovery(conversationId, controller.signal)
+        : await session.runCloudOperation(() =>
+          session.client.getActivities(workspaceId, conversationId, 200, controller.signal), {
+            signal: controller.signal,
+          });
       if (controller.signal.aborted || !mountedRef.current) return;
+      if (!snapshot) return;
       setProjection((current) => projectActivitySnapshot(current, snapshot));
       setActivityError(null);
+      setActivityHistoryError(null);
+      setActivityReplayUnavailable(false);
       if (isActivityTerminal(snapshot.state)) {
         setActiveTurn(false);
         setPollingSettled(true);
@@ -590,11 +838,13 @@ function ConversationPane({
           queryKey: conversationQueryKey(workspaceId, ally.id),
         });
       }
-    } catch {
+    } catch (error) {
       if (!controller.signal.aborted && mountedRef.current) {
-        setActivityError("We couldn't check the latest response status.");
-        setActiveTurn(false);
-        setPollingSettled(true);
+        if (!handleActivityReplayFailure(error)) {
+          setActivityError("We couldn't check the latest response status.");
+          setActiveTurn(false);
+          setPollingSettled(true);
+        }
       }
     } finally {
       if (activityRequestRef.current === controller) {
@@ -602,30 +852,44 @@ function ConversationPane({
         pollingRef.current = false;
       }
     }
-  }, [ally.id, conversationId, latestConversationMessages, preserveLatestConversationWindow, queryClient, session, shouldPoll, workspaceId]);
+  }, [
+    ally.id,
+    conversationId,
+    handleActivityReplayFailure,
+    latestConversationMessages,
+    loadReplayWithRecovery,
+    preserveLatestConversationWindow,
+    queryClient,
+    session,
+    shouldPoll,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     if (!conversationId || activityHistoryLoadedRef.current === conversationId) return;
     activityHistoryLoadedRef.current = conversationId;
     const generationAtStart = turnGenerationRef.current;
     const controller = new AbortController();
+    activityHistoryRequestRef.current = controller;
+    activityReplayExpiredRestartedRef.current = false;
     setActivityHistoryError(null);
-    void session.runCloudOperation((signal) =>
-      session.client.getActivities(workspaceId, conversationId, 200, signal), {
-        signal: controller.signal,
-      })
+    setActivityReplayUnavailable(false);
+    void loadReplayWithRecovery(conversationId, controller.signal, true)
       .then((snapshot) => {
         if (controller.signal.aborted || !mountedRef.current) return;
+        if (!snapshot) return;
         setProjection((current) => projectActivitySnapshot(current, snapshot));
         setActivityHistoryError(null);
         setActivityError(null);
+        setActivityReplayUnavailable(false);
         if (isActivityTerminal(snapshot.state) && turnGenerationRef.current === generationAtStart) {
           setActiveTurn(false);
           setPollingSettled(true);
         }
       })
-      .catch(() => {
+      .catch((error) => {
         if (controller.signal.aborted || !mountedRef.current) return;
+        if (handleActivityReplayFailure(error)) return;
         if (activityHistoryLoadedRef.current === conversationId) {
           activityHistoryLoadedRef.current = null;
         }
@@ -636,14 +900,122 @@ function ConversationPane({
         activityHistoryLoadedRef.current = null;
       }
       controller.abort();
+      if (activityHistoryRequestRef.current === controller) {
+        activityHistoryRequestRef.current = null;
+      }
     };
-  }, [activityHistoryRetry, conversationId, session, workspaceId]);
+  }, [
+    activityHistoryRetry,
+    conversationId,
+    handleActivityReplayFailure,
+    loadReplayWithRecovery,
+    workspaceId,
+  ]);
 
   const retryActivityHistory = () => {
     activityHistoryLoadedRef.current = null;
+    activityReplayRef.current = conversationId
+      ? { conversationId, cursor: null, afterSequence: 0, blocked: null }
+      : null;
+    activityReplayExpiredRestartedRef.current = false;
+    setActivityReplayUnavailable(false);
     setActivityHistoryError(null);
     setActivityHistoryRetry((current) => current + 1);
   };
+
+  useEffect(() => {
+    if (!conversationId || !activeTurn) {
+      activityStreamRef.current?.close();
+      activityStreamRef.current = null;
+      return;
+    }
+    const baseUrl = getWebEnvironment().cloudApiUrl;
+    if (!baseUrl || !getActivitySseEnabled()) return;
+    const controller = new AbortController();
+    const targetConversationId = conversationId;
+    const generationAtOpen = turnGenerationRef.current;
+    let streamEndedNormally = false;
+    const stream = readActivityStream({
+      baseUrl,
+      workspaceId,
+      conversationId: targetConversationId,
+      cursor: activityReplayRef.current?.conversationId === targetConversationId
+        ? activityReplayRef.current.cursor
+        : null,
+      signal: controller.signal,
+      onOpen: () => {
+        if (!mountedRef.current) return;
+        setStreamConnected(true);
+        setActivityError(null);
+        activityRequestRef.current?.abort();
+      },
+      onEvent: (event) => {
+        if (!mountedRef.current) return;
+        if ("conversationId" in event && event.conversationId !== targetConversationId) {
+          controller.abort();
+          setStreamConnected(false);
+          setActivityError("Live updates paused. Checking again…");
+          return;
+        }
+        if (event.type === "activity") {
+          setProjection((current) => projectActivitySnapshot(current, {
+            conversationId: targetConversationId,
+            activities: [event.activity],
+            state: event.activity.state,
+            lastContiguousSequence: event.activity.sequence,
+            lastContiguousActivitySequence: event.activity.sequence,
+            resumeCursor: event.cursor,
+            nextCursor: null,
+            latestSequence: event.activity.sequence,
+          }));
+          const replayState = activityReplayRef.current;
+          if (replayState?.conversationId === targetConversationId) {
+            activityReplayRef.current = {
+              ...replayState,
+              cursor: event.cursor,
+              afterSequence: Math.max(replayState.afterSequence, event.activity.sequence),
+            };
+          }
+        } else if (event.type === "terminal") {
+          if (turnGenerationRef.current !== generationAtOpen) {
+            streamEndedNormally = true;
+            setStreamConnected(false);
+            controller.abort();
+            return;
+          }
+          streamEndedNormally = true;
+          setStreamConnected(false);
+          setProjection((current) => ({ ...current, state: event.state }));
+          setActiveTurn(false);
+          setPollingSettled(true);
+          setActivityError(null);
+          preserveLatestConversationWindow(latestConversationMessages);
+          void queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id) });
+        }
+      },
+      onError: (error) => {
+        if (!mountedRef.current || streamEndedNormally) return;
+        setStreamConnected(false);
+        if (error.status === 503) return;
+        setActivityError("Live updates paused. Checking again…");
+      },
+    });
+    activityStreamRef.current = stream;
+    return () => {
+      controller.abort();
+      stream.close();
+      if (activityStreamRef.current === stream) activityStreamRef.current = null;
+      setStreamConnected(false);
+    };
+  }, [
+    activeTurn,
+    ally.id,
+    conversationId,
+    latestConversationMessages,
+    preserveLatestConversationWindow,
+    queryClient,
+    workspaceId,
+  ]);
 
   useEffect(() => {
     if (!shouldPoll) {
@@ -669,18 +1041,24 @@ function ConversationPane({
   }, [timelineSignature]);
 
   const unavailable = !canChat(ally);
+  const allyAccent = resolveAllyAppearance(ally)?.color ?? "#ff5800";
 
   return (
-    <div className={styles.conversation}>
+    <div
+      className={styles.conversation}
+      style={{ "--ally-accent": allyAccent } as CSSProperties}
+    >
       <header className={styles.threadHeader}>
-        <Link href="/home" className={`${styles.backButton} ${styles.mobileOnly}`} aria-label="Back to Allies">
+        <Link href="/home" className={styles.backButton} aria-label="Back to Allies">
           <BackIcon />
         </Link>
-        <AllyIdentityAvatar ally={ally} size={44} />
         <div className={styles.threadIdentity}>
           <h1>{ally.name}</h1>
           <p>{allySecondaryLine(ally)}</p>
         </div>
+        <Link href="/account" className={`${styles.settingsButton} ${styles.mobileOnly}`} aria-label="Account settings">
+          <SettingsIcon />
+        </Link>
       </header>
 
       <div
@@ -722,12 +1100,27 @@ function ConversationPane({
                 >
                   <p>{message.content}</p>
                   {statusLabel ? <span>{statusLabel}</span> : null}
+                  {message.sender === "user" && message.retryable && !retriedMessageIds.has(message.id) ? (
+                    <button
+                      type="button"
+                      className={styles.retryButton}
+                      onClick={() => void retry(message)}
+                      disabled={retryingMessageId !== null}
+                    >
+                      {retryingMessageId === message.id ? "Retrying…" : "Retry"}
+                    </button>
+                  ) : null}
                 </article>
-                {turn ? <AssistantTurn turn={turn} /> : null}
+                {turn ? <AssistantTurn turn={turn} streaming={shouldPoll || streamConnected} /> : null}
               </Fragment>
             );
           })}
-          {shouldPoll ? <p className={styles.turnState} aria-live="polite">{ally.name} is working…</p> : null}
+          {showThinkingState ? (
+            <div className={styles.thinkingState} role="status" aria-live="polite">
+              <AllyIdentityAvatar ally={ally} size={32} thinking />
+              <ShinyText color="var(--ally-accent)" shineColor="#ffffff">Thinking</ShinyText>
+            </div>
+          ) : null}
           {!shouldPoll && projection.state === "awaiting_action" ? (
             <p className={styles.turnState}>This Ally needs an action Home cannot complete yet.</p>
           ) : null}
@@ -766,12 +1159,16 @@ function ConversationPane({
               </button>
             </div>
           ) : null}
+          {activityReplayUnavailable ? (
+            <p className={styles.inlineError} role="alert">Activity history is unavailable.</p>
+          ) : null}
           {activityHistoryError ? (
             <div className={styles.inlineError} role="alert">
               <span>{activityHistoryError}</span>
               <button type="button" onClick={retryActivityHistory}>Check again</button>
             </div>
           ) : null}
+          {retryError ? <p className={styles.composerError} role="alert">{retryError}</p> : null}
         </div>
       </div>
 
@@ -780,11 +1177,13 @@ function ConversationPane({
         {sendError ? <p className={styles.composerError} role="alert">{sendError}</p> : null}
         <div className={styles.composer}>
           <label className={styles.srOnly} htmlFor="ally-message">Message {ally.name}</label>
+          <span className={styles.composerPlus} aria-hidden="true">+</span>
           <textarea
             id="ally-message"
             value={draft}
             onChange={(event) => {
               draftRevisionRef.current += 1;
+              draftRef.current = event.target.value;
               setDraft(event.target.value);
             }}
             onKeyDown={(event) => {
@@ -888,7 +1287,8 @@ function provisioningNotice(ally: AllyViewModel): string {
   return `${ally.name} needs an update before messaging.`;
 }
 
-function AssistantTurn({ turn }: { turn: AssistantTurnProjection }) {
+function AssistantTurn({ turn, streaming }: { turn: AssistantTurnProjection; streaming: boolean }) {
+  const isStreaming = streaming && turn.state === "running";
   if (turn.state === "reconciliation_needed") {
     return (
       <article className={styles.allyMessage} data-testid={`activity-reply-${turn.turnOrdinal}`}>
@@ -906,7 +1306,15 @@ function AssistantTurn({ turn }: { turn: AssistantTurnProjection }) {
   if (!turn.assistantText) return null;
   return (
     <article className={styles.allyMessage} data-testid={`activity-reply-${turn.turnOrdinal}`}>
-      <p>{turn.assistantText}</p>
+      <Streamdown
+        className={styles.streamingMarkdown}
+        mode={isStreaming ? "streaming" : "static"}
+        parseIncompleteMarkdown
+        animated={isStreaming ? { animation: "blurIn", sep: "word", duration: 180, stagger: 24 } : false}
+        isAnimating={isStreaming}
+      >
+        {turn.assistantText}
+      </Streamdown>
     </article>
   );
 }
@@ -946,14 +1354,37 @@ function initials(name: string): string {
   return value.split(/\s+/u).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
 }
 
-function PlusIcon() {
-  return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>;
-}
-
 function BackIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></svg>;
 }
 
 function SendIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 12 6-6 6 6M12 6v12" /></svg>;
+}
+
+function ChefIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M7.5 10.5a3.5 3.5 0 1 1 2.3-6.13 3.4 3.4 0 0 1 4.4 0 3.5 3.5 0 1 1 2.3 6.13V19h-9v-8.5Z" />
+      <path d="M6 19h12M8 21h8" />
+    </svg>
+  );
+}
+
+function SearchIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <circle cx="10.8" cy="10.8" r="6.2" />
+      <path d="m16 16 4.2 4.2" />
+    </svg>
+  );
+}
+
+function SettingsIcon() {
+  return (
+    <svg aria-hidden="true" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3" />
+      <path d="M19 12a7 7 0 0 0-.12-1.28l2-1.55-2-3.46-2.45.99a7 7 0 0 0-2.22-1.28L13.85 3h-4l-.36 2.42A7 7 0 0 0 7.27 6.7l-2.45-.99-2 3.46 2 1.55A7 7 0 0 0 4.7 12c0 .44.04.87.12 1.28l-2 1.55 2 3.46 2.45-.99a7 7 0 0 0 2.22 1.28L9.85 21h4l.36-2.42a7 7 0 0 0 2.22-1.28l2.45.99 2-3.46-2-1.55c.08-.41.12-.84.12-1.28Z" />
+    </svg>
+  );
 }

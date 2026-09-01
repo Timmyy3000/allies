@@ -12,6 +12,7 @@ export type {
   CloudClient,
   CloudClientOptions,
   ConversationOptions,
+  ActivityOptions,
   PreparedAvatarViewModel,
   ProfileViewModel,
   WaitlistCompletionInput,
@@ -41,6 +42,8 @@ export { createCloudClient } from "./client";
 export { parseSafeReturnPath } from "./client";
 export {
   activitySnapshotResponseSchema,
+  activityKindSchema,
+  activityStateSchema,
   allyListResponseSchema,
   allyResponseSchema,
   allySeedInputSchema,

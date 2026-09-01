@@ -63,3 +63,7 @@ export function parseWebEnvironment(
 export function getWebEnvironment(): Readonly<WebEnvironment> {
   return parseWebEnvironment(process.env.NEXT_PUBLIC_CLOUD_API_URL);
 }
+
+export function getActivitySseEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_ACTIVITY_SSE_ENABLED !== "false";
+}

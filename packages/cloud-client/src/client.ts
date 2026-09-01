@@ -193,11 +193,23 @@ const conversationOptionsSchema = z.object({
   cursor: z.string().min(1).max(512).optional(),
 });
 const activityLimitSchema = z.number().int().min(1).max(200);
+const activityOptionsSchema = z.object({
+  limit: activityLimitSchema.optional(),
+  cursor: z.string().min(1).max(512).optional(),
+  replay: z.boolean().optional(),
+});
 const messageContentSchema = z.string().min(1).max(16_000);
 
 export interface ConversationOptions {
   limit?: number;
   cursor?: string;
+  signal?: AbortSignal;
+}
+
+export interface ActivityOptions {
+  limit?: number;
+  cursor?: string;
+  replay?: boolean;
   signal?: AbortSignal;
 }
 
@@ -226,6 +238,30 @@ function parseConversationOptions(options?: ConversationOptions): {
   return {
     ...(Object.keys(query).length ? { query } : {}),
     ...(options?.signal ? { signal: options.signal } : {}),
+  };
+}
+
+function parseActivityOptions(
+  limitOrOptions?: number | ActivityOptions,
+  signal?: AbortSignal,
+): {
+  query?: { limit?: number; cursor?: string; replay?: boolean };
+  signal?: AbortSignal;
+} {
+  const options = typeof limitOrOptions === "number"
+    ? { limit: limitOrOptions, signal }
+    : {
+        ...(limitOrOptions ?? {}),
+        ...(limitOrOptions?.signal || !signal ? {} : { signal }),
+      };
+  const query = parseInput(activityOptionsSchema, {
+    ...(options.limit === undefined ? {} : { limit: options.limit }),
+    ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+    ...(options.replay === undefined ? {} : { replay: options.replay }),
+  });
+  return {
+    ...(Object.keys(query).length ? { query } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
   };
 }
 
@@ -531,23 +567,48 @@ export function createCloudClient(options: CloudClientOptions) {
       );
     },
 
-    async getActivities(
+    async retryMessage(
       workspaceId: string,
       conversationId: string,
-      limit?: number,
+      messageId: string,
+      idempotencyKey: string,
       signal?: AbortSignal,
-    ): Promise<ActivitySnapshotViewModel> {
+    ): Promise<MessageAcceptanceViewModel> {
       rejectPreAborted(signal);
       const workspace = parsePathSegment(workspaceId);
       const conversation = parsePathSegment(conversationId);
-      const parsedLimit = limit === undefined ? undefined : parseInput(activityLimitSchema, limit);
+      const message = parsePathSegment(messageId);
+      const key = parseIdempotencyKey(idempotencyKey);
+      return unwrap(
+        api.POST("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry", {
+          params: {
+            path: { workspace_id: workspace, conversation_id: conversation, message_id: message },
+            header: { "Idempotency-Key": key },
+          },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toMessageAcceptanceViewModel(successEnvelope(messageAcceptanceResponseSchema).parse(data).data),
+        [200, 201],
+      );
+    },
+
+    async getActivities(
+      workspaceId: string,
+      conversationId: string,
+      limitOrOptions?: number | ActivityOptions,
+      signal?: AbortSignal,
+    ): Promise<ActivitySnapshotViewModel> {
+      const parsedOptions = parseActivityOptions(limitOrOptions, signal);
+      rejectPreAborted(parsedOptions.signal);
+      const workspace = parsePathSegment(workspaceId);
+      const conversation = parsePathSegment(conversationId);
       return unwrap(
         api.GET("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities", {
           params: {
             path: { workspace_id: workspace, conversation_id: conversation },
-            ...(parsedLimit === undefined ? {} : { query: { limit: parsedLimit } }),
+            ...(parsedOptions.query ? { query: parsedOptions.query } : {}),
           },
-          signal: normalizeRequestSignal(signal),
+          signal: normalizeRequestSignal(parsedOptions.signal),
         }) as Promise<ApiResult>,
         (data) => toActivitySnapshotViewModel(successEnvelope(activitySnapshotResponseSchema).parse(data).data),
         [200],

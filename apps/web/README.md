@@ -34,3 +34,12 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+# Web application
+
+## Streamdown dependency
+
+Assistant replies use `streamdown` for incremental Markdown rendering while
+text is arriving. It is web-only presentation code at the untrusted assistant
+content boundary; its default `rehype-sanitize`/`rehype-harden` pipeline remains
+enabled. Upgrades must be reviewed for sanitization and parser behavior before
+being accepted. The web platform owner owns this dependency.
