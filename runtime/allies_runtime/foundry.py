@@ -1041,7 +1041,6 @@ class FoundryWorker:
                 if (
                     not conversation_id
                     or len(conversation_id) > 255
-                    or claim.session_id is None
                     or (
                         input_conversation is not None
                         and input_conversation != conversation_id

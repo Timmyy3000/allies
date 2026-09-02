@@ -129,7 +129,9 @@ class RecordingHermes:
 async def test_first_turn_dispatches_once_binds_terminal_session_and_completes():
     foundry = RecordingFoundry(dispatch_losses=1)
     hermes = RecordingHermes()
-    result = await FoundryWorker(foundry, hermes).run_claim(claim())
+    result = await FoundryWorker(foundry, hermes).run_claim(
+        replace(claim(), conversation_id="cloud-1")
+    )
 
     assert result.status == "succeeded"
     assert [event["event_type"] for event in foundry.events] == [
