@@ -695,5 +695,10 @@ def test_origin_and_status_helpers_are_explicit():
     request = RequestFactory().post("/", HTTP_REFERER="http://localhost:3000/app")
     assert _origin_allowed(request)
     assert not _origin_allowed(RequestFactory().post("/"))
+    railway_request = RequestFactory().post(
+        "/", HTTP_ORIGIN="https://web-pr-18-web-align-light-chat-ui-w.up.railway.app"
+    )
+    with override_settings(CSRF_TRUSTED_ORIGINS=["https://*.up.railway.app"]):
+        assert _origin_allowed(railway_request)
     assert _domain_status("provider_unavailable") == 404
     assert _domain_status("unknown", 418) == 418

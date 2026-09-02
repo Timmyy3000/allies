@@ -35,6 +35,7 @@ from auths.config import (
     native_rate_limit_period_seconds,
 )
 from auths.exceptions import NativeIdentityUnavailable, SessionInvalid
+from auths.origins import origin_allowed
 from auths.throttle import check_rate_limit
 
 
@@ -122,8 +123,7 @@ def _origin_allowed(request: HttpRequest) -> bool:
     origin = _request_origin(request)
     if not origin:
         return False
-    allowed = set(getattr(settings, "CSRF_TRUSTED_ORIGINS", ()))
-    return origin in allowed
+    return origin_allowed(origin, getattr(settings, "CSRF_TRUSTED_ORIGINS", ()))
 
 
 def _require_origin(
