@@ -119,6 +119,12 @@ class Workspace(models.Model):
         blank=True,
     )
     provisioning_claim_expires_at = models.DateTimeField(null=True, blank=True)
+    activation_claim_token = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+    )
+    activation_claim_expires_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

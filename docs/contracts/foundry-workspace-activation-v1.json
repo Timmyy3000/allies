@@ -1,0 +1,55 @@
+{
+  "method": "POST",
+  "path": "/api/v1/internal/workspaces/{workspace_id}/activation",
+  "authentication": "Bearer ALLIES_CLOUD_SERVICE_TOKEN",
+  "request": {
+    "version": 1,
+    "workspace_id": "00000000-0000-4000-8000-000000000001"
+  },
+  "responses": {
+    "200": {
+      "version": 1,
+      "workspace_id": "00000000-0000-4000-8000-000000000001",
+      "status": "active"
+    },
+    "202": {
+      "version": 1,
+      "workspace_id": "00000000-0000-4000-8000-000000000001",
+      "status": "pending"
+    },
+    "401": {
+      "code": "INVALID_CREDENTIAL",
+      "message": "request is not authorized"
+    },
+    "404": {
+      "code": "WORKSPACE_NOT_FOUND",
+      "message": "workspace is unavailable"
+    },
+    "422_invalid_request": {
+      "code": "INVALID_REQUEST",
+      "message": "request is invalid"
+    },
+    "422_activation_failed": {
+      "code": "ACTIVATION_FAILED",
+      "message": "workspace activation failed"
+    },
+    "503": {
+      "code": "ACTIVATION_UNAVAILABLE",
+      "message": "workspace activation unavailable"
+    }
+  },
+  "retry": {
+    "202": "Cloud retries the same workspace identity after backoff",
+    "422_activation_failed": "Cloud records repair-required because lifecycle state or credentials are terminal",
+    "503": "Cloud retries while preflight, deployment configuration, or runtime infrastructure is unavailable"
+  },
+  "implementation_exception": {
+    "rule": "OSS-07",
+    "scope": "The v1 activation service is Fly-only and currently composes the existing Fly management command.",
+    "reason": "The staging fix must reuse the already-proven lifecycle and credential bootstrap without duplicating provider orchestration.",
+    "risk": "The API service is coupled to Fly-specific settings until activation composition moves behind a provider-neutral service.",
+    "mitigation": "Keep the endpoint bearer-authenticated, retain strict workspace and receipt validation, and move provider orchestration behind the existing provider-neutral workspace seam before introducing another provider.",
+    "owner": "Foundry",
+    "revisit_condition": "Before adding a second workspace provider or promoting the activation contract beyond Fly-backed Allies environments."
+  }
+}
