@@ -90,6 +90,11 @@ def test_flow_validation_rejects_bad_redirect_bindings_and_link_sessions():
         assert _safe_redirect("/nested?source=google#fragment", origin) == (
             f"{origin}/nested?source=google#fragment"
         )
+    railway_origin = "https://web-pr-18-web-align-light-chat-ui-w.up.railway.app"
+    with override_settings(CSRF_TRUSTED_ORIGINS=["https://*.up.railway.app"]):
+        assert _safe_redirect("/app", railway_origin) == f"{railway_origin}/app"
+        with pytest.raises(InvalidRedirect):
+            _safe_redirect("/app", "https://nested.web-pr-18.up.railway.app")
     with pytest.raises(InvalidRedirect):
         _safe_redirect("https://evil.example/", TRUSTED_ORIGIN)
     for malformed in (

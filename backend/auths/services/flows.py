@@ -11,11 +11,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlsplit
 
-from django.conf import settings
-from django.db import transaction
-from django.utils import timezone
-from django.utils.http import url_has_allowed_host_and_scheme
-
 from auths.audit import emit_auth_event
 from auths.config import digest_key, flow_ttl_seconds, setting
 from auths.exceptions import (
@@ -25,6 +20,7 @@ from auths.exceptions import (
     ProviderRejected,
 )
 from auths.models import AuthFlow, FlowPurpose, SessionFamily, User
+from auths.origins import origin_allowed
 from auths.providers.base import (
     ProviderFlow,
     ProviderKey,
@@ -34,6 +30,10 @@ from auths.providers.base import (
 from auths.services.accounts import UserBootstrap, resolve_or_create_user
 from auths.services.identities import link_identity
 from auths.services.sessions import IssuedSession, issue_session
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
 
 logger = logging.getLogger("allies.auth")
 
@@ -100,7 +100,9 @@ def _unseal(value: str, *, max_age: int) -> str:
 def _safe_redirect(value: str, trusted_origin: str | None) -> str:
     if (
         not isinstance(trusted_origin, str)
-        or trusted_origin not in set(getattr(settings, "CSRF_TRUSTED_ORIGINS", ()))
+        or not origin_allowed(
+            trusted_origin, getattr(settings, "CSRF_TRUSTED_ORIGINS", ())
+        )
         or not isinstance(value, str)
         or len(trusted_origin) > 500
         or any(ord(char) < 32 or ord(char) == 127 for char in trusted_origin)
