@@ -7,13 +7,16 @@ from urllib.error import HTTPError, URLError
 import pytest
 
 from allies.exceptions import (
+    FoundryGatewayConflict,
     FoundryGatewayInvalid,
+    FoundryGatewayNotFound,
     ProvisioningRejected,
     ProvisioningRetryable,
 )
 from allies.gateways.contracts import ExecutionCommand
 from allies.gateways.foundry import (
     ProfileProvisioningRequest,
+    activate_workspace,
     provision_profile,
     reconcile_execution_intent,
 )
@@ -82,6 +85,55 @@ def test_gateway_sends_one_bearer_authenticated_command(monkeypatch, settings):
         "authorization": "Bearer service-secret",
         "timeout": settings.ALLIES_FOUNDRY_TIMEOUT_SECONDS,
     }
+
+
+def test_gateway_starts_workspace_activation(monkeypatch, settings):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    captured = {}
+
+    class Opener:
+        def open(self, request, *, timeout):
+            captured["url"] = request.full_url
+            captured["authorization"] = request.get_header("Authorization")
+            captured["body"] = json.loads(request.data)
+            return Response(
+                {
+                    "version": 1,
+                    "workspace_id": request_payload().workspace_id,
+                    "status": "active",
+                }
+            )
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+
+    result = activate_workspace(request_payload().workspace_id)
+
+    assert result.status == "active"
+    assert captured == {
+        "url": "https://foundry.example.test/api/v1/internal/workspaces/00000000-0000-4000-8000-000000000001/activation",
+        "authorization": "Bearer service-secret",
+        "body": {"version": 1, "workspace_id": request_payload().workspace_id},
+    }
+
+
+@pytest.mark.parametrize(
+    "gateway_error", [FoundryGatewayNotFound, FoundryGatewayConflict]
+)
+def test_activation_maps_rollout_skew_and_conflict_to_retryable(
+    monkeypatch, settings, gateway_error
+):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    monkeypatch.setattr(
+        "allies.gateways.foundry._foundry_origin",
+        lambda: (_ for _ in ()).throw(gateway_error("failure")),
+    )
+
+    with pytest.raises(ProvisioningRetryable):
+        activate_workspace(request_payload().workspace_id)
 
 
 def test_gateway_allows_debug_docker_host_origin(monkeypatch, settings):

@@ -10,7 +10,12 @@ from waitlist.providers.base import (
     ProviderUnavailableError,
     ProviderUnknownError,
 )
-from waitlist.providers.openai import OpenAIResponsesProvider, _response_text
+from waitlist.providers.openai import (
+    DEFAULT_ALLIES_SOUL,
+    INSTRUCTION,
+    OpenAIResponsesProvider,
+    _response_text,
+)
 
 
 def test_openai_response_text_is_plain_text_only():
@@ -47,7 +52,7 @@ def test_openai_request_is_bounded_and_has_no_storage_or_tools(monkeypatch):
     assert "selected job" in payload["instructions"]
     assert "selected personality" in payload["instructions"]
     assert "natural greeting" in payload["instructions"]
-    assert "vivid, memorable detail" in payload["instructions"]
+    assert "concrete and specific way" in payload["instructions"]
     assert "35–60 words" in payload["instructions"]
     assert "warm, easy-to-answer question" in payload["instructions"]
     assert (
@@ -55,9 +60,13 @@ def test_openai_request_is_bounded_and_has_no_storage_or_tools(monkeypatch):
         in payload["instructions"].lower()
     )
     assert "speak in first person" in payload["instructions"].lower()
-    assert "personality is quirky or playful" in payload["instructions"].lower()
-    assert "never use the word preview" in payload["instructions"].lower()
+    assert "if it is quirky or playful" in payload["instructions"].lower()
+    assert "preview" in payload["instructions"].lower()
     assert "do not mention models" in payload["instructions"].lower()
+    assert "Memory should feel invisible" in payload["instructions"]
+    assert "Hermes owns dangerous-action" in payload["instructions"]
+    assert "behavioral policy" in DEFAULT_ALLIES_SOUL
+    assert payload["instructions"] == INSTRUCTION
 
     class Response:
         def __enter__(self):
