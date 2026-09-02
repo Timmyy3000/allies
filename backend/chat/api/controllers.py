@@ -1,5 +1,10 @@
 from typing import Annotated
 
+from django.db import DatabaseError
+from django.http import HttpRequest
+from ninja import Header, Query
+from ninja_extra import ControllerBase, api_controller, http_get, http_post
+
 from auths.api.common import (
     _require_origin,
     _session,
@@ -9,12 +14,6 @@ from auths.api.common import (
 )
 from auths.api.schemas import SuccessResponse
 from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
-from common.uuids import CanonicalUUID
-from django.db import DatabaseError
-from django.http import HttpRequest
-from ninja import Header, Query
-from ninja_extra import ControllerBase, api_controller, http_get, http_post
-
 from chat.api.schemas import (
     ConversationResponse,
     MessageAcceptanceResponse,
@@ -35,6 +34,7 @@ from chat.exceptions import (
 )
 from chat.services.conversations import retrieve_conversation
 from chat.services.messages import accept_message, message_response, retry_message
+from common.uuids import CanonicalUUID
 
 
 def _message_response(message) -> MessageResponse:

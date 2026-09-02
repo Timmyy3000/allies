@@ -6,10 +6,8 @@ from datetime import timedelta
 from threading import Barrier
 
 import pytest
-from auths.models import User
 from django.db import close_old_connections, connection
 from django.utils import timezone
-from workspaces.models import Membership, Workspace
 
 from allies.models import (
     Ally,
@@ -20,6 +18,8 @@ from allies.models import (
 from allies.services.creation import create_ally
 from allies.services.onboarding import begin_onboarding
 from allies.services.provisioning import _claim_due
+from auths.models import User
+from workspaces.models import Membership, Workspace
 
 pytestmark = pytest.mark.skipif(
     connection.vendor != "postgresql",

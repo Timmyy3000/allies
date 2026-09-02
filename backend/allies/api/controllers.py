@@ -1,17 +1,5 @@
 from typing import Annotated
 
-from auths.api.common import (
-    _client_identity,
-    _csrf_binding,
-    _require_origin,
-    _session,
-    error_json,
-    error_responses,
-    success_json,
-)
-from auths.api.schemas import SuccessResponse
-from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
-from common.uuids import CanonicalUUID
 from django.http import HttpRequest
 from ninja import Header
 from ninja_extra import ControllerBase, api_controller, http_get, http_post
@@ -31,6 +19,18 @@ from allies.exceptions import (
 from allies.models import Ally, ProvisioningStatus
 from allies.services.creation import create_ally, list_allies, retrieve_ally
 from allies.services.onboarding import begin_onboarding
+from auths.api.common import (
+    _client_identity,
+    _csrf_binding,
+    _require_origin,
+    _session,
+    error_json,
+    error_responses,
+    success_json,
+)
+from auths.api.schemas import SuccessResponse
+from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
+from common.uuids import CanonicalUUID
 
 
 def _response(ally: Ally) -> AllyResponse:

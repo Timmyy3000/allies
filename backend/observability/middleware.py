@@ -8,12 +8,12 @@ import uuid
 from collections import OrderedDict
 from collections.abc import Callable
 
-from config.middleware import CANONICAL_CLIENT_ADDRESS_META
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.urls import resolve
 from django.utils.functional import empty
 
+from config.middleware import CANONICAL_CLIENT_ADDRESS_META
 from observability.events import (
     emit_event,
     emit_suppression_diagnostic,

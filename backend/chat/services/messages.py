@@ -9,6 +9,11 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
+from django.conf import settings
+from django.db import transaction
+from django.db.models import Max
+from django.utils import timezone
+
 from allies.models import ProvisioningStatus
 from auths.config import digest_key
 from auths.models import User
@@ -19,15 +24,6 @@ from auths.throttle import (
     check_rate_limit,
     reconcile_rate_limit,
 )
-from common.cursors import b64decode, b64encode, cursor_keys
-from common.uuids import canonical_uuid
-from django.conf import settings
-from django.db import transaction
-from django.db.models import Max
-from django.utils import timezone
-from workspaces.capabilities import Capability
-from workspaces.services.access import require_workspace_capability
-
 from chat.exceptions import (
     ChatUnavailable,
     ConversationUnavailable,
@@ -48,6 +44,10 @@ from chat.models import (
     MessageOrigin,
     MessageSender,
 )
+from common.cursors import b64decode, b64encode, cursor_keys
+from common.uuids import canonical_uuid
+from workspaces.capabilities import Capability
+from workspaces.services.access import require_workspace_capability
 
 MESSAGE_RETRY_STALE_SECONDS = 120
 

@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from django.db import IntegrityError, transaction
+from django.utils import timezone
+
 from auths.exceptions import IdentityConflict
 from auths.models import ExternalIdentity, User
 from auths.providers.base import VerifiedIdentity
-from django.db import IntegrityError, transaction
-from django.utils import timezone
 
 
 @transaction.atomic
