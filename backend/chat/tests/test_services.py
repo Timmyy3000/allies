@@ -3,10 +3,6 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
-from django.core.cache import cache
-from django.db import DatabaseError
-from django.utils import timezone
-
 from allies.models import (
     Ally,
     AllyBinding,
@@ -15,6 +11,11 @@ from allies.models import (
     ProvisioningStatus,
 )
 from auths.models import User
+from django.core.cache import cache
+from django.db import DatabaseError
+from django.utils import timezone
+from workspaces.models import Membership, Workspace
+
 from chat.exceptions import (
     CursorInvalid,
     IdempotencyConflict,
@@ -45,7 +46,6 @@ from chat.services.messages import (
     retry_message,
     serialize_cursor,
 )
-from workspaces.models import Membership, Workspace
 
 
 @pytest.fixture

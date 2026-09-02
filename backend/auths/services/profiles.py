@@ -6,11 +6,10 @@ import unicodedata
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from django.db import transaction
-
 from auths.exceptions import ValidationError
 from auths.models import AvatarStatus, User, UserProfile
 from auths.services.sessions import AuthenticatedSession
+from django.db import transaction
 from workspaces.capabilities import capabilities_for_role
 from workspaces.models import Membership, MembershipStatus, WorkspaceKind
 
