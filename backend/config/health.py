@@ -11,14 +11,6 @@ from dataclasses import dataclass
 from typing import Literal
 from uuid import uuid4
 
-from auths.api.common import (
-    _client_identity,
-    error_json,
-    error_responses,
-    success_json,
-)
-from auths.api.schemas import SuccessResponse
-from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_limit
 from django.conf import settings
 from django.core.cache import cache, caches
 from django.core.cache.backends.redis import RedisCache
@@ -27,6 +19,15 @@ from django.http import HttpRequest
 from django.utils.connection import ConnectionProxy
 from ninja import Schema
 from ninja_extra import ControllerBase, api_controller, http_get
+
+from auths.api.common import (
+    _client_identity,
+    error_json,
+    error_responses,
+    success_json,
+)
+from auths.api.schemas import SuccessResponse
+from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_limit
 
 logger = logging.getLogger(__name__)
 

@@ -2,7 +2,6 @@ import logging
 from datetime import datetime
 
 import pytest
-from auths.models import User
 from django.contrib import admin
 from django.contrib.admin.models import DELETION, LogEntry
 from django.contrib.auth.models import Permission
@@ -15,6 +14,7 @@ from django.urls import reverse
 from django.utils import timezone
 from unfold.admin import ModelAdmin
 
+from auths.models import User
 from waitlist.models import WaitlistEntry
 
 TEST_STORAGES = {

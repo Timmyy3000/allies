@@ -14,6 +14,9 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from django.db import transaction
+from django.utils import timezone as django_timezone
+
 from auths.config import (
     avatar_max_bytes,
     avatar_max_dimension,
@@ -31,8 +34,6 @@ from auths.exceptions import (
 from auths.models import AvatarAsset, AvatarStatus, User, UserProfile
 from auths.storage.avatars import ObjectMetadata, get_avatar_store
 from common.uuids import canonical_uuid
-from django.db import transaction
-from django.utils import timezone as django_timezone
 
 ALLOWED_TYPES = {"image/jpeg", "image/png", "image/webp"}
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")

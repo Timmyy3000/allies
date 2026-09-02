@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from auths.models import ExternalIdentity, User, UserProfile
-from auths.providers.base import VerifiedIdentity
 from django.db import IntegrityError, transaction
 from django.utils import timezone
+
+from auths.models import ExternalIdentity, User, UserProfile
+from auths.providers.base import VerifiedIdentity
 from workspaces.services.bootstrap import WorkspaceContext, ensure_personal_workspace
 
 

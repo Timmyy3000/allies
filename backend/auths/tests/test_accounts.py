@@ -1,9 +1,9 @@
 import pytest
-from workspaces.models import Membership, Workspace
 
 from auths.models import ExternalIdentity, User, UserProfile
 from auths.providers.base import VerifiedIdentity
 from auths.services.accounts import resolve_or_create_user
+from workspaces.models import Membership, Workspace
 
 
 @pytest.mark.django_db

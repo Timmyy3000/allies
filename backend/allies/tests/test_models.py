@@ -1,10 +1,8 @@
 from datetime import timedelta
 
 import pytest
-from auths.models import User
 from django.db import IntegrityError, transaction
 from django.utils import timezone
-from workspaces.models import Workspace
 
 from allies.models import (
     Ally,
@@ -14,6 +12,8 @@ from allies.models import (
     ProvisioningOperation,
     ProvisioningStatus,
 )
+from auths.models import User
+from workspaces.models import Workspace
 
 
 def _workspace_and_user():

@@ -10,6 +10,11 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
 
+from django.conf import settings
+from django.db import transaction
+from django.db.models import Func, IntegerField, Sum
+from django.utils import timezone
+
 from allies.gateways.contracts import FoundryEventEnvelope
 from allies.models import AllyBinding, BindingStatus
 from chat.models import (
@@ -23,10 +28,6 @@ from chat.models import (
 )
 from common.cursors import b64decode, b64encode, cursor_keys
 from common.uuids import canonical_uuid
-from django.conf import settings
-from django.db import transaction
-from django.db.models import Func, IntegerField, Sum
-from django.utils import timezone
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 

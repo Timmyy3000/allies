@@ -1,17 +1,17 @@
 import hashlib
 import logging
 
+from ninja.errors import ValidationError
+
 from activities.api.register import register as register_activities_api
 from allies.api.register import register as register_allies_api
 from auths.api.common import error_json
 from auths.api.register import register as register_auths_api
 from chat.api.register import register as register_chat_api
-from ninja.errors import ValidationError
-from waitlist.api.register import register as register_waitlist_api
-from workspaces.api.register import register as register_workspaces_api
-
 from config.health import HealthController
 from config.openapi import AlliesAPI
+from waitlist.api.register import register as register_waitlist_api
+from workspaces.api.register import register as register_workspaces_api
 
 logger = logging.getLogger(__name__)
 

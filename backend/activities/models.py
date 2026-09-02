@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import uuid
 
-from chat.models import Conversation, Message
 from django.db import models
 from django.db.models import Q
+
+from chat.models import Conversation, Message
 
 # Django model metaclasses intentionally consume mutable Meta collections.
 # ruff: noqa: RUF012
