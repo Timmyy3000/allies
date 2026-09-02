@@ -2,6 +2,7 @@ import secrets
 from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.conf import settings
+from django.core.management.base import CommandError
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from ninja.errors import ValidationError as NinjaValidationError
 from ninja.security import HttpBearer
@@ -14,6 +15,13 @@ from runtime.exceptions import (
     RuntimeIdempotencyConflictError,
     RuntimeNotFoundError,
     RuntimeValidationError,
+)
+from runtime.management.commands.activate_fly_workspace import (
+    ActivationCommandError,
+    WorkspaceNotRegisteredError,
+)
+from runtime.management.commands.activate_fly_workspace import (
+    Command as ActivateFlyWorkspaceCommand,
 )
 from runtime.services.attempts import complete_attempt, fail_attempt
 from runtime.services.claims import claim_next_execution
@@ -45,6 +53,8 @@ from .schemas import (
     ProfileProvisioningRequest,
     SessionBindingRequest,
     StoppedRequest,
+    WorkspaceActivationReceipt,
+    WorkspaceActivationRequest,
 )
 from .schemas import ProfileProvisioningReceipt as ProfileProvisioningReceiptSchema
 
@@ -180,6 +190,68 @@ def register(api: NinjaExtraAPI) -> None:
             return JsonResponse(receipt.model_dump(), status=200)
         except RuntimeDomainError as exc:
             return _profile_provisioning_error(exc)
+
+    @api.post("/internal/workspaces/{workspace_id}/activation", auth=None)
+    def workspace_activation(
+        request: HttpRequest,
+        workspace_id: UUID,
+        payload: WorkspaceActivationRequest,
+    ):
+        try:
+            _authenticate_cloud_service(request)
+            if payload.workspace_id != workspace_id:
+                raise RuntimeValidationError("workspace identity does not match path")
+            ActivateFlyWorkspaceCommand().handle(workspace_id=str(workspace_id))
+        except RuntimeDomainError as exc:
+            return _profile_provisioning_error(exc)
+        except ActivationCommandError as exc:
+            # A provider timeout may happen after a remote side effect. The
+            # lifecycle command is resumable, so Cloud retries this workspace.
+            if exc.retryable:
+                return JsonResponse(
+                    {
+                        "version": 1,
+                        "workspace_id": str(workspace_id),
+                        "status": "pending",
+                    },
+                    status=202,
+                )
+            if exc.terminal:
+                return JsonResponse(
+                    {
+                        "code": "ACTIVATION_FAILED",
+                        "message": "workspace activation failed",
+                    },
+                    status=422,
+                )
+            return JsonResponse(
+                {
+                    "code": "ACTIVATION_UNAVAILABLE",
+                    "message": "workspace activation unavailable",
+                },
+                status=503,
+            )
+        except WorkspaceNotRegisteredError:
+            return JsonResponse(
+                {"code": "WORKSPACE_NOT_FOUND", "message": "workspace is unavailable"},
+                status=404,
+            )
+        except CommandError:
+            return JsonResponse(
+                {
+                    "code": "ACTIVATION_UNAVAILABLE",
+                    "message": "workspace activation unavailable",
+                },
+                status=503,
+            )
+        return JsonResponse(
+            WorkspaceActivationReceipt(
+                version=1,
+                workspace_id=workspace_id,
+                status="active",
+            ).model_dump(mode="json"),
+            status=200,
+        )
 
     @api.post("/internal/executions", auth=_cloud_service_auth)
     def execution_create(request: HttpRequest, payload: ExecutionCommand):

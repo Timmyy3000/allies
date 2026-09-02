@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import os
+from datetime import timedelta
 from uuid import UUID, uuid4
 
 from django.core.management.base import BaseCommand, CommandError
+from django.db import OperationalError, transaction
+from django.utils import timezone
 
+from runtime.exceptions import RuntimeConflictError
 from runtime.models import RuntimeCredential, Workspace, WorkspaceProvisioningPhase
 from runtime.providers import FlyProvider, ProviderError, deterministic_resource_names
 from runtime.services.continuity_proof import (
@@ -13,8 +17,10 @@ from runtime.services.continuity_proof import (
     ProofCredentialHandle,
     ProofDependencyCredentialBootstrap,
     ProofDependencyCredentialHandle,
+    _FlySecretCommandError,
     proof_workspace_spec,
 )
+from runtime.services.retry import run_with_sqlite_lock_retry
 from runtime.services.workspaces import WorkspaceLifecycle, WorkspaceSpec
 
 _REQUIRED_SETTINGS = (
@@ -26,6 +32,9 @@ _REQUIRED_SETTINGS = (
     "HERMES_IMAGE",
     "PROFILE_PROVISIONING_API_KEY",
 )
+# Covers the 180-second Fly deploy bound, the lifecycle's bounded phase loops,
+# CLI calls, and cleanup overhead while keeping retries out of the full flow.
+_ACTIVATION_CLAIM_SECONDS = 1200
 _MACHINE_PHASES = frozenset(
     {
         WorkspaceProvisioningPhase.MACHINE_CREATED,
@@ -33,6 +42,49 @@ _MACHINE_PHASES = frozenset(
         WorkspaceProvisioningPhase.HEALTHY,
     }
 )
+
+
+class ActivationCommandError(CommandError):
+    """Activation failed, with an explicit retryability classification."""
+
+    def __init__(
+        self,
+        message,
+        *,
+        retryable: bool = False,
+        terminal: bool = False,
+    ):
+        if retryable and terminal:
+            raise ValueError("activation failure cannot be retryable and terminal")
+        super().__init__(message)
+        self.retryable = retryable
+        self.terminal = terminal
+
+
+class WorkspaceNotRegisteredError(CommandError):
+    """The requested Cloud workspace has not been registered in Foundry."""
+
+
+class ActivationStateError(RuntimeError):
+    """The workspace state cannot be repaired by retrying unchanged."""
+
+
+def _activation_failure_is_retryable(exc: BaseException) -> bool:
+    return isinstance(exc, (OperationalError, _FlySecretCommandError)) or (
+        isinstance(exc, ProviderError) and exc.retryable
+    )
+
+
+def _activation_failure_is_terminal(exc: BaseException, workspace_id: UUID) -> bool:
+    if isinstance(exc, ActivationStateError):
+        return True
+    try:
+        phase = Workspace.objects.values_list("provisioning_phase", flat=True).get(
+            pk=workspace_id
+        )
+    except (OperationalError, Workspace.DoesNotExist):
+        return False
+    return phase == WorkspaceProvisioningPhase.FAILED
 
 
 class Command(BaseCommand):
@@ -51,6 +103,17 @@ class Command(BaseCommand):
         missing = sorted(name for name, value in required.items() if not value)
         if missing:
             raise CommandError(f"Missing required settings: {', '.join(missing)}")
+
+        try:
+            activation_claim = self._claim_activation(workspace_id)
+        except (OperationalError, RuntimeConflictError) as exc:
+            raise ActivationCommandError(
+                "Workspace activation claim is unavailable", retryable=True
+            ) from exc
+        if activation_claim is None:
+            raise ActivationCommandError(
+                "Workspace activation is already in progress", retryable=True
+            )
 
         names = deterministic_resource_names(workspace_id)
         app_name = names.app
@@ -117,7 +180,7 @@ class Command(BaseCommand):
                 cleanup_owned_dependencies = True
                 if credential is None:
                     if target_generation != 1:
-                        raise RuntimeError(
+                        raise ActivationStateError(
                             "a partial workspace is missing its runtime credential"
                         )
                     credential_handle = credential_bootstrap.prepare(
@@ -133,7 +196,7 @@ class Command(BaseCommand):
                     )
             else:
                 if credential is None:
-                    raise RuntimeError(
+                    raise ActivationStateError(
                         "an existing workspace Machine has no runtime credential"
                     )
                 dependency_handle = ProofDependencyCredentialHandle(
@@ -171,7 +234,8 @@ class Command(BaseCommand):
                 machine_name,
                 existing_machine,
             )
-            resumable_failure = isinstance(exc, ProviderError) and exc.retryable
+            resumable_failure = _activation_failure_is_retryable(exc)
+            terminal_failure = _activation_failure_is_terminal(exc, workspace_id)
             if (credential_prepared or cleanup_owned_dependencies) and not (
                 machine_may_exist or resumable_failure
             ):
@@ -189,7 +253,23 @@ class Command(BaseCommand):
                         "resume it."
                     )
                 )
-            raise CommandError("Fly workspace activation failed") from exc
+            self.stderr.write(self.style.ERROR(f"Activation failed: {exc}"))
+            raise ActivationCommandError(
+                "Fly workspace activation failed",
+                retryable=resumable_failure,
+                terminal=terminal_failure,
+            ) from exc
+        finally:
+            if activation_claim is not None:
+                try:
+                    self._release_activation_claim(workspace_id, activation_claim)
+                except Exception as release_error:  # noqa: BLE001
+                    self.stderr.write(
+                        self.style.ERROR(
+                            "Activation claim release failed for "
+                            f"{workspace_id}: {type(release_error).__name__}"
+                        )
+                    )
 
         self.stdout.write(
             self.style.SUCCESS(
@@ -204,7 +284,53 @@ class Command(BaseCommand):
             tenant_ref = str(UUID(value))
             return Workspace.objects.get(tenant_ref=tenant_ref)
         except (TypeError, ValueError, Workspace.DoesNotExist) as exc:
-            raise CommandError("workspace_id is not registered") from exc
+            raise WorkspaceNotRegisteredError("workspace_id is not registered") from exc
+
+    @staticmethod
+    def _claim_activation(workspace_id: UUID) -> str | None:
+        @transaction.atomic
+        def transaction_once() -> str | None:
+            workspace = Workspace.objects.select_for_update().get(pk=workspace_id)
+            now = timezone.now()
+            if workspace.provisioning_phase == WorkspaceProvisioningPhase.FAILED:
+                raise ActivationCommandError(
+                    "Workspace activation failed", terminal=True
+                )
+            if (
+                workspace.activation_claim_token
+                and workspace.activation_claim_expires_at
+                and workspace.activation_claim_expires_at > now
+            ):
+                return None
+            token = uuid4().hex
+            workspace.activation_claim_token = token
+            workspace.activation_claim_expires_at = now + timedelta(
+                seconds=_ACTIVATION_CLAIM_SECONDS
+            )
+            workspace.save(
+                update_fields=(
+                    "activation_claim_token",
+                    "activation_claim_expires_at",
+                    "updated_at",
+                )
+            )
+            return token
+
+        return run_with_sqlite_lock_retry(transaction_once)
+
+    @staticmethod
+    def _release_activation_claim(workspace_id: UUID, token: str) -> None:
+        def release_once() -> None:
+            Workspace.objects.filter(
+                pk=workspace_id,
+                activation_claim_token=token,
+            ).update(
+                activation_claim_token=None,
+                activation_claim_expires_at=None,
+                updated_at=timezone.now(),
+            )
+
+        run_with_sqlite_lock_retry(release_once)
 
     @staticmethod
     def _active_credential(
@@ -218,7 +344,7 @@ class Command(BaseCommand):
             ).order_by("created_at", "id")
         )
         if len(credentials) > 1:
-            raise RuntimeError("multiple active runtime credentials exist")
+            raise ActivationStateError("multiple active runtime credentials exist")
         return credentials[0] if credentials else None
 
     @staticmethod

@@ -16,6 +16,7 @@ from runtime.providers import (
     MachineState,
     ProviderRetryableError,
     ProviderTerminalError,
+    ProviderUnsupportedTopologyError,
     VolumeRecord,
     deterministic_resource_names,
 )
@@ -143,6 +144,9 @@ class FailingLifecycle:
 
 class TerminalLifecycle:
     def ensure_workspace(self, *_args, **_kwargs):
+        Workspace.objects.filter(pk=_args[0]).update(
+            provisioning_phase=WorkspaceProvisioningPhase.FAILED
+        )
         raise ProviderTerminalError("invalid image", operation="ensure")
 
 
@@ -165,6 +169,61 @@ def test_command_rejects_missing_activation_settings():
 
     with pytest.raises(CommandError, match="Missing required settings"):
         call_command("activate_fly_workspace", str(tenant_ref))
+
+
+@pytest.mark.django_db
+def test_activation_claim_serializes_credential_bootstrap():
+    from runtime.management.commands.activate_fly_workspace import Command
+
+    workspace = Workspace.objects.create(tenant_ref=str(uuid4()))
+
+    first = Command._claim_activation(workspace.id)
+    second = Command._claim_activation(workspace.id)
+
+    assert first is not None
+    assert second is None
+    Command._release_activation_claim(workspace.id, first)
+    assert Command._claim_activation(workspace.id) is not None
+
+
+@pytest.mark.django_db
+def test_activation_claim_uses_sqlite_lock_retry(monkeypatch):
+    import runtime.management.commands.activate_fly_workspace as activation
+
+    calls = []
+
+    def run_with_retry(operation):
+        calls.append(True)
+        return operation()
+
+    monkeypatch.setattr(activation, "run_with_sqlite_lock_retry", run_with_retry)
+    workspace = Workspace.objects.create(tenant_ref=str(uuid4()))
+
+    activation.Command._claim_activation(workspace.id)
+
+    assert calls == [True]
+
+
+@pytest.mark.django_db
+def test_preflight_failure_is_unavailable_and_keeps_workspace_recoverable(monkeypatch):
+    configure_activation(monkeypatch)
+    tenant_ref = uuid4()
+    workspace = Workspace.objects.create(tenant_ref=str(tenant_ref))
+    provider = CommandProvider()
+
+    def fail_preflight():
+        raise ProviderUnsupportedTopologyError("capability is unavailable")
+
+    provider.assert_proof_capabilities = fail_preflight
+    patch_command_dependencies(monkeypatch, provider, TerminalLifecycle())
+
+    with pytest.raises(CommandError, match="activation failed") as error:
+        call_command("activate_fly_workspace", str(tenant_ref))
+
+    assert error.value.retryable is False
+    assert error.value.terminal is False
+    workspace.refresh_from_db()
+    assert workspace.provisioning_phase == WorkspaceProvisioningPhase.IDLE
 
 
 @pytest.mark.django_db
@@ -207,11 +266,35 @@ def test_resumable_failure_retains_credentials_when_machine_appears(monkeypatch)
     lifecycle = FailingLifecycle(provider, workspace.id, create_machine=True)
     patch_command_dependencies(monkeypatch, provider, lifecycle)
 
-    with pytest.raises(CommandError, match="activation failed"):
+    with pytest.raises(CommandError, match="activation failed") as error:
         call_command("activate_fly_workspace", str(tenant_ref))
+
+    assert error.value.retryable is True
 
     assert FakeCredentialBootstrap.instances[0].cleanup_calls == []
     assert FakeDependencyBootstrap.instances[0].cleanup_calls == []
+
+
+@pytest.mark.django_db
+def test_release_failure_does_not_mask_activation_failure(monkeypatch):
+    configure_activation(monkeypatch)
+    tenant_ref = uuid4()
+    workspace = Workspace.objects.create(tenant_ref=str(tenant_ref))
+    provider = CommandProvider()
+    lifecycle = FailingLifecycle(provider, workspace.id, create_machine=True)
+    patch_command_dependencies(monkeypatch, provider, lifecycle)
+
+    import runtime.management.commands.activate_fly_workspace as activation
+
+    def fail_release(*_args, **_kwargs):
+        raise RuntimeError("database unavailable")
+
+    monkeypatch.setattr(activation.Command, "_release_activation_claim", fail_release)
+
+    with pytest.raises(CommandError, match="activation failed") as error:
+        call_command("activate_fly_workspace", str(tenant_ref))
+
+    assert error.value.retryable is True
 
 
 @pytest.mark.django_db
@@ -227,8 +310,10 @@ def test_terminal_failure_does_not_revoke_existing_active_credential(monkeypatch
     provider = CommandProvider()
     patch_command_dependencies(monkeypatch, provider, TerminalLifecycle())
 
-    with pytest.raises(CommandError, match="activation failed"):
+    with pytest.raises(CommandError, match="activation failed") as error:
         call_command("activate_fly_workspace", str(tenant_ref))
+
+    assert error.value.retryable is False
 
     credential.refresh_from_db()
     assert credential.revoked_at is None

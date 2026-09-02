@@ -6,8 +6,10 @@ from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from django.core.management.base import CommandError
 from django.test import Client
 
+from runtime.management.commands.activate_fly_workspace import ActivationCommandError
 from runtime.models import (
     RuntimeProfile,
     RuntimeProfileLifecycleState,
@@ -60,6 +62,132 @@ def post_profile(payload, *, token="test-service-token"):
         content_type="application/json",
         headers=headers,
     )
+
+
+def post_activation(workspace_id, *, token="test-service-token"):
+    headers = {"Authorization": f"Bearer {token}"} if token is not None else {}
+    return Client().post(
+        f"/api/v1/internal/workspaces/{workspace_id}/activation",
+        data=json.dumps({"version": 1, "workspace_id": str(workspace_id)}),
+        content_type="application/json",
+        headers=headers,
+    )
+
+
+def test_activation_endpoint_invokes_existing_lifecycle(
+    workspace, service_token, monkeypatch
+):
+    calls = []
+    monkeypatch.setattr(
+        "runtime.api.register.ActivateFlyWorkspaceCommand.handle",
+        lambda _command, **options: calls.append(options),
+    )
+
+    response = post_activation(workspace.tenant_ref)
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "version": 1,
+        "workspace_id": workspace.tenant_ref,
+        "status": "active",
+    }
+    assert calls == [{"workspace_id": workspace.tenant_ref}]
+
+
+def test_activation_endpoint_rejects_path_body_mismatch(workspace, service_token):
+    response = Client().post(
+        f"/api/v1/internal/workspaces/{workspace.tenant_ref}/activation",
+        data=json.dumps({"version": 1, "workspace_id": str(uuid4())}),
+        content_type="application/json",
+        headers={"Authorization": "Bearer test-service-token"},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "code": "INVALID_REQUEST",
+        "message": "request is invalid",
+    }
+
+
+@pytest.mark.parametrize("token", [None, "wrong-service-token"])
+def test_activation_endpoint_rejects_missing_or_invalid_service_bearer(
+    workspace, service_token, token
+):
+    response = post_activation(workspace.tenant_ref, token=token)
+
+    assert response.status_code == 401
+    assert response.json() == {
+        "code": "INVALID_CREDENTIAL",
+        "message": "request is not authorized",
+    }
+
+
+def test_activation_endpoint_does_not_mask_permanent_command_failure(
+    workspace, service_token, monkeypatch
+):
+    monkeypatch.setattr(
+        "runtime.api.register.ActivateFlyWorkspaceCommand.handle",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(CommandError("invalid config")),
+    )
+
+    response = post_activation(workspace.tenant_ref)
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "code": "ACTIVATION_UNAVAILABLE",
+        "message": "workspace activation unavailable",
+    }
+
+
+def test_activation_endpoint_reports_only_retryable_failure_as_pending(
+    workspace, service_token, monkeypatch
+):
+    monkeypatch.setattr(
+        "runtime.api.register.ActivateFlyWorkspaceCommand.handle",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ActivationCommandError("provider timeout", retryable=True)
+        ),
+    )
+
+    response = post_activation(workspace.tenant_ref)
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "version": 1,
+        "workspace_id": workspace.tenant_ref,
+        "status": "pending",
+    }
+
+
+def test_activation_endpoint_reports_terminal_failure_as_unrecoverable(
+    workspace, service_token, monkeypatch
+):
+    monkeypatch.setattr(
+        "runtime.api.register.ActivateFlyWorkspaceCommand.handle",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ActivationCommandError("terminal state", terminal=True)
+        ),
+    )
+
+    response = post_activation(workspace.tenant_ref)
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "code": "ACTIVATION_FAILED",
+        "message": "workspace activation failed",
+    }
+
+
+def test_activation_endpoint_reports_unregistered_workspace_as_not_found(
+    db, service_token
+):
+    response = post_activation(uuid4())
+
+    assert response.status_code == 404
+    assert response.json() == {
+        "code": "WORKSPACE_NOT_FOUND",
+        "message": "workspace is unavailable",
+    }
 
 
 def test_fixture_request_creates_pending_profile_without_private_receipt_fields(

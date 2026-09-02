@@ -151,7 +151,9 @@ class ProfileProvisioningRequest(Schema):
             unicodedata.category(character) in {"Cc", "Cf", "Zl", "Zp"}
             for character in value
         ):
-            raise ValueError("name, job, and personality must not contain control characters")
+            raise ValueError(
+                "name, job, and personality must not contain control characters"
+            )
         return value
 
 
@@ -172,3 +174,18 @@ class ProfileProvisioningReceipt(Schema):
         max_length=64,
         pattern=r"^[0-9a-f]{64}$",
     )
+
+
+class WorkspaceActivationRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    version: StrictInt = Field(..., ge=1, le=1)
+    workspace_id: UUID
+
+
+class WorkspaceActivationReceipt(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    version: StrictInt = Field(..., ge=1, le=1)
+    workspace_id: UUID
+    status: StrictStr = Field(..., pattern=r"^(pending|active)$")
