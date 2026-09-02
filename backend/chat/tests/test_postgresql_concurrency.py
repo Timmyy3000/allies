@@ -2,15 +2,15 @@ from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier, Lock
 
 import pytest
-from django.core.cache import cache
-from django.db import close_old_connections, connection
-
 from allies.models import Ally
 from auths.models import User
+from django.core.cache import cache
+from django.db import close_old_connections, connection
+from workspaces.models import Membership, Workspace
+
 from chat.models import Message
 from chat.services.conversations import ensure_default_conversation
 from chat.services.messages import accept_message
-from workspaces.models import Membership, Workspace
 
 pytestmark = pytest.mark.skipif(
     connection.vendor != "postgresql",

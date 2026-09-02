@@ -6,9 +6,8 @@ import base64
 import json
 from collections.abc import Mapping
 
-from django.conf import settings
-
 from auths.config import digest_key
+from django.conf import settings
 
 
 def _key_config(value: object) -> dict[str, bytes]:

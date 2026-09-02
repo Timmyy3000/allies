@@ -1,12 +1,12 @@
 """Workspace-scoped HTTP controller."""
 
-from django.http import HttpRequest
-from ninja_extra import ControllerBase, api_controller, http_get
-
 from auths.api.common import _session, error_json, error_responses, success_json
 from auths.api.schemas import SuccessResponse
 from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
 from common.uuids import CanonicalUUID
+from django.http import HttpRequest
+from ninja_extra import ControllerBase, api_controller, http_get
+
 from workspaces.api.schemas import WorkspaceContextResponse
 from workspaces.capabilities import Capability, capabilities_for_role
 from workspaces.services.access import require_workspace_capability

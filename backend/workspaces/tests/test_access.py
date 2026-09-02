@@ -1,8 +1,8 @@
 import pytest
-
 from auths.exceptions import WorkspaceAccessDenied
 from auths.providers.base import VerifiedIdentity
 from auths.services.accounts import resolve_or_create_user
+
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 

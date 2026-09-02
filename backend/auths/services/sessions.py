@@ -13,9 +13,6 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import UUID
 
-from django.db import transaction
-from django.utils import timezone
-
 from auths.audit import emit_auth_event
 from auths.config import (
     access_ttl_seconds,
@@ -34,6 +31,8 @@ from auths.models import (
     User,
 )
 from common.uuids import canonical_uuid
+from django.db import transaction
+from django.utils import timezone
 
 
 def _b64(value: bytes) -> str:

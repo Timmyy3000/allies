@@ -6,9 +6,6 @@ from datetime import timedelta
 from uuid import UUID
 
 import pytest
-from django.test import override_settings
-from django.utils import timezone
-
 from allies.exceptions import FoundryGatewayRetryable, FoundryGatewayUnknownOutcome
 from allies.gateways.contracts import (
     ExecutionCommand,
@@ -17,6 +14,10 @@ from allies.gateways.contracts import (
 )
 from allies.models import Ally, AllyBinding, BindingStatus
 from auths.models import User
+from django.test import override_settings
+from django.utils import timezone
+from workspaces.models import Membership, Workspace
+
 from chat.exceptions import (
     OnboardingHandoffRepairRequired,
     OnboardingHandoffUnavailable,
@@ -36,7 +37,6 @@ from chat.services.dispatch import (
     ensure_dispatch_after_accept,
 )
 from chat.services.messages import accept_message
-from workspaces.models import Membership, Workspace
 
 
 @pytest.fixture

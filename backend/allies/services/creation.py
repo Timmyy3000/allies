@@ -6,11 +6,6 @@ import json
 from dataclasses import dataclass
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
-
-from allies.exceptions import IdempotencyConflict, OnboardingInvalid
-from allies.models import Ally, AllyBinding, OnboardingAttempt, ProvisioningOperation
-from allies.services.onboarding import digest_value, normalize_seed
 from auths.config import digest_key
 from auths.models import User
 from chat.exceptions import ChatError
@@ -19,8 +14,13 @@ from chat.services.conversations import (
     reconcile_onboarding_reply,
 )
 from common.uuids import canonical_uuid
+from django.db import IntegrityError, transaction
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
+
+from allies.exceptions import IdempotencyConflict, OnboardingInvalid
+from allies.models import Ally, AllyBinding, OnboardingAttempt, ProvisioningOperation
+from allies.services.onboarding import digest_value, normalize_seed
 
 
 @dataclass(frozen=True, slots=True)

@@ -1,10 +1,9 @@
 from uuid import UUID
 
+from auths.models import SessionFamily
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from django.utils import timezone
-
-from auths.models import SessionFamily
 
 
 class Command(BaseCommand):

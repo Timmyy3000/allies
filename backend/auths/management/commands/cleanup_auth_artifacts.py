@@ -1,7 +1,6 @@
-from django.core.management.base import BaseCommand, CommandError
-
 from auths.exceptions import ValidationError
 from auths.services.cleanup import cleanup_auth_artifacts
+from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
