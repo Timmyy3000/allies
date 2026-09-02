@@ -7,6 +7,9 @@ import hashlib
 import hmac
 import re
 
+from django.db import transaction
+from django.utils import timezone
+
 from auths.audit import emit_auth_event
 from auths.config import digest_key
 from auths.exceptions import (
@@ -29,8 +32,6 @@ from auths.services.sessions import (
     issue_session,
     rotate_refresh,
 )
-from django.db import transaction
-from django.utils import timezone
 
 _PKCE_VERIFIER_RE = re.compile(r"^[A-Za-z0-9\-._~]{43,128}$")
 

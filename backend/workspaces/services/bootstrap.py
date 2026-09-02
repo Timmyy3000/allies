@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from django.db import IntegrityError, transaction
+
 from auths.exceptions import WorkspaceInvariantError
 from auths.models import User, UserProfile
-from django.db import IntegrityError, transaction
 
 from ..models import (
     Membership,

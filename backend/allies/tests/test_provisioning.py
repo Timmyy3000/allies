@@ -3,6 +3,19 @@ from __future__ import annotations
 from datetime import timedelta
 
 import pytest
+from django.utils import timezone
+
+from allies.gateways.contracts import ExecutionReceipt
+from allies.gateways.foundry import ProfileProvisioningReceipt
+from allies.models import (
+    Ally,
+    AllyBinding,
+    BindingStatus,
+    OnboardingAttempt,
+    ProvisioningOperation,
+    ProvisioningStatus,
+)
+from allies.services.provisioning import dispatch_due_provisioning
 from auths.models import User
 from chat.exceptions import OnboardingHandoffRepairRequired
 from chat.models import (
@@ -20,20 +33,7 @@ from chat.services.conversations import (
     reconcile_onboarding_reply,
 )
 from chat.services.dispatch import dispatch_pending_messages
-from django.utils import timezone
 from workspaces.models import Workspace
-
-from allies.gateways.contracts import ExecutionReceipt
-from allies.gateways.foundry import ProfileProvisioningReceipt
-from allies.models import (
-    Ally,
-    AllyBinding,
-    BindingStatus,
-    OnboardingAttempt,
-    ProvisioningOperation,
-    ProvisioningStatus,
-)
-from allies.services.provisioning import dispatch_due_provisioning
 
 
 @pytest.fixture

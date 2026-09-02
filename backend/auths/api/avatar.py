@@ -1,6 +1,5 @@
 """Private self-avatar lifecycle routes."""
 
-from common.uuids import CanonicalUUID
 from django.http import HttpRequest, HttpResponse
 from ninja_extra import ControllerBase, api_controller, http_delete, http_get, http_post
 
@@ -26,6 +25,7 @@ from auths.services.avatars import (
     signed_avatar_read,
 )
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_limit
+from common.uuids import CanonicalUUID
 
 
 @api_controller("/auths", tags=["User Profile"])

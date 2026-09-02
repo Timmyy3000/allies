@@ -2,11 +2,12 @@
 
 from urllib.parse import urlsplit
 
-from auths.api.common import _client_identity, error_json, error_responses, success_json
-from auths.api.schemas import SuccessResponse
 from django.conf import settings
 from django.http import HttpRequest, JsonResponse
 from ninja_extra import ControllerBase, api_controller, http_post
+
+from auths.api.common import _client_identity, error_json, error_responses, success_json
+from auths.api.schemas import SuccessResponse
 
 from ..exceptions import WaitlistError, WaitlistValidationError
 from ..services.entries import complete_entry, create_entry

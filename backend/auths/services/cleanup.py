@@ -5,6 +5,10 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from datetime import timedelta
 
+from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
+
 from auths.config import native_terminal_retention_seconds
 from auths.exceptions import ValidationError
 from auths.models import (
@@ -15,9 +19,6 @@ from auths.models import (
     RefreshToken,
 )
 from auths.services.avatars import cleanup_avatar_assets
-from django.db import transaction
-from django.db.models import Q
-from django.utils import timezone
 
 
 @dataclass(frozen=True)

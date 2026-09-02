@@ -2,16 +2,16 @@ import json
 import logging
 
 import pytest
+from django.test import Client, override_settings
+
 from allies.models import Ally
 from auths.config import cookie_name
 from auths.models import User
 from auths.services.sessions import issue_session
 from auths.throttle import ThrottleUnavailable
-from django.test import Client, override_settings
-from workspaces.models import Membership, Workspace
-
 from chat.models import Message, MessageLifecycle
 from chat.services.conversations import ensure_default_conversation
+from workspaces.models import Membership, Workspace
 
 
 @pytest.mark.django_db

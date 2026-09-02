@@ -1,10 +1,11 @@
 import logging
 
-from auths.models import AvatarAsset, ExternalIdentity, User, UserProfile
 from django.conf import settings
 from django.contrib import admin
 from django.urls import resolve
 from unfold.admin import ModelAdmin
+
+from auths.models import AvatarAsset, ExternalIdentity, User, UserProfile
 from waitlist.models import WaitlistEntry
 from workspaces.models import Membership, Workspace
 

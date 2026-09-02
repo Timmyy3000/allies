@@ -6,10 +6,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID
 
-from chat.exceptions import (
-    OnboardingHandoffRepairRequired,
-    OnboardingHandoffUnavailable,
-)
 from django.conf import settings
 from django.db import connection, transaction
 from django.db.models import Q
@@ -22,6 +18,10 @@ from allies.gateways.foundry import (
     provision_profile,
 )
 from allies.models import BindingStatus, ProvisioningOperation, ProvisioningStatus
+from chat.exceptions import (
+    OnboardingHandoffRepairRequired,
+    OnboardingHandoffUnavailable,
+)
 
 
 @dataclass(frozen=True, slots=True)

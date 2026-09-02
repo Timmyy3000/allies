@@ -7,6 +7,23 @@ from pathlib import Path
 from uuid import UUID, uuid4, uuid5
 
 import pytest
+from django.test import Client, override_settings
+
+from activities.exceptions import (
+    ProjectionConflict,
+    ProjectionCursorGap,
+    ProjectionInvalid,
+    ProjectionNotFound,
+    ProjectionSequenceGap,
+)
+from activities.models import Activity, FoundryEventReceipt, ProjectionState
+from activities.services import projection as projection_service
+from activities.services.projection import (
+    parse_activity_cursor,
+    project_foundry_event,
+    read_activity_snapshot,
+    serialize_activity_cursor,
+)
 from allies.gateways.contracts import (
     ExecutionCommand,
     ExecutionReceipt,
@@ -26,24 +43,7 @@ from chat.models import (
     MessageOrigin,
     MessageSender,
 )
-from django.test import Client, override_settings
 from workspaces.models import Membership, Workspace
-
-from activities.exceptions import (
-    ProjectionConflict,
-    ProjectionCursorGap,
-    ProjectionInvalid,
-    ProjectionNotFound,
-    ProjectionSequenceGap,
-)
-from activities.models import Activity, FoundryEventReceipt, ProjectionState
-from activities.services import projection as projection_service
-from activities.services.projection import (
-    parse_activity_cursor,
-    project_foundry_event,
-    read_activity_snapshot,
-    serialize_activity_cursor,
-)
 
 FIXTURE_PATH = (
     Path(__file__).resolve().parents[3]

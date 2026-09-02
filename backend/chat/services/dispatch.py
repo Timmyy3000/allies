@@ -8,6 +8,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from uuid import UUID
 
+from django.conf import settings
+from django.db import connection, transaction
+from django.db.models import Q
+from django.utils import timezone
+
 from allies.exceptions import (
     FoundryGatewayConflict,
     FoundryGatewayInvalid,
@@ -25,11 +30,6 @@ from allies.gateways.contracts import (
 )
 from allies.gateways.foundry import create_execution_intent, reconcile_execution_intent
 from allies.models import AllyBinding, BindingStatus
-from django.conf import settings
-from django.db import connection, transaction
-from django.db.models import Q
-from django.utils import timezone
-
 from chat.exceptions import (
     DispatchConflict,
     DispatchUnavailable,
