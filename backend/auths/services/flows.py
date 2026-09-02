@@ -11,6 +11,11 @@ from dataclasses import dataclass
 from datetime import timedelta
 from urllib.parse import urlsplit
 
+from django.conf import settings
+from django.db import transaction
+from django.utils import timezone
+from django.utils.http import url_has_allowed_host_and_scheme
+
 from auths.audit import emit_auth_event
 from auths.config import digest_key, flow_ttl_seconds, setting
 from auths.exceptions import (
@@ -30,10 +35,6 @@ from auths.providers.base import (
 from auths.services.accounts import UserBootstrap, resolve_or_create_user
 from auths.services.identities import link_identity
 from auths.services.sessions import IssuedSession, issue_session
-from django.conf import settings
-from django.db import transaction
-from django.utils import timezone
-from django.utils.http import url_has_allowed_host_and_scheme
 
 logger = logging.getLogger("allies.auth")
 
