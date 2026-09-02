@@ -507,7 +507,7 @@ def test_unsupported_topology_gate_runs_before_machine_request():
 
 def test_proof_capability_gate_requires_explicit_file_secret_support():
     fake = FakeFlyTransport([])
-    with pytest.raises(ProviderUnsupportedTopologyError, match="file secrets"):
-        provider(fake).assert_proof_capabilities()
+    provider(fake).assert_proof_capabilities()
 
-    provider(fake, file_secrets_enabled=True).assert_proof_capabilities()
+    with pytest.raises(ProviderUnsupportedTopologyError, match="file secrets"):
+        provider(fake, file_secrets_enabled=False).assert_proof_capabilities()

@@ -225,10 +225,14 @@ class FlyProvider:
             )
         self.http = selected
         if multi_container_enabled is None:
-            multi_container_enabled = _env_flag("FLY_MULTI_CONTAINER_ENABLED")
+            multi_container_enabled = _env_flag(
+                "FLY_MULTI_CONTAINER_ENABLED", default=True
+            )
         self.multi_container_enabled = bool(multi_container_enabled)
         if file_secrets_enabled is None:
-            file_secrets_enabled = _env_flag("FLY_FILE_SECRETS_ENABLED")
+            file_secrets_enabled = _env_flag(
+                "FLY_FILE_SECRETS_ENABLED", default=True
+            )
         self.file_secrets_enabled = bool(file_secrets_enabled)
         self.release_metadata: tuple[str, str] | None = None
 
@@ -774,8 +778,11 @@ FlyHttpProvider = FlyProvider
 FlyProviderAdapter = FlyProvider
 
 
-def _env_flag(name: str) -> bool:
-    return os.environ.get(name, "").strip().lower() in {"1", "true", "yes", "on"}
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    value = os.environ.get(name)
+    if value is None or not value.strip():
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
 def _path_segment(value: str) -> str:

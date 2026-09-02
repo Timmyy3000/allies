@@ -25,8 +25,10 @@ Replace the example `DJANGO_SECRET_KEY` with a strong random local value before 
 If using a temporary HTTPS tunnel, append its hostname (without the scheme) to
 `DJANGO_ALLOWED_HOSTS` in `env.fly.local`; the default above covers local
 health checks only.
-Set `FLY_ORG`, `FLY_REGION`, `RUNTIME_IMAGE`, and `HERMES_IMAGE`; keep
-`FLY_MULTI_CONTAINER_ENABLED=true` and `FLY_FILE_SECRETS_ENABLED=true`. Set a
+Set `FLY_ORG`, `FLY_REGION`, `RUNTIME_IMAGE`, and `HERMES_IMAGE`. The Fly
+multi-container and file-secret capabilities default to enabled; set
+`FLY_MULTI_CONTAINER_ENABLED=false` or `FLY_FILE_SECRETS_ENABLED=false` only
+when deliberately disabling those capabilities. Set a
 strong `ALLIES_CLOUD_SERVICE_TOKEN` and the profile provider API key used only
 to stage the local proof secrets. Never commit this file.
 
