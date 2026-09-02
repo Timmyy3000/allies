@@ -1,0 +1,352 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Automatic Workspace Activation Plan</title>
+<style>
+:root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, -apple-system, sans-serif; line-height: 1.55; color: #17202a; background: #f5f7f8; }
+body { max-width: 1100px; margin: 0 auto; padding: 32px 24px 56px; background: #fff; }
+h1, h2, h3 { line-height: 1.2; color: #102a43; }
+h1 { border-bottom: 3px solid #2f855a; padding-bottom: 12px; }
+h2 { margin-top: 32px; border-bottom: 1px solid #d9e2ec; padding-bottom: 6px; }
+table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: .94rem; }
+th, td { border: 1px solid #bcccdc; padding: 8px 10px; text-align: left; vertical-align: top; }
+th { background: #e6f6ee; color: #102a43; }
+code { background: #f0f4f8; padding: .1em .3em; border-radius: 3px; }
+@media (max-width: 760px) { body { padding: 20px 14px 40px; } table { display: block; overflow-x: auto; } }
+</style>
+</head>
+<body>
+<main>
+<h1>Automatic Workspace Activation Plan</h1>
+<h2>Feature Overview</h2>
+<ul>
+<li>Problem: Cloud already creates one idempotent personal Workspace, but the first Ally’s Foundry profile currently remains <code>pending</code>. Local live setup requires the operator to run <code>manage.py activate_fly_workspace</code>; staging runs only the Foundry API, so first-workspace Fly activation does not happen automatically.</li>
+<li>Target users: Authenticated Workspace owners creating their first Ally; operators recovering incomplete or legacy provisioning.</li>
+<li>Source docs/specs: The kickoff brief; Cloud <code>ENGINEERING_STYLE.md</code> and <code>docs/templates/PLAN_TEMPLATE.md</code>; Foundry <code>ENGINEERING_STYLE.md</code>; Nabu <code>foundry-continuity-layer</code>, <code>auth-account-foundation</code>, CLD-003, the engineering decision log, and the MVP roadmap.</li>
+<li>Success outcome: The first Ally request persists the exact Foundry Workspace/profile desired state and returns <code>pending</code> within the Cloud timeout. Existing Cloud retries then advance or resume the Fly lifecycle until profile materialization, after which Cloud binds the Ally. Existing safe-to-retry records can be repaired without new identities or duplicate provider resources.</li>
+</ul>
+
+</main>
+</body>
+</html>
+<h2>Scope</h2>
+<h3>In Scope</h3>
+<ul>
+<li><code>allies-foundry</code> registration that persists/resumes activation state and advances one bounded lifecycle step per Cloud retry, using the existing <code>WorkspaceLifecycle</code> and <code>FlyProvider</code> seams.</li>
+<li>Reuse of the same activation composition from the local management command.</li>
+<li>Cloud-side bounded retry/defer behavior and an explicit, dry-run-first repair operation for legacy 422/<code>foundry_rejected</code> records.</li>
+<li>Staging/production configuration, contract tests, recovery tests, and a staged live proof.</li>
+</ul>
+<h3>Out of Scope</h3>
+<ul>
+<li>A new shared Railway runtime, a new queue between repositories, or a separate Foundry worker/scheduler in the default path. Add a single Foundry activation task/worker only if the existing one-phase API seam cannot meet the request budget, and treat that as an explicit release change.</li>
+<li>Changes to personal Workspace creation, Ally identity, binding identity, conversation identity, or existing Foundry lifecycle invariants.</li>
+<li>Automatic reset of arbitrary <code>repair_required</code> records, provider-wide cleanup, or bulk Fly deletion.</li>
+<li><code>allies-interface</code> changes unless review proves the existing provisioning-state view cannot represent the recovery result.</li>
+</ul>
+<h3>Dependencies and Assumptions</h3>
+<ul>
+<li>Cloud’s existing <code>create_ally</code> post-commit enqueue and Celery beat <code>dispatch_due_provisioning</code> remain the durable retry boundary; the broker failure must continue to leave the committed operation recoverable.</li>
+<li>Foundry profile provisioning remains version <code>1</code>; its response continues to expose only <code>pending</code>, <code>active</code>, or the existing lifecycle state and sanitized evidence digest. A registration request must not run the full Fly topology inside Cloud’s 5-second gateway timeout.</li>
+<li>Foundry remains the owner of Fly apps, Volumes, Machines, runtime credentials, profiles, and generation fencing. Cloud never imports Foundry models or recreates Fly orchestration.</li>
+<li>The existing local activation command is evidence of the required topology, not a production credential-delivery implementation.</li>
+</ul>
+<h2>Contract and Shape Definitions</h2>
+<h3>Function and Service Shapes</h3>
+<table>
+<thead>
+<tr>
+<th>Location</th>
+<th>Symbol</th>
+<th>Signature</th>
+<th>Inputs and validation</th>
+<th>Return value</th>
+<th>Side effects / errors</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Foundry <code>backend/runtime/services/workspaces.py</code></td>
+<td><code>advance_workspace_activation</code> (minimal addition to the existing lifecycle service)</td>
+<td><code>advance_workspace_activation(workspace_id: UUID | str, spec: WorkspaceSpec, deadline: float) -&gt; WorkspaceBinding | None</code></td>
+<td>Registered Workspace and validated deployment spec; perform at most one resumable provider phase and stop before the caller’s remaining request budget is exhausted</td>
+<td>Existing binding when idle, otherwise a pending/unfinished result</td>
+<td>Reuses the existing Workspace row claim, phase transitions, deterministic provider names, ownership checks, and provider adapter; never starts a second operation or runs the full topology in one Cloud request</td>
+</tr>
+<tr>
+<td>Foundry <code>backend/runtime/api/register.py</code></td>
+<td><code>profile_provisioning</code></td>
+<td>Existing <code>POST</code> handler</td>
+<td>Authenticate Cloud service; validate existing v1 payload; register/replay the Cloud Workspace and exact profile identity; use the remaining request budget for one activation step only</td>
+<td>Existing receipt, normally <code>pending</code> until workspace/profile materialization completes</td>
+<td>Persist desired Workspace/profile state before provider work; return within the Cloud timeout; later exact Cloud retries advance the durable lifecycle. A successful activation step may still return <code>pending</code> until <code>allies-runtime</code> sends the existing materialization receipt</td>
+</tr>
+<tr>
+<td>Cloud <code>backend/allies/services/provisioning.py</code></td>
+<td><code>dispatch_due_provisioning</code></td>
+<td>Existing <code>dispatch_due_provisioning(*, now=None, limit=20) -&gt; DispatchReport</code></td>
+<td>Preserve lease, attempt fence, expiry, max backoff, and bounded batch behavior</td>
+<td>Existing report</td>
+<td>Treat Foundry <code>pending</code> as retryable; treat transport/5xx as retryable; never mark a binding <code>BOUND</code> until the receipt is <code>active</code></td>
+</tr>
+<tr>
+<td>Cloud <code>backend/allies/services/provisioning_recovery.py</code> (new)</td>
+<td><code>plan_or_requeue_legacy_operations</code></td>
+<td><code>plan_or_requeue_legacy_operations(*, workspace_id: UUID, operation_id: UUID | None, error_code: str, confirm: bool = False) -&gt; RecoveryReport</code></td>
+<td>Require explicit Workspace, optional exact operation, and allowlisted legacy error code; default is dry run</td>
+<td>Sanitized matched/already-requeued IDs and counts</td>
+<td>Under one transaction and <code>select_for_update</code>, atomically transition only <code>REPAIR_REQUIRED + foundry_rejected</code> to <code>RETRYABLE</code>, clear <code>completed_at</code>, <code>lease_expires_at</code>, and <code>last_attempt_at</code>, set <code>next_attempt_at=now</code>, preserve <code>attempt_count</code>/identity/fingerprint, and no-op safely on repeated/concurrent requests</td>
+</tr>
+</tbody></table>
+<h3>API and Transport Contracts</h3>
+<table>
+<thead>
+<tr>
+<th>Consumer</th>
+<th>Method and path / event</th>
+<th>Authentication and authorization</th>
+<th>Request schema</th>
+<th>Success response schema</th>
+<th>Error responses / retry semantics</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Cloud gateway</td>
+<td>Existing <code>POST /api/v1/internal/profile-provisioning</code></td>
+<td>Foundry validates the existing Cloud service bearer</td>
+<td>Existing v1 <code>workspace_id</code>, <code>binding_id</code>, <code>ally_ref</code>, <code>operation_id</code>, fingerprint, and Ally seed</td>
+<td>Existing receipt: <code>status: pending|active|cleanup_pending|deprovisioned|repair_required</code>; no private Fly/profile identifiers</td>
+<td><code>401</code> invalid credential; <code>422</code> invalid request; <code>409</code> identity/conflict; bounded transport/5xx is retried by Cloud with the same operation identity</td>
+</tr>
+<tr>
+<td>Cloud operator</td>
+<td>New <code>repair_provisioning</code> management command</td>
+<td>Local/operator access only; no public HTTP endpoint</td>
+<td>Explicit <code>--workspace-id</code>; optional <code>--operation-id</code>; required <code>--error-code foundry_rejected</code>; dry-run default; <code>--confirm</code> required for mutation</td>
+<td>Sanitized report of matched IDs, current states, and intended transition</td>
+<td>Refuse missing scope, unknown code, incompatible binding, or ambiguous provider state; repeated <code>--confirm</code> sees <code>RETRYABLE</code> and reports already requeued without mutating again</td>
+</tr>
+</tbody></table>
+<p>Representative existing request/response (shape unchanged):</p>
+<pre><code class="language-json">{
+  &quot;version&quot;: 1,
+  &quot;workspace_id&quot;: &quot;&lt;cloud-workspace-uuid&gt;&quot;,
+  &quot;binding_id&quot;: &quot;&lt;cloud-binding-uuid&gt;&quot;,
+  &quot;ally_ref&quot;: &quot;&lt;cloud-ally-uuid&gt;&quot;,
+  &quot;operation_id&quot;: &quot;&lt;cloud-operation-uuid&gt;&quot;,
+  &quot;request_fingerprint&quot;: &quot;&lt;64-hex-digest&gt;&quot;,
+  &quot;name&quot;: &quot;Mira&quot;,
+  &quot;job&quot;: &quot;Study partner&quot;,
+  &quot;personality&quot;: &quot;Calm&quot;
+}
+</code></pre>
+<pre><code class="language-json">{
+  &quot;version&quot;: 1,
+  &quot;binding_id&quot;: &quot;&lt;cloud-binding-uuid&gt;&quot;,
+  &quot;operation_id&quot;: &quot;&lt;cloud-operation-uuid&gt;&quot;,
+  &quot;request_fingerprint&quot;: &quot;&lt;64-hex-digest&gt;&quot;,
+  &quot;status&quot;: &quot;pending&quot;,
+  &quot;evidence_digest&quot;: &quot;&lt;64-hex-digest&gt;&quot;
+}
+</code></pre>
+<p><code>pending</code> is honest while the Fly Machine/runtime materializes the profile. Cloud keeps the Ally non-bound and retries through the existing bounded backoff. <code>active</code> is the only receipt that promotes the binding.</p>
+<h3>Data Shapes and Invariants</h3>
+<h4>Database Models</h4>
+<table>
+<thead>
+<tr>
+<th>Type / category</th>
+<th>Model / table</th>
+<th>Location</th>
+<th>Fields and types</th>
+<th>Required / nullable / defaults</th>
+<th>Validation, indexes, constraints, and invariants</th>
+<th>Compatibility / migration notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Persisted model / table</td>
+<td>Existing <code>Workspace</code></td>
+<td>Foundry <code>backend/runtime/models.py</code></td>
+<td>Existing provider refs, generation, provisioning phase/claim fields</td>
+<td>Existing null/unbound and complete-idle invariants</td>
+<td>Keep row locking, resumable phases, generation fencing, ownership checks, and no silent replacement</td>
+<td>No migration expected unless implementation proves an operation field is missing</td>
+</tr>
+<tr>
+<td>Persisted model / table</td>
+<td>Existing <code>RuntimeProfile</code></td>
+<td>Foundry <code>backend/runtime/models.py</code></td>
+<td>Existing lifecycle/materialization fields</td>
+<td>Existing <code>pending -&gt; active</code> receipt contract</td>
+<td>No duplicate profile for the deterministic profile ID; no overwrite on seed mismatch</td>
+<td>No migration expected</td>
+</tr>
+<tr>
+<td>Persisted model / table</td>
+<td>Existing <code>ProvisioningOperation</code> and <code>AllyBinding</code></td>
+<td>Cloud <code>backend/allies/models.py</code></td>
+<td>Existing status, lease, attempt, fingerprint, receipt, and binding fields</td>
+<td>Preserve existing statuses and one-way identity</td>
+<td>Repair only explicitly scoped legacy records; do not recreate or rebind</td>
+<td>Additive migration only if a durable repair audit field is demonstrated necessary</td>
+</tr>
+</tbody></table>
+<h4>Enums</h4>
+<p>No enum change is planned. Existing Foundry workspace phases/profile states and Cloud provisioning states remain the compatibility vocabulary.</p>
+<h4>API Request Schemas</h4>
+<p>No public request schema change is planned. The existing v1 internal profile-provisioning request is replayed with the same <code>operation_id</code> and fingerprint.</p>
+<h4>API Response Schemas</h4>
+<p>No response field change is planned. Validate that the existing receipt remains sanitized and that <code>pending</code>/<code>active</code> transitions are truthful after activation is added.</p>
+<h4>Temporary / Internal Shapes</h4>
+<ul>
+<li>Activation configuration/spec: deployment-owned, non-persisted shape built from validated settings and opaque credential references; never log raw tokens.</li>
+<li>Recovery report: operator-only counts/opaque UUIDs and safe error codes; never include provider responses, secrets, or personal seed text.</li>
+</ul>
+<h4>Service Primitives</h4>
+<p>No parallel activation abstraction is planned. Extend the existing <code>runtime.services.workspaces.WorkspaceLifecycle</code> only as needed for one bounded phase advance; the management command and API call the same existing lifecycle/provider seam and must not bypass its transactions, locks, phase deadlines, or ownership checks.</p>
+<h2>Phases</h2>
+<h3>Phase 1 - Foundry automatic activation</h3>
+<ul>
+<li>Goal: Make the existing profile-provisioning API persist/resume first-workspace activation without running the full Fly topology inside Cloud’s 5-second request.</li>
+<li>Work items:<ul>
+<li>Add the smallest one-phase/resumable entry point to <code>backend/runtime/services/workspaces.py</code>; do not add a parallel activation service. Keep proof-only bootstrap behavior isolated unless its credential seam is explicitly approved for production.</li>
+<li>In <code>profile_provisioning</code>, persist/register the Workspace and exact profile desired state before provider I/O, then use only the remaining request budget to advance one activation phase. Return <code>pending</code> when more phases or runtime materialization remain; exact Cloud retries resume the same Foundry row/operation.</li>
+<li>Keep the local management command as an operator composition of the same lifecycle/provider seam. It may run the full local procedure because it is not behind Cloud’s 5-second request, but it must retain existing idempotent recovery safeguards.</li>
+<li>Keep profile creation/materialization idempotent and ordered so a new or replayed request cannot create a second profile, Machine, Volume, credential, or generation.</li>
+<li>Update settings/env inventories and operational docs with the release prerequisite contract below.</li>
+</ul>
+</li>
+<li>Impacted files/systems: Foundry <code>backend/runtime/services/workspaces.py</code>, <code>backend/runtime/api/register.py</code>, <code>backend/runtime/management/commands/activate_fly_workspace.py</code>, <code>backend/config/settings.py</code>, <code>.env</code>/deployment inventory, <code>docs/operations/local-fly-docker.md</code>, <code>docs/operations/staging.md</code>, and targeted Foundry tests.</li>
+<li>Exit criteria: the API persists desired state and returns within the Cloud timeout; repeated Cloud retries advance/resume the exact lifecycle; the local command remains a compatible operator fallback; profile receipt is <code>pending</code> until the existing materialization receipt makes it <code>active</code>.</li>
+</ul>
+<h3>Phase 2 - Cloud recovery and contract hardening</h3>
+<ul>
+<li>Goal: Let existing Cloud operations converge automatically and provide a safe repair path for the known legacy terminal state.</li>
+<li>Work items:<ul>
+<li>Preserve the current Celery task/beat path and add tests for activation-triggering profile calls, pending deferral, transport retry, expired leases, duplicate dispatch, and active-only binding.</li>
+<li>Add a dry-run-by-default <code>repair_provisioning</code> command for only <code>status=REPAIR_REQUIRED AND safe_error_code=foundry_rejected</code> (the known legacy 422 contract failure).</li>
+<li>Require exact Workspace scope, optional exact operation ID, the explicit <code>foundry_rejected</code> code, and <code>--confirm</code> for mutation. In one <code>transaction.atomic()</code> block, lock the operation and binding, verify the record still matches the requested scope and binding/Ally identity, then transition <code>REPAIR_REQUIRED -&gt; RETRYABLE</code>, clear <code>completed_at</code>, <code>lease_expires_at</code>, and <code>last_attempt_at</code>, set <code>next_attempt_at=now</code>, and preserve <code>attempt_count</code>, <code>receipt_digest</code>, operation ID, binding ID, Ally ID, and fingerprint. A concurrent or repeated request observes the already-<code>RETRYABLE</code> row and performs no second transition.</li>
+<li>Exclude <code>stored_ally_invalid</code>, onboarding-handoff repair, incompatible bindings, unknown codes, and ambiguous provider state. Print only sanitized IDs/counts and the intended state change.</li>
+<li>Document that replaying the same Cloud operation recovers an existing Foundry Workspace/profile; it does not create a new identity.</li>
+</ul>
+</li>
+<li>Impacted files/systems: Cloud <code>backend/allies/services/provisioning.py</code>, new <code>backend/allies/services/provisioning_recovery.py</code>, new management-command package/file under <code>backend/allies/management/commands/</code>, <code>backend/allies/tasks.py</code> only if enqueue wiring is needed, <code>backend/config/settings.py</code>, <code>docs/operations/railway-staging.md</code>, and Cloud tests.</li>
+<li>Exit criteria: dry run identifies only intended records; confirmed repair performs the atomic transition exactly once; normal Cloud dispatch replays the same Foundry request, advances activation, and reaches <code>pending</code>/<code>active</code> without duplicate records.</li>
+</ul>
+<h3>Phase 3 - Integrated staging proof and rollout</h3>
+<ul>
+<li>Goal: Prove the first-account/first-Ally path in the API-only Foundry staging topology and release with a reversible gate.</li>
+<li>Work items: deploy Foundry configuration and Cloud code in dependency order; verify Cloud web/worker/beat and Foundry Railway API/Postgres; record the owner-approved Hermes and <code>allies-runtime</code> image sources plus exact immutable digests; create one fresh account and first Ally; observe bounded <code>pending</code> responses and Cloud retry progression; verify one Fly App/Volume/Machine generation with Hermes plus <code>allies-runtime</code>, runtime materialization, Cloud binding, a forced timeout, and exact replay; run the scoped dry-run against legacy records before any confirmed repair.</li>
+<li>Impacted files/systems: Cloud Railway web/worker/beat, Foundry Railway API/Postgres, Fly provider resources, and optional Interface read-only verification.</li>
+<li>Exit criteria: sanitized evidence proves Cloud web/worker/beat and Foundry Railway API/Postgres are on the intended revisions; the exact approved image digests are recorded; one Cloud Workspace maps to one Foundry Workspace and one Fly App/Volume/Machine generation; Hermes plus <code>allies-runtime</code> materialize one profile; truthful <code>pending -&gt; active -&gt; bound</code> transitions occur; no operator activation command is used; a forced timeout is recovered by the same operation; and exact replay creates no duplicate records/resources.</li>
+</ul>
+<h2>Acceptance Criteria</h2>
+<ol>
+<li>A new account still receives exactly one personal Cloud Workspace.</li>
+<li>Creating its first Ally persists Foundry activation state without running the full Fly topology inside Cloud’s 5-second request; Cloud retries advance/resume the exact per-Workspace Fly App, Volume, and two-container Machine once, without an operator command.</li>
+<li>The Ally remains pending/non-bound until Foundry reports an active/materialized profile; Cloud never converts a <code>pending</code> receipt into success, including after a request timeout.</li>
+<li>Existing Cloud pending/retryable operations and Foundry partial lifecycle phases resume through the same idempotent path.</li>
+<li>Known legacy 422/<code>foundry_rejected</code> records can be dry-run inspected and explicitly requeued without changing Ally, binding, operation, or fingerprint identity; unrelated repair states are untouched.</li>
+<li>Repeated requests, concurrent Cloud dispatches, provider timeouts, partial resource creation, stale claims, and ambiguous outcomes are bounded and do not create duplicate provider resources or generations.</li>
+<li>Cloud and Foundry contract tests plus the documented staging proof pass, with no secrets/private runtime identifiers in responses or logs.</li>
+</ol>
+<h2>Backend Considerations</h2>
+<h3>Query Optimization Plan</h3>
+<ul>
+<li>Existing hot paths are one Cloud operation claim and one Foundry Workspace/profile lookup. Use existing <code>select_related</code>/row locks; keep repair selection indexed by status/error/scope where the database proves a need.</li>
+<li>Do not enumerate all tenants or profiles in the request. Recovery is bounded by explicit Workspace/operation scope and a maximum batch only if a later reviewed operator workflow requires it.</li>
+</ul>
+<h3>N+1 Prevention</h3>
+<ul>
+<li>Cloud dispatch keeps its current <code>select_related(&quot;workspace&quot;, &quot;binding__ally&quot;)</code> shape.</li>
+<li>Foundry activation loads the one Workspace and exact profile; runtime reconciliation remains the existing bounded workspace projection.</li>
+<li>Add query-count assertions only around any new recovery/report query.</li>
+</ul>
+<h3>Detailed Unit Test Cases</h3>
+<ul>
+<li>Foundry: API activation on missing Workspace; exact replay; concurrent replay; partial phase resume; existing idle binding; missing/unsafe settings; provider timeout/ambiguous result; ownership/attachment conflict; generation/credential fencing; profile remains pending before materialization and becomes active after the existing receipt.</li>
+<li>Cloud: first Ally dispatch reaches Foundry; pending defers; 5xx/timeout defers; active binds once; duplicate task claims are fenced; expired lease recovers; legacy repair dry run and confirmed requeue; wrong Workspace, wrong error code, incompatible binding, and already-requeued operation are rejected/no-op.</li>
+<li>Interface: no implementation test unless the existing client cannot render the current <code>provisioning_state</code>/<code>retryable</code> contract.</li>
+</ul>
+<h2>Test Plan</h2>
+<ul>
+<li>Cloud focused: <code>make test APP=allies/tests/test_provisioning.py</code>, <code>make test APP=allies/tests/test_foundry_gateway.py</code>, plus the new recovery test module; then <code>make check</code>, <code>make lint</code>, and the relevant API/contract tests.</li>
+<li>Foundry focused: <code>make test APP=runtime/tests/test_profile_provisioning_api.py</code>, <code>make test APP=runtime/tests/test_workspace_lifecycle.py</code>, <code>make test APP=runtime/tests/test_activate_fly_workspace_command.py</code>; then <code>make check</code>, <code>make validate</code>, <code>make lint</code>, and <code>make runtime-test</code> if runtime image/client code changes.</li>
+<li>Integration/manual: run the existing local activation procedure as a fallback comparison, then prove the same first-Ally flow through Cloud against Foundry staging without manually invoking activation; inspect exact recorded resources before any cleanup.</li>
+<li>Migration check: run <code>make check</code>; if models change, generate with the repository’s <code>make migrations APP=&lt;app&gt;</code> command and review the migration before applying it.</li>
+</ul>
+<h2>Deployment, Rollout, and Rollback</h2>
+<ul>
+<li><p>Release prerequisite contract, with values intentionally unset and owned by the Cloud/Foundry platform owner:</p>
+<table>
+<thead>
+<tr>
+<th>Contract item</th>
+<th>Required release decision/evidence</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Foundry Railway process/service</td>
+<td>The existing Foundry Railway <strong>API service</strong> backed by Foundry Postgres, deployed from <code>/backend</code> and serving <code>/api/v1/internal/profile-provisioning</code>; no separate worker/scheduler is assumed. If one-phase API advancement cannot meet the budget, the owner must approve the smallest single <code>foundry-activation-worker</code> service/task and its deployment process before implementation.</td>
+</tr>
+<tr>
+<td>Cloud Railway processes</td>
+<td>Existing Cloud <code>web</code>, <code>worker</code>, and singleton <code>beat</code> services; <code>worker</code> consumes the <code>cloud</code> queue and <code>beat</code> dispatches <code>allies.dispatch_due_provisioning</code>.</td>
+</tr>
+<tr>
+<td>Foundry secret/config names</td>
+<td><code>ALLIES_CLOUD_SERVICE_TOKEN</code>, <code>FLY_API_TOKEN</code>, <code>FLY_ORG</code>, <code>FLY_REGION</code>, <code>HERMES_IMAGE</code>, <code>RUNTIME_IMAGE</code>, <code>FOUNDRY_ORIGIN</code>, <code>PROFILE_PROVISIONING_PROVIDER</code>, <code>PROFILE_PROVISIONING_MODEL</code>, <code>PROFILE_PROVISIONING_BASE_URL</code>, <code>PROFILE_PROVISIONING_CREDENTIAL_NAME</code>, and <code>PROFILE_PROVISIONING_CREDENTIAL_REF</code>; raw values remain in Railway’s secret/config store.</td>
+</tr>
+<tr>
+<td>Cloud secret/config names</td>
+<td><code>ALLIES_FOUNDRY_URL</code>, <code>ALLIES_FOUNDRY_SERVICE_TOKEN</code>, <code>ALLIES_FOUNDRY_TIMEOUT_SECONDS</code>, <code>CACHE_URL</code> or explicit <code>CELERY_BROKER_URL</code>, and the existing auth/deployment settings.</td>
+</tr>
+<tr>
+<td>Image source and digest policy</td>
+<td>Owner names the approved Hermes and <code>allies-runtime</code> image sources and records immutable <code>@sha256:&lt;digest&gt;</code> references for each environment. Mutable tags are forbidden; do not invent or copy digest values into the plan.</td>
+</tr>
+<tr>
+<td>Fly placement</td>
+<td>Owner confirms the exact Fly organization slug and region values for <code>FLY_ORG</code> and <code>FLY_REGION</code>; they must be allowed by the token and match the existing per-Workspace naming/provider policy.</td>
+</tr>
+<tr>
+<td>Runtime credential delivery/rotation</td>
+<td>Foundry issues a generation-scoped bearer, stores only its digest, delivers it to <code>allies-runtime</code> through the approved Fly file-secret/resolver boundary, revokes the retired generation after authoritative stop, and proves rotation on replacement. The production resolver/secret names and owner are not yet approved.</td>
+</tr>
+<tr>
+<td>Network reachability</td>
+<td>Cloud reaches Foundry over the validated HTTPS <code>ALLIES_FOUNDRY_URL</code>; each Fly Machine reaches the public HTTPS <code>FOUNDRY_ORIGIN</code> outbound; the tenant Machine exposes no public service. Owner supplies DNS/TLS/egress proof for staging and production.</td>
+</tr>
+<tr>
+<td>Kill switch</td>
+<td>Add <code>ALLIES_FOUNDRY_AUTO_ACTIVATION_ENABLED=false</code> as the default. Enable only after staging proof and owner approval; disabled mode preserves registration/profile <code>pending</code> and the documented manual recovery path.</td>
+</tr>
+<tr>
+<td>Decision owner</td>
+<td>Named Cloud/Foundry platform owner approves the complete contract, values, secret storage, image provenance, and enablement date.</td>
+</tr>
+</tbody></table>
+</li>
+<li><p>Roll out Foundry API/lifecycle code and configuration first, then Cloud worker/beat/web. Keep automatic activation disabled by default until one staging proof passes; existing profile provisioning remains available with truthful <code>pending</code> when the gate is off.</p>
+</li>
+<li><p>Before repair, run the command in dry-run mode, capture sanitized counts/IDs, and approve only the known legacy error-code scope. Re-run the normal Cloud dispatcher after confirmation.</p>
+</li>
+<li><p>Rollback: disable automatic activation at the Foundry configuration gate and stop the Cloud worker/beat rollout if needed. Do not reset records or delete Fly resources. Existing partial phases remain resumable; rerun the documented exact-workspace activation/recovery path after the prerequisite is fixed. For an intentionally abandoned test, use the existing exact-ID local rollback procedure and retain the Foundry Workspace row.</p>
+</li>
+</ul>
+<h2>Unresolved Owner Decisions</h2>
+<ul>
+<li>Approve the release prerequisite contract above, especially production generation-scoped runtime credential delivery/rotation, exact secret-store ownership, image sources/digests, Fly organization/region, and HTTPS reachability.</li>
+<li>Confirm that the one-phase <code>WorkspaceLifecycle</code> API seam meets the Cloud request budget. If not, explicitly approve the minimal Foundry activation task/worker and its Railway process; do not introduce it silently.</li>
+<li>Confirm the activation kill-switch owner and enablement gate. No Interface change is required unless code evidence shows the current <code>provisioning_state</code>/<code>retryable</code> response cannot represent the recovery state.</li>
+</ul>
+<h2>Risks and Mitigations</h2>
+<ul>
+<li>Risk: A provider phase still exceeds the Cloud request budget. Mitigation: one-phase advancement with a hard remaining-deadline check; stop and retry without guessing. Add a single task/worker only after owner approval if the existing seam cannot fit.</li>
+<li>Risk: Automatic activation has no approved production secret/image delivery. Mitigation: fail closed before provider I/O; treat the release contract as a blocker; do not reuse proof-only credentials by assumption.</li>
+<li>Risk: concurrent first Ally requests race on one Workspace. Mitigation: existing Workspace row lock, deterministic names, lifecycle phases, and idempotent profile identity.</li>
+<li>Risk: broad repair resets corrupt valid terminal states or duplicates resources. Mitigation: dry-run default, explicit Workspace/operation scope, allowlisted legacy code, matched-state checks, and no provider-wide cleanup.</li>
+<li>Risk: an active Fly Machine exists but profile materialization remains pending. Mitigation: preserve truthful pending state, let runtime reconciliation complete, and alert on bounded age rather than binding early.</li>
+</ul>

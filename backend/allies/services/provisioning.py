@@ -15,9 +15,15 @@ from allies.exceptions import ProvisioningRejected, ProvisioningRetryable
 from allies.gateways.foundry import (
     ProfileProvisioningReceipt,
     ProfileProvisioningRequest,
+    activate_workspace,
     provision_profile,
 )
-from allies.models import BindingStatus, ProvisioningOperation, ProvisioningStatus
+from allies.models import (
+    BindingStatus,
+    ProvisioningOperation,
+    ProvisioningStatus,
+    default_operation_expiry,
+)
 from chat.exceptions import (
     OnboardingHandoffRepairRequired,
     OnboardingHandoffUnavailable,
@@ -40,6 +46,47 @@ class DispatchReport:
             "failed": self.failed,
             "repair_required": self.repair_required,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class RecoveryReport:
+    matched: int = 0
+    requeued: int = 0
+
+
+def recover_foundry_rejected(
+    *, workspace_id: UUID, operation_id: UUID | None = None, confirm: bool = False
+) -> RecoveryReport:
+    """Requeue only the legacy Foundry contract rejection for one workspace."""
+
+    filters = {
+        "workspace_id": workspace_id,
+        "binding__ally__workspace_id": workspace_id,
+        "status": ProvisioningStatus.REPAIR_REQUIRED,
+        "safe_error_code": "foundry_rejected",
+        "binding__status": BindingStatus.PENDING,
+    }
+    if operation_id is not None:
+        filters["pk"] = operation_id
+
+    with transaction.atomic():
+        operations = ProvisioningOperation.objects.select_for_update().filter(**filters)
+        matched = operations.count()
+        if not confirm or not matched:
+            return RecoveryReport(matched=matched)
+
+        now = timezone.now()
+        requeued = operations.update(
+            status=ProvisioningStatus.RETRYABLE,
+            safe_error_code="",
+            next_attempt_at=now,
+            lease_expires_at=None,
+            last_attempt_at=None,
+            completed_at=None,
+            expires_at=default_operation_expiry(),
+            updated_at=now,
+        )
+    return RecoveryReport(matched=matched, requeued=requeued)
 
 
 def _claim_due(*, now, limit: int) -> list[tuple[UUID, int]]:
@@ -165,6 +212,23 @@ def _dispatch_one(pk: UUID, fence: int, *, now) -> str:
         ).update(
             status=ProvisioningStatus.REPAIR_REQUIRED,
             safe_error_code="foundry_rejected",
+            lease_expires_at=None,
+            completed_at=now,
+        )
+        return "failed"
+    try:
+        activate_workspace(request.workspace_id)
+    except ProvisioningRetryable:
+        _defer(pk, fence, "foundry_activation_retryable", now=now)
+        return "deferred"
+    except ProvisioningRejected:
+        ProvisioningOperation.objects.filter(
+            pk=pk,
+            attempt_count=fence,
+            status=ProvisioningStatus.IN_PROGRESS,
+        ).update(
+            status=ProvisioningStatus.REPAIR_REQUIRED,
+            safe_error_code="foundry_activation_rejected",
             lease_expires_at=None,
             completed_at=now,
         )

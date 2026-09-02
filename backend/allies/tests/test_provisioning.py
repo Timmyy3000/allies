@@ -5,6 +5,7 @@ from datetime import timedelta
 import pytest
 from django.utils import timezone
 
+from allies.exceptions import ProvisioningRejected, ProvisioningRetryable
 from allies.gateways.contracts import ExecutionReceipt
 from allies.gateways.foundry import ProfileProvisioningReceipt
 from allies.models import (
@@ -56,6 +57,14 @@ def operation(db):
         api_idempotency_key_digest="a" * 64,
         content_fingerprint="b" * 64,
         expires_at=timezone.now() + timedelta(hours=1),
+    )
+
+
+@pytest.fixture(autouse=True)
+def foundry_activation(monkeypatch):
+    monkeypatch.setattr(
+        "allies.services.provisioning.activate_workspace",
+        lambda _workspace_id: None,
     )
 
 
@@ -256,6 +265,58 @@ def test_active_receipt_keeps_bound_compute_when_handoff_is_missing(
         lambda _request: pytest.fail("repair-required operation must not retry"),
     )
     assert dispatch_due_provisioning().claimed == 0
+
+
+@pytest.mark.django_db
+def test_activation_retryable_defers_operation(monkeypatch, operation):
+    monkeypatch.setattr(
+        "allies.services.provisioning.provision_profile",
+        lambda _request: ProfileProvisioningReceipt(
+            version=1,
+            binding_id=str(operation.binding_id),
+            operation_id=str(operation.id),
+            request_fingerprint=operation.content_fingerprint,
+            status="pending",
+            evidence_digest="a" * 64,
+        ),
+    )
+    monkeypatch.setattr(
+        "allies.services.provisioning.activate_workspace",
+        lambda _workspace_id: (_ for _ in ()).throw(ProvisioningRetryable()),
+    )
+
+    report = dispatch_due_provisioning()
+
+    operation.refresh_from_db()
+    assert report.deferred == 1
+    assert operation.status == ProvisioningStatus.RETRYABLE
+    assert operation.safe_error_code == "foundry_activation_retryable"
+
+
+@pytest.mark.django_db
+def test_activation_rejection_requires_repair(monkeypatch, operation):
+    monkeypatch.setattr(
+        "allies.services.provisioning.provision_profile",
+        lambda _request: ProfileProvisioningReceipt(
+            version=1,
+            binding_id=str(operation.binding_id),
+            operation_id=str(operation.id),
+            request_fingerprint=operation.content_fingerprint,
+            status="pending",
+            evidence_digest="a" * 64,
+        ),
+    )
+    monkeypatch.setattr(
+        "allies.services.provisioning.activate_workspace",
+        lambda _workspace_id: (_ for _ in ()).throw(ProvisioningRejected()),
+    )
+
+    report = dispatch_due_provisioning()
+
+    operation.refresh_from_db()
+    assert report.failed == 1
+    assert operation.status == ProvisioningStatus.REPAIR_REQUIRED
+    assert operation.safe_error_code == "foundry_activation_rejected"
 
 
 @pytest.mark.django_db
