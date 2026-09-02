@@ -1,8 +1,9 @@
 import pytest
-from django.db import IntegrityError, transaction
-
 from allies.models import Ally
 from auths.models import User
+from django.db import IntegrityError, transaction
+from workspaces.models import Membership, Workspace
+
 from chat.models import (
     Conversation,
     Message,
@@ -10,7 +11,6 @@ from chat.models import (
     MessageOrigin,
     MessageSender,
 )
-from workspaces.models import Membership, Workspace
 
 
 @pytest.fixture

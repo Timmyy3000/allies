@@ -1,16 +1,16 @@
 from types import SimpleNamespace
 
 import pytest
-from django.http import HttpResponse
-from django.test import RequestFactory, override_settings
-from django.urls import path
-from django.utils.functional import SimpleLazyObject
-
 from auths.api.common import _new_auth_throttle_cookie
 from config.middleware import (
     CANONICAL_CLIENT_ADDRESS_META,
     TrustedProxyHeadersMiddleware,
 )
+from django.http import HttpResponse
+from django.test import RequestFactory, override_settings
+from django.urls import path
+from django.utils.functional import SimpleLazyObject
+
 from observability import middleware
 from observability.events import get_counters, reset_counters
 

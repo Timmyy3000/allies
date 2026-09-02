@@ -1,10 +1,9 @@
 from uuid import UUID
 
 import pytest
+from common.uuids import CanonicalUUID
 from django.test import Client
 from pydantic import TypeAdapter, ValidationError
-
-from common.uuids import CanonicalUUID
 
 
 @pytest.mark.parametrize(

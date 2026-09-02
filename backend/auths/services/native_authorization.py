@@ -13,9 +13,6 @@ from datetime import timedelta
 from urllib.parse import urlencode, urlparse, urlsplit, urlunsplit
 from uuid import UUID
 
-from django.db import DatabaseError, transaction
-from django.utils import timezone
-
 from auths.audit import emit_auth_event
 from auths.config import (
     digest_key,
@@ -46,6 +43,8 @@ from auths.models import (
 )
 from auths.providers.base import ProviderFlow, ProviderKey, get_provider
 from auths.services.accounts import resolve_or_create_user
+from django.db import DatabaseError, transaction
+from django.utils import timezone
 
 _PKCE_CHALLENGE_RE = re.compile(r"^[A-Za-z0-9_-]{43}$")
 _STATE_RE = re.compile(r"^[\x21-\x7e]{1,512}$")

@@ -6,13 +6,10 @@ import secrets
 from dataclasses import dataclass
 from datetime import timedelta
 
+from auths.config import digest_key
 from django.conf import settings
 from django.db import connection, transaction
 from django.utils import timezone
-
-from allies.exceptions import OnboardingInvalid, OnboardingUnavailable
-from allies.models import OnboardingAttempt
-from auths.config import digest_key
 from waitlist.admission import acquire_generation, release_generation
 from waitlist.exceptions import (
     AdmissionUnavailable,
@@ -26,6 +23,9 @@ from waitlist.providers.base import (
     ProviderUnknownError,
 )
 from waitlist.services.generation import get_provider, validate_output
+
+from allies.exceptions import OnboardingInvalid, OnboardingUnavailable
+from allies.models import OnboardingAttempt
 
 
 @dataclass(frozen=True, slots=True)

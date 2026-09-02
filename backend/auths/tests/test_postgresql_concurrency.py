@@ -10,6 +10,7 @@ from django.db import close_old_connections, connection
 from django.test import override_settings
 from django.utils import timezone
 from PIL import Image
+from workspaces.models import Membership, Workspace
 
 from auths.exceptions import (
     AvatarConflict,
@@ -36,7 +37,6 @@ from auths.services.flows import begin_auth_flow, complete_auth_flow
 from auths.services.identities import link_identity
 from auths.services.sessions import issue_session, rotate_refresh
 from auths.storage.avatars import InMemoryAvatarObjectStore, set_avatar_store
-from workspaces.models import Membership, Workspace
 
 
 @pytest.mark.postgresql

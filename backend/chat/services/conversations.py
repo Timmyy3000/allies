@@ -3,11 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from uuid import UUID
 
-from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
-
 from allies.models import Ally, AllyBinding, BindingStatus, OnboardingAttempt
 from auths.models import User
+from django.db import IntegrityError, transaction
+from django.db.models import QuerySet
+from workspaces.capabilities import Capability
+from workspaces.services.access import require_workspace_capability
+
 from chat.exceptions import (
     ConversationUnavailable,
     CursorInvalid,
@@ -21,8 +23,6 @@ from chat.models import (
     MessageOrigin,
     MessageSender,
 )
-from workspaces.capabilities import Capability
-from workspaces.services.access import require_workspace_capability
 
 from .messages import (
     _digest,
