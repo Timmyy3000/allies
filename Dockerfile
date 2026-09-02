@@ -32,7 +32,9 @@ COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --locked --no-dev
 
 COPY backend/ ./
+COPY docker-entrypoint.sh /usr/local/bin/foundry-entrypoint
+RUN chmod 0755 /usr/local/bin/foundry-entrypoint
 
 EXPOSE 8000
 
-CMD ["uv", "run", "--no-sync", "gunicorn", "config.wsgi:application", "--bind", "0.0.0.0:8000", "--workers", "2", "--threads", "4", "--timeout", "900", "--access-logfile", "-", "--error-logfile", "-"]
+CMD ["foundry-entrypoint"]
