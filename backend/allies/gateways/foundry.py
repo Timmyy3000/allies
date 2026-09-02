@@ -67,6 +67,14 @@ class ProfileProvisioningReceipt(BaseModel):
     )
 
 
+class WorkspaceActivationReceipt(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version: StrictInt = Field(ge=1, le=1)
+    workspace_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    status: StrictStr = Field(pattern=r"^(pending|active)$")
+
+
 class _NoRedirect(HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -231,3 +239,27 @@ def provision_profile(
         return ProfileProvisioningReceipt.model_validate_json(raw)
     except ValueError as exc:
         raise ProvisioningRejected("foundry response invalid") from exc
+
+
+def activate_workspace(workspace_id: str) -> WorkspaceActivationReceipt:
+    """Ask Foundry to start/resume the workspace Fly lifecycle."""
+
+    try:
+        payload = {"version": 1, "workspace_id": workspace_id}
+        raw = _request(
+            method="POST",
+            path=f"api/v1/internal/workspaces/{workspace_id}/activation",
+            body=canonical_json_bytes(payload),
+        )
+    except (FoundryGatewayRetryable, FoundryGatewayUnknownOutcome) as exc:
+        raise ProvisioningRetryable("foundry activation unavailable") from exc
+    except (FoundryGatewayNotFound, FoundryGatewayConflict) as exc:
+        # Rollout skew or a provider-side in-flight conflict is retryable for
+        # the durable provisioning operation; never crash the dispatch batch.
+        raise ProvisioningRetryable("foundry activation unavailable") from exc
+    except (FoundryGatewayInvalid, FoundryGatewayRejected) as exc:
+        raise ProvisioningRejected("foundry activation rejected") from exc
+    try:
+        return WorkspaceActivationReceipt.model_validate_json(raw)
+    except ValueError as exc:
+        raise ProvisioningRejected("foundry activation response invalid") from exc
