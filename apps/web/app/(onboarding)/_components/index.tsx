@@ -170,6 +170,19 @@ export default function Onboarding({
           onboardingHref={isDrawerPresentation ? "/onboarding" : undefined}
         />
       </div>
+      <nav
+        className="onboarding-legal-nav"
+        aria-label="Legal"
+        data-testid="homepage-legal-nav"
+        inert={isDrawerPresentation && drawerOpen && step !== "welcome"}
+      >
+        <Link href="/privacy" data-testid="homepage-privacy-link">
+          Privacy
+        </Link>
+        <Link href="/terms" data-testid="homepage-terms-link">
+          Terms
+        </Link>
+      </nav>
       {isDrawerPresentation ? (
         <OnboardingDrawer
           open={drawerOpen && step !== "welcome"}
