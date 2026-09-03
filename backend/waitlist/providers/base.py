@@ -22,6 +22,7 @@ class ProviderBilledError(ProviderUnavailableError):
 class GreetingRequest:
     job: str
     personality: str
+    name: str = ""
 
 
 class GreetingProvider(Protocol):
