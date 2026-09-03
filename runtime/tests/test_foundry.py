@@ -307,6 +307,98 @@ async def test_worker_refills_free_slot_while_an_existing_turn_is_held(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_worker_idle_claim_backoff_grows_to_bounded_ceiling(monkeypatch):
+    class IdleFoundry:
+        def __init__(self):
+            self.calls = 0
+
+        async def claim(self, _available_slots, *, claim_id):
+            self.calls += 1
+
+    foundry = IdleFoundry()
+    worker = FoundryWorker(foundry, object())
+    delays: list[float] = []
+
+    async def record_sleep(delay):
+        delays.append(delay)
+
+    monkeypatch.setattr(foundry_module.random, "random", lambda: 0.0)
+    monkeypatch.setattr(foundry_module.asyncio, "sleep", record_sleep)
+
+    assert await worker.run(idle_cycles=6) == ()
+    assert foundry.calls == 6
+    assert delays == [1.0, 2.0, 4.0, 8.0, 10.0]
+
+
+def test_idle_claim_backoff_keeps_jitter_at_ceiling(monkeypatch):
+    jitter = iter((0.2, 0.8))
+    monkeypatch.setattr(foundry_module.random, "random", lambda: next(jitter))
+
+    delays = [
+        foundry_module._jittered_idle_delay(10.0, 1.0),
+        foundry_module._jittered_idle_delay(10.0, 1.0),
+    ]
+
+    assert delays == [9.5, 8.0]
+    assert all(1.0 <= delay <= 10.0 for delay in delays)
+
+
+@pytest.mark.asyncio
+async def test_worker_claim_or_transport_recovery_resets_idle_backoff(monkeypatch):
+    class RecoveringFoundry:
+        def __init__(self):
+            self.responses = deque(
+                (None, None, "claimed", None),
+            )
+
+        async def claim(self, _available_slots, *, claim_id):
+            return self.responses.popleft() if self.responses else None
+
+    foundry = RecoveringFoundry()
+    worker = FoundryWorker(foundry, object())
+
+    async def run_claim(claim):
+        return claim
+
+    monkeypatch.setattr(worker, "_run_claim", run_claim)
+    delays: list[float] = []
+
+    async def record_sleep(delay):
+        delays.append(delay)
+        if len(delays) == 3:
+            await worker.stop()
+
+    monkeypatch.setattr(foundry_module.random, "random", lambda: 0.0)
+    monkeypatch.setattr(foundry_module.asyncio, "sleep", record_sleep)
+
+    assert await worker.run(idle_cycles=None) == ("claimed",)
+    assert delays == [1.0, 2.0, 1.0]
+
+    class RetryableFoundry:
+        def __init__(self):
+            self.calls = 0
+
+        async def claim(self, _available_slots, *, claim_id):
+            self.calls += 1
+            if self.calls == 1:
+                raise ServiceUnavailableError("temporarily unavailable")
+
+    foundry = RetryableFoundry()
+    worker = FoundryWorker(foundry, object())
+    delays = []
+
+    async def stop_after_recovery(delay):
+        delays.append(delay)
+        if len(delays) == 2:
+            await worker.stop()
+
+    monkeypatch.setattr(foundry_module.asyncio, "sleep", stop_after_recovery)
+    assert await worker.run(idle_cycles=None) == ()
+    assert foundry.calls == 2
+    assert delays == [1.0, 1.0]
+
+
+@pytest.mark.asyncio
 async def test_profile_reconciliation_retry_uses_bounded_exponential_backoff(
     monkeypatch,
 ):

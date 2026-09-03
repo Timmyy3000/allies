@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Stale execution recovery plan | Allies Foundry</title>
+  <style>
+    :root { color-scheme: light dark; --allies-plan-accent:#6d5ce7; --allies-plan-surface:#f7f7f9; --allies-plan-line:#d8d8df; --allies-plan-text:#17171a; --allies-plan-muted:#5c5c66; }
+    @media(prefers-color-scheme:dark){:root{--allies-plan-surface:#202024;--allies-plan-line:#3d3d45;--allies-plan-text:#f5f5f7;--allies-plan-muted:#b8b8c0}}
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; background:#fff; color:var(--allies-plan-text); line-height:1.55; }
+    @media(prefers-color-scheme:dark){body{background:#111114}}
+    .allies-plan-shell { max-width:1120px; margin:auto; padding:48px 24px 80px; }
+    .allies-plan-skip { position:absolute; left:-9999px; }
+    .allies-plan-skip:focus { left:16px; top:16px; z-index:10; background:#fff; color:#111; padding:8px 12px; }
+    .allies-plan-mast { display:flex; justify-content:space-between; gap:16px; align-items:center; border-bottom:1px solid var(--allies-plan-line); padding-bottom:16px; }
+    .allies-plan-brand { font-weight:700; letter-spacing:.02em; }
+    .allies-plan-kicker { color:var(--allies-plan-accent); font-size:.82rem; font-weight:650; text-transform:uppercase; letter-spacing:.08em; }
+    h1 { font-size:clamp(2.25rem,6vw,4.6rem); line-height:.98; letter-spacing:-.055em; max-width:850px; margin:56px 0 20px; }
+    h2 { font-size:1.55rem; margin:50px 0 18px; letter-spacing:-.025em; }
+    h3 { font-size:1.05rem; margin:26px 0 8px; }
+    p { max-width:780px; }
+    .allies-plan-lead { font-size:1.18rem; color:var(--allies-plan-muted); max-width:820px; }
+    .allies-plan-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; margin:28px 0; }
+    .allies-plan-card { border:1px solid var(--allies-plan-line); border-radius:14px; padding:20px; background:var(--allies-plan-surface); }
+    .allies-plan-card h3 { margin-top:0; }
+    .allies-plan-callout { border-left:4px solid var(--allies-plan-accent); padding:12px 18px; background:color-mix(in srgb,var(--allies-plan-accent) 8%,transparent); margin:24px 0; }
+    ul,ol { padding-left:22px; }
+    li + li { margin-top:7px; }
+    code { font-family:ui-monospace,SFMono-Regular,Consolas,monospace; font-size:.9em; overflow-wrap:anywhere; }
+    .allies-plan-table-wrap { overflow-x:auto; border:1px solid var(--allies-plan-line); border-radius:12px; }
+    table { width:100%; border-collapse:collapse; min-width:760px; }
+    th,td { text-align:left; vertical-align:top; padding:13px; border-bottom:1px solid var(--allies-plan-line); }
+    th { font-size:.82rem; color:var(--allies-plan-muted); }
+    tr:last-child td { border-bottom:0; }
+    .allies-plan-phase { display:grid; grid-template-columns:180px 1fr; gap:24px; border-top:1px solid var(--allies-plan-line); padding:26px 0; }
+    .allies-plan-phase h3 { margin:0; }
+    .allies-plan-command { display:block; margin:8px 0; padding:12px; border:1px solid var(--allies-plan-line); border-radius:8px; background:var(--allies-plan-surface); }
+    .allies-plan-flow { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-top:22px; }
+    .allies-plan-flow div { border:1px solid var(--allies-plan-line); border-radius:10px; padding:14px; background:var(--allies-plan-surface); }
+    footer { margin-top:56px; border-top:1px solid var(--allies-plan-line); padding-top:20px; color:var(--allies-plan-muted); font-size:.88rem; }
+    @media(max-width:760px){ .allies-plan-grid,.allies-plan-flow{grid-template-columns:1fr}.allies-plan-phase{grid-template-columns:1fr}.allies-plan-shell{padding:28px 18px 56px}.allies-plan-mast{align-items:flex-start;flex-direction:column} }
+  </style>
+</head>
+<body>
+  <a class="allies-plan-skip" href="#main">Skip to plan</a>
+  <main id="main" class="allies-plan-shell">
+    <header class="allies-plan-mast"><div class="allies-plan-brand">Allies Foundry</div><div class="allies-plan-kicker">Fast-path implementation plan</div></header>
+    <h1>Stale execution recovery</h1>
+    <p class="allies-plan-lead">Retire expired lease state during the next claim transaction, replay only eligible current-generation work proven not to have been dispatched, and let later same-profile work progress without introducing another service.</p>
+
+    <section aria-labelledby="overview"><h2 id="overview">Feature overview</h2>
+      <div class="allies-plan-grid">
+        <article class="allies-plan-card"><h3>Problem</h3><p>An expired <code>active</code> or <code>stopping</code> lease remains covered by profile uniqueness, so later queued work is skipped indefinitely when an immediate runtime failure or stopped request is lost.</p></article>
+        <article class="allies-plan-card"><h3>Users</h3><p>People waiting for a later turn with the same Ally, and operators responsible for durable recovery after a runtime or Hermes disconnect.</p></article>
+        <article class="allies-plan-card"><h3>Outcome</h3><p>The next claim pass retires expired state transactionally. Only eligible current-generation pre-dispatch work is requeued; ambiguous, cleanup-pending, and retired-generation work stays non-claimable.</p></article>
+      </div>
+      <p><strong>Evidence:</strong> the work brief; engineering and continuity docs; accepted Nabu continuity, streaming, decision-log, and Hermes/Fly notes; current claim, lease, event, worker, and delivery code; and a staging trace with one dispatch, 86 partial deltas over about 8.4 seconds, no terminal event, and an expired lease.</p>
+    </section>
+
+    <section aria-labelledby="scope"><h2 id="scope">Scope</h2>
+      <div class="allies-plan-grid">
+        <article class="allies-plan-card"><h3>Included</h3><ul><li>Bounded PostgreSQL reconciliation at the start of the existing claim transaction.</li><li>Classification by dispatch/session evidence, generation, and cleanup state.</li><li>Release or fencing of every expired unresolved blocker, including retired-generation leases.</li><li>Idle claim backoff from 1 to 10 seconds with bounded jitter and reset after a claim or recovered transport.</li><li>Focused concurrency, failure, ordering, restart, backoff, and documentation work.</li></ul></article>
+        <article class="allies-plan-card"><h3>Deferred or excluded</h3><ul><li>No Redis, queue service, scheduler, reaper, dependency, or API version change.</li><li>No SSE replacement, Cloud or Interface behavior change, or FND-009 idle stop/wake.</li><li>No <code>message.delta</code> coalescing in this PR.</li></ul></article>
+        <article class="allies-plan-card"><h3>Why coalescing waits</h3><p>The adapter forwards validated deltas in order, caps text at 16 KiB, reserves 512 nonterminal positions, and uses bounded delivery batches. The 86 observed deltas did not exhaust those limits. A timed buffer adds ordering-sensitive async state without evidence that event pressure caused this incident.</p></article>
+      </div>
+      <div class="allies-plan-callout"><strong>Authoritative boundary:</strong> Foundry and PostgreSQL own durable execution truth. <code>execution.dispatched</code> is the replay boundary; a session mutation without that event is still ambiguous and must not replay.</div>
+      <h3>Assumptions</h3><ul><li>Foundry remains owner of executions, attempts, leases, ordered events, and delivery outbox rows; PostgreSQL locks and constraints remain the production concurrency boundary.</li><li>Unknown Hermes outcome becomes terminal <code>AttemptStatus.UNKNOWN</code>, <code>ExecutionStatus.FAILED</code>, and a safe <code>execution.failed</code>. <code>AttemptStatus.FAILED</code> remains for positively reported runtime failure.</li><li><code>cleanup_pending</code> and retired-generation work is never made claimable by reconciliation.</li><li>The latest brief intentionally changes older documentation that required a stopped acknowledgement or confirmed Machine retirement before reclaim; implementation updates local docs and canonical Nabu notes after acceptance.</li></ul>
+    </section>
+
+    <section aria-labelledby="contract"><h2 id="contract">Contract and state changes</h2>
+      <p>No HTTP request, response, or event schema changes. Existing <code>POST /api/v1/runtime/claims</code> gains an internal pre-claim reconciliation side effect. A one-step constraint migration reserves sequence <code>100001</code> for server-owned terminal recovery while runtime-authored events remain capped at <code>100000</code>.</p>
+      <div class="allies-plan-table-wrap"><table><thead><tr><th>Expired evidence</th><th>Attempt</th><th>Execution</th><th>Lease</th><th>Event</th><th>Replay</th></tr></thead><tbody>
+        <tr><td>No dispatch/session evidence, current generation, not cleanup-pending</td><td><code>unknown</code></td><td><code>queued</code></td><td><code>released</code></td><td>None</td><td>A new attempt may be claimed</td></tr>
+        <tr><td>Dispatch event or session request/receipt</td><td><code>unknown</code></td><td><code>failed</code></td><td><code>released</code></td><td>One next-sequence <code>execution.failed</code>, code <code>lease_expired</code>, <code>retryable: false</code></td><td>Never</td></tr>
+        <tr><td>Profile is <code>cleanup_pending</code></td><td>Existing cleanup-safe terminal/fenced state</td><td>Never queued</td><td>Released or fenced by existing cleanup path</td><td>Only what that path requires</td><td>Never</td></tr>
+        <tr><td>Retired generation</td><td><code>unknown</code></td><td><code>failed</code> unless terminal</td><td><code>fenced</code></td><td>One idempotent safe failure when required</td><td>Never</td></tr>
+        <tr><td>Lease released/fenced or attempt terminal</td><td>Unchanged</td><td>Unchanged</td><td>Unchanged</td><td>None</td><td>Existing terminal/idempotent behavior</td></tr>
+      </tbody></table></div>
+      <h3>Reconciler invariants</h3><ul><li>Run after Workspace lock and validation, before candidate selection, so requeued older work participates in ordered selection.</li><li>Process at most <code>MAX_AVAILABLE_SLOTS</code> oldest expired unresolved blockers per claim.</li><li>Use Workspace as the authoritative serialization row, then follow existing Workspace to Attempt to Profile to Lease ordering where rows exist; recheck expiry, generation, cleanup, and terminal state under lock. Do not broadly refactor unrelated writers.</li><li>Use a narrow server-owned append seam: fixed lease-expiry reason, existing payload validation, stable event and stream identity, next attempt-local sequence including high prior sequences, and no runtime token.</li><li>Write event, outbox, attempt/execution state, and lease release in one outer transaction. Failure rolls back all effects; stable identity and terminal checks make retries no-ops.</li></ul>
+      <div class="allies-plan-flow" aria-label="Claim reconciliation flow"><div><strong>1.</strong> Lock and validate Workspace.</div><div><strong>2.</strong> Lock Attempt, Profile, then Lease and recheck state.</div><div><strong>3.</strong> Requeue only eligible work; otherwise fence or append one safe failure atomically.</div><div><strong>4.</strong> Select the next candidate from refreshed durable state.</div></div>
+    </section>
+
+    <section aria-labelledby="approach"><h2 id="approach">Simplest viable approach</h2>
+      <p>Use the existing claim endpoint as the durable wake-up path. If no runtime is running, PostgreSQL retains safe durable state and recovery waits for restart and the next claim. Add one transaction-local reconciler and one narrow synthetic-event helper in the existing backend runtime service layer, reuse current models, locks, payload validator, and outbox behavior, and retain the immediate runtime <code>fail</code> request as the low-latency path.</p>
+      <p>Keep backoff in <code>FoundryWorker._run_loop</code>. Use standard-library randomness, a 1-second floor and 10-second ceiling, and injected or patched timing in tests. Empty claims progress through 1, 2, 4, 8, and 10 seconds with bounded jitter. A claimed execution or first successful response after retryable transport failure resets the delay. Remove the production 250 ms override.</p>
+    </section>
+
+    <section aria-labelledby="phases"><h2 id="phases">Phases</h2>
+      <article class="allies-plan-phase"><h3>1. Reconcile stale truth</h3><div><p><strong>Goal:</strong> clear expired blockers without replaying ambiguous Hermes work.</p><p><strong>Work:</strong> serialize on Workspace, follow Attempt to Profile to Lease order, classify dispatch/session, generation, and cleanup state, then atomically requeue eligible work or use the server-owned append seam and release/fence the lease.</p><p><strong>Files:</strong> <code>backend/runtime/services/claims.py</code> and focused additions to <code>test_fnd005_backend.py</code>, <code>test_fnd007_execution.py</code>, and <code>test_services.py</code>.</p><p><strong>Exit:</strong> eligible pre-dispatch work is claimable; ambiguous work fails once; cleanup and retired-generation work never requeues; an empty no-successor claim still reconciles; concurrent claimers do not duplicate effects or regress lock ordering.</p></div></article>
+      <article class="allies-plan-phase"><h3>2. Add idle backoff</h3><div><p><strong>Goal:</strong> reduce idle traffic without changing active-turn responsiveness or transport semantics.</p><p><strong>Work:</strong> implement bounded-jitter 1, 2, 4, 8, 10 progression; reset on claim and transport recovery; retain immediate slot refill; remove <code>idle_delay=0.25</code>.</p><p><strong>Files:</strong> <code>runtime/allies_runtime/foundry.py</code>, <code>runtime/allies_runtime/__main__.py</code>, <code>runtime/tests/test_foundry.py</code>, and <code>runtime/tests/test_composition.py</code>.</p><p><strong>Exit:</strong> deterministic tests cover floor, ceiling, growth, reset, retry, stop, and free-slot behavior; a restarted continuously polling runtime reconciles within the 10-second ceiling.</p></div></article>
+      <article class="allies-plan-phase"><h3>3. Validate and document</h3><div><p><strong>Goal:</strong> preserve continuity contracts around the recovery change.</p><p><strong>Work:</strong> run focused and complete validation; update <code>docs/architecture/foundry-continuity.md</code> and <code>runtime/README.md</code>; after acceptance, revision-safely update canonical Nabu continuity and streaming notes.</p><p><strong>Exit:</strong> renewal, stopped acknowledgement, generation fencing, order/delivery, immediate failure, session compare-and-set, and coverage pass; docs describe the new expiry and restart rules.</p></div></article>
+    </section>
+
+    <section aria-labelledby="acceptance"><h2 id="acceptance">Acceptance criteria</h2><ol>
+      <li>Each claim reconciles bounded expired unresolved active or stopping blockers across current and retired generations before candidate selection.</li>
+      <li>Eligible current-generation predispatch work requeues; cleanup-pending and retired-generation work remains non-claimable.</li>
+      <li>Dispatch or session checkpoint expiry atomically marks attempt unknown and execution failed, releases the lease, appends exactly one ordered failure event, and never replays.</li>
+      <li>Dispatch plus partial deltas plus omitted runtime failure is recovered later and the next same-profile execution becomes claimable.</li>
+      <li>Concurrent claimers lock Workspace then use Attempt to Profile to Lease order, produce one outcome and one event/outbox pair when required, and at most one replacement lease. Existing transaction tests cover race and deadlock sensitivity.</li>
+      <li>Immediate failure reporting, claim idempotency, profile serialization, generation fencing, session compare-and-set, ordered delivery, and SSE remain unchanged.</li>
+      <li>Idle polling uses bounded jitter over the exponential 1-to-10-second progression and resets on claim or transport recovery; active free slots refill promptly.</li>
+      <li>No service, dependency, Redis use, table, API version, Cloud/Interface change, or FND-009 work is added; migration <code>0014</code> only widens the event-sequence check by one reserved server terminal slot.</li>
+      <li>An empty claim without a successor still reconciles. With no running runtime, recovery waits safely for restart; continuous polling then reconciles within the 10-second ceiling.</li>
+    </ol></section>
+
+    <section aria-labelledby="validation"><h2 id="validation">Focused validation</h2>
+      <code class="allies-plan-command">$env:DJANGO_DEBUG='true'; make test APP="runtime/tests/test_fnd005_backend.py runtime/tests/test_fnd007_execution.py runtime/tests/test_services.py"</code>
+      <p>Backend cases cover active/stopping expiry, cleanup pending, retired generations, empty no-successor claims, concurrent claims, duplicate synthetic append, outbox rollback, and high prior sequence.</p>
+      <code class="allies-plan-command">cd runtime; uv run --locked pytest tests/test_foundry.py tests/test_fnd007_worker.py tests/test_composition.py</code>
+      <p>Runtime cases include restart recovery within the maximum backoff bound.</p>
+      <code class="allies-plan-command">$env:DJANGO_DEBUG='true'; make check</code><code class="allies-plan-command">make lint</code><code class="allies-plan-command">make validate</code>
+      <p><code>make validate</code> is the complete gate: both lockfiles, Django checks, migration drift, backend coverage/tests, and runtime coverage/tests. Runtime coverage remains at least 90 percent. Review migration <code>0014</code>, the migration-drift check, and <code>git diff --check</code>; no other migration or lockfile change is expected.</p>
+    </section>
+
+    <section aria-labelledby="risks"><h2 id="risks">Risks, rollback, and open decisions</h2><ul>
+      <li><strong>Old stream overlap:</strong> expiry release can overlap a truly stuck Hermes stream. Keep renewal-loss cancellation and late-write fencing, wait the full 60-second expiry, and prove the old token cannot mutate durable state. The brief accepts progress after expiry; reviewers must confirm this behavior change.</li>
+      <li><strong>Duplicate events or deadlocks:</strong> mitigate with Workspace serialization, established Attempt to Profile to Lease order, state rechecks, stable synthetic identity, atomic commit, and focused concurrent transaction coverage in existing tests.</li>
+      <li><strong>Half-reconciled state:</strong> event creation and enqueue stay in the same transaction, so validation or persistence failure rolls back release.</li>
+      <li><strong>Flaky jitter tests:</strong> patch randomness and sleep, assert ranges and transitions, and keep production bounds constant.</li>
+      <li><strong>Rollback:</strong> revert application code and docs while retaining the backward-compatible widened sequence constraint. Committed failure events and released leases remain durable facts and must not be deleted or replayed. No dependency rollback is needed.</li>
+      <li><strong>Open decisions:</strong> none for implementation. Coalescing is a measured follow-up only when delivery or database evidence shows bounded one-for-one forwarding is a material bottleneck.</li>
+    </ul></section>
+
+    <footer>Planning artifact only. Product code is unchanged.</footer>
+  </main>
+</body>
+</html>

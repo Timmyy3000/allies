@@ -1,21 +1,28 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from threading import Barrier, Thread
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
+from django.db import OperationalError, close_old_connections
 from django.test import Client
 from django.utils import timezone
 
 from runtime.exceptions import (
     RuntimeConflictError,
+    RuntimeDomainError,
     RuntimeFencedError,
     RuntimeIdempotencyConflictError,
     RuntimeLeaseConflictError,
     RuntimeNotReadyError,
+    RuntimeValidationError,
 )
 from runtime.models import (
+    Attempt,
     Execution,
+    ExecutionEvent,
     ExecutionStatus,
     Lease,
     LeaseState,
@@ -26,6 +33,7 @@ from runtime.models import (
 )
 from runtime.services.attempts import complete_attempt, fail_attempt
 from runtime.services.claims import claim_next_execution
+from runtime.services.events import append_runtime_event
 from runtime.services.leases import (
     acknowledge_stopped,
     confirm_machine_stopped_and_fence,
@@ -325,6 +333,156 @@ def test_expired_claim_replay_returns_no_stale_lease(runtime_setup):
         expires_at=timezone.now() - timedelta(seconds=1)
     )
     assert claim_next_execution(context, claim.claim_id, 1) is None
+
+
+@pytest.mark.parametrize("lease_state", [LeaseState.ACTIVE, LeaseState.STOPPING])
+def test_expired_pre_dispatch_lease_requeues_before_next_claim(
+    runtime_setup, lease_state
+):
+    _workspace, _profile, execution, issued = runtime_setup
+    context = authenticate_runtime_token(issued.raw_token)
+    first = claim_next_execution(context, uuid4(), 1)
+    Lease.objects.filter(pk=first.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1),
+        state=lease_state,
+    )
+
+    replacement = claim_next_execution(context, uuid4(), 1)
+
+    assert replacement is not None
+    assert replacement.attempt_id != first.attempt_id
+    assert replacement.execution_id == execution.id
+    assert Attempt.objects.get(pk=first.attempt_id).status == "unknown"
+    assert Lease.objects.get(pk=first.lease_id).state == LeaseState.RELEASED
+    assert Attempt.objects.filter(execution_id=execution.id).count() == 2
+
+
+def test_expired_cleanup_lease_is_fenced_without_requeue(runtime_setup):
+    _workspace, profile, execution, issued = runtime_setup
+    context = authenticate_runtime_token(issued.raw_token)
+    claim = claim_next_execution(context, uuid4(), 1)
+    profile.lifecycle_state = RuntimeProfileLifecycleState.CLEANUP_PENDING
+    profile.save(update_fields=["lifecycle_state", "updated_at"])
+    Lease.objects.filter(pk=claim.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+
+    assert claim_next_execution(context, uuid4(), 1) is None
+
+    assert Attempt.objects.get(pk=claim.attempt_id).status == "unknown"
+    assert Lease.objects.get(pk=claim.lease_id).state == LeaseState.FENCED
+    assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.FAILED
+    assert not ExecutionEvent.objects.filter(attempt_id=claim.attempt_id).exists()
+
+
+def test_expired_dispatched_lease_fails_once_without_successor(runtime_setup):
+    _workspace, _profile, execution, issued = runtime_setup
+    context = authenticate_runtime_token(issued.raw_token)
+    claim = claim_next_execution(context, uuid4(), 1)
+    append_runtime_event(
+        context,
+        claim.attempt_id,
+        claim.lease_token,
+        uuid4(),
+        claim.stream_id,
+        1,
+        "execution.dispatched",
+        {"status": "dispatched"},
+    )
+    Lease.objects.filter(pk=claim.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+
+    assert claim_next_execution(context, uuid4(), 1) is None
+    assert claim_next_execution(context, uuid4(), 1) is None
+
+    assert Attempt.objects.get(pk=claim.attempt_id).status == "unknown"
+    assert Lease.objects.get(pk=claim.lease_id).state == LeaseState.RELEASED
+    assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.FAILED
+    events = ExecutionEvent.objects.filter(attempt_id=claim.attempt_id).order_by(
+        "sequence"
+    )
+    assert list(events.values_list("event_type", flat=True)) == [
+        "execution.dispatched",
+        "execution.failed",
+    ]
+    failure = events.get(event_type="execution.failed")
+    assert failure.payload == {"code": "lease_expired", "retryable": False}
+
+
+def test_expired_failure_event_persistence_rolls_back_reconciliation(runtime_setup):
+    _workspace, _profile, execution, issued = runtime_setup
+    context = authenticate_runtime_token(issued.raw_token)
+    claim = claim_next_execution(context, uuid4(), 1)
+    append_runtime_event(
+        context,
+        claim.attempt_id,
+        claim.lease_token,
+        uuid4(),
+        claim.stream_id,
+        1,
+        "execution.dispatched",
+        {"status": "dispatched"},
+    )
+    Lease.objects.filter(pk=claim.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+
+    with (
+        patch(
+            "runtime.services.events._enqueue_event_delivery",
+            side_effect=RuntimeValidationError("synthetic outbox failure"),
+        ),
+        pytest.raises(RuntimeValidationError, match="synthetic outbox failure"),
+    ):
+        claim_next_execution(context, uuid4(), 1)
+
+    assert Lease.objects.get(pk=claim.lease_id).state == LeaseState.ACTIVE
+    assert Attempt.objects.get(pk=claim.attempt_id).status == "running"
+    assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.RUNNING
+    assert not ExecutionEvent.objects.filter(
+        attempt_id=claim.attempt_id, event_type="execution.failed"
+    ).exists()
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_claimers_create_one_replacement_after_expiry(runtime_setup):
+    _workspace, _profile, execution, issued = runtime_setup
+    context = authenticate_runtime_token(issued.raw_token)
+    stale = claim_next_execution(context, uuid4(), 1)
+    Lease.objects.filter(pk=stale.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+    barrier = Barrier(2)
+    outcomes = [None, None]
+    errors = [None, None]
+
+    def claim(index):
+        close_old_connections()
+        try:
+            barrier.wait(timeout=5)
+            outcomes[index] = claim_next_execution(context, uuid4(), 1)
+        except (OperationalError, RuntimeDomainError, TimeoutError) as exc:
+            errors[index] = exc
+        finally:
+            close_old_connections()
+
+    threads = [Thread(target=claim, args=(index,)) for index in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=10)
+
+    assert errors == [None, None], errors
+    assert sum(outcome is not None for outcome in outcomes) == 1
+    assert Attempt.objects.filter(execution_id=execution.id).count() == 2
+    assert (
+        Lease.objects.filter(
+            profile_id=execution.profile_id,
+            state__in=(LeaseState.ACTIVE, LeaseState.STOPPING),
+        ).count()
+        == 1
+    )
 
 
 def test_non_retryable_failure_is_failed_not_succeeded(runtime_setup):

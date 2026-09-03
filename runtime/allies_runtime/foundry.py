@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import random
 import time
 import urllib.error
 import urllib.request
@@ -31,6 +32,17 @@ DEFAULT_RENEW_INTERVAL = 20.0
 DEFAULT_STOP_SAFETY_MARGIN = 5.0
 DEFAULT_PROFILE_RECONCILE_INTERVAL = 5.0
 MAX_PROFILE_RECONCILIATION_RETRY_DELAY = 5.0
+MIN_IDLE_BACKOFF_SECONDS = 1.0
+MAX_IDLE_BACKOFF_SECONDS = 10.0
+IDLE_BACKOFF_JITTER_RATIO = 0.25
+
+
+def _jittered_idle_delay(base: float, minimum: float) -> float:
+    bounded = min(MAX_IDLE_BACKOFF_SECONDS, max(minimum, base))
+    return max(
+        minimum,
+        bounded * (1 - random.random() * IDLE_BACKOFF_JITTER_RATIO),
+    )
 
 
 class FoundryTransport(Protocol):
@@ -1354,7 +1366,16 @@ class FoundryWorker:
             raise ValueError("idle_cycles must be positive")
         results: list[Any] = []
         empty = 0
-        poll_delay = max(idle_delay, 0.01)
+        # Keep the argument as a narrow test/compatibility seam; production
+        # uses the fixed bounded backoff by leaving it at zero.
+        initial_idle_delay = (
+            min(MAX_IDLE_BACKOFF_SECONDS, max(idle_delay, 0.01))
+            if idle_delay
+            else MIN_IDLE_BACKOFF_SECONDS
+        )
+        idle_backoff = initial_idle_delay
+        poll_delay = initial_idle_delay
+        retry_pending = False
         while not self._stopping:
             if await self._reconcile_profiles_or_wait(
                 force=True, retry_delay=poll_delay
@@ -1377,6 +1398,7 @@ class FoundryWorker:
                 and (max_turns is None or len(results) + len(self._active) < max_turns)
             ):
                 claim_id = next(iter(self._ambiguous_claims), None) or str(uuid4())
+                retryable_claim_error = False
                 try:
                     available_slots = max(
                         1, self.slots - len(self._active) - len(self._ambiguous_claims)
@@ -1384,22 +1406,32 @@ class FoundryWorker:
                     claim = await self.foundry.claim(available_slots, claim_id=claim_id)
                 except ResponseLossError:
                     self._ambiguous_claims.setdefault(claim_id, self._clock())
-                    break
+                    retryable_claim_error = True
                 except (FencedError, InvalidCredentialError):
                     self._stopping = True
                     break
                 except NotReadyError:
                     self._profiles_reconciled = False
-                    await asyncio.sleep(poll_delay)
-                    break
+                    retryable_claim_error = True
                 except (RateLimitedError, ServiceUnavailableError):
-                    await asyncio.sleep(poll_delay)
+                    retryable_claim_error = True
+                if retryable_claim_error:
+                    poll_delay = _jittered_idle_delay(idle_backoff, initial_idle_delay)
+                    idle_backoff = min(MAX_IDLE_BACKOFF_SECONDS, idle_backoff * 2)
+                    retry_pending = True
                     break
                 if claim_id in self._ambiguous_claims:
                     self._ambiguous_claims.pop(claim_id, None)
+                if retry_pending:
+                    idle_backoff = initial_idle_delay
+                    retry_pending = False
                 if claim is None:
                     empty += 1
+                    poll_delay = _jittered_idle_delay(idle_backoff, initial_idle_delay)
+                    idle_backoff = min(MAX_IDLE_BACKOFF_SECONDS, idle_backoff * 2)
                     break
+                idle_backoff = initial_idle_delay
+                poll_delay = initial_idle_delay
                 task = asyncio.create_task(self._run_claim(claim))
                 self._active.add(task)
                 task.add_done_callback(self._active.discard)
@@ -1420,6 +1452,8 @@ class FoundryWorker:
                         results.append(None)
                 self._active.difference_update(done)
                 empty = 0
+                idle_backoff = initial_idle_delay
+                poll_delay = initial_idle_delay
                 continue
             if self._ambiguous_claims:
                 await asyncio.sleep(poll_delay)

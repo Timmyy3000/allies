@@ -22,10 +22,12 @@ from runtime.models import (
     Attempt,
     AttemptStatus,
     Execution,
+    ExecutionEvent,
     ExecutionStatus,
     Lease,
     LeaseState,
     RuntimeProfile,
+    RuntimeProfileLifecycleState,
     Workspace,
     WorkspaceProvisioningPhase,
 )
@@ -102,6 +104,8 @@ def _claim_next_execution_once(
         or not workspace.machine_ref
     ):
         raise RuntimeNotReadyError("workspace is not ready for claims")
+
+    _reconcile_expired_leases(workspace)
 
     replay = (
         Attempt.objects.select_for_update()
@@ -219,6 +223,119 @@ def _claim_next_execution_once(
     if saw_unready_profile:
         raise RuntimeNotReadyError("profile is not ready for runtime claims")
     return None
+
+
+def _reconcile_expired_leases(workspace: Workspace) -> None:
+    now = timezone.now()
+    stale_leases = list(
+        Lease.objects.filter(
+            profile__workspace_id=workspace.id,
+            state__in=(LeaseState.ACTIVE, LeaseState.STOPPING),
+            expires_at__lte=now,
+        )
+        .order_by("expires_at", "id")
+        .values_list("id", "attempt_id")[:MAX_AVAILABLE_SLOTS]
+    )
+    for lease_id, attempt_id in stale_leases:
+        attempt = (
+            Attempt.objects.select_for_update()
+            .select_related("execution")
+            .filter(pk=attempt_id, execution__workspace_id=workspace.id)
+            .first()
+        )
+        if attempt is None:
+            continue
+        profile = (
+            RuntimeProfile.objects.select_for_update()
+            .filter(pk=attempt.execution.profile_id, workspace_id=workspace.id)
+            .first()
+        )
+        if profile is None:
+            continue
+        lease = (
+            Lease.objects.select_for_update()
+            .filter(pk=lease_id, attempt_id=attempt.id)
+            .first()
+        )
+        if (
+            lease is None
+            or lease.state not in (LeaseState.ACTIVE, LeaseState.STOPPING)
+            or lease.expires_at > now
+        ):
+            continue
+        _reconcile_expired_lease(workspace, profile, attempt, lease)
+
+
+def _reconcile_expired_lease(
+    workspace: Workspace,
+    profile: RuntimeProfile,
+    attempt: Attempt,
+    lease: Lease,
+) -> None:
+    unresolved = attempt.status in {
+        AttemptStatus.QUEUED,
+        AttemptStatus.LEASED,
+        AttemptStatus.RUNNING,
+    }
+    retired = (
+        lease.machine_generation != workspace.machine_generation
+        or attempt.machine_generation != workspace.machine_generation
+        or lease.profile_id != profile.id
+    )
+    cleanup_pending = (
+        profile.lifecycle_state == RuntimeProfileLifecycleState.CLEANUP_PENDING
+    )
+    replayable = (
+        unresolved
+        and attempt.execution.status
+        in (ExecutionStatus.QUEUED, ExecutionStatus.RUNNING)
+        and not retired
+        and not cleanup_pending
+        and profile_is_claim_ready(profile, workspace.machine_generation)
+        and not _has_replay_checkpoint(attempt)
+    )
+    if replayable:
+        attempt.status = AttemptStatus.UNKNOWN
+        attempt.save(update_fields=["status", "updated_at"])
+        execution = attempt.execution
+        execution.status = ExecutionStatus.QUEUED
+        execution.save(update_fields=["status", "updated_at"])
+        lease.state = LeaseState.RELEASED
+        lease.save(update_fields=["state", "updated_at"])
+        return
+
+    if unresolved:
+        if not cleanup_pending:
+            from .events import _append_lease_expired_failure
+
+            _append_lease_expired_failure(attempt, lease)
+        attempt.status = AttemptStatus.UNKNOWN
+        attempt.save(update_fields=["status", "updated_at"])
+        execution = attempt.execution
+        if execution.status not in {
+            ExecutionStatus.SUCCEEDED,
+            ExecutionStatus.FAILED,
+            ExecutionStatus.CANCELLED,
+        }:
+            execution.status = ExecutionStatus.FAILED
+            execution.save(update_fields=["status", "updated_at"])
+
+    if cleanup_pending or retired:
+        lease.state = LeaseState.FENCED
+    else:
+        lease.state = LeaseState.RELEASED
+    lease.save(update_fields=["state", "updated_at"])
+
+
+def _has_replay_checkpoint(attempt: Attempt) -> bool:
+    return (
+        attempt.session_request_digest is not None
+        or attempt.session_receipt is not None
+        or ExecutionEvent.objects.filter(
+            attempt_id=attempt.id,
+            event_type="execution.dispatched",
+        ).exists()
+    )
 
 
 def _claim_from_records(

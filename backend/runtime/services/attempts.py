@@ -265,12 +265,7 @@ def _terminal_event(value: dict | None, event_type: str) -> dict | None:
             raise RuntimeValidationError("completion event payload is invalid")
         validate_nonempty(payload.get("run_id"), "terminal run_id", max_length=128)
     elif event_type == "execution.failed":
-        if (
-            set(payload) != {"code", "retryable"}
-            or type(payload.get("retryable")) is not bool
-        ):
-            raise RuntimeValidationError("failure event payload is invalid")
-        validate_nonempty(payload.get("code"), "terminal code", max_length=64)
+        payload = _failure_event_payload(payload)
     return {
         "event_id": str(event_id),
         "stream_id": stream_id,
@@ -278,6 +273,17 @@ def _terminal_event(value: dict | None, event_type: str) -> dict | None:
         "type": event_type,
         "payload": payload,
     }
+
+
+def _failure_event_payload(value: dict) -> dict:
+    payload = validate_object_payload(value, max_bytes=MAX_EVENT_PAYLOAD_BYTES)
+    if (
+        set(payload) != {"code", "retryable"}
+        or type(payload.get("retryable")) is not bool
+    ):
+        raise RuntimeValidationError("failure event payload is invalid")
+    validate_nonempty(payload.get("code"), "terminal code", max_length=64)
+    return payload
 
 
 def _terminal_from_attempt(attempt: Attempt) -> TerminalReceipt:

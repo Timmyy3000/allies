@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import re
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from runtime.exceptions import (
     RuntimeAuthorizationError,
     RuntimeConflictError,
     RuntimeValidationError,
 )
-from runtime.models import Attempt, AttemptStatus, ExecutionEvent
+from runtime.models import Attempt, AttemptStatus, ExecutionEvent, Lease, LeaseState
 
 from .leases import _authorize_attempt_mutation
 from .retry import run_with_sqlite_lock_retry
@@ -24,6 +25,73 @@ from .validation import (
 _EVENT_WRITABLE_ATTEMPT_STATUSES = frozenset(
     {AttemptStatus.QUEUED, AttemptStatus.LEASED, AttemptStatus.RUNNING}
 )
+_SERVER_EVENT_NAMESPACE = uuid5(NAMESPACE_URL, "allies-foundry:server-owned-events:v1")
+_LEASE_EXPIRY_FAILURE_CODE = "lease_expired"
+
+
+def _append_lease_expired_failure(attempt: Attempt, lease: Lease) -> ExecutionEvent:
+    """Append the fixed server-owned failure for one locked stale lease."""
+
+    if transaction.get_autocommit():
+        raise RuntimeValidationError(
+            "lease expiry event append requires an atomic transaction"
+        )
+    if lease.attempt_id != attempt.id or lease.state not in {
+        LeaseState.ACTIVE,
+        LeaseState.STOPPING,
+    }:
+        raise RuntimeValidationError("lease expiry event target is invalid")
+    if lease.expires_at > timezone.now():
+        raise RuntimeValidationError("lease expiry event target is not expired")
+
+    event_id = uuid5(
+        _SERVER_EVENT_NAMESPACE,
+        f"{attempt.id}:{_LEASE_EXPIRY_FAILURE_CODE}",
+    )
+    stream_id = f"stream-{attempt.id.hex}"
+    from .attempts import _failure_event_payload
+
+    payload = _failure_event_payload(
+        {
+            "code": _LEASE_EXPIRY_FAILURE_CODE,
+            "retryable": False,
+        }
+    )
+    existing = (
+        ExecutionEvent.objects.select_for_update()
+        .filter(attempt_id=attempt.id, event_id=event_id)
+        .first()
+    )
+    if existing is not None:
+        _ensure_exact_replay(
+            existing,
+            existing.sequence,
+            "execution.failed",
+            digest_payload(payload),
+            stream_id,
+        )
+        _enqueue_event_delivery(existing)
+        return existing
+
+    latest = (
+        ExecutionEvent.objects.select_for_update()
+        .filter(attempt_id=attempt.id)
+        .order_by("-sequence")
+        .first()
+    )
+    sequence = (latest.sequence if latest is not None else 0) + 1
+    payload_digest = digest_payload(payload)
+    event = ExecutionEvent.objects.create(
+        attempt_id=attempt.id,
+        event_id=event_id,
+        stream_id=stream_id,
+        sequence=sequence,
+        event_type="execution.failed",
+        payload=payload,
+        payload_digest=payload_digest,
+    )
+    _enqueue_event_delivery(event)
+    return event
 
 
 def append_runtime_event(

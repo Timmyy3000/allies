@@ -67,3 +67,8 @@ failure cancels the incremental Hermes stream immediately, sends `stopped`,
 and suppresses later event/terminal writes. The client maps `401`, `409`,
 `422`, `429`, and `503` responses to typed errors; a lost claim response keeps
 the same `claim_id` reserved until the replay succeeds.
+
+Idle claim polling starts at one second and grows exponentially through 2, 4,
+8, and 10 seconds with bounded jitter. A claimed execution or a recovered
+retryable claim response resets the delay; active slots refill immediately when
+work completes. Readiness probing still uses its separate startup retry loop.
