@@ -41,6 +41,7 @@ from runtime.services.profiles import (
 from runtime.services.runtime_auth import authenticate_runtime_token
 from runtime.services.sessions import update_session_binding
 from runtime.services.workspaces import register_workspace
+from runtime.soul import render_default_allies_soul
 
 from .schemas import (
     ClaimRequest,
@@ -169,13 +170,15 @@ def register(api: NinjaExtraAPI) -> None:
                 _profile_id_for_binding(payload.binding_id),
                 payload.ally_ref,
                 ProfileSeed(
-                    personality=payload.personality,
+                    personality=render_default_allies_soul(
+                        name=payload.name,
+                        job=payload.job,
+                        personality=payload.personality,
+                    ),
                     provider=settings.PROFILE_PROVISIONING_PROVIDER,
                     model=settings.PROFILE_PROVISIONING_MODEL,
                     base_url=settings.PROFILE_PROVISIONING_BASE_URL,
-                    first_chat_instruction=_first_chat_instruction(
-                        payload.name, payload.job
-                    ),
+                    first_chat_instruction=_first_chat_instruction(),
                     credential_refs=settings.PROFILE_PROVISIONING_CREDENTIAL_REFS,
                 ),
             )
@@ -420,17 +423,12 @@ def _profile_id_for_binding(binding_id: str) -> UUID:
     return uuid5(_PROFILE_ID_NAMESPACE, binding_id)
 
 
-def _first_chat_instruction(name: str, job: str) -> str:
-    identity = (
-        f"Your name is {name}. When asked your name, answer with {name}. "
-        "Do not identify yourself as Hermes; Hermes is only your private runtime. "
-        if name
-        else ""
-    )
+def _first_chat_instruction() -> str:
     return (
-        identity
-        + "Start the first chat by asking one useful question that helps with the "
-        f"user's job. Job: {job}"
+        "Treat the first conversation as the start of a working relationship. "
+        "Respond naturally to the user's message. Do not repeat profile fields, "
+        "explain your capabilities, present a menu, or force a metaphor or joke. "
+        "Ask at most one natural question when it helps the conversation move."
     )
 
 

@@ -219,16 +219,16 @@ def test_fixture_request_creates_pending_profile_without_private_receipt_fields(
 
     profile = RuntimeProfile.objects.get(ally_ref=contract["request"]["ally_ref"])
     assert profile.lifecycle_state == RuntimeProfileLifecycleState.PENDING
-    assert profile.seed_payload["personality"] == contract["request"]["personality"]
-    assert (
-        f"Your name is {contract['request']['name']}."
-        in profile.seed_payload["first_chat_instruction"]
-    )
-    assert (
-        "Do not identify yourself as Hermes"
-        in profile.seed_payload["first_chat_instruction"]
-    )
-    assert contract["request"]["job"] in profile.seed_payload["first_chat_instruction"]
+    soul = profile.seed_payload["personality"]
+    assert contract["request"]["name"] in soul
+    assert contract["request"]["job"] in soul
+    assert contract["request"]["personality"] in soul
+    assert "Hermes is your private runtime" in soul
+    assert "## Communication" in soul
+    assert "Do not use em dashes" in soul
+    instruction = profile.seed_payload["first_chat_instruction"]
+    assert "start of a working relationship" in instruction
+    assert "Do not repeat profile fields" in instruction
 
 
 @pytest.mark.parametrize(
@@ -272,9 +272,9 @@ def test_prompt_interpolation_fields_accept_normal_unicode(
 
     assert response.status_code == 200, response.content
     profile = RuntimeProfile.objects.get(workspace=workspace)
-    instruction = profile.seed_payload["first_chat_instruction"]
-    assert payload["name"] in instruction
-    assert payload["job"] in instruction
+    soul = profile.seed_payload["personality"]
+    assert payload["name"] in soul
+    assert payload["job"] in soul
 
 
 def test_provisioning_seed_uses_deployment_settings(
@@ -318,7 +318,8 @@ def test_exact_replay_is_idempotent_and_changed_seed_does_not_mutate(
     assert changed["personality"] not in conflict.content.decode()
     assert RuntimeProfile.objects.filter(workspace=workspace).count() == 1
     profile = RuntimeProfile.objects.get(workspace=workspace)
-    assert profile.seed_payload["personality"] == contract["request"]["personality"]
+    assert contract["request"]["personality"] in profile.seed_payload["personality"]
+    assert changed["personality"] not in profile.seed_payload["personality"]
 
 
 def test_active_profile_state_is_returned_truthfully(
