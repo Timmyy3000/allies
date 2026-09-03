@@ -101,7 +101,11 @@ def begin_onboarding(
     try:
         lease = acquire_generation(generation_identity)
         greeting = (provider or get_provider()).generate(
-            GreetingRequest(job=values["job"], personality=values["personality"])
+            GreetingRequest(
+                name=values["name"],
+                job=values["job"],
+                personality=values["personality"],
+            )
         )
         greeting = validate_output(greeting, ally_name=values["name"])
     except (
