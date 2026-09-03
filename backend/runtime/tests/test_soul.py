@@ -15,6 +15,13 @@ def test_default_allies_soul_renders_profile_context_without_generator_metadata(
     assert "beta waitlist" not in soul.lower()
     assert "waitlist provider" not in soul.lower()
     assert "## Communication" in soul
+    assert "## Judgment and candor" in soul
+    assert 'Do not hide behind "it depends"' in soul
+    assert "Do not flatter the user" in soul
+    assert "Name concrete tradeoffs" in soul
+    assert "## Economy" in soul
+    assert "Brevity is the default" in soul
+    assert "Do not repeat a conclusion in a closing summary" in soul
     assert "Do not use em dashes" in soul
     assert "—" not in soul
     assert "–" not in soul
