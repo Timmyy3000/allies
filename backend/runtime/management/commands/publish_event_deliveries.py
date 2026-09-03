@@ -6,13 +6,13 @@ from runtime.services.event_delivery import publish_pending_event_deliveries
 
 
 class Command(BaseCommand):
-    help = "Publish a bounded batch of pending Foundry event deliveries."
+    help = "Publish pending Foundry event deliveries."
 
     def add_arguments(self, parser):
         parser.add_argument(
             "--watch",
             action="store_true",
-            help="Run delivery passes periodically for a bounded number of runs.",
+            help="Run delivery passes periodically until stopped.",
         )
         parser.add_argument(
             "--interval",
@@ -26,7 +26,7 @@ class Command(BaseCommand):
             type=int,
             default=None,
             metavar="COUNT",
-            help="Required with --watch; maximum number of delivery passes (1-1440).",
+            help="Optional maximum number of watch passes (1-1440).",
         )
 
     def handle(self, *args, **options):
@@ -38,17 +38,17 @@ class Command(BaseCommand):
                 raise CommandError("--interval and --max-runs require --watch")
             self._run_once()
             return
-        if max_runs is None:
-            raise CommandError("--watch requires --max-runs")
-        if not 1 <= max_runs <= 1440:
+        if max_runs is not None and not 1 <= max_runs <= 1440:
             raise CommandError("--max-runs must be between 1 and 1440")
         interval = 60 if interval is None else interval
         if not 1 <= interval <= 3600:
             raise CommandError("--interval must be between 1 and 3600 seconds")
 
-        for run_number in range(max_runs):
+        run_number = 0
+        while max_runs is None or run_number < max_runs:
             self._run_once()
-            if run_number + 1 < max_runs:
+            run_number += 1
+            if max_runs is None or run_number < max_runs:
                 sleep(interval)
 
     def _run_once(self):

@@ -662,9 +662,9 @@ cd backend
 uv run --locked python manage.py publish_event_deliveries
 ```
 
-For a supervised periodic publisher, use `--watch --interval 60 --max-runs
-60`. The command claims at most 20 deliveries per pass, so deployment may
-restart the bounded process without creating an unbounded worker loop.
+For a supervised long-running publisher, use `--watch --interval 1`. Add
+`--max-runs` only when a bounded local or operational run is required. The
+command claims at most 20 deliveries per pass.
 
 ## Definition of done for a new domain slice
 
