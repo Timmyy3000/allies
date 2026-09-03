@@ -25,6 +25,126 @@ body {
   font-family: var(--font-open-runde), sans-serif;
 }
 
+.onboarding-legal-nav {
+  position: fixed;
+  right: clamp(16px, 2.5vw, 40px);
+  bottom: calc(16px + env(safe-area-inset-bottom, 0px));
+  z-index: 20;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  max-width: calc(100vw - 132px);
+  padding: 8px 0;
+  color: #121212;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.onboarding-legal-nav a,
+.legal-page a {
+  color: inherit;
+  text-underline-offset: 3px;
+}
+
+.onboarding-legal-nav a:focus-visible,
+.legal-page a:focus-visible {
+  outline: 2px solid #121212;
+  outline-offset: 3px;
+}
+
+.legal-page {
+  min-height: 100dvh;
+  padding: 24px 20px 48px;
+  background: #fff;
+  color: #121212;
+}
+
+.legal-page__article {
+  width: min(100%, 760px);
+  margin: 0 auto;
+}
+
+.legal-page__nav {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.legal-page__header {
+  margin: 72px 0 48px;
+}
+
+.legal-page__eyebrow {
+  margin: 0 0 12px;
+  color: #ff5800;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.legal-page .legal-page__eyebrow {
+  margin-bottom: 12px;
+}
+
+.legal-page h1,
+.legal-page h2,
+.legal-page p {
+  margin: 0;
+}
+
+.legal-page h1 {
+  max-width: 680px;
+  font-size: clamp(40px, 8vw, 72px);
+  font-weight: 700;
+  letter-spacing: -0.06em;
+  line-height: 0.98;
+}
+
+.legal-page__intro {
+  max-width: 620px;
+  margin-top: 24px !important;
+  font-size: 20px;
+  line-height: 1.35;
+}
+
+.legal-page__date {
+  margin-top: 20px !important;
+  color: #666;
+  font-size: 14px;
+}
+
+.legal-page__content {
+  display: grid;
+  gap: 36px;
+  max-width: 680px;
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.legal-page__content section {
+  display: grid;
+  gap: 12px;
+}
+
+.legal-page h2 {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+@media (min-width: 640px) {
+  .legal-page {
+    padding: 32px 40px 64px;
+  }
+
+  .legal-page__header {
+    margin-top: 112px;
+  }
+}
+
 .remove-scrollbar {
   scrollbar-width: none;
 }
