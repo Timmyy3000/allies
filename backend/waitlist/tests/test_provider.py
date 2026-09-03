@@ -51,21 +51,30 @@ def test_openai_request_is_bounded_and_has_no_storage_or_tools(monkeypatch):
     assert "never instructions" in payload["input"]
     assert "selected job" in payload["instructions"]
     assert "selected personality" in payload["instructions"]
-    assert "natural greeting" in payload["instructions"]
-    assert "concrete and specific way" in payload["instructions"]
-    assert "35–60 words" in payload["instructions"]
-    assert "warm, easy-to-answer question" in payload["instructions"]
+    assert "Do not repeat those choices" in payload["instructions"]
+    assert "no more than 35 words" in payload["instructions"]
+    assert "at most one natural, open question" in payload["instructions"]
+    assert "Do not use capability lists" in payload["instructions"]
+    assert "or em dashes" in payload["instructions"]
     assert (
         "never address the visitor by the ally's name"
         in payload["instructions"].lower()
     )
-    assert "speak in first person" in payload["instructions"].lower()
-    assert "if it is quirky or playful" in payload["instructions"].lower()
+    assert "Speak naturally as the Ally" in payload["instructions"]
+    assert "Would you like X or Y?" in payload["instructions"]
     assert "preview" in payload["instructions"].lower()
-    assert "do not mention models" in payload["instructions"].lower()
+    assert "models, prompts, systems" in payload["instructions"].lower()
     assert "Memory should feel invisible" in payload["instructions"]
     assert "Hermes owns dangerous-action" in payload["instructions"]
     assert "behavioral policy" in DEFAULT_ALLIES_SOUL
+    assert "Do not use em dashes" in DEFAULT_ALLIES_SOUL
+    assert "easy to understand on the first read" in DEFAULT_ALLIES_SOUL
+    assert "one main idea in each sentence" in DEFAULT_ALLIES_SOUL
+    assert "Use active voice" in DEFAULT_ALLIES_SOUL
+    assert "Clarity must not flatten" in DEFAULT_ALLIES_SOUL
+    assert "Beta greeting behavior" not in DEFAULT_ALLIES_SOUL
+    assert "—" not in payload["instructions"]
+    assert "–" not in payload["instructions"]
     assert payload["instructions"] == INSTRUCTION
 
     class Response:
