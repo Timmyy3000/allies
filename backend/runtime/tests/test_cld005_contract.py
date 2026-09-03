@@ -583,3 +583,24 @@ def test_event_delivery_management_command_uses_bounded_watch(monkeypatch):
     assert calls == ["run", "run", "run"]
     assert sleeps == [7, 7]
     assert output.getvalue().count("Delivered 1 event(s)") == 3
+
+
+def test_event_delivery_management_command_watches_until_stopped(monkeypatch):
+    calls = []
+
+    def stop(interval):
+        raise RuntimeError(f"stopped after {interval}s")
+
+    monkeypatch.setattr(
+        "runtime.management.commands.publish_event_deliveries.publish_pending_event_deliveries",
+        lambda: calls.append("run") or event_delivery.DeliveryReport(delivered=1),
+    )
+    monkeypatch.setattr(
+        "runtime.management.commands.publish_event_deliveries.sleep",
+        stop,
+    )
+
+    with pytest.raises(RuntimeError, match="stopped after 1s"):
+        call_command("publish_event_deliveries", "--watch", "--interval", "1")
+
+    assert calls == ["run"]
