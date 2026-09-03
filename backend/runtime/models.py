@@ -596,7 +596,7 @@ class ExecutionEvent(models.Model):
                 name="runtime_event_attempt_sequence_unique",
             ),
             models.CheckConstraint(
-                condition=Q(sequence__gt=0) & Q(sequence__lte=100000),
+                condition=Q(sequence__gt=0) & Q(sequence__lte=100001),
                 name="runtime_event_sequence_positive",
             ),
         ]

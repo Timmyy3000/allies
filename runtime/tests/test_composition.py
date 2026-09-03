@@ -223,6 +223,7 @@ def test_runtime_entrypoint_resolves_foundry_secret_at_composition_boundary(
         "foundry-secret",
     )
     assert captured["worker"]["idle_cycles"] == 1
+    assert "idle_delay" not in captured["worker"]
     assert "foundry-secret" not in repr(captured["worker"]["settings"])
 
 

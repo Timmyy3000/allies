@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from uuid import uuid4
 
 import pytest
+from django.utils import timezone
 
 from runtime.exceptions import (
     RuntimeIdempotencyConflictError,
@@ -15,7 +17,10 @@ from runtime.models import (
     ConversationBinding,
     Execution,
     ExecutionEvent,
+    ExecutionEventDelivery,
     ExecutionStatus,
+    Lease,
+    LeaseState,
     RuntimeProfile,
     RuntimeProfileLifecycleState,
     Workspace,
@@ -29,6 +34,7 @@ from runtime.services.leases import (
     confirm_machine_stopped_and_fence,
 )
 from runtime.services.runtime_auth import (
+    RuntimeContext,
     authenticate_runtime_token,
     issue_runtime_credential,
 )
@@ -303,6 +309,164 @@ def test_projection_event_budget_reserves_sequence_513_for_terminal_truth(
         ExecutionEvent.objects.get(attempt_id=claim.attempt_id, sequence=513).event_type
         == "execution.completed"
     )
+
+
+def make_cloud_visible(execution):
+    execution.command_id = uuid4()
+    execution.cloud_workspace_id = uuid4()
+    execution.cloud_ally_id = uuid4()
+    execution.cloud_conversation_id = uuid4()
+    execution.cloud_message_id = uuid4()
+    execution.cloud_binding_id = uuid4()
+    execution.conversation_turn_ordinal = 1
+    execution.source_kind = "conversation_message"
+    execution.command_fingerprint = "canonical-json-sha256:v1:" + "0" * 64
+    execution.save(
+        update_fields=[
+            "command_id",
+            "cloud_workspace_id",
+            "cloud_ally_id",
+            "cloud_conversation_id",
+            "cloud_message_id",
+            "cloud_binding_id",
+            "conversation_turn_ordinal",
+            "source_kind",
+            "command_fingerprint",
+            "updated_at",
+        ]
+    )
+
+
+def test_expired_lease_uses_next_sequence_for_synthetic_failure(claimed_execution):
+    context, execution, claim = claimed_execution
+    dispatch(context, claim)
+    for sequence in range(2, 513):
+        append_runtime_event(
+            context,
+            claim.attempt_id,
+            claim.lease_token,
+            uuid4(),
+            claim.stream_id,
+            sequence,
+            "message.delta",
+            {"text": "x"},
+        )
+    Lease.objects.filter(pk=claim.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+
+    assert claim_next_execution(context, uuid4(), 1) is None
+
+    failure = ExecutionEvent.objects.get(
+        attempt_id=claim.attempt_id,
+        event_type="execution.failed",
+    )
+    assert failure.sequence == 513
+    assert failure.stream_id == claim.stream_id
+    assert failure.payload == {"code": "lease_expired", "retryable": False}
+    assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.FAILED
+
+
+@pytest.mark.parametrize("prior_sequence", [513, 100000])
+def test_expired_lease_recovers_after_high_nonterminal_sequence(
+    claimed_execution, prior_sequence
+):
+    context, execution, claim = claimed_execution
+    dispatch(context, claim)
+    append_runtime_event(
+        context,
+        claim.attempt_id,
+        claim.lease_token,
+        uuid4(),
+        claim.stream_id,
+        prior_sequence,
+        "message.delta",
+        {"text": "last durable delta"},
+    )
+    Lease.objects.filter(pk=claim.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+
+    assert claim_next_execution(context, uuid4(), 1) is None
+
+    failure = ExecutionEvent.objects.get(
+        attempt_id=claim.attempt_id,
+        event_type="execution.failed",
+    )
+    assert failure.sequence == prior_sequence + 1
+    assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.FAILED
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("session_request_digest", "a" * 64),
+        ("session_receipt", {"session_id": "session-1"}),
+    ],
+)
+def test_expired_session_only_ambiguity_fails_without_replay(
+    claimed_execution, field, value
+):
+    context, execution, claim = claimed_execution
+    make_cloud_visible(execution)
+    Attempt.objects.filter(pk=claim.attempt_id).update(**{field: value})
+    Lease.objects.filter(pk=claim.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+
+    assert claim_next_execution(context, uuid4(), 1) is None
+    assert claim_next_execution(context, uuid4(), 1) is None
+
+    assert Attempt.objects.filter(execution_id=execution.id).count() == 1
+    assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.FAILED
+    failure = ExecutionEvent.objects.get(
+        attempt_id=claim.attempt_id,
+        event_type="execution.failed",
+    )
+    assert failure.payload == {"code": "lease_expired", "retryable": False}
+    assert ExecutionEventDelivery.objects.filter(event=failure).count() == 1
+
+
+def test_expired_retired_generation_is_failed_and_fenced(claimed_execution):
+    _context, execution, claim = claimed_execution
+    workspace = execution.workspace
+    workspace.machine_generation = 2
+    workspace.machine_ref = "machine-2"
+    workspace.save(update_fields=["machine_generation", "machine_ref", "updated_at"])
+    Lease.objects.filter(pk=claim.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+
+    current_context = RuntimeContext(workspace.id, 2, uuid4())
+    assert claim_next_execution(current_context, uuid4(), 1) is None
+
+    assert Lease.objects.get(pk=claim.lease_id).state == LeaseState.FENCED
+    assert Attempt.objects.get(pk=claim.attempt_id).status == AttemptStatus.UNKNOWN
+    assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.FAILED
+    failure = ExecutionEvent.objects.get(
+        attempt_id=claim.attempt_id,
+        event_type="execution.failed",
+    )
+    assert failure.payload == {"code": "lease_expired", "retryable": False}
+
+
+def test_expired_failure_persists_one_cloud_outbox_row(claimed_execution):
+    context, execution, claim = claimed_execution
+    make_cloud_visible(execution)
+    dispatch(context, claim)
+    Lease.objects.filter(pk=claim.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+
+    assert claim_next_execution(context, uuid4(), 1) is None
+
+    failure = ExecutionEvent.objects.get(
+        attempt_id=claim.attempt_id,
+        event_type="execution.failed",
+    )
+    delivery = ExecutionEventDelivery.objects.get(event=failure)
+    assert delivery.state == "pending"
+    assert delivery.byte_length > 0
 
 
 def test_machine_fence_does_not_requeue_dispatched_work(claimed_execution):

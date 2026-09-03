@@ -149,7 +149,6 @@ def runtime_entrypoint(
         # An explicitly injected client remains available for tests/integrations.
         hermes=hermes,
         idle_cycles=idle_cycles,
-        idle_delay=0.25,
     )
 
 

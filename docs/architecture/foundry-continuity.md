@@ -68,7 +68,7 @@ the current Machine generation.
 | `POST /attempts/{id}/lease/renew` | Opaque lease token | New expiry | `409` stops local work and prevents further mutations |
 | `POST /attempts/{id}/events` | Lease token, attempt-local sequence, stable event ID, type, payload | `202`; duplicate event IDs are harmless | Retry only transport, `429`, and `5xx` with the same identifiers |
 | `PUT /attempts/{id}/session-binding` | Lease token, expected current session ID, effective session ID | Idempotent compare-and-set update | `409` for conflicting conversation/session, token, or generation |
-| `POST /attempts/{id}/stopped` | Lease token and stop reason | Confirms the Hermes stream ended | Required before same-profile reclaim unless the old Machine was fenced and stopped |
+| `POST /attempts/{id}/stopped` | Lease token and stop reason | Confirms the Hermes stream ended | Best-effort fast path; claim-time expiry reconciliation is the durable reclaim backstop |
 | `POST /attempts/{id}/complete` | Lease token, terminal event identity/sequence/payload, and receipt | Atomically appends `execution.completed` and completes the attempt | `409` for stale or conflicting writers |
 | `POST /attempts/{id}/fail` | Lease token, terminal event identity/sequence/payload, typed failure, and receipt | Atomically appends `execution.failed` and fails the attempt | Same fencing and idempotency rules as completion |
 
@@ -87,10 +87,22 @@ Prototype leases last 60 seconds and renew every 20 seconds. If renewal fails,
 the runtime cancels Hermes at least five seconds before expiry and sends
 `stopped` when the stream ends.
 
-Foundry does not immediately reclaim an expired attempt for the same Ally. It
-waits for the matching `stopped` receipt, or retires the old Machine generation
-and confirms that the old Machine stopped. This prevents two Hermes streams for
-one Ally during a network partition.
+Foundry reconciles expired `active` and `stopping` leases at the start of each
+claim transaction. A current-generation attempt with no dispatch or session
+checkpoint is marked unknown, released, and requeued. A dispatched or
+session-ambiguous attempt, a retired generation, or a profile that is not
+claim-ready is marked unknown and failed with one safe `execution.failed`
+event; its lease is released or fenced. A `cleanup_pending` profile always
+uses the cleanup-safe fenced path and never requeues. This bounded backstop
+keeps an expired lease from permanently blocking later same-profile work while
+late writes from the old lease remain fenced.
+
+Runtime-authored events remain capped at sequence 100000. Sequence 100001 is
+reserved for this server-owned terminal recovery event, so even an attempt at
+the durable event ceiling can be retired safely.
+
+If no runtime is polling, the safe durable state remains in PostgreSQL until a
+runtime restarts and makes its next claim; no separate reaper is required.
 
 The runtime confirms a durable `execution.dispatched` event before its first
 Hermes session or stream request. Work stopped before that checkpoint may be
@@ -251,7 +263,7 @@ The fake Foundry and Fly boundaries must prove:
 | --- | --- |
 | One active turn per Ally | Parallel claims for one profile produce one lease |
 | Different Allies run together | Two profiles fill two worker slots without crossed events or sessions |
-| Renewal loss is safe | Hermes stops before expiry and reclaim waits for `stopped` or Machine retirement |
+| Renewal loss is safe | Hermes stops before expiry when possible; claim-time expiry reconciliation remains safe and never replays dispatched work |
 | One conversation per Ally | Conflicting conversation or session binding returns `409` |
 | Lease ownership is strict | A token used against another attempt returns `409` |
 | Replacement fences old work | Two live profiles and parameterized old-generation mutations fail in every replacement phase |
