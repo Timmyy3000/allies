@@ -137,7 +137,11 @@ def create_entry(
     try:
         lease = acquire_generation(generation_identity)
         output = (provider or get_provider()).generate(
-            GreetingRequest(job=job.strip(), personality=personality.strip())
+            GreetingRequest(
+                name=name.strip(),
+                job=job.strip(),
+                personality=personality.strip(),
+            )
         )
         greeting = validate_output(output, ally_name=name.strip())
     except (AdmissionUnavailable, GenerationUnavailable, Throttled):

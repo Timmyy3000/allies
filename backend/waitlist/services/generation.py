@@ -10,8 +10,16 @@ from ..providers.fake import FakeGreetingProvider
 from ..providers.openai import OpenAIResponsesProvider
 
 PROHIBITED_CLAIMS = re.compile(
-    r"\b(?:i|we|this assistant)\s+(?:have|has|already|just|successfully|can|will)\b"
-    r".{0,80}\b(?:account|workspace|ally|conversation|tool|memory|file|message)\b",
+    r"\b(?:i|we|this assistant)\s+(?:"
+    r"(?:have|has)\s+(?:access\s+to\s+)?(?:your\s+)?"
+    r"(?:account|workspace|ally|conversation|tool|memory|file|message)s?\b"
+    r"|(?:already|just|successfully)\s+"
+    r"(?:accessed|opened|read|wrote|sent|connected(?:\s+to)?|used|inspected|checked)"
+    r"\b.{0,40}\b(?:account|workspace|ally|conversation|tool|memory|file|message)s?\b"
+    r"|(?:can|will)\s+"
+    r"(?:access|open|read|write|send|connect(?:\s+to)?|use|inspect|check)"
+    r"\b.{0,40}\b(?:account|workspace|ally|conversation|tool|memory|file|message)s?\b"
+    r")",
     re.IGNORECASE,
 )
 PROHIBITED_PRODUCT_FRAMING = re.compile(r"\bpreview\b", re.IGNORECASE)
@@ -37,12 +45,22 @@ def validate_output(value: Any, *, ally_name: str = "") -> str:
     if PROHIBITED_PRODUCT_FRAMING.search(text):
         raise WaitlistValidationError("greeting output is invalid", field="greeting")
     normalized_ally_name = ally_name.strip()
-    if normalized_ally_name and re.search(
-        rf"(?<!\w){re.escape(normalized_ally_name)}(?!\w)",
-        text,
-        re.IGNORECASE,
-    ):
-        raise WaitlistValidationError("greeting output is invalid", field="greeting")
+    if normalized_ally_name:
+        escaped_name = re.escape(normalized_ally_name)
+        self_introduction = re.compile(
+            rf"(?:\b(?:i(?:\s+am|['’]m)|my\s+name\s+is|this\s+is)\s+"
+            rf"{escaped_name}(?!\w)|(?<!\w){escaped_name}(?!\w)\s+here\b)",
+            re.IGNORECASE,
+        )
+        text_without_introduction = self_introduction.sub("", text)
+        if re.search(
+            rf"(?<!\w){escaped_name}(?!\w)",
+            text_without_introduction,
+            re.IGNORECASE,
+        ):
+            raise WaitlistValidationError(
+                "greeting output is invalid", field="greeting"
+            )
     return text
 
 

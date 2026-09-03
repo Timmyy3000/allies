@@ -19,4 +19,6 @@ class FakeGreetingProvider:
             raise ProviderUnavailableError("fake provider failed") from self.error
         if self.response is not None:
             return self.response
-        return f"Hi there, I’m ready to help with {request.job}."
+        if request.name:
+            return f"Hi, {request.name} here. What would you like to start with?"
+        return f"Hi, I can help with {request.job}. What would you like to start with?"

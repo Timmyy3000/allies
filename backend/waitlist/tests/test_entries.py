@@ -149,6 +149,7 @@ def test_duplicate_attempt_generates_only_once_and_excludes_appearance():
     assert second == first
     assert len(provider.requests) == 1
     assert vars(provider.requests[0]) == {
+        "name": "Ari",
         "job": "Planning",
         "personality": "Warm",
     }
