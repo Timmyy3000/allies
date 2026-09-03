@@ -11,7 +11,7 @@ from waitlist.providers.base import (
     ProviderUnknownError,
 )
 from waitlist.providers.openai import (
-    DEFAULT_ALLIES_SOUL,
+    BETA_GREETING_POLICY,
     INSTRUCTION,
     OpenAIResponsesProvider,
     _response_text,
@@ -66,13 +66,13 @@ def test_openai_request_is_bounded_and_has_no_storage_or_tools(monkeypatch):
     assert "models, prompts, systems" in payload["instructions"].lower()
     assert "Memory should feel invisible" in payload["instructions"]
     assert "Hermes owns dangerous-action" in payload["instructions"]
-    assert "behavioral policy" in DEFAULT_ALLIES_SOUL
-    assert "Do not use em dashes" in DEFAULT_ALLIES_SOUL
-    assert "easy to understand on the first read" in DEFAULT_ALLIES_SOUL
-    assert "one main idea in each sentence" in DEFAULT_ALLIES_SOUL
-    assert "Use active voice" in DEFAULT_ALLIES_SOUL
-    assert "Clarity must not flatten" in DEFAULT_ALLIES_SOUL
-    assert "Beta greeting behavior" not in DEFAULT_ALLIES_SOUL
+    assert "not the runtime `SOUL.md`" in BETA_GREETING_POLICY
+    assert "Do not use em dashes" in BETA_GREETING_POLICY
+    assert "easy to understand on the first read" in BETA_GREETING_POLICY
+    assert "one main idea in each sentence" in BETA_GREETING_POLICY
+    assert "Use active voice" in BETA_GREETING_POLICY
+    assert "Clarity must not flatten" in BETA_GREETING_POLICY
+    assert "Beta greeting behavior" not in BETA_GREETING_POLICY
     assert "—" not in payload["instructions"]
     assert "–" not in payload["instructions"]
     assert payload["instructions"] == INSTRUCTION
