@@ -224,8 +224,10 @@ def test_fixture_request_creates_pending_profile_without_private_receipt_fields(
     assert contract["request"]["job"] in soul
     assert contract["request"]["personality"] in soul
     assert "Hermes is your private runtime" in soul
-    assert "## Communication" in soul
-    assert "Do not use em dashes" in soul
+    assert "## Your personality" in soul
+    assert "This personality is not decoration" in soul
+    assert "Respond to the moment you are actually in" in soul
+    assert "Be recognizable" in soul
     instruction = profile.seed_payload["first_chat_instruction"]
     assert "start of a working relationship" in instruction
     assert "Do not repeat profile fields" in instruction
