@@ -66,6 +66,41 @@ the services so Compose reloads the file:
 docker compose up -d --force-recreate foundry event-publisher
 ```
 
+## Runtime wake and idle-stop maintenance
+
+The `event-publisher` container runs the same Foundry maintenance command as
+Railway, with a bounded local watch:
+
+```text
+uv run --no-sync python manage.py publish_event_deliveries --watch --interval 1 --max-runs 1440
+```
+
+Each pass wakes recorded Machines before publishing at most one event, then
+cleans expired intent receipts and evaluates idle stop independently. Intent
+admission and prompt execution never create a Machine or a speculative
+execution. Keep `ALLIES_RUNTIME_IDLE_STOP_ENABLED=false` until the local proof
+has exercised the complete stop/start path; the gate is independent of the
+Cloud speculation policy. Only an explicit, non-null keep-warm deadline makes a
+Workspace eligible for a stop, and any queued/active execution, attempt, or
+lease keeps the shared Machine running.
+
+For the repeatable local provider proof, set both
+`DJANGO_DEBUG=true` and `ALLIES_RUNTIME_POWER_PROOF_ENABLED=true` before
+setting `ALLIES_FLY_API_BASE_URL` to the proof simulator's plain HTTP origin.
+The custom origin is rejected outside that conjunction. Production and real
+Fly runs leave it unset so `FlyProvider` uses its normal Machines API origin.
+
+Railway keeps its existing supervised command without `--max-runs`:
+
+```text
+uv run --no-sync python manage.py publish_event_deliveries --watch --interval 1
+```
+
+The publisher needs only the managed `FLY_API_TOKEN` reference to inspect,
+start, and stop persisted Machine bindings. It does not need `FLY_ORG`,
+`FLY_REGION`, images, or provisioning settings. Never print the token or put
+it in a proof artifact.
+
 ## Register and activate one workspace
 
 `workspace_id` is the Cloud workspace UUID (the UUID shown in Cloud), not the

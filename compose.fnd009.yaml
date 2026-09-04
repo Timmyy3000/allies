@@ -1,0 +1,70 @@
+name: fnd009-foundry-proof
+
+# This override is intentionally proof-only.  It replaces the local env file
+# so a copied Railway file can never leak credentials or remote URLs into the
+# deterministic run.  The only clear-text Fly endpoint is the named
+# ``fly-simulator`` service on this private Compose network.
+x-fnd009-environment: &fnd009-environment
+  DATABASE_URL: postgresql://foundry:foundry-local-only@postgres:5432/foundry
+  DJANGO_DEBUG: "true"
+  DJANGO_SECRET_KEY: fnd009-foundry-secret-key-local-only-32-bytes
+  DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,foundry,fly-simulator,host.docker.internal
+  ALLIES_CLOUD_SERVICE_TOKEN: fnd009-cloud-service-token-local-only-32-bytes
+  ALLIES_CLOUD_EVENT_DELIVERY_ENABLED: "true"
+  ALLIES_CLOUD_URL: http://host.docker.internal:${FND009_CLOUD_PORT:?FND009_CLOUD_PORT is required}
+  ALLIES_CLOUD_EVENT_SERVICE_TOKEN: fnd009-event-service-token-local-only-32-bytes
+  ALLIES_RUNTIME_IDLE_STOP_ENABLED: "true"
+  ALLIES_RUNTIME_POWER_PROOF_ENABLED: "true"
+  ALLIES_FLY_API_BASE_URL: http://fly-simulator:8765
+  FLY_API_TOKEN: fnd009-fly-token-local-only-32-bytes
+  FLY_MULTI_CONTAINER_ENABLED: "true"
+  FLY_FILE_SECRETS_ENABLED: "true"
+  ALLIES_RUNTIME_KEEP_WARM_SECONDS: ${FND009_KEEP_WARM_SECONDS:-8}
+  ALLIES_RUNTIME_INTENT_TTL_SECONDS: "60"
+  ALLIES_RUNTIME_INTENT_RETENTION_SECONDS: "120"
+  ALLIES_RUNTIME_SPECULATIVE_START_COOLDOWN_SECONDS: "300"
+  ALLIES_RUNTIME_READINESS_FRESHNESS_SECONDS: "31"
+  PROFILE_PROVISIONING_PROVIDER: fake
+  PROFILE_PROVISIONING_MODEL: fnd009-proof
+
+networks:
+  default:
+    name: ${FND009_FOUNDRY_NETWORK:?FND009_FOUNDRY_NETWORK is required}
+
+services:
+  migrate:
+    env_file: !reset []
+    environment: *fnd009-environment
+    volumes:
+      - ./scripts:/proof:ro
+
+  foundry:
+    env_file: !reset []
+    environment: *fnd009-environment
+    volumes:
+      - ./scripts:/proof:ro
+    ports: !override
+      - "127.0.0.1:${FND009_FOUNDRY_PORT:?FND009_FOUNDRY_PORT is required}:8000"
+
+  event-publisher:
+    env_file: !reset []
+    environment: *fnd009-environment
+    volumes:
+      - ./scripts:/proof:ro
+
+  fly-simulator:
+    image: python:3.13-alpine
+    command: ["python", "/proof/fnd009_fly_simulator.py"]
+    working_dir: /proof
+    environment:
+      FND009_FOUNDRY_URL: http://foundry:8000
+      FND009_SIMULATOR_PORT: "8765"
+      FND009_RESPONSE_TEXT: FND-009 proof response
+    volumes:
+      - ./scripts:/proof:ro
+    ports: !override
+      - "127.0.0.1:${FND009_SIMULATOR_PORT:?FND009_SIMULATOR_PORT is required}:8765"
+    depends_on:
+      foundry:
+        condition: service_healthy
+    restart: "no"

@@ -285,8 +285,16 @@ def _validated_cloud_url(value: object) -> str | None:
         port = parsed.port
     except ValueError:
         return None
+    local_proof_cloud = bool(
+        getattr(settings, "DEBUG", False)
+        and getattr(settings, "ALLIES_RUNTIME_POWER_PROOF_ENABLED", False)
+        and parsed.scheme.lower() == "http"
+        and parsed.hostname
+        and parsed.hostname.lower() == "host.docker.internal"
+    )
     if (
         parsed.scheme.lower() != "https"
+        and not local_proof_cloud
         or not parsed.hostname
         or parsed.username is not None
         or parsed.password is not None

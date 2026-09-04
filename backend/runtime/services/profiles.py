@@ -30,6 +30,7 @@ from runtime.exceptions import (
     RuntimeValidationError,
 )
 from runtime.models import (
+    IN_FLIGHT_PROVISIONING_PHASES,
     AttemptStatus,
     ExecutionStatus,
     Lease,
@@ -37,7 +38,6 @@ from runtime.models import (
     RuntimeProfile,
     RuntimeProfileLifecycleState,
     Workspace,
-    WorkspaceProvisioningPhase,
 )
 from runtime.profile_keys import derive_hermes_profile_key
 
@@ -949,7 +949,7 @@ def _check_context_generation(workspace: Workspace, context: RuntimeContext) -> 
 
 def _require_ready_workspace(workspace: Workspace) -> None:
     if (
-        workspace.provisioning_phase != WorkspaceProvisioningPhase.IDLE
+        workspace.provisioning_phase in IN_FLIGHT_PROVISIONING_PHASES
         or workspace.machine_generation <= 0
         or not workspace.fly_app_ref
         or not workspace.volume_ref

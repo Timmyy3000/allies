@@ -78,6 +78,10 @@ def binding(db, contract):
         machine_ref="machine",
         machine_generation=1,
         provisioning_phase=WorkspaceProvisioningPhase.IDLE,
+        ready_generation=1,
+        ready_start_epoch=0,
+        ready_boot_id=uuid4(),
+        runtime_last_seen_at=timezone.now(),
     )
     binding_id = UUID(command["cloud"]["cloud_binding_id"])
     profile = RuntimeProfile.objects.create(
@@ -538,6 +542,24 @@ def test_event_delivery_requires_credential_free_https_base_url(
     assert called == []
 
 
+def test_event_delivery_allows_only_the_debug_proof_cloud_http_host(
+    delivery, settings, monkeypatch
+):
+    _configure_delivery(settings)
+    settings.DEBUG = True
+    settings.ALLIES_RUNTIME_POWER_PROOF_ENABLED = True
+    settings.ALLIES_CLOUD_URL = "http://host.docker.internal:8000"
+    body = json.dumps(
+        {"event_id": str(delivery.event.event_id), "status": "applied"}
+    ).encode()
+    opener = _DeliveryOpener(_DeliveryResponse(202, body))
+    monkeypatch.setattr(event_delivery, "build_opener", lambda *_: opener)
+
+    status, code = event_delivery._post_to_cloud(bytes(delivery.envelope_bytes))
+
+    assert (status, code) == (202, "")
+
+
 def test_event_delivery_disables_redirects_before_sending_bearer(
     delivery, settings, monkeypatch
 ):
@@ -675,3 +697,39 @@ def test_event_delivery_management_command_watches_until_stopped(monkeypatch):
         call_command("publish_event_deliveries", "--watch", "--interval", "1")
 
     assert calls == ["run"]
+
+
+def test_event_delivery_command_bounds_power_work_around_delivery(monkeypatch):
+    calls = []
+    command_path = "runtime.management.commands.publish_event_deliveries"
+    monkeypatch.setattr(
+        f"{command_path}.process_runtime_wakes",
+        lambda *, limit: calls.append(("wake", limit))
+        or type("Wake", (), {"started": 0, "failed": 0, "unavailable": 1})(),
+    )
+    monkeypatch.setattr(
+        f"{command_path}.publish_pending_event_deliveries",
+        lambda *, limit: calls.append(("delivery", limit))
+        or event_delivery.DeliveryReport(delivered=0),
+    )
+    monkeypatch.setattr(
+        f"{command_path}.cleanup_runtime_intents",
+        lambda: calls.append(("cleanup", None)) or 0,
+    )
+    monkeypatch.setattr(
+        f"{command_path}.stop_idle_workspaces",
+        lambda *, limit: calls.append(("idle", limit))
+        or type("Idle", (), {"stopped": 0, "unavailable": 2})(),
+    )
+
+    output = StringIO()
+    call_command("publish_event_deliveries", stdout=output)
+
+    assert calls == [
+        ("wake", 1),
+        ("delivery", 1),
+        ("cleanup", None),
+        ("idle", 1),
+    ]
+    assert "wake unavailable 1" in output.getvalue()
+    assert "idle unavailable 2" in output.getvalue()

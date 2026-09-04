@@ -19,6 +19,7 @@ from runtime.exceptions import (
 from runtime.models import ConversationBinding, Execution, RuntimeProfile, Workspace
 
 from .retry import run_with_sqlite_lock_retry
+from .runtime_intents import request_execution_wake_locked
 from .validation import (
     MAX_EXECUTION_PAYLOAD_BYTES,
     digest_payload,
@@ -167,6 +168,8 @@ def _create_contract_execution_once(
     )
     if existing is not None:
         _ensure_contract_replay(existing, command, profile_id)
+        if existing.status == "queued":
+            request_execution_wake_locked(workspace)
         return existing, False
     existing_command = Execution.objects.filter(command_id=command.command_id).first()
     if existing_command is not None:
@@ -205,6 +208,7 @@ def _create_contract_execution_once(
         raise RuntimeConflictError(
             "execution identity conflicts with existing state"
         ) from exc
+    request_execution_wake_locked(workspace)
     return execution, True
 
 
@@ -251,13 +255,15 @@ def _create_execution_once(
         _ensure_conversation_binding(profile, conversation_ref)
     try:
         with transaction.atomic():
-            return Execution.objects.create(
+            execution = Execution.objects.create(
                 workspace_id=workspace_id,
                 profile_id=profile_id,
                 idempotency_key=idempotency_key,
                 input_payload=payload,
                 payload_digest=payload_digest,
             )
+            request_execution_wake_locked(workspace)
+            return execution
     except IntegrityError:
         # Another transaction won the unique workspace/key race. Re-read it
         # under the outer transaction and apply the same exact-retry rule.
@@ -269,6 +275,8 @@ def _create_execution_once(
         if existing is None:
             raise
         _ensure_exact_retry(existing, profile_id, payload_digest)
+        if existing.status == "queued":
+            request_execution_wake_locked(workspace)
         return existing
 
 

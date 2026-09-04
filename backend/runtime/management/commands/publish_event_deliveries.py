@@ -3,6 +3,11 @@ from time import sleep
 from django.core.management.base import BaseCommand, CommandError
 
 from runtime.services.event_delivery import publish_pending_event_deliveries
+from runtime.services.runtime_intents import cleanup_runtime_intents
+from runtime.services.runtime_power import (
+    process_runtime_wakes,
+    stop_idle_workspaces,
+)
 
 
 class Command(BaseCommand):
@@ -52,8 +57,55 @@ class Command(BaseCommand):
                 sleep(interval)
 
     def _run_once(self):
-        report = publish_pending_event_deliveries()
+        try:
+            # Bound Fly latency ahead of the durable event queue. Execution
+            # wakes are ordered ahead of speculative intent by the service.
+            wake = process_runtime_wakes(limit=1)
+        except Exception as exc:  # noqa: BLE001 - delivery must survive power faults
+            wake = None
+            self.stderr.write(f"Runtime wake pass failed: {type(exc).__name__}")
+
+        try:
+            report = _publish_one_delivery()
+        except Exception as exc:  # noqa: BLE001 - cleanup/next wake must continue
+            report = None
+            self.stderr.write(f"Event delivery pass failed: {type(exc).__name__}")
+
+        try:
+            expired = cleanup_runtime_intents()
+        except Exception as exc:  # noqa: BLE001 - cleanup is independently bounded
+            expired = 0
+            self.stderr.write(f"Runtime intent cleanup failed: {type(exc).__name__}")
+
+        try:
+            idle = stop_idle_workspaces(limit=1)
+        except Exception as exc:  # noqa: BLE001 - idle stop cannot stop future wakes
+            idle = None
+            self.stderr.write(f"Runtime idle-stop pass failed: {type(exc).__name__}")
+
+        delivered = report.delivered if report is not None else 0
+        deferred = report.deferred if report is not None else 0
+        exhausted = report.exhausted if report is not None else 0
+        wake_started = wake.started if wake is not None else 0
+        wake_failed = wake.failed if wake is not None else 0
+        wake_unavailable = wake.unavailable if wake is not None else 0
+        idle_stopped = idle.stopped if idle is not None else 0
+        idle_unavailable = idle.unavailable if idle is not None else 0
         self.stdout.write(
-            f"Delivered {report.delivered} event(s); deferred {report.deferred}; "
-            f"exhausted {report.exhausted}."
+            f"Wake started {wake_started}; wake failed {wake_failed}; "
+            f"wake unavailable {wake_unavailable}; "
+            f"Delivered {delivered} event(s); deferred {deferred}; "
+            f"exhausted {exhausted}; expired {expired} intent(s); "
+            f"idle stopped {idle_stopped}; idle unavailable {idle_unavailable}."
         )
+
+
+def _publish_one_delivery():
+    """Keep tiny legacy command fakes usable while enforcing one live claim."""
+
+    try:
+        return publish_pending_event_deliveries(limit=1)
+    except TypeError as exc:
+        if "unexpected keyword" not in str(exc):
+            raise
+        return publish_pending_event_deliveries()

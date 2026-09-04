@@ -30,6 +30,7 @@ from runtime.models import (
     ExecutionStatus,
     Lease,
     LeaseState,
+    RuntimeOperationState,
     RuntimeProfile,
     RuntimeProfileLifecycleState,
     Workspace,
@@ -63,6 +64,7 @@ from runtime.providers import (
 from runtime.providers.protocol import WorkspaceProvider, provider_workspace_context
 
 from .retry import run_with_sqlite_lock_retry
+from .runtime_readiness import advance_runtime_start_epoch_locked
 
 # A Machine reconciliation can make four sequential ten-second provider
 # requests (inspect, volume check, create, and timeout reconciliation). Keep
@@ -604,6 +606,10 @@ class WorkspaceLifecycle:
                     machine_name = None
                     next_phase = WorkspaceProvisioningPhase.APP_READY
                     workspace.machine_generation = target
+                    # The first provider start also needs a server-owned
+                    # epoch.  The readiness receipt below is opened by the
+                    # activation bind once the existing Machine is healthy.
+                    advance_runtime_start_epoch_locked(workspace)
                 else:
                     source = workspace.machine_generation
                     if source != expected_source_generation:
@@ -630,6 +636,7 @@ class WorkspaceLifecycle:
                     # part of the claim transaction.
                     workspace.machine_generation = target
                     workspace.machine_ref = None
+                    advance_runtime_start_epoch_locked(workspace)
 
                 workspace.provisioning_id = operation_id
                 workspace.provisioning_kind = kind
@@ -662,6 +669,12 @@ class WorkspaceLifecycle:
                     update_fields=[
                         "machine_generation",
                         "machine_ref",
+                        "runtime_start_epoch",
+                        "ready_generation",
+                        "ready_start_epoch",
+                        "ready_boot_id",
+                        "ready_at",
+                        "runtime_last_seen_at",
                         "provisioning_id",
                         "provisioning_kind",
                         "provisioning_phase",
@@ -1194,6 +1207,13 @@ class WorkspaceLifecycle:
             workspace.provisioning_phase = WorkspaceProvisioningPhase.IDLE
             workspace.provisioning_claim_token = None
             workspace.provisioning_claim_expires_at = None
+            # Activation has proven the recorded Machine is live, but the
+            # runtime still must authenticate, reconcile profiles, and post a
+            # current-epoch receipt before claims resume.
+            workspace.runtime_operation_id = uuid.uuid4()
+            workspace.runtime_operation_state = RuntimeOperationState.AWAITING_READINESS
+            workspace.runtime_operation_trigger = None
+            workspace.runtime_operation_requested_at = timezone.now()
             # Keep the operation ID and source/target generation for exact
             # replacement replay; claim ownership is no longer active.
             workspace.save(
@@ -1202,6 +1222,10 @@ class WorkspaceLifecycle:
                     "provisioning_phase",
                     "provisioning_claim_token",
                     "provisioning_claim_expires_at",
+                    "runtime_operation_id",
+                    "runtime_operation_state",
+                    "runtime_operation_trigger",
+                    "runtime_operation_requested_at",
                     "updated_at",
                 ]
             )

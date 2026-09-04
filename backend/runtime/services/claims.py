@@ -20,6 +20,7 @@ from runtime.exceptions import (
     RuntimeValidationError,
 )
 from runtime.models import (
+    IN_FLIGHT_PROVISIONING_PHASES,
     Attempt,
     AttemptStatus,
     Execution,
@@ -30,12 +31,12 @@ from runtime.models import (
     RuntimeProfile,
     RuntimeProfileLifecycleState,
     Workspace,
-    WorkspaceProvisioningPhase,
 )
 
 from .profiles import profile_is_claim_ready
 from .retry import run_with_sqlite_lock_retry
 from .runtime_auth import RuntimeContext
+from .runtime_readiness import require_current_runtime_ready_locked
 
 LEASE_SECONDS = 60
 MAX_AVAILABLE_SLOTS = 8
@@ -98,13 +99,14 @@ def _claim_next_execution_once(
         raise RuntimeLeaseConflictError("runtime workspace does not exist")
     _check_context_generation(workspace, context)
     if (
-        workspace.provisioning_phase != WorkspaceProvisioningPhase.IDLE
+        workspace.provisioning_phase in IN_FLIGHT_PROVISIONING_PHASES
         or workspace.machine_generation <= 0
         or not workspace.fly_app_ref
         or not workspace.volume_ref
         or not workspace.machine_ref
     ):
         raise RuntimeNotReadyError("workspace is not ready for claims")
+    require_current_runtime_ready_locked(workspace, context)
 
     _reconcile_expired_leases(workspace)
 

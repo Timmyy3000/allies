@@ -33,7 +33,8 @@ RUN uv sync --locked --no-dev
 
 COPY backend/ ./
 COPY docker-entrypoint.sh /usr/local/bin/foundry-entrypoint
-RUN chmod 0755 /usr/local/bin/foundry-entrypoint
+RUN sed -i 's/\r$//' /usr/local/bin/foundry-entrypoint \
+    && chmod 0755 /usr/local/bin/foundry-entrypoint
 
 EXPOSE 8000
 

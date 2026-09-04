@@ -19,7 +19,6 @@ from urllib.parse import urlsplit
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
-
 from observability.settings import FoundryObservabilitySettings
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -65,8 +64,89 @@ def env_profile_text(name: str, default: str, *, max_length: int) -> str:
     return value
 
 
+def env_positive_int(name: str, default: int, *, maximum: int = 86400) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must be a positive integer") from exc
+    if not 1 <= value <= maximum:
+        raise ImproperlyConfigured(f"{name} must be between 1 and {maximum}")
+    return value
+
+
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 database_url = os.getenv("DATABASE_URL")
+
+ALLIES_RUNTIME_IDLE_STOP_ENABLED = env_bool(
+    "ALLIES_RUNTIME_IDLE_STOP_ENABLED", default=False
+)
+ALLIES_RUNTIME_POWER_PROOF_ENABLED = env_bool(
+    "ALLIES_RUNTIME_POWER_PROOF_ENABLED", default=False
+)
+ALLIES_FLY_API_BASE_URL = os.getenv("ALLIES_FLY_API_BASE_URL")
+if ALLIES_FLY_API_BASE_URL:
+    try:
+        runtime_power_url = urlsplit(ALLIES_FLY_API_BASE_URL)
+        runtime_power_port = runtime_power_url.port
+    except ValueError:
+        runtime_power_url = None
+        runtime_power_port = None
+    if not (DEBUG and ALLIES_RUNTIME_POWER_PROOF_ENABLED):
+        raise ImproperlyConfigured(
+            "ALLIES_FLY_API_BASE_URL is only available for the debug power proof"
+        )
+    if (
+        runtime_power_url is None
+        or runtime_power_url.scheme.lower() not in {"http", "https"}
+        or not runtime_power_url.hostname
+        or runtime_power_url.username is not None
+        or runtime_power_url.password is not None
+        or runtime_power_port is not None
+        and not 0 <= runtime_power_port <= 65535
+        or runtime_power_url.path not in ("", "/")
+        or runtime_power_url.query
+        or runtime_power_url.fragment
+        or any(character in ALLIES_FLY_API_BASE_URL for character in "\x00\r\n")
+    ):
+        raise ImproperlyConfigured("ALLIES_FLY_API_BASE_URL must be a plain origin")
+    if runtime_power_url.hostname.lower() not in {
+        "localhost",
+        "127.0.0.1",
+        "::1",
+        "fly-simulator",
+    }:
+        raise ImproperlyConfigured(
+            "ALLIES_FLY_API_BASE_URL host must be loopback or fly-simulator"
+        )
+
+ALLIES_RUNTIME_KEEP_WARM_SECONDS = env_positive_int(
+    "ALLIES_RUNTIME_KEEP_WARM_SECONDS", 600
+)
+ALLIES_RUNTIME_INTENT_TTL_SECONDS = env_positive_int(
+    "ALLIES_RUNTIME_INTENT_TTL_SECONDS", 120
+)
+ALLIES_RUNTIME_INTENT_RETENTION_SECONDS = env_positive_int(
+    "ALLIES_RUNTIME_INTENT_RETENTION_SECONDS", 600
+)
+if ALLIES_RUNTIME_INTENT_RETENTION_SECONDS < ALLIES_RUNTIME_INTENT_TTL_SECONDS:
+    raise ImproperlyConfigured(
+        "ALLIES_RUNTIME_INTENT_RETENTION_SECONDS must be at least "
+        "ALLIES_RUNTIME_INTENT_TTL_SECONDS"
+    )
+ALLIES_RUNTIME_SPECULATIVE_START_COOLDOWN_SECONDS = env_positive_int(
+    "ALLIES_RUNTIME_SPECULATIVE_START_COOLDOWN_SECONDS", 300
+)
+ALLIES_RUNTIME_READINESS_FRESHNESS_SECONDS = env_positive_int(
+    "ALLIES_RUNTIME_READINESS_FRESHNESS_SECONDS", 60
+)
+if ALLIES_RUNTIME_READINESS_FRESHNESS_SECONDS <= 30:
+    raise ImproperlyConfigured(
+        "ALLIES_RUNTIME_READINESS_FRESHNESS_SECONDS must be greater than twice "
+        "the 15-second runtime heartbeat interval"
+    )
 
 ALLIES_CLOUD_SERVICE_TOKEN = os.getenv("ALLIES_CLOUD_SERVICE_TOKEN")
 if not DEBUG and not ALLIES_CLOUD_SERVICE_TOKEN:
@@ -97,19 +177,31 @@ if ALLIES_CLOUD_EVENT_DELIVERY_ENABLED:
         cloud_port = cloud_url.port
     except ValueError:
         cloud_url = None
+    local_proof_cloud = bool(
+        cloud_url is not None
+        and DEBUG
+        and ALLIES_RUNTIME_POWER_PROOF_ENABLED
+        and cloud_url.scheme.lower() == "http"
+        and cloud_url.hostname
+        and cloud_url.hostname.lower() == "host.docker.internal"
+    )
     if (
         cloud_url is None
         or cloud_url.scheme.lower() != "https"
+        and not local_proof_cloud
         or not cloud_url.hostname
         or cloud_url.username is not None
         or cloud_url.password is not None
         or cloud_port is not None
         and not 0 <= cloud_port <= 65535
+        or cloud_url.path not in ("", "/")
         or cloud_url.query
         or cloud_url.fragment
         or any(character in ALLIES_CLOUD_URL for character in "\x00\r\n")
     ):
-        raise ImproperlyConfigured("ALLIES_CLOUD_URL must be an HTTPS origin")
+        raise ImproperlyConfigured(
+            "ALLIES_CLOUD_URL must be an HTTPS origin or the debug proof Cloud host"
+        )
     if len(ALLIES_CLOUD_EVENT_SERVICE_TOKEN) < 32 or any(
         character.isspace() for character in ALLIES_CLOUD_EVENT_SERVICE_TOKEN
     ):
@@ -118,7 +210,9 @@ if ALLIES_CLOUD_EVENT_DELIVERY_ENABLED:
         )
 
 PROFILE_PROVISIONING_PROVIDER = env_profile_text(
-    "PROFILE_PROVISIONING_PROVIDER", "openai-api", max_length=128  # gitleaks:allow - provider identifier, not a credential
+    "PROFILE_PROVISIONING_PROVIDER",
+    "openai-api",
+    max_length=128,  # gitleaks:allow - provider identifier, not a credential
 )
 PROFILE_PROVISIONING_MODEL = env_profile_text(
     "PROFILE_PROVISIONING_MODEL", "gpt-5.6-luna", max_length=255

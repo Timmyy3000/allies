@@ -15,9 +15,9 @@ from runtime.exceptions import (
     RuntimeValidationError,
 )
 from runtime.models import (
+    IN_FLIGHT_PROVISIONING_PHASES,
     RuntimeCredential,
     Workspace,
-    WorkspaceProvisioningPhase,
 )
 
 from .retry import run_with_sqlite_lock_retry
@@ -165,7 +165,7 @@ def _require_ready_workspace(
     allow_not_ready: bool = False,
 ) -> None:
     if (
-        workspace.provisioning_phase != WorkspaceProvisioningPhase.IDLE
+        workspace.provisioning_phase in IN_FLIGHT_PROVISIONING_PHASES
         or workspace.machine_generation <= 0
         or not workspace.fly_app_ref
         or not workspace.volume_ref
