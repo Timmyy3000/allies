@@ -14,6 +14,10 @@ class IdempotencyConflict(AllyError):
     code = "idempotency_conflict"
 
 
+class RuntimeIntentInvalid(AllyError):
+    code = "validation_error"
+
+
 class ProvisioningRetryable(AllyError):
     code = "provisioning_retryable"
 

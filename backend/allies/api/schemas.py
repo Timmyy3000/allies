@@ -1,7 +1,8 @@
+from typing import Literal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import ConfigDict, Field
+from pydantic import AwareDatetime, ConfigDict, Field
 
 
 class AppearanceInput(Schema):
@@ -48,3 +49,22 @@ class AllyResponse(Schema):
 
 class AllyListResponse(Schema):
     allies: list[AllyResponse]
+
+
+class RuntimeIntentRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    intent: Literal["composing_started"]
+    occurred_at: AwareDatetime
+
+
+class RuntimeIntentResponse(Schema):
+    status: Literal[
+        "disabled",
+        "already_ready",
+        "waking",
+        "ready",
+        "first_provision_required",
+        "rate_limited",
+        "failed",
+    ]
