@@ -14,6 +14,12 @@ class WorkspaceKind(models.TextChoices):
     PERSONAL = "personal", "Personal"
 
 
+class RuntimeIntentMode(models.TextChoices):
+    OFF = "off", "Off"
+    COMPOSING = "composing", "Composing"
+    OPEN = "open", "Open"
+
+
 class MembershipRole(models.TextChoices):
     OWNER = "owner", "Owner"
 
@@ -37,6 +43,11 @@ class Workspace(models.Model):
     )
     name = models.CharField(max_length=120)
     is_active = models.BooleanField(default=True)
+    runtime_intent_mode = models.CharField(
+        max_length=16,
+        choices=RuntimeIntentMode.choices,
+        default=RuntimeIntentMode.OFF,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

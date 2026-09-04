@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from io import BytesIO
 from urllib.error import HTTPError, URLError
+from uuid import UUID
 
 import pytest
 
@@ -16,9 +18,11 @@ from allies.exceptions import (
 from allies.gateways.contracts import ExecutionCommand
 from allies.gateways.foundry import (
     ProfileProvisioningRequest,
+    RuntimeIntentReceipt,
     activate_workspace,
     provision_profile,
     reconcile_execution_intent,
+    request_runtime_intent,
 )
 
 
@@ -117,6 +121,69 @@ def test_gateway_starts_workspace_activation(monkeypatch, settings):
         "authorization": "Bearer service-secret",
         "body": {"version": 1, "workspace_id": request_payload().workspace_id},
     }
+
+
+def test_gateway_forwards_content_free_runtime_intent_with_same_key(
+    monkeypatch, settings
+):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    captured = {}
+    workspace_id = UUID("00000000-0000-4000-8000-000000000001")
+    key = UUID("00000000-0000-4000-8000-000000000002")
+
+    class Opener:
+        def open(self, request, *, timeout):
+            captured["url"] = request.full_url
+            captured["authorization"] = request.get_header("Authorization")
+            captured["idempotency_key"] = request.get_header("Idempotency-key")
+            captured["body"] = json.loads(request.data)
+            captured["timeout"] = timeout
+            return Response({"status": "waking"})
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+
+    result = request_runtime_intent(
+        workspace_id=workspace_id,
+        intent="composing_started",
+        received_at=datetime(2026, 9, 4, 12, tzinfo=UTC),
+        idempotency_key=key,
+    )
+
+    assert isinstance(result, RuntimeIntentReceipt)
+    assert result.status == "waking"
+    assert captured["url"] == (
+        "https://foundry.example.test/api/v1/control/workspaces/"
+        "00000000-0000-4000-8000-000000000001/runtime-intents"
+    )
+    assert captured["authorization"] == "Bearer service-secret"
+    assert captured["idempotency_key"] == str(key)
+    assert captured["body"] == {
+        "intent": "composing_started",
+        "received_at": "2026-09-04T12:00:00Z",
+    }
+    assert captured["timeout"] == settings.ALLIES_FOUNDRY_TIMEOUT_SECONDS
+
+
+def test_gateway_does_not_allow_authorization_override(monkeypatch, settings):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry._foundry_origin",
+        lambda: ("https://foundry.example.test", "service-secret"),
+    )
+
+    with pytest.raises(FoundryGatewayInvalid):
+        from allies.gateways.foundry import _request
+
+        _request(
+            method="POST",
+            path="api/v1/control/workspaces/test",
+            extra_headers={"Authorization": "attacker-token"},
+        )
 
 
 @pytest.mark.parametrize(

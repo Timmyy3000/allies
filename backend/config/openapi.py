@@ -139,6 +139,11 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             ]
         },
     },
+    "SuccessResponse_RuntimeIntentResponse_": {
+        "status": "success",
+        "message": "Runtime intent accepted",
+        "data": {"status": "waking"},
+    },
     "SuccessResponse_ConversationResponse_": {
         "status": "success",
         "message": "Conversation loaded",

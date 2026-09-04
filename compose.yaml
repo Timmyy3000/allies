@@ -18,6 +18,7 @@ x-cloud-service: &cloud-service
     ALLIES_AUTH_NATIVE_ENABLED: "false"
     ALLIES_WAITLIST_ENABLED: "false"
     ALLIES_R2_ENABLED: "false"
+    ALLIES_RUNTIME_INTENT_ENABLED: "${ALLIES_LOCAL_RUNTIME_INTENT_ENABLED:-false}"
     # Do not inherit copied Railway Foundry settings from env.staging. Local
     # Foundry access is an explicit host-environment opt-in.
     ALLIES_FOUNDRY_URL: "${ALLIES_LOCAL_FOUNDRY_URL:-http://host.docker.internal:8100}"
