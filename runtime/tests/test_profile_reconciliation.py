@@ -226,6 +226,11 @@ async def test_profile_reconciler_materializes_then_acknowledges_store_receipt(
     report = await ProfileReconciler(foundry, store).reconcile()
     assert len(report.materialized) == 1
     assert foundry.receipts[0][1]["seed_fingerprint"] == seed.fingerprint
+    profile_config = (
+        tmp_path / "volume" / "profiles" / seed.profile_key / "config.yaml"
+    ).read_text(encoding="utf-8")
+    assert 'provider: "allies_mnemosyne"' in profile_config
+    assert 'mode: "context_only"' in profile_config
 
 
 class StaticFoundry:

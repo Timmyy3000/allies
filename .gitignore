@@ -28,6 +28,10 @@ htmlcov/
 .ruff_cache/
 .mypy_cache/
 
+# Generated, hash-verified image build inputs.
+runtime/hermes-image/wheelhouse/*
+!runtime/hermes-image/wheelhouse/.gitkeep
+
 # Local agent planning, review, evidence, and rendered artifacts
 .agent/
 .lavish/

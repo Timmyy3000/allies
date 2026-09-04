@@ -15,6 +15,9 @@ from .foundry import (
     RepairRequiredError,
 )
 from .profile_store import (
+    DEFAULT_MEMORY_MODE,
+    DEFAULT_MEMORY_POLICY_VERSION,
+    DEFAULT_MEMORY_PROVIDER,
     ProfileCleanupStatus,
     ProfileProvisionStatus,
     ProfileSeed,
@@ -160,6 +163,16 @@ def _runtime_seed(profile: ProfileDesiredState, operation_id: str) -> ProfileSee
             lifecycle_epoch=profile.lifecycle_epoch,
             materialized_generation=profile.machine_generation,
             operation_id=operation_id,
+            memory_provider=_optional_text(
+                payload, "memory_provider", DEFAULT_MEMORY_PROVIDER
+            ),
+            memory_mode=_optional_text(payload, "memory_mode", DEFAULT_MEMORY_MODE),
+            memory_policy_version=_optional_text(
+                payload, "memory_policy_version", DEFAULT_MEMORY_POLICY_VERSION
+            ),
+            memory_tool_allowlist=_optional_list(payload, "memory_tool_allowlist"),
+            memory_profile_isolation=payload.get("memory_profile_isolation", True),
+            memory_sync_roles=_optional_list(payload, "memory_sync_roles"),
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise ProfileReconciliationBlocked(
@@ -181,6 +194,22 @@ def _mapping(payload: dict[str, Any], key: str) -> dict[str, str]:
     ):
         raise TypeError(key)
     return dict(value)
+
+
+def _optional_text(payload: dict[str, Any], key: str, default: str) -> str:
+    value = payload.get(key, default)
+    if not isinstance(value, str):
+        raise TypeError(key)
+    return value
+
+
+def _optional_list(payload: dict[str, Any], key: str) -> tuple[str, ...]:
+    value = payload.get(key, ())
+    if not isinstance(value, (list, tuple)) or not all(
+        isinstance(item, str) for item in value
+    ):
+        raise TypeError(key)
+    return tuple(value)
 
 
 __all__ = [

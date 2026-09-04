@@ -46,6 +46,23 @@ from .runtime_auth import RuntimeContext
 from .validation import digest_payload, validate_nonempty
 
 PROFILE_SEED_VERSION = 1
+PROFILE_FINGERPRINT_VERSION = 2
+DEFAULT_MEMORY_PROVIDER = "allies_mnemosyne"
+DEFAULT_MEMORY_MODE = "context_only"
+DEFAULT_MEMORY_POLICY_VERSION = "allies-mnemosyne-v1"
+MEMORY_MODES = frozenset({"context_only", "narrow_tools"})
+MEMORY_TOOLS = frozenset(
+    {
+        "mnemosyne_forget",
+        "mnemosyne_forget_canonical",
+        "mnemosyne_invalidate",
+        "mnemosyne_recall",
+        "mnemosyne_recall_canonical",
+        "mnemosyne_remember",
+        "mnemosyne_remember_canonical",
+        "mnemosyne_update",
+    }
+)
 CLEANUP_GRACE_SECONDS = 60
 MAX_PROFILE_SEED_BYTES = 128 * 1024
 _OPAQUE_REFERENCE = re.compile(
@@ -71,6 +88,12 @@ class ProfileSeed:
     base_url: str | None = None
     version: int = PROFILE_SEED_VERSION
     first_chat_instruction_version: int = 1
+    memory_provider: str = DEFAULT_MEMORY_PROVIDER
+    memory_mode: str = DEFAULT_MEMORY_MODE
+    memory_policy_version: str = DEFAULT_MEMORY_POLICY_VERSION
+    memory_tool_allowlist: tuple[str, ...] = ()
+    memory_profile_isolation: bool = True
+    memory_sync_roles: tuple[str, ...] = ()
 
     def payload(self) -> dict[str, Any]:
         return _normalize_seed(self)
@@ -633,6 +656,12 @@ def _normalize_seed(seed: ProfileSeed | Mapping[str, Any]) -> dict[str, Any]:
             "base_url": seed.base_url,
             "version": seed.version,
             "first_chat_instruction_version": seed.first_chat_instruction_version,
+            "memory_provider": seed.memory_provider,
+            "memory_mode": seed.memory_mode,
+            "memory_policy_version": seed.memory_policy_version,
+            "memory_tool_allowlist": list(seed.memory_tool_allowlist),
+            "memory_profile_isolation": seed.memory_profile_isolation,
+            "memory_sync_roles": list(seed.memory_sync_roles),
         }
     elif isinstance(seed, Mapping):
         values = dict(seed)
@@ -688,6 +717,31 @@ def _normalize_seed(seed: ProfileSeed | Mapping[str, Any]) -> dict[str, Any]:
             )
         credential_refs[normalized_name] = reference
     credential_refs = dict(sorted(credential_refs.items()))
+    memory_provider = values.get("memory_provider", DEFAULT_MEMORY_PROVIDER)
+    if memory_provider != DEFAULT_MEMORY_PROVIDER:
+        raise RuntimeValidationError("unsupported memory provider")
+    memory_mode = values.get("memory_mode", DEFAULT_MEMORY_MODE)
+    if memory_mode not in MEMORY_MODES:
+        raise RuntimeValidationError("unsupported memory mode")
+    memory_policy_version = values.get(
+        "memory_policy_version", DEFAULT_MEMORY_POLICY_VERSION
+    )
+    if memory_policy_version != DEFAULT_MEMORY_POLICY_VERSION:
+        raise RuntimeValidationError("unsupported memory policy version")
+    memory_tool_allowlist = _memory_string_list(
+        values.get("memory_tool_allowlist", []), "memory_tool_allowlist"
+    )
+    if not set(memory_tool_allowlist).issubset(MEMORY_TOOLS):
+        raise RuntimeValidationError("unsupported memory tool allowlist")
+    if memory_mode == DEFAULT_MEMORY_MODE and memory_tool_allowlist:
+        raise RuntimeValidationError("context-only memory cannot advertise tools")
+    if values.get("memory_profile_isolation", True) is not True:
+        raise RuntimeValidationError("memory profile isolation is required")
+    memory_sync_roles = _memory_string_list(
+        values.get("memory_sync_roles", []), "memory_sync_roles"
+    )
+    if memory_sync_roles:
+        raise RuntimeValidationError("memory sync roles are disabled")
     payload = {
         "version": version,
         "personality": personality,
@@ -697,6 +751,12 @@ def _normalize_seed(seed: ProfileSeed | Mapping[str, Any]) -> dict[str, Any]:
         "first_chat_instruction": instruction,
         "first_chat_instruction_version": instruction_version,
         "credential_refs": credential_refs,
+        "memory_provider": memory_provider,
+        "memory_mode": memory_mode,
+        "memory_policy_version": memory_policy_version,
+        "memory_tool_allowlist": list(memory_tool_allowlist),
+        "memory_profile_isolation": True,
+        "memory_sync_roles": [],
     }
     if len(str(payload).encode("utf-8")) > MAX_PROFILE_SEED_BYTES:
         raise RuntimeValidationError("profile seed exceeds the bounded size")
@@ -725,6 +785,14 @@ def _seed_fingerprint(
             "base_url": payload["base_url"],
         },
         "credential_refs": payload["credential_refs"],
+        "memory": {
+            "provider": payload["memory_provider"],
+            "mode": payload["memory_mode"],
+            "policy_version": payload["memory_policy_version"],
+            "tools": payload["memory_tool_allowlist"],
+            "profile_isolation": payload["memory_profile_isolation"],
+            "sync_roles": payload["memory_sync_roles"],
+        },
     }
     encoded = json.dumps(
         canonical,
@@ -732,7 +800,9 @@ def _seed_fingerprint(
         sort_keys=True,
         separators=(",", ":"),
     ).encode("utf-8")
-    return hashlib.sha256(b"allies-profile-seed-v1\0" + encoded).hexdigest()
+    return hashlib.sha256(
+        f"allies-profile-seed-v{PROFILE_FINGERPRINT_VERSION}\0".encode() + encoded
+    ).hexdigest()
 
 
 def _desired_state(profile: RuntimeProfile) -> ProfileDesiredState:
@@ -934,6 +1004,20 @@ def _seed_text(value: Any, name: str, max_length: int) -> str:
     if "\x00" in value or "\r" in value:
         raise RuntimeValidationError(f"{name} contains an invalid control character")
     return value
+
+
+def _memory_string_list(value: Any, name: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or len(value) > 8:
+        raise RuntimeValidationError(f"{name} must be a bounded list")
+    if any(
+        not isinstance(item, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,63}", item)
+        for item in value
+    ):
+        raise RuntimeValidationError(f"{name} contains an invalid value")
+    normalized = tuple(sorted(value))
+    if len(set(normalized)) != len(normalized):
+        raise RuntimeValidationError(f"{name} contains duplicate values")
+    return normalized
 
 
 __all__ = [

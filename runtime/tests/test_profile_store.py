@@ -4,6 +4,7 @@ import shutil
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from threading import Event, Lock
@@ -73,6 +74,84 @@ def profile_path(store: ProfileStore, seed: ProfileSeed) -> Path:
     return store.volume_root / "profiles" / (seed.hermes_profile_key or "")
 
 
+def test_memory_policy_is_bounded_and_changes_seed_fingerprint():
+    context_only = make_seed()
+    narrow = ProfileSeed(
+        foundry_profile_id=PROFILE_ID,
+        ally_name="Aster",
+        personality="Keep this text exactly.\n",
+        provider="openai",
+        model="gpt-test",
+        first_chat_instruction="Start by greeting the Ally.",
+        credential_refs={"OPENAI_API_KEY": "vault://tenant/openai"},
+        memory_mode="narrow_tools",
+        memory_tool_allowlist=("mnemosyne_recall", "mnemosyne_remember"),
+    )
+    assert context_only.memory_tool_allowlist == ()
+    assert narrow.memory_tool_allowlist == (
+        "mnemosyne_recall",
+        "mnemosyne_remember",
+    )
+    assert context_only.fingerprint != narrow.fingerprint
+    contract_seed = ProfileSeed(
+        foundry_profile_id="00000000-0000-0000-0000-000000000001",
+        ally_name="ally-a",
+        personality="p",
+        provider="openai",
+        model="gpt-test",
+        first_chat_instruction="i",
+        credential_refs={"PROVIDER_API": "vault://p"},
+    )
+    assert contract_seed.fingerprint == (
+        "cd995ea7543b218b8380d61d6b051548da09af3a13a9bfcc529b33fca9a95db9"
+    )
+    with pytest.raises(ProfileInputError):
+        ProfileSeed(
+            foundry_profile_id=PROFILE_ID,
+            ally_name="Aster",
+            personality="Keep this text exactly.\n",
+            provider="openai",
+            model="gpt-test",
+            first_chat_instruction="Start by greeting the Ally.",
+            credential_refs={"OPENAI_API_KEY": "vault://tenant/openai"},
+            memory_tool_allowlist=("remember",),
+        )
+    with pytest.raises(ProfileInputError):
+        ProfileSeed(
+            foundry_profile_id=PROFILE_ID,
+            ally_name="Aster",
+            personality="Keep this text exactly.\n",
+            provider="openai",
+            model="gpt-test",
+            first_chat_instruction="Start by greeting the Ally.",
+            credential_refs={"OPENAI_API_KEY": "vault://tenant/openai"},
+            memory_policy_version="future-policy",
+        )
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"memory_provider": "stock_mnemosyne"},
+        {"memory_mode": "broad_tools"},
+        {"memory_sync_roles": ("push",)},
+        {"memory_profile_isolation": False},
+        {"memory_tool_allowlist": ("mnemosyne_recall",)},
+        {"memory_tool_allowlist": {"mnemosyne_recall"}},
+        {
+            "memory_mode": "narrow_tools",
+            "memory_tool_allowlist": (
+                "mnemosyne_recall",
+                "mnemosyne_recall",
+            ),
+        },
+    ],
+)
+def test_memory_policy_rejects_unbounded_or_unsupported_values(overrides):
+    with pytest.raises(ProfileInputError):
+        replace(make_seed(), **overrides)
+
+
 def test_key_derivation_is_stable_and_hermes_safe():
     key = derive_profile_key(PROFILE_ID)
     assert key == "ally-v1-12345678123456781234567812345678"
@@ -104,19 +183,24 @@ def test_first_publish_exact_layout_manifest_and_secret_permissions(tmp_path):
     )
     soul = (profile / "SOUL.md").read_text(encoding="utf-8")
     assert soul.count("allies-first-chat:v1") == 1
-    assert (profile / "config.yaml").read_text(encoding="utf-8") == (
-        'model:\n  provider: "openai"\n  default: "gpt-test"\n'
-    )
+    config = (profile / "config.yaml").read_text(encoding="utf-8")
+    assert 'model:\n  provider: "openai"\n  default: "gpt-test"\n' in config
+    assert 'memory:\n  provider: "allies_mnemosyne"' in config
+    assert '  mode: "context_only"' in config
+    assert "    shared_surface_read: false" in config
     assert PROFILE_SECRET in (profile / ".env").read_text(encoding="utf-8")
     if os.name != "nt":
         assert (os.stat(profile / ".env", follow_symlinks=False).st_mode & 0o077) == 0
 
     manifest = json.loads((profile / MANIFEST_NAME).read_text(encoding="utf-8"))
-    assert manifest["schema_version"] == 1
+    assert manifest["schema_version"] == 2
     assert manifest["foundry_profile_id"] == PROFILE_ID
     assert manifest["hermes_profile_key"] == seed.hermes_profile_key
     assert manifest["seed_fingerprint"] == seed.fingerprint
     assert manifest["completion_state"] == "complete"
+    assert manifest["memory_provider"] == "allies_mnemosyne"
+    assert manifest["memory_mode"] == "context_only"
+    assert manifest["memory_tools"] == []
     assert PROFILE_SECRET not in json.dumps(manifest)
     assert PROFILE_SECRET not in json.dumps(receipt.to_dict())
 
@@ -394,6 +478,45 @@ def test_partial_and_incompatible_state_fail_closed(tmp_path):
     conflict = make_seed(personality="Changed immutable personality")
     assert store.materialize(conflict).status is ProfileProvisionStatus.CONFLICT
     assert profile.exists()
+
+
+def test_legacy_manifest_is_upgraded_without_replacing_profile_state(tmp_path):
+    store = make_store(tmp_path)
+    seed = make_seed()
+    assert store.materialize(seed).status is ProfileProvisionStatus.CREATED
+    manifest_path = profile_path(store, seed) / MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = 1
+    manifest["seed_fingerprint"] = seed.legacy_fingerprint
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    marker = profile_path(store, seed) / "sessions" / "preserved"
+    marker.write_text("keep", encoding="utf-8")
+
+    receipt = store.materialize(seed)
+
+    assert receipt.status is ProfileProvisionStatus.EXISTING
+    assert marker.read_text(encoding="utf-8") == "keep"
+    upgraded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert upgraded["schema_version"] == 2
+    assert upgraded["seed_fingerprint"] == seed.fingerprint
+    assert "memory:\n" in (profile_path(store, seed) / "config.yaml").read_text(
+        encoding="utf-8"
+    )
+
+
+def test_legacy_manifest_with_an_unverified_fingerprint_requires_repair(tmp_path):
+    store = make_store(tmp_path)
+    seed = make_seed()
+    assert store.materialize(seed).status is ProfileProvisionStatus.CREATED
+    manifest_path = profile_path(store, seed) / MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["schema_version"] = 1
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    receipt = store.materialize(seed)
+
+    assert receipt.status is ProfileProvisionStatus.REPAIR_REQUIRED
+    assert receipt.repair_code == "legacy_manifest_requires_repair"
 
 
 def test_unknown_temp_state_is_repairable_and_does_not_publish(tmp_path):
