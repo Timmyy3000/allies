@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>First-turn transcript bootstrap plan</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&amp;family=Geist+Mono:wght@400..600&amp;display=swap" rel="stylesheet">
+  <link href="https://vercel.com/geist/vercel-brand.css" rel="stylesheet">
+  <style>
+    :root { color-scheme: light dark; }
+    *, *::before, *::after { box-sizing: border-box; }
+    body { margin: 0; font-family: Geist, system-ui, sans-serif; background: var(--vbg-surface-primary, #fff); color: var(--vbg-text-primary, #111); }
+    .vbg-skip-link { position: static !important; display: block; width: min(1180px, calc(100% - 40px)); margin: 12px auto 0; color: inherit; font-size: 13px; }
+    code, .vbg-mono { font-family: "Geist Mono", ui-monospace, monospace; }
+    .vbg-custom-shell { width: min(1180px, calc(100% - 40px)); margin: 0 auto; padding: 32px 0 72px; }
+    .vbg-custom-mast { display: flex; justify-content: space-between; gap: 24px; align-items: baseline; padding-bottom: 22px; border-bottom: 1px solid var(--vbg-border-subtle, #ddd); }
+    .vbg-custom-mast strong { font-size: 16px; }
+    .vbg-custom-meta { color: var(--vbg-text-secondary, #666); font-size: 13px; text-align: right; }
+    .vbg-custom-opening { display: grid; grid-template-columns: minmax(0, 7fr) minmax(240px, 3fr); gap: 56px; align-items: end; padding: 72px 0 60px; }
+    .vbg-custom-opening h1 { font-size: clamp(42px, 7vw, 84px); letter-spacing: -.055em; line-height: .96; margin: 0 0 26px; max-width: 850px; }
+    .vbg-custom-opening p { font-size: 20px; line-height: 1.45; max-width: 720px; margin: 0; }
+    .vbg-custom-answer { border-top: 3px solid currentColor; padding-top: 18px; }
+    .vbg-custom-answer b { display: block; font-size: 31px; line-height: 1; margin-bottom: 10px; }
+    .vbg-custom-answer span { color: var(--vbg-text-secondary, #666); line-height: 1.45; }
+    main section { padding: 58px 0; border-top: 1px solid var(--vbg-border-subtle, #ddd); }
+    main h2 { font-size: clamp(28px, 4vw, 46px); letter-spacing: -.035em; margin: 0 0 28px; line-height: 1.05; }
+    main h3 { font-size: 19px; margin: 30px 0 12px; }
+    p, li { line-height: 1.58; }
+    .vbg-custom-lede { max-width: 760px; font-size: 19px; color: var(--vbg-text-secondary, #555); }
+    .vbg-custom-grid { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 24px; }
+    .vbg-custom-span-4 { grid-column: span 4; }
+    .vbg-custom-span-6 { grid-column: span 6; }
+    .vbg-custom-span-8 { grid-column: span 8; }
+    .vbg-custom-span-12 { grid-column: span 12; }
+    .vbg-custom-fact { border-top: 1px solid var(--vbg-border-strong, #777); padding-top: 14px; }
+    .vbg-custom-fact small { display: block; color: var(--vbg-text-secondary, #666); margin-bottom: 8px; }
+    .vbg-custom-fact strong { font-size: 22px; line-height: 1.2; display: block; }
+    .vbg-custom-fact p { margin-bottom: 0; }
+    .vbg-custom-compare { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 0; border-block: 1px solid var(--vbg-border-default, #aaa); }
+    .vbg-custom-compare article { padding: 28px 30px 30px 0; }
+    .vbg-custom-compare article + article { border-left: 1px solid var(--vbg-border-default, #aaa); padding-left: 30px; }
+    .vbg-custom-compare h3 { margin-top: 0; }
+    .vbg-custom-compare ul { padding-left: 20px; margin-bottom: 0; }
+    .vbg-custom-flow { counter-reset: flow; margin-top: 34px; border-top: 1px solid var(--vbg-border-default, #aaa); }
+    .vbg-custom-flow article { counter-increment: flow; display: grid; grid-template-columns: 72px minmax(0, 2fr) minmax(220px, 1fr); gap: 24px; padding: 24px 0; border-bottom: 1px solid var(--vbg-border-subtle, #ddd); align-items: baseline; }
+    .vbg-custom-flow article::before { content: "0" counter(flow); font: 500 15px "Geist Mono", monospace; color: var(--vbg-text-secondary, #666); }
+    .vbg-custom-flow h3 { margin: 0; }
+    .vbg-custom-flow p { margin: 0; color: var(--vbg-text-secondary, #555); }
+    .vbg-custom-sequence { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); gap: 12px; margin-top: 34px; }
+    .vbg-custom-sequence div { min-height: 128px; padding: 16px; border: 1px solid var(--vbg-border-default, #aaa); }
+    .vbg-custom-sequence b { display: block; margin-bottom: 9px; }
+    .vbg-custom-sequence small { color: var(--vbg-text-secondary, #666); line-height: 1.4; display: block; }
+    .vbg-custom-gate { border: 2px solid currentColor !important; }
+    .vbg-custom-table { overflow-x: auto; border-block: 1px solid var(--vbg-border-default, #aaa); }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; }
+    caption { text-align: left; padding: 14px 0; color: var(--vbg-text-secondary, #666); }
+    th, td { padding: 15px 14px; text-align: left; vertical-align: baseline; border-bottom: 1px solid var(--vbg-border-subtle, #ddd); overflow-wrap: anywhere; }
+    th { font-size: 13px; font-weight: 600; }
+    td { font-size: 14px; }
+    .vbg-custom-contract { margin-top: 30px; display: grid; grid-template-columns: minmax(0,2fr) minmax(0,3fr); gap: 36px; }
+    .vbg-custom-contract dl { margin: 0; display: grid; grid-template-columns: minmax(130px,1fr) minmax(0,2fr); }
+    .vbg-custom-contract dt, .vbg-custom-contract dd { padding: 12px 0; margin: 0; border-bottom: 1px solid var(--vbg-border-subtle,#ddd); }
+    .vbg-custom-contract dt { font: 500 13px "Geist Mono", monospace; }
+    .vbg-custom-contract dd { overflow-wrap: anywhere; }
+    .vbg-custom-checks { columns: 2; column-gap: 48px; padding-left: 22px; }
+    .vbg-custom-checks li { break-inside: avoid; margin-bottom: 11px; }
+    .vbg-custom-callout { margin-top: 28px; padding: 22px 0; border-block: 2px solid currentColor; font-size: 20px; max-width: 850px; }
+    .vbg-custom-footer { padding-top: 40px; color: var(--vbg-text-secondary, #666); font-size: 13px; border-top: 1px solid var(--vbg-border-subtle, #ddd); }
+    @media (max-width: 820px) {
+      .vbg-custom-opening { grid-template-columns: 1fr; gap: 32px; padding-top: 48px; }
+      .vbg-custom-span-4, .vbg-custom-span-6, .vbg-custom-span-8 { grid-column: span 12; }
+      .vbg-custom-compare, .vbg-custom-contract { grid-template-columns: 1fr; }
+      .vbg-custom-compare article + article { border-left: 0; border-top: 1px solid var(--vbg-border-default,#aaa); padding-left: 0; }
+      .vbg-custom-flow article { grid-template-columns: 44px minmax(0,1fr); }
+      .vbg-custom-flow article p { grid-column: 2; }
+      .vbg-custom-sequence { grid-template-columns: 1fr; }
+      .vbg-custom-sequence div { min-height: 0; }
+      .vbg-custom-checks { columns: 1; }
+    }
+    @media (max-width: 480px) { .vbg-custom-shell { width: min(100% - 24px,1180px); } .vbg-custom-mast { display:block; } .vbg-custom-meta { text-align:left; margin-top:8px; } }
+  </style>
+</head>
+<body class="vbg-report">
+  <a class="vbg-skip-link" href="#main">Skip to content</a>
+  <div class="vbg-custom-shell">
+    <header class="vbg-custom-mast">
+      <strong>Allies engineering</strong>
+      <div class="vbg-custom-meta">Implementation plan · 4 September 2026 · Cloud + Foundry</div>
+    </header>
+    <div class="vbg-custom-opening">
+      <div>
+        <h1>Give Hermes the greeting it is replying after</h1>
+        <p>Bootstrap the exact Cloud greeting into a new profile session before the first user reply is dispatched. One private capability closes the transcript gap without adding a queue, table, or history-import API.</p>
+      </div>
+      <aside class="vbg-custom-answer" aria-label="Plan summary">
+        <b>1 · 1 · 0</b>
+        <span>One assistant seed, one model stream, zero transcript rewrites.</span>
+      </aside>
+    </div>
+    <main id="main">
+      <section data-plan-section="Feature overview">
+        <h2>Feature overview</h2>
+        <div class="vbg-custom-grid">
+          <article class="vbg-custom-fact vbg-custom-span-4"><small>Current gap</small><strong>Cloud remembers. Hermes does not.</strong><p>The greeting is durable as Cloud message 1, while the first execution sends only message 2.</p></article>
+          <article class="vbg-custom-fact vbg-custom-span-4"><small>Synchronization point</small><strong>The first execution</strong><p>Its immutable command already owns correlation, ordering, fingerprinting, and retries.</p></article>
+          <article class="vbg-custom-fact vbg-custom-span-4"><small>Result</small><strong>assistant → user → assistant</strong><p>The durable Hermes transcript matches the conversation the person saw.</p></article>
+        </div>
+      </section>
+      <section data-plan-section="User stories">
+        <h2>User stories</h2>
+        <div class="vbg-custom-grid">
+          <div class="vbg-custom-fact vbg-custom-span-4"><strong>Coherent first reply</strong><p>Anonymous and signed-in creation reach the same transcript path.</p></div>
+          <div class="vbg-custom-fact vbg-custom-span-4"><strong>Safe retry</strong><p>An interruption converges without a duplicate greeting or second stream.</p></div>
+          <div class="vbg-custom-fact vbg-custom-span-4"><strong>Operable failure</strong><p>Conflicts fail closed with identifiers and stable reason codes, never content.</p></div>
+        </div>
+      </section>
+      <section data-plan-section="Scope">
+        <h2>Scope</h2>
+        <div class="vbg-custom-compare">
+          <article><h3>Included</h3><ul><li>Optional typed bootstrap in the existing command.</li><li>Immutable Foundry execution and claim carriage.</li><li>One private profile-scoped Hermes endpoint.</li><li>Pre-dispatch response-loss handling.</li><li>Exact-match legacy soul cleanup.</li><li>Tests, rollout, rollback, and Nabu update after validation.</li></ul></article>
+          <article><h3>Excluded</h3><ul><li>General transcript import or repair.</li><li>Direct SQLite writes from the runtime.</li><li>New queues, workers, tables, or dependencies.</li><li>Changes to onboarding UI or CLD-009 authentication.</li><li>Backfilling established sessions.</li><li>Rewriting custom or uncertain souls.</li></ul></article>
+        </div>
+      </section>
+      <section data-plan-section="Contract and shape definitions">
+        <h2>Contract and shape definitions</h2>
+        <p class="vbg-custom-lede">The command gains one optional nested object. The image gains one private PUT route. No database model changes.</p>
+        <div class="vbg-custom-contract">
+          <div><h3>Cloud and Foundry</h3><dl><dt>kind</dt><dd><code>assistant_message</code></dd><dt>message_id</dt><dd>UUID of Cloud assistant message 1</dd><dt>text</dt><dd>Exact stored greeting, nonempty, at most 16 KiB</dd><dt>eligible</dt><dd>Ordinal 2 and no established Hermes session</dd><dt>later turns</dt><dd>Field omitted</dd></dl></div>
+          <div><h3>Runtime and Hermes</h3><dl><dt>method</dt><dd><code>PUT /p/{profile}/api/sessions/{session}/bootstrap</code></dd><dt>auth</dt><dd>Profile bearer + named profile + loopback peer</dd><dt>created</dt><dd><code>201 · created</code></dd><dt>exact replay</dt><dd><code>200 · duplicate</code></dd><dt>conflict</dt><dd><code>409</code>, no transcript mutation</dd></dl></div>
+        </div>
+        <h3>Transactional invariant</h3>
+        <div class="vbg-custom-sequence" aria-label="Bootstrap transaction outcomes">
+          <div><b>Lock</b><small>Use the existing SessionDB write transaction.</small></div>
+          <div><b>Inspect</b><small>Read the target session's first two rows.</small></div>
+          <div class="vbg-custom-gate"><b>Empty</b><small>Insert exactly one assistant row and update count.</small></div>
+          <div><b>Exact sole row</b><small>Return duplicate without writing.</small></div>
+          <div><b>Anything else</b><small>Return conflict without rewriting history.</small></div>
+        </div>
+        <div class="vbg-custom-table"><table><caption>Data-shape impact</caption><thead><tr><th>Category</th><th>Change</th><th>Compatibility</th></tr></thead><tbody><tr><td>Database models</td><td>None</td><td>Existing JSON payload and Hermes tables are reused</td></tr><tr><td>Command DTO</td><td>Optional <code>bootstrap</code></td><td>Legacy absence remains valid</td></tr><tr><td>Hermes DTO</td><td>Strict private v1 request/response</td><td>Derived image only</td></tr><tr><td>Soul seed</td><td>Existing first-chat field becomes compatibility-only</td><td>No data migration</td></tr></tbody></table></div>
+      </section>
+      <section data-plan-section="Phases">
+        <h2>Phases</h2>
+        <div class="vbg-custom-flow">
+          <article><h3>Refresh PR 21</h3><p>Bring the derived image onto current <code>origin/dev</code>, including accepted default-soul work, and renew checks.</p></article>
+          <article><h3>Patch the pinned image</h3><p>Apply a two-file source overlay with a build-time drift check; test auth, isolation, atomicity, and durable history.</p></article>
+          <article><h3>Carry the contract</h3><p>Add strict matching types and preserve bootstrap inside immutable execution and claim payloads.</p></article>
+          <article><h3>Seed before dispatch</h3><p>Ensure the deterministic session, acknowledge created or duplicate, then record <code>execution.dispatched</code> and open one stream.</p></article>
+          <article><h3>Clean managed souls</h3><p>Write only personality for new profiles. Remove old generated bytes only on a whole-file exact match.</p></article>
+          <article><h3>Attach from Cloud</h3><p>For the default conversation's sequence-2 reply, carry the exact sequence-1 UUID and text in the outbox command.</p></article>
+          <article><h3>Deploy and record</h3><p>Image foundation, then Foundry, then Cloud. Canary both entry paths and update Nabu after validation.</p></article>
+        </div>
+      </section>
+      <section data-plan-section="Acceptance criteria">
+        <h2>Acceptance criteria</h2>
+        <ol class="vbg-custom-checks"><li>Exact Cloud greeting reaches first Hermes session.</li><li>Persistent order is assistant, user, assistant.</li><li>Exact retry creates no duplicate or second stream.</li><li>Mismatched, late, established, malformed, unauthorized, non-loopback, and wrong-profile requests do not mutate history.</li><li>Later turns omit bootstrap.</li><li>New souls contain durable behavior only.</li><li>Custom and uncertain souls stay byte-identical.</li><li>Anonymous and signed-in paths show one greeting.</li><li>Repository, image, and durable-storage proofs pass.</li><li>All PRs are mergeable with terminal passing Enkii reviews and no unresolved P0-P2.</li></ol>
+      </section>
+      <section data-plan-section="Backend considerations">
+        <h2>Backend considerations</h2>
+        <div class="vbg-custom-grid"><article class="vbg-custom-span-4 vbg-custom-fact"><strong>Cloud</strong><p>At most one indexed lookup on <code>(conversation, sequence=1)</code> for the first dispatch. Zero later-turn query change.</p></article><article class="vbg-custom-span-4 vbg-custom-fact"><strong>Foundry</strong><p>Reuse the existing binding/execution transaction and JSON payload. No new relation traversal.</p></article><article class="vbg-custom-span-4 vbg-custom-fact"><strong>Hermes</strong><p>One session lookup and at most two ordered message rows inside <code>BEGIN IMMEDIATE</code>.</p></article></div>
+        <h3>Failure tests that protect the boundary</h3><p class="vbg-custom-lede">Concurrent identical requests, identity/content mismatch, unrelated existing history, response loss before acknowledgement, malformed success, SQLite rollback, soul write failure, and every auth/profile boundary are first-class test cases.</p>
+      </section>
+      <section data-plan-section="Frontend considerations">
+        <h2>Frontend considerations</h2>
+        <p class="vbg-custom-callout">No frontend changes. Both entry paths already converge after Cloud persists the greeting and first user reply.</p>
+      </section>
+      <section data-plan-section="Test plan">
+        <h2>Test plan</h2>
+        <div class="vbg-custom-table"><table><caption>Validation ladder</caption><thead><tr><th>Layer</th><th>Proof</th><th>Commands</th></tr></thead><tbody><tr><td>Cloud</td><td>Exact greeting selection, immutable outbox bytes, later-turn absence</td><td><code>make check</code><br><code>make lint</code><br><code>make test APP=chat</code></td></tr><tr><td>Foundry backend</td><td>Strict DTO, ordinal/session rejection, fingerprint and claim preservation</td><td><code>make check</code><br><code>make validate</code><br><code>make lint</code><br><code>make test APP=runtime</code></td></tr><tr><td>Runtime</td><td>Retry/checkpoint order, one stream, soul preservation</td><td><code>make runtime-lint</code><br><code>make runtime-test</code></td></tr><tr><td>Derived image</td><td>Patch pin, endpoint isolation, durable transcript</td><td><code>make hermes-image-build</code><br><code>make hermes-image-test</code></td></tr><tr><td>Canary</td><td>Anonymous and signed-in role order on durable storage</td><td>Capture correlated Cloud, Foundry, and Hermes evidence</td></tr></tbody></table></div>
+      </section>
+      <section data-plan-section="Rollout, monitoring, and rollback">
+        <h2>Rollout, monitoring, and rollback</h2>
+        <div class="vbg-custom-sequence"><div><b>PR 21</b><small>Refresh, validate, merge, deploy.</small></div><div><b>Foundry feature</b><small>Rebase to dev; accept old and new commands.</small></div><div><b>Cloud</b><small>Begin emitting bootstrap on new first turns.</small></div><div><b>Canary</b><small>Verify two entry paths and durable role order.</small></div><div><b>Observe</b><small>Created, duplicate, conflict, requeue, failure, soul cleanup.</small></div></div>
+        <h3>Rollback boundary</h3><p class="vbg-custom-lede">Roll Cloud back first to stop new optional fields. Roll the Foundry worker and derived image back together. Never delete a seeded row or replay an attempt after <code>execution.dispatched</code>.</p>
+      </section>
+      <section data-plan-section="Enkii terminal review criteria">
+        <h2>Enkii terminal review criteria</h2>
+        <div class="vbg-custom-grid"><div class="vbg-custom-span-6 vbg-custom-fact"><strong>Terminal means current-head evidence</strong><p>Refresh review after any overlay, isolation, transaction, checkpoint, fingerprint, soul, or deployment-sequence change.</p></div><div class="vbg-custom-span-6 vbg-custom-fact"><strong>Merge blockers</strong><p>Any unresolved P0-P2, nonterminal review, required check omission, conflict, or unproven transcript/custom-soul invariant.</p></div></div>
+      </section>
+      <section data-plan-section="Risks and mitigations">
+        <h2>Risks and mitigations</h2>
+        <div class="vbg-custom-table"><table><caption>What can go wrong and the enforced response</caption><thead><tr><th>Risk</th><th>Boundary</th><th>Fallback</th></tr></thead><tbody><tr><td>Insert acknowledgement is lost</td><td>Exact retry before dispatch; duplicate is success</td><td>Pre-checkpoint stop/requeue after second loss</td></tr><tr><td>Concurrent or mismatched seed</td><td>Single write transaction; empty-or-exact rule</td><td>Conflict and quarantine, no rewrite</td></tr><tr><td>Capability becomes too broad</td><td>One message, empty named-profile session, bearer, loopback</td><td>Reject by default</td></tr><tr><td>Hermes source drifts</td><td>Patch checked against pinned source at build</td><td>Build fails for deliberate review</td></tr><tr><td>Custom soul resembles generated text</td><td>Whole-file exact comparison only</td><td>Preserve uncertain bytes</td></tr><tr><td>Mixed deployment versions</td><td>Optional field; Foundry first</td><td>Cloud rollback stops new fields</td></tr></tbody></table></div>
+      </section>
+      <section data-plan-section="Evidence inspected">
+        <h2>Evidence inspected</h2>
+        <div class="vbg-custom-grid"><div class="vbg-custom-span-4"><h3>Cloud</h3><p>Conversation creation, onboarding activation, dispatch/outbox serialization, contracts, models, and tests.</p></div><div class="vbg-custom-span-4"><h3>Foundry</h3><p>Contracts, execution/claim/lease services, runtime worker/client, profile store, image build/tests, and branch history.</p></div><div class="vbg-custom-span-4"><h3>Hermes + Nabu</h3><p>Pinned route/auth/session transaction sources and the current Allies conversation and first-product requirements.</p></div></div>
+      </section>
+      <section data-plan-section="Open decisions">
+        <h2>Open decisions</h2>
+        <p class="vbg-custom-callout">None before implementation. If the pinned server cannot prove a loopback peer, stop for design review instead of weakening isolation.</p>
+      </section>
+    </main>
+    <footer class="vbg-custom-footer">Planning artifact · implementation has not started · matching Markdown contains exact file-level contracts and tests.</footer>
+  </div>
+</body>
+</html>

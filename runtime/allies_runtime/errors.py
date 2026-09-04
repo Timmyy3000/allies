@@ -47,6 +47,10 @@ class HermesHistoryMismatch(HermesError):
     code = "history_continuity_failed"
 
 
+class HermesTranscriptConflict(HermesError):
+    code = "transcript_conflict"
+
+
 __all__ = [
     "HermesAuthenticationError",
     "HermesDisconnected",
@@ -55,6 +59,7 @@ __all__ = [
     "HermesMalformedResponse",
     "HermesSessionExists",
     "HermesTimeout",
+    "HermesTranscriptConflict",
     "HermesUnavailable",
     "IdentityIsolationError",
 ]

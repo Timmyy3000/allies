@@ -178,11 +178,9 @@ def test_first_publish_exact_layout_manifest_and_secret_permissions(tmp_path):
         "SOUL.md",
         *HERMES_PROFILE_DIRECTORIES,
     }
-    assert (
-        (profile / "SOUL.md").read_text(encoding="utf-8").startswith(seed.personality)
-    )
     soul = (profile / "SOUL.md").read_text(encoding="utf-8")
-    assert soul.count("allies-first-chat:v1") == 1
+    assert soul == seed.personality
+    assert "allies-first-chat" not in soul
     config = (profile / "config.yaml").read_text(encoding="utf-8")
     assert 'model:\n  provider: "openai"\n  default: "gpt-test"\n' in config
     assert 'memory:\n  provider: "allies_mnemosyne"' in config
@@ -203,6 +201,25 @@ def test_first_publish_exact_layout_manifest_and_secret_permissions(tmp_path):
     assert manifest["memory_tools"] == []
     assert PROFILE_SECRET not in json.dumps(manifest)
     assert PROFILE_SECRET not in json.dumps(receipt.to_dict())
+
+
+def test_existing_exact_legacy_soul_is_removed_but_custom_bytes_are_preserved(tmp_path):
+    store = make_store(tmp_path)
+    seed = make_seed()
+    store.materialize(seed)
+    profile = profile_path(store, seed)
+    legacy = profile_store_module._legacy_soul_bytes(seed)
+
+    (profile / "SOUL.md").write_bytes(legacy)
+    cleaned = store.materialize(seed)
+    assert cleaned.status is ProfileProvisionStatus.EXISTING
+    assert (profile / "SOUL.md").read_bytes() == seed.personality.encode()
+
+    custom = legacy + b"\noperator edit"
+    (profile / "SOUL.md").write_bytes(custom)
+    preserved = store.materialize(seed)
+    assert preserved.status is ProfileProvisionStatus.EXISTING
+    assert (profile / "SOUL.md").read_bytes() == custom
 
 
 def test_read_api_key_returns_only_the_selected_materialized_profile(tmp_path):

@@ -26,7 +26,7 @@ from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
 
 MANIFEST_NAME = ".allies-profile.json"
 MANIFEST_SCHEMA = "allies.profile"
@@ -96,6 +96,7 @@ _SAFE_REPAIR_CODES = frozenset(
         "profile_store_unavailable",
         "secret_file_permissions",
         "seed_fingerprint_conflict",
+        "soul_cleanup_failed",
         "stale_cleanup_epoch",
         "stale_lifecycle_epoch",
         "symlinked_profile",
@@ -671,6 +672,25 @@ def _profile_config_bytes(seed: ProfileSeed) -> bytes:
     return ("\n".join(lines) + "\n").encode("utf-8")
 
 
+def _legacy_soul_bytes(seed: ProfileSeed) -> bytes:
+    """Return the exact pre-bootstrap managed SOUL.md bytes."""
+
+    separator = "" if seed.personality.endswith("\n") else "\n"
+    content = (
+        seed.personality
+        + separator
+        + "\n"
+        + f"<!-- allies-first-chat:v{seed.first_chat_version} -->\n"
+        + f"## Allies first-chat/system instruction (v{seed.first_chat_version})\n"
+        + seed.first_chat_instruction
+        + "\n"
+    )
+    encoded = content.encode("utf-8")
+    # The legacy writer used a text-mode descriptor on Windows, so existing
+    # generated files carry CRLF even though the source template used LF.
+    return encoded.replace(b"\n", b"\r\n") if os.linesep == "\r\n" else encoded
+
+
 def _receipt_id(
     *,
     profile_key: str,
@@ -1184,7 +1204,14 @@ class ProfileStore:
 
     def _write_bytes(self, path: Path, content: bytes, *, mode: int) -> None:
         try:
-            fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, mode)
+            fd = os.open(
+                path,
+                os.O_CREAT
+                | os.O_EXCL
+                | os.O_WRONLY
+                | getattr(os, "O_BINARY", 0),
+                mode,
+            )
             try:
                 view = memoryview(content)
                 while view:
@@ -1351,17 +1378,9 @@ class ProfileStore:
                 mode=0o644,
             )
 
-            separator = "" if seed.personality.endswith("\n") else "\n"
-            soul = (
-                seed.personality
-                + separator
-                + "\n"
-                + f"<!-- allies-first-chat:v{seed.first_chat_version} -->\n"
-                + f"## Allies first-chat/system instruction (v{seed.first_chat_version})\n"
-                + seed.first_chat_instruction
-                + "\n"
+            self._write_bytes(
+                temporary / "SOUL.md", seed.personality.encode("utf-8"), mode=0o644
             )
-            self._write_bytes(temporary / "SOUL.md", soul.encode("utf-8"), mode=0o644)
 
             receipt_id = _receipt_id(
                 profile_key=seed.hermes_profile_key or "invalid",
@@ -1625,6 +1644,14 @@ class ProfileStore:
             stored_operation = seed.operation_id
             stored_generation = seed.materialized_generation
             stored_receipt = updated["receipt_id"]
+        try:
+            self._clean_owned_first_chat_block(seed, profile / "SOUL.md")
+        except ProfileStoreError:
+            return self._receipt(
+                seed,
+                ProfileProvisionStatus.REPAIR_REQUIRED,
+                repair_code="soul_cleanup_failed",
+            )
         return self._receipt(
             seed,
             ProfileProvisionStatus.EXISTING,
@@ -1633,6 +1660,23 @@ class ProfileStore:
             generation=stored_generation,
             receipt_id=stored_receipt,
         )
+
+    def _clean_owned_first_chat_block(
+        self, seed: ProfileSeed, path: Path
+    ) -> Literal["clean", "removed", "custom_preserved"]:
+        """Remove only a whole-file match to the old managed SOUL output."""
+
+        try:
+            current = path.read_bytes()
+        except (OSError, UnicodeError):
+            raise ProfileStoreError("profile soul cleanup failed") from None
+        clean = seed.personality.encode("utf-8")
+        if current == clean:
+            return "clean"
+        if current != _legacy_soul_bytes(seed):
+            return "custom_preserved"
+        self._write_bytes_atomic(path, clean, mode=0o644)
+        return "removed"
 
     def _read_tombstone(self, key: str) -> dict[str, Any] | None:
         path = self._tombstone_path(key)

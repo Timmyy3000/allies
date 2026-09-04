@@ -45,9 +45,16 @@ class CloudCorrelation(ContractModel):
     cloud_binding_id: UUID
 
 
+class FirstTurnBootstrap(ContractModel):
+    kind: Literal["assistant_message"]
+    message_id: UUID
+    text: StrictStr = Field(..., min_length=1, max_length=MAX_COMMAND_TEXT_BYTES)
+
+
 class ExecutionInput(ContractModel):
     kind: Literal["execution_input"]
     text: StrictStr = Field(..., min_length=1, max_length=16_000)
+    bootstrap: FirstTurnBootstrap | None = None
 
 
 class FoundryCorrelation(ContractModel):
@@ -167,7 +174,9 @@ def canonical_fingerprint(value: Mapping[str, Any]) -> str:
 
 def command_fingerprint(command: ExecutionCommand) -> str:
     value = command.model_dump(
-        mode="json", exclude={"issued_at", "deadline_at", "fingerprint"}
+        mode="json",
+        exclude={"issued_at", "deadline_at", "fingerprint"},
+        exclude_none=True,
     )
     return canonical_fingerprint(value)
 
@@ -179,10 +188,24 @@ def event_fingerprint(event: FoundryEventEnvelope) -> str:
 
 def validate_command(command: ExecutionCommand) -> ExecutionCommand:
     _validate_times(command.issued_at, command.deadline_at)
+    if (
+        "bootstrap" in command.payload.model_fields_set
+        and command.payload.bootstrap is None
+    ):
+        raise RuntimeValidationError("bootstrap must be omitted or an object")
     expected = command_fingerprint(command)
     if command.fingerprint != expected:
         raise RuntimeValidationError("command fingerprint does not match its envelope")
     _validate_utf8_size(command.payload.text, MAX_COMMAND_TEXT_BYTES, "command text")
+    bootstrap = command.payload.bootstrap
+    if bootstrap is not None:
+        if command.conversation_turn_ordinal < 2:
+            raise RuntimeValidationError(
+                "bootstrap is invalid before the second conversation turn"
+            )
+        _validate_utf8_size(
+            bootstrap.text, MAX_COMMAND_TEXT_BYTES, "bootstrap text"
+        )
     return command
 
 
@@ -401,6 +424,7 @@ __all__ = [
     "ExecutionInput",
     "ExecutionReceipt",
     "ExecutionScope",
+    "FirstTurnBootstrap",
     "FoundryCorrelation",
     "FoundryEventEnvelope",
     "ReconciliationReceipt",

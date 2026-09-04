@@ -4,7 +4,11 @@ from dataclasses import dataclass, replace
 
 import pytest
 
-from allies_runtime.errors import HermesMalformedResponse
+from allies_runtime.errors import (
+    HermesDisconnected,
+    HermesMalformedResponse,
+    HermesTimeout,
+)
 from allies_runtime.foundry import (
     EventReceipt,
     FencedError,
@@ -22,10 +26,17 @@ from allies_runtime.hermes import (
 )
 
 
-def claim(*, conversation_id: str | None = None, session_id: str | None = None):
+def claim(
+    *,
+    conversation_id: str | None = None,
+    session_id: str | None = None,
+    bootstrap: dict | None = None,
+):
     payload = {"message": "hello"}
     if conversation_id is None:
         payload["cloud_conversation_ref"] = "cloud-1"
+    if bootstrap is not None:
+        payload["bootstrap"] = bootstrap
     return FoundryClaim(
         attempt_id="attempt-1",
         execution_id="execution-1",
@@ -46,6 +57,7 @@ def claim(*, conversation_id: str | None = None, session_id: str | None = None):
 @dataclass
 class RecordingFoundry:
     dispatch_losses: int = 0
+    order: list | None = None
 
     def __post_init__(self):
         self.events = []
@@ -55,6 +67,8 @@ class RecordingFoundry:
         self.stops = []
 
     async def event(self, attempt_id, lease_token, **body):
+        if self.order is not None:
+            self.order.append("foundry.event")
         self.events.append(body)
         if body["event_type"] == "execution.dispatched" and self.dispatch_losses:
             self.dispatch_losses -= 1
@@ -82,14 +96,37 @@ class RecordingFoundry:
 
 
 class RecordingHermes:
-    def __init__(self, *, failure: Exception | None = None):
+    def __init__(
+        self,
+        *,
+        failure: Exception | None = None,
+        ensure_failures: list[Exception] | None = None,
+        bootstrap_failures: list[Exception] | None = None,
+        order: list | None = None,
+    ):
         self.failure = failure
+        self.ensure_failures = list(ensure_failures or [])
+        self.bootstrap_failures = list(bootstrap_failures or [])
+        self.order = order
         self.ensured = []
+        self.bootstraps = []
         self.streams = []
         self.history_checks = []
 
     async def ensure_profile_session(self, profile_key, session_id, *, model):
+        if self.order is not None:
+            self.order.append("hermes.ensure")
         self.ensured.append((profile_key, session_id, model))
+        if self.ensure_failures:
+            raise self.ensure_failures.pop(0)
+
+    async def bootstrap_session(self, profile_key, session_id, bootstrap):
+        if self.order is not None:
+            self.order.append("hermes.bootstrap")
+        self.bootstraps.append((profile_key, session_id, bootstrap))
+        if self.bootstrap_failures:
+            raise self.bootstrap_failures.pop(0)
+        return {"status": "created"}
 
     async def profile_session_matches_markers(
         self, profile_key, session_id, expected, forbidden
@@ -100,6 +137,8 @@ class RecordingHermes:
     async def stream_profile_incremental(
         self, profile_key, session_id, message, *, session_key
     ):
+        if self.order is not None:
+            self.order.append("hermes.stream")
         self.streams.append((profile_key, session_id, message, session_key))
         if self.failure:
             raise self.failure
@@ -154,6 +193,179 @@ async def test_first_turn_dispatches_once_binds_terminal_session_and_completes()
         "run_id": "run-1",
         "status": "completed",
     }
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_seeds_before_dispatch_and_streams_once():
+    order = []
+    foundry = RecordingFoundry(order=order)
+    hermes = RecordingHermes(order=order)
+    bootstrap = {
+        "kind": "assistant_message",
+        "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        "text": "Hi, I'm Nova.",
+    }
+
+    result = await FoundryWorker(foundry, hermes).run_claim(claim(bootstrap=bootstrap))
+
+    assert result.status == "succeeded"
+    assert order[:4] == [
+        "hermes.ensure",
+        "hermes.bootstrap",
+        "foundry.event",
+        "hermes.stream",
+    ]
+    assert len(hermes.bootstraps) == 1
+    assert hermes.bootstraps[0][2].message_id == bootstrap["message_id"]
+    assert len(hermes.streams) == 1
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_retries_one_ambiguous_response_with_identical_identity():
+    order = []
+    foundry = RecordingFoundry(order=order)
+    hermes = RecordingHermes(bootstrap_failures=[HermesDisconnected()], order=order)
+    bootstrap = {
+        "kind": "assistant_message",
+        "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        "text": "Hi, I'm Nova.",
+    }
+
+    result = await FoundryWorker(foundry, hermes).run_claim(claim(bootstrap=bootstrap))
+
+    assert result.status == "succeeded"
+    assert len(hermes.bootstraps) == 2
+    assert hermes.bootstraps[0][2] == hermes.bootstraps[1][2]
+    assert len(hermes.streams) == 1
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_session_creation_requeues_and_converges_on_reclaim():
+    foundry = RecordingFoundry()
+    hermes = RecordingHermes(ensure_failures=[HermesDisconnected()])
+    bootstrap = {
+        "kind": "assistant_message",
+        "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        "text": "Hi, I'm Nova.",
+    }
+    worker = FoundryWorker(foundry, hermes)
+
+    first = await worker.run_claim(claim(bootstrap=bootstrap))
+    assert first.state == "failed"
+    assert foundry.stops == ["bootstrap_response_lost"]
+    assert foundry.events == []
+    assert hermes.bootstraps == []
+    assert hermes.streams == []
+
+    reclaimed = await worker.run_claim(claim(bootstrap=bootstrap))
+
+    assert reclaimed.status == "succeeded"
+    assert len(hermes.ensured) == 2
+    assert len(hermes.bootstraps) == 1
+    assert len(hermes.streams) == 1
+
+
+@pytest.mark.asyncio
+async def test_repeated_unknown_session_creation_never_dispatches():
+    foundry = RecordingFoundry()
+    hermes = RecordingHermes(ensure_failures=[HermesTimeout(), HermesDisconnected()])
+    bootstrap = {
+        "kind": "assistant_message",
+        "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        "text": "Hi, I'm Nova.",
+    }
+    worker = FoundryWorker(foundry, hermes)
+
+    first = await worker.run_claim(claim(bootstrap=bootstrap))
+    second = await worker.run_claim(claim(bootstrap=bootstrap))
+
+    assert first.state == second.state == "failed"
+    assert foundry.stops == [
+        "bootstrap_response_lost",
+        "bootstrap_response_lost",
+    ]
+    assert foundry.events == []
+    assert hermes.bootstraps == []
+    assert hermes.streams == []
+
+
+@pytest.mark.asyncio
+async def test_two_bootstrap_response_losses_requeue_before_dispatch():
+    foundry = RecordingFoundry()
+    hermes = RecordingHermes(bootstrap_failures=[HermesTimeout(), HermesDisconnected()])
+    bootstrap = {
+        "kind": "assistant_message",
+        "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        "text": "Hi, I'm Nova.",
+    }
+
+    result = await FoundryWorker(foundry, hermes).run_claim(claim(bootstrap=bootstrap))
+
+    assert result.state == "failed"
+    assert foundry.events == []
+    assert foundry.stops == ["bootstrap_response_lost"]
+    assert hermes.streams == []
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_rejects_bound_session_before_any_hermes_call():
+    foundry = RecordingFoundry()
+    hermes = RecordingHermes()
+    bootstrap = {
+        "kind": "assistant_message",
+        "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        "text": "Hi, I'm Nova.",
+    }
+
+    result = await FoundryWorker(foundry, hermes).run_claim(
+        claim(session_id="session-1", bootstrap=bootstrap)
+    )
+
+    assert result.status == "failed"
+    assert hermes.ensured == []
+    assert hermes.bootstraps == []
+    assert hermes.streams == []
+
+
+@pytest.mark.asyncio
+async def test_bootstrap_rejects_malformed_acknowledgement_before_dispatch():
+    class MalformedBootstrapHermes(RecordingHermes):
+        async def bootstrap_session(self, profile_key, session_id, bootstrap):
+            return {"status": "unexpected"}
+
+    foundry = RecordingFoundry()
+    hermes = MalformedBootstrapHermes()
+    bootstrap = {
+        "kind": "assistant_message",
+        "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        "text": "Hi, I'm Nova.",
+    }
+
+    result = await FoundryWorker(foundry, hermes).run_claim(claim(bootstrap=bootstrap))
+
+    assert result.status == "failed"
+    assert foundry.events == []
+    assert hermes.streams == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "bootstrap",
+    [
+        {},
+        {"kind": "user_message", "message_id": "bad", "text": "hello"},
+        {"kind": "assistant_message", "message_id": "bad", "text": "hello"},
+    ],
+)
+async def test_bootstrap_rejects_invalid_claim_shape(bootstrap):
+    foundry = RecordingFoundry()
+    hermes = RecordingHermes()
+
+    result = await FoundryWorker(foundry, hermes).run_claim(claim(bootstrap=bootstrap))
+
+    assert result.status == "failed"
+    assert foundry.events == []
+    assert hermes.ensured == []
 
 
 @pytest.mark.asyncio

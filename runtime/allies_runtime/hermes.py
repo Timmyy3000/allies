@@ -21,6 +21,7 @@ from pathlib import PurePosixPath
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+from uuid import UUID
 
 from .config import CredentialReference, RuntimeSettings
 from .errors import (
@@ -30,6 +31,7 @@ from .errors import (
     HermesMalformedResponse,
     HermesSessionExists,
     HermesTimeout,
+    HermesTranscriptConflict,
     HermesUnavailable,
 )
 from .observability import build_event, emit_runtime_event
@@ -80,6 +82,21 @@ class HermesSession:
 
 
 @dataclass(frozen=True, slots=True)
+class HermesBootstrap:
+    """One strict, bounded assistant row accepted by the private endpoint."""
+
+    message_id: str
+    text: str
+
+
+@dataclass(frozen=True, slots=True)
+class HermesBootstrapResult:
+    session_id: str
+    message_id: str
+    status: str
+
+
+@dataclass(frozen=True, slots=True)
 class StableSessionIdentifiers:
     candidate_id: str
     session_key: str
@@ -95,6 +112,31 @@ def validate_stream_message(message: str) -> str:
     if not message or len(encoded) > MAX_MESSAGE_BYTES:
         raise ValueError("Hermes stream message must be bounded UTF-8 text")
     return message
+
+
+def _bootstrap_fields(
+    bootstrap: HermesBootstrap | Mapping[str, Any],
+) -> tuple[str, str]:
+    if isinstance(bootstrap, HermesBootstrap):
+        value: Mapping[str, Any] = {
+            "kind": "assistant_message",
+            "message_id": bootstrap.message_id,
+            "text": bootstrap.text,
+        }
+    elif isinstance(bootstrap, Mapping):
+        value = bootstrap
+    else:
+        raise TypeError("Hermes bootstrap must be an assistant message object")
+    if set(value) != {"kind", "message_id", "text"} or value.get(
+        "kind"
+    ) != "assistant_message":
+        raise ValueError("Hermes bootstrap must be an assistant message object")
+    try:
+        message_id = str(UUID(str(value["message_id"])))
+    except (TypeError, ValueError):
+        raise ValueError("Hermes bootstrap message ID was invalid") from None
+    text = validate_stream_message(value.get("text"))
+    return message_id, text
 
 
 def _content_contains_text(value: Any, expected: str, *, depth: int = 0) -> bool:
@@ -1002,6 +1044,80 @@ class HermesClient:
         except HermesSessionExists:
             return await self.inspect_profile_session(profile_id, session_id)
 
+    async def bootstrap_session(
+        self,
+        profile_id: str,
+        session_id: str,
+        bootstrap: HermesBootstrap | Mapping[str, Any],
+    ) -> HermesBootstrapResult:
+        """Insert one exact assistant greeting through Hermes' private API."""
+
+        profile_id = _profile_path(profile_id)
+        session_id = _session_path(session_id)
+        message_id, text = _bootstrap_fields(bootstrap)
+        token = await self._profile_credential(profile_id)
+        path = f"/p/{profile_id}/api/sessions/{session_id}/bootstrap"
+        # Keep this byte string outside the request closure.  A caller may
+        # retry after response loss, but both attempts must carry the exact
+        # same canonical bytes and identity.
+        body = json.dumps(
+            {
+                "schema_version": "v1",
+                "kind": "assistant_transcript_bootstrap",
+                "message_id": message_id,
+                "text": text,
+            },
+            separators=(",", ":"),
+        ).encode("utf-8")
+
+        def bootstrap_request() -> HermesBootstrapResult:
+            response = None
+            try:
+                response = self._request(
+                    method="PUT",
+                    path=path,
+                    token=token,
+                    body=body,
+                    accepted_statuses=(409,),
+                )
+                status_code = getattr(response, "status", getattr(response, "code", 200))
+                if status_code == 409:
+                    raise HermesTranscriptConflict("Hermes transcript bootstrap conflicted")
+                payload = _decode_json(_read_bounded(response))
+                if set(payload) != {
+                    "object",
+                    "session_id",
+                    "message_id",
+                    "status",
+                }:
+                    raise HermesMalformedResponse(
+                        "Hermes bootstrap response was malformed"
+                    )
+                if (
+                    payload.get("object") != "hermes.session.bootstrap"
+                    or payload.get("session_id") != session_id
+                    or payload.get("message_id") != message_id
+                    or payload.get("status") not in {"created", "duplicate"}
+                ):
+                    raise HermesMalformedResponse(
+                        "Hermes bootstrap response was malformed"
+                    )
+                return HermesBootstrapResult(
+                    session_id=session_id,
+                    message_id=message_id,
+                    status=payload["status"],
+                )
+            finally:
+                if response is not None:
+                    response.close()
+
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(bootstrap_request), self.settings.request_timeout
+            )
+        except TimeoutError as exc:
+            raise HermesTimeout("Hermes bootstrap request timed out") from exc
+
     async def profile_session_matches_markers(
         self,
         profile_id: str,
@@ -1290,6 +1406,8 @@ __all__ = [
     "TEST_CREDENTIAL_PREFIX",
     "CancellableHermesStream",
     "CredentialResolver",
+    "HermesBootstrap",
+    "HermesBootstrapResult",
     "HermesClient",
     "HermesEvent",
     "HermesHealth",
