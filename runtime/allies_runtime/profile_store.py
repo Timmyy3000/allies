@@ -30,7 +30,25 @@ from typing import Any
 
 MANIFEST_NAME = ".allies-profile.json"
 MANIFEST_SCHEMA = "allies.profile"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
+PROFILE_FINGERPRINT_VERSION = 2
+DEFAULT_MEMORY_PROVIDER = "allies_mnemosyne"
+DEFAULT_MEMORY_MODE = "context_only"
+DEFAULT_MEMORY_POLICY_VERSION = "allies-mnemosyne-v1"
+MEMORY_MODES = frozenset({"context_only", "narrow_tools"})
+MEMORY_TOOLS = frozenset(
+    {
+        "mnemosyne_forget",
+        "mnemosyne_forget_canonical",
+        "mnemosyne_invalidate",
+        "mnemosyne_recall",
+        "mnemosyne_recall_canonical",
+        "mnemosyne_remember",
+        "mnemosyne_remember_canonical",
+        "mnemosyne_update",
+    }
+)
+MEMORY_TOOL_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 PROFILE_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 ENV_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 RESERVED_PROFILE_KEYS = frozenset({"hermes", "default", "test", "tmp", "root", "sudo"})
@@ -215,6 +233,18 @@ def _validate_identity(value: Mapping[str, str]) -> Mapping[str, str]:
     return MappingProxyType(dict(sorted(result.items())))
 
 
+def _validate_memory_tools(value: Any, *, field_name: str) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)) or len(value) > 8:
+        raise ProfileInputError(f"{field_name} are invalid")
+    result: list[str] = []
+    for item in value:
+        item = _bounded_text(item, field_name="memory tool", maximum=64)
+        if not MEMORY_TOOL_PATTERN.fullmatch(item) or item in result:
+            raise ProfileInputError(f"{field_name} are invalid")
+        result.append(item)
+    return tuple(sorted(result))
+
+
 @dataclass(frozen=True, slots=True)
 class ProfileSeed:
     """The non-secret desired state used to materialize a Hermes profile.
@@ -247,6 +277,12 @@ class ProfileSeed:
     system_instruction: str | None = None
     version: int | None = None
     first_chat_instruction_version: int | None = None
+    memory_provider: str = DEFAULT_MEMORY_PROVIDER
+    memory_mode: str = DEFAULT_MEMORY_MODE
+    memory_policy_version: str = DEFAULT_MEMORY_POLICY_VERSION
+    memory_tool_allowlist: tuple[str, ...] = ()
+    memory_profile_isolation: bool = True
+    memory_sync_roles: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         try:
@@ -390,10 +426,96 @@ class ProfileSeed:
         object.__setattr__(
             self, "first_chat_instruction_version", self.first_chat_version
         )
+        object.__setattr__(
+            self,
+            "memory_provider",
+            _bounded_text(
+                self.memory_provider,
+                field_name="memory provider",
+                maximum=128,
+            ),
+        )
+        if self.memory_provider != DEFAULT_MEMORY_PROVIDER:
+            raise ProfileInputError("memory provider is unsupported")
+        object.__setattr__(
+            self,
+            "memory_mode",
+            _bounded_text(self.memory_mode, field_name="memory mode", maximum=32),
+        )
+        if self.memory_mode not in MEMORY_MODES:
+            raise ProfileInputError("memory mode is invalid")
+        object.__setattr__(
+            self,
+            "memory_policy_version",
+            _bounded_text(
+                self.memory_policy_version,
+                field_name="memory policy version",
+                maximum=32,
+            ),
+        )
+        if self.memory_policy_version != DEFAULT_MEMORY_POLICY_VERSION:
+            raise ProfileInputError("memory policy version is unsupported")
+        object.__setattr__(
+            self,
+            "memory_tool_allowlist",
+            _validate_memory_tools(
+                self.memory_tool_allowlist, field_name="memory tool allowlist"
+            ),
+        )
+        object.__setattr__(
+            self,
+            "memory_sync_roles",
+            _validate_memory_tools(
+                self.memory_sync_roles, field_name="memory sync roles"
+            ),
+        )
+        if not set(self.memory_tool_allowlist).issubset(MEMORY_TOOLS):
+            raise ProfileInputError("memory tool allowlist is unsupported")
+        if self.memory_sync_roles:
+            raise ProfileInputError("memory sync roles are disabled")
+        if (
+            not isinstance(self.memory_profile_isolation, bool)
+            or not self.memory_profile_isolation
+        ):
+            raise ProfileInputError("memory profile isolation is required")
+        if self.memory_mode == DEFAULT_MEMORY_MODE and self.memory_tool_allowlist:
+            raise ProfileInputError("context-only memory cannot advertise tools")
 
     @property
     def fingerprint(self) -> str:
         """Return a deterministic digest containing no resolved credentials."""
+
+        payload = {
+            "schema_version": self.seed_version,
+            "foundry_profile_id": self.foundry_profile_id,
+            "hermes_profile_key": self.hermes_profile_key,
+            "identity": dict(self.identity),
+            "personality": self.personality,
+            "first_chat_version": self.first_chat_version,
+            "first_chat_instruction": self.first_chat_instruction,
+            "model": {
+                "provider": self.provider,
+                "default": self.model,
+                "base_url": self.base_url,
+            },
+            "credential_refs": dict(self.credential_refs),
+            "memory": {
+                "provider": self.memory_provider,
+                "mode": self.memory_mode,
+                "policy_version": self.memory_policy_version,
+                "tools": list(self.memory_tool_allowlist),
+                "profile_isolation": self.memory_profile_isolation,
+                "sync_roles": list(self.memory_sync_roles),
+            },
+        }
+        return hashlib.sha256(
+            f"allies-profile-seed-v{PROFILE_FINGERPRINT_VERSION}\0".encode()
+            + _canonical_json(payload)
+        ).hexdigest()
+
+    @property
+    def legacy_fingerprint(self) -> str:
+        """Return the pre-memory fingerprint used by manifest version 1."""
 
         payload = {
             "schema_version": self.seed_version,
@@ -521,6 +643,32 @@ def _validate_resolved_value(value: Any) -> str:
 
 def _yaml_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
+
+
+def _profile_config_bytes(seed: ProfileSeed) -> bytes:
+    lines = [
+        "model:",
+        f"  provider: {_yaml_string(seed.provider)}",
+        f"  default: {_yaml_string(seed.model)}",
+    ]
+    if seed.base_url is not None:
+        lines.append(f"  base_url: {_yaml_string(seed.base_url)}")
+    lines.extend(
+        [
+            "memory:",
+            f"  provider: {_yaml_string(seed.memory_provider)}",
+            f"  mode: {_yaml_string(seed.memory_mode)}",
+            f"  policy_version: {_yaml_string(seed.memory_policy_version)}",
+            f"  profile_isolation: {'true' if seed.memory_profile_isolation else 'false'}",
+            f"  tools: {json.dumps(list(seed.memory_tool_allowlist), ensure_ascii=False)}",
+            f"  sync_roles: {json.dumps(list(seed.memory_sync_roles), ensure_ascii=False)}",
+            "  mnemosyne:",
+            "    profile_isolation: true",
+            "    shared_surface_read: false",
+            "    storage: mnemosyne",
+        ]
+    )
+    return ("\n".join(lines) + "\n").encode("utf-8")
 
 
 def _receipt_id(
@@ -1079,6 +1227,28 @@ class ProfileStore:
         except OSError:
             raise ProfileStoreError("profile metadata publish failed") from None
 
+    def _write_bytes_atomic(self, path: Path, content: bytes, *, mode: int) -> None:
+        parent = path.parent
+        if not _is_directory(parent) or _is_symlink(path):
+            raise ProfileStoreError("profile metadata path is unsafe")
+        temporary = parent / f".{path.name}.tmp-{secrets.token_hex(8)}"
+        try:
+            self._write_bytes(temporary, content, mode=mode)
+            os.replace(temporary, path)
+            try:
+                os.chmod(path, mode)
+            except OSError:
+                pass
+        except ProfileStoreError:
+            try:
+                if _is_regular_file(temporary):
+                    temporary.unlink()
+            except OSError:
+                pass
+            raise
+        except OSError:
+            raise ProfileStoreError("profile metadata publish failed") from None
+
     def _sync_directory(self, path: Path) -> None:
         try:
             fd = os.open(path, os.O_RDONLY)
@@ -1175,16 +1345,9 @@ class ProfileStore:
                 mode=0o600,
             )
 
-            config_lines = [
-                "model:",
-                f"  provider: {_yaml_string(seed.provider)}",
-                f"  default: {_yaml_string(seed.model)}",
-            ]
-            if seed.base_url is not None:
-                config_lines.append(f"  base_url: {_yaml_string(seed.base_url)}")
             self._write_bytes(
                 temporary / "config.yaml",
-                ("\n".join(config_lines) + "\n").encode("utf-8"),
+                _profile_config_bytes(seed),
                 mode=0o644,
             )
 
@@ -1221,6 +1384,11 @@ class ProfileStore:
                 "receipt_id": receipt_id,
                 "completion_state": "complete",
                 "lifecycle_state": "active",
+                "memory_provider": seed.memory_provider,
+                "memory_policy_version": seed.memory_policy_version,
+                "memory_mode": seed.memory_mode,
+                "memory_tools": list(seed.memory_tool_allowlist),
+                "memory_storage": "mnemosyne",
             }
             self._write_bytes(
                 temporary / MANIFEST_NAME,
@@ -1281,10 +1449,72 @@ class ProfileStore:
                 ProfileProvisionStatus.REPAIR_REQUIRED,
                 repair_code="incomplete_manifest",
             )
-        if (
-            manifest.get("schema") != MANIFEST_SCHEMA
-            or manifest.get("schema_version") != MANIFEST_VERSION
-        ):
+        if manifest.get("schema") != MANIFEST_SCHEMA:
+            return self._receipt(
+                seed,
+                ProfileProvisionStatus.REPAIR_REQUIRED,
+                repair_code="unsupported_manifest",
+            )
+        if manifest.get("schema_version") == 1:
+            if (
+                manifest.get("foundry_profile_id") != seed.foundry_profile_id
+                or manifest.get("hermes_profile_key") != seed.hermes_profile_key
+                or manifest.get("seed_fingerprint") != seed.legacy_fingerprint
+                or seed.memory_mode != DEFAULT_MEMORY_MODE
+                or seed.memory_tool_allowlist
+                or seed.memory_sync_roles
+                or manifest.get("lifecycle_epoch") != seed.lifecycle_epoch
+                or manifest.get("completion_state") != "complete"
+                or any(
+                    not _is_regular_file(profile / name)
+                    for name in ("config.yaml", ".env", "SOUL.md")
+                )
+                or any(
+                    not _is_directory(profile / directory)
+                    for directory in HERMES_PROFILE_DIRECTORIES
+                )
+            ):
+                return self._receipt(
+                    seed,
+                    ProfileProvisionStatus.REPAIR_REQUIRED,
+                    repair_code="legacy_manifest_requires_repair",
+                )
+            upgraded = dict(manifest)
+            upgraded.update(
+                {
+                    "schema_version": MANIFEST_VERSION,
+                    "seed_fingerprint": seed.fingerprint,
+                    "operation_id": seed.operation_id,
+                    "materialized_generation": seed.materialized_generation,
+                    "receipt_id": _receipt_id(
+                        profile_key=seed.hermes_profile_key or "invalid",
+                        operation_id=seed.operation_id,
+                        fingerprint=seed.fingerprint,
+                        epoch=seed.lifecycle_epoch,
+                        generation=seed.materialized_generation,
+                    ),
+                    "memory_provider": seed.memory_provider,
+                    "memory_policy_version": seed.memory_policy_version,
+                    "memory_mode": seed.memory_mode,
+                    "memory_tools": [],
+                    "memory_storage": "mnemosyne",
+                }
+            )
+            try:
+                self._write_bytes_atomic(
+                    profile / "config.yaml",
+                    _profile_config_bytes(seed),
+                    mode=0o644,
+                )
+                self._write_json_atomic(manifest_path, upgraded, mode=0o644)
+            except ProfileStoreError:
+                return self._receipt(
+                    seed,
+                    ProfileProvisionStatus.REPAIR_REQUIRED,
+                    repair_code="legacy_manifest_upgrade_failed",
+                )
+            manifest = upgraded
+        if manifest.get("schema_version") != MANIFEST_VERSION:
             return self._receipt(
                 seed,
                 ProfileProvisionStatus.REPAIR_REQUIRED,

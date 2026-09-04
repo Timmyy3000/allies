@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from io import StringIO
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from django.core.management import call_command
@@ -59,6 +59,29 @@ def ready_workspace(db):
         machine_generation=1,
         provisioning_phase=WorkspaceProvisioningPhase.IDLE,
     )
+
+
+def test_profile_fingerprint_contract_includes_memory_policy(ready_workspace):
+    profile_id = UUID("00000000-0000-0000-0000-000000000001")
+    receipt = ensure_runtime_profile(
+        ready_workspace.id,
+        profile_id,
+        "ally-a",
+        ProfileSeed(
+            personality="p",
+            provider="openai",
+            model="gpt-test",
+            first_chat_instruction="i",
+            credential_refs={"PROVIDER_API": "vault://p"},
+        ),
+    )
+
+    assert receipt.seed_fingerprint == (
+        "cd995ea7543b218b8380d61d6b051548da09af3a13a9bfcc529b33fca9a95db9"
+    )
+    desired = list_profile_reconciliation(_context(ready_workspace)[0])[0]
+    assert desired.seed_payload["memory_provider"] == "allies_mnemosyne"
+    assert desired.seed_payload["memory_policy_version"] == "allies-mnemosyne-v1"
 
 
 @pytest.fixture
@@ -376,9 +399,7 @@ def test_expired_cleanup_retries_a_transient_sqlite_lock(
         expires_at=timezone.now() + timedelta(minutes=1),
     )
     expired_at = timezone.now() - timedelta(seconds=1)
-    RuntimeProfile.objects.filter(pk=profile_id).update(
-        cleanup_expires_at=expired_at
-    )
+    RuntimeProfile.objects.filter(pk=profile_id).update(cleanup_expires_at=expired_at)
 
     original_save = RuntimeProfile.save
     save_attempts = 0

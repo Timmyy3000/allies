@@ -1,0 +1,4 @@
+name: allies_mnemosyne
+version: 0.1.0
+description: Allies policy-fenced Mnemosyne provider for pinned Hermes
+kind: memory

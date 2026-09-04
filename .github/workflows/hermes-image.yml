@@ -1,0 +1,66 @@
+name: Hermes Mnemosyne image
+
+on:
+  pull_request:
+    paths:
+      - "runtime/hermes-image/**"
+      - "Makefile"
+      - ".github/workflows/hermes-image.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and smoke-test production image
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - name: Install uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
+      - name: Test provider policy boundary
+        env:
+          PYTHONPATH: runtime/hermes-image/provider
+        run: uvx --from pytest==8.4.2 --with PyYAML==6.0.3 pytest runtime/hermes-image/provider/tests/test_provider.py -q
+      - name: Prepare hash-locked offline wheelhouse
+        run: make hermes-image-wheelhouse
+      - name: Prove wheel hashes are enforced
+        run: |
+          cp -a runtime/hermes-image/wheelhouse /tmp/corrupt-wheelhouse
+          printf 'corrupt' >> /tmp/corrupt-wheelhouse/mnemosyne_hermes-0.5.0-py3-none-any.whl
+          if python runtime/hermes-image/verify_wheelhouse.py \
+            runtime/hermes-image/requirements.lock /tmp/corrupt-wheelhouse; then
+            echo "corrupted wheel unexpectedly passed hash verification" >&2
+            exit 1
+          fi
+      - name: Build with provenance and SBOM
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=true \
+            --sbom=true \
+            --output type=oci,dest=/tmp/allies-hermes-mnemosyne.oci.tar \
+            --build-arg SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            --tag allies/hermes-mnemosyne:ci \
+            --file runtime/hermes-image/Dockerfile \
+            runtime/hermes-image
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --sbom=false \
+            --load \
+            --build-arg SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            --tag allies/hermes-mnemosyne:ci \
+            --file runtime/hermes-image/Dockerfile \
+            runtime/hermes-image
+      - name: Assert provider import and inherited init
+        run: |
+          test "$(docker image inspect --format '{{.Config.Entrypoint}}' allies/hermes-mnemosyne:ci)" = '[/opt/hermes/docker/entrypoint-dispatch.sh]'
+          docker run --rm --entrypoint /opt/hermes/.venv/bin/python allies/hermes-mnemosyne:ci \
+            -c 'from plugins.memory import load_memory_provider; p=load_memory_provider("allies_mnemosyne"); assert p is not None; p.initialize("smoke-session", hermes_home="/tmp/ally-smoke", profile_root="/tmp/ally-smoke", agent_identity="ally-v1-00000000000000000000000000000001", agent_context="conversation", memory_mode="context_only", tools=[]); assert p.status()["available"] is True; assert p.get_tool_schemas() == []; assert p._delegate._beam.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000; print(p.status()); p.shutdown()'
