@@ -33,6 +33,14 @@ def run_settings_probe(**overrides):
         "ALLIES_CLOUD_EVENT_DELIVERY_ENABLED",
         "ALLIES_CLOUD_URL",
         "ALLIES_CLOUD_EVENT_SERVICE_TOKEN",
+        "ALLIES_FLY_API_BASE_URL",
+        "ALLIES_RUNTIME_IDLE_STOP_ENABLED",
+        "ALLIES_RUNTIME_POWER_PROOF_ENABLED",
+        "ALLIES_RUNTIME_KEEP_WARM_SECONDS",
+        "ALLIES_RUNTIME_INTENT_TTL_SECONDS",
+        "ALLIES_RUNTIME_INTENT_RETENTION_SECONDS",
+        "ALLIES_RUNTIME_SPECULATIVE_START_COOLDOWN_SECONDS",
+        "ALLIES_RUNTIME_READINESS_FRESHNESS_SECONDS",
         "PROFILE_PROVISIONING_PROVIDER",
         "PROFILE_PROVISIONING_MODEL",
         "PROFILE_PROVISIONING_BASE_URL",
@@ -66,6 +74,21 @@ def test_profile_provisioning_defaults_to_hermes_openai_api_provider():
 
     assert result.returncode == 0, result.stderr
     assert result.stdout.splitlines()[-1] == "openai-api"
+
+
+def test_readiness_freshness_must_exceed_twice_the_runtime_heartbeat():
+    invalid = run_settings_probe(
+        DJANGO_DEBUG="true",
+        ALLIES_RUNTIME_READINESS_FRESHNESS_SECONDS="30",
+    )
+    valid = run_settings_probe(
+        DJANGO_DEBUG="true",
+        ALLIES_RUNTIME_READINESS_FRESHNESS_SECONDS="31",
+    )
+
+    assert invalid.returncode != 0
+    assert "must be greater than twice" in invalid.stderr
+    assert valid.returncode == 0, valid.stderr
 
 
 def test_production_mode_requires_secret_key():
@@ -129,6 +152,98 @@ def test_event_delivery_requires_credential_free_https_cloud_url(cloud_url):
 
     assert result.returncode != 0
     assert "ALLIES_CLOUD_URL must be an HTTPS origin" in result.stderr
+
+
+def test_debug_power_proof_allows_only_the_compose_cloud_http_host():
+    common = {
+        "DJANGO_DEBUG": "true",
+        "ALLIES_RUNTIME_POWER_PROOF_ENABLED": "true",
+        "ALLIES_CLOUD_EVENT_DELIVERY_ENABLED": "true",
+        "ALLIES_CLOUD_EVENT_SERVICE_TOKEN": "c" * 32,
+    }
+    allowed = run_settings_probe(
+        **common,
+        ALLIES_CLOUD_URL="http://host.docker.internal:8000",
+    )
+    rejected = run_settings_probe(
+        **common,
+        ALLIES_CLOUD_URL="http://cloud.example.test:8000",
+    )
+
+    assert allowed.returncode == 0, allowed.stderr
+    assert rejected.returncode != 0
+    assert "debug proof Cloud host" in rejected.stderr
+
+
+def test_power_proof_origin_requires_debug_and_explicit_proof_gate():
+    allowed = run_settings_probe(
+        DJANGO_DEBUG="true",
+        ALLIES_RUNTIME_POWER_PROOF_ENABLED="true",
+        ALLIES_FLY_API_BASE_URL="http://fly-simulator:8080",
+    )
+    assert allowed.returncode == 0, allowed.stderr
+
+    disabled = run_settings_probe(
+        DJANGO_DEBUG="true",
+        ALLIES_FLY_API_BASE_URL="http://simulator.test:8080",
+    )
+    assert disabled.returncode != 0
+    assert "ALLIES_FLY_API_BASE_URL is only available" in disabled.stderr
+
+    production = run_settings_probe(
+        DJANGO_DEBUG="false",
+        DJANGO_SECRET_KEY="synthetic-test-secret",
+        DJANGO_ALLOWED_HOSTS="localhost",
+        DATABASE_URL="sqlite:///test-production.sqlite3",
+        ALLIES_RUNTIME_POWER_PROOF_ENABLED="true",
+        ALLIES_FLY_API_BASE_URL="http://simulator.test:8080",
+    )
+    assert production.returncode != 0
+    assert "ALLIES_FLY_API_BASE_URL is only available" in production.stderr
+
+
+@pytest.mark.parametrize(
+    "base_url",
+    [
+        "http://simulator.test/runtime",
+        "http://simulator.test:8080?token=secret",
+        "https://user:password@simulator.test",
+    ],
+)
+def test_power_proof_origin_is_a_plain_origin(base_url):
+    result = run_settings_probe(
+        DJANGO_DEBUG="true",
+        ALLIES_RUNTIME_POWER_PROOF_ENABLED="true",
+        ALLIES_FLY_API_BASE_URL=base_url,
+    )
+
+    assert result.returncode != 0
+    assert "ALLIES_FLY_API_BASE_URL must be a plain origin" in result.stderr
+
+
+@pytest.mark.parametrize(
+    "base_url", ["http://simulator.test:8080", "https://simulator.test:8080"]
+)
+def test_power_proof_rejects_remote_origin(base_url):
+    result = run_settings_probe(
+        DJANGO_DEBUG="true",
+        ALLIES_RUNTIME_POWER_PROOF_ENABLED="true",
+        ALLIES_FLY_API_BASE_URL=base_url,
+    )
+
+    assert result.returncode != 0
+    assert "host must be loopback or fly-simulator" in result.stderr
+
+
+def test_runtime_intent_retention_cannot_end_before_eligibility():
+    result = run_settings_probe(
+        DJANGO_DEBUG="true",
+        ALLIES_RUNTIME_INTENT_TTL_SECONDS="120",
+        ALLIES_RUNTIME_INTENT_RETENTION_SECONDS="60",
+    )
+
+    assert result.returncode != 0
+    assert "ALLIES_RUNTIME_INTENT_RETENTION_SECONDS" in result.stderr
 
 
 @pytest.mark.parametrize(

@@ -73,6 +73,43 @@ class WorkspaceProvisioningPhase(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
+IN_FLIGHT_PROVISIONING_PHASES = (
+    WorkspaceProvisioningPhase.APP_READY,
+    WorkspaceProvisioningPhase.VOLUME_READY,
+    WorkspaceProvisioningPhase.OLD_MACHINE_STOPPED,
+    WorkspaceProvisioningPhase.OLD_MACHINE_DESTROYED,
+    WorkspaceProvisioningPhase.MACHINE_CREATED,
+    WorkspaceProvisioningPhase.MACHINE_STARTED,
+    WorkspaceProvisioningPhase.HEALTHY,
+)
+
+
+class RuntimeOperationState(models.TextChoices):
+    IDLE = "idle", "Idle"
+    REQUESTED = "requested", "Requested"
+    STARTING = "starting", "Starting"
+    AWAITING_READINESS = "awaiting_readiness", "Awaiting readiness"
+    STOPPING = "stopping", "Stopping"
+
+
+class RuntimeOperationTrigger(models.TextChoices):
+    SPECULATIVE = "speculative", "Speculative"
+    EXECUTION = "execution", "Execution"
+
+
+class RuntimeIntentType(models.TextChoices):
+    COMPOSING_STARTED = "composing_started", "Composing started"
+
+
+class RuntimeIntentOutcome(models.TextChoices):
+    ALREADY_READY = "already_ready", "Already ready"
+    WAKING = "waking", "Waking"
+    READY = "ready", "Ready"
+    FIRST_PROVISION_REQUIRED = "first_provision_required", "First provision required"
+    RATE_LIMITED = "rate_limited", "Rate limited"
+    FAILED = "failed", "Failed"
+
+
 class Workspace(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     tenant_ref = models.CharField(max_length=255, unique=True)
@@ -80,6 +117,28 @@ class Workspace(models.Model):
     volume_ref = models.CharField(max_length=255, null=True, blank=True)
     machine_ref = models.CharField(max_length=255, null=True, blank=True)
     machine_generation = models.PositiveIntegerField(default=0)
+    runtime_operation_id = models.UUIDField(null=True, blank=True)
+    runtime_operation_state = models.CharField(
+        max_length=24,
+        choices=RuntimeOperationState,
+        default=RuntimeOperationState.IDLE,
+    )
+    runtime_operation_trigger = models.CharField(
+        max_length=16,
+        choices=RuntimeOperationTrigger,
+        null=True,
+        blank=True,
+    )
+    runtime_operation_requested_at = models.DateTimeField(null=True, blank=True)
+    runtime_operation_retry_count = models.PositiveSmallIntegerField(default=0)
+    runtime_start_epoch = models.PositiveBigIntegerField(default=0)
+    ready_generation = models.PositiveIntegerField(null=True, blank=True)
+    ready_start_epoch = models.PositiveBigIntegerField(null=True, blank=True)
+    ready_boot_id = models.UUIDField(null=True, blank=True)
+    ready_at = models.DateTimeField(null=True, blank=True)
+    runtime_last_seen_at = models.DateTimeField(null=True, blank=True)
+    speculative_keep_warm_until = models.DateTimeField(null=True, blank=True)
+    last_speculative_start_at = models.DateTimeField(null=True, blank=True)
     # The operation ID is retained after a successful operation as a small
     # audit/idempotency anchor.  The remaining fields describe the operation
     # while a phase is in flight and are cleared by the lifecycle service.
@@ -144,6 +203,17 @@ class Workspace(models.Model):
                 name="runtime_workspace_provisioning_phase_valid",
             ),
             models.CheckConstraint(
+                condition=Q(runtime_operation_state__in=RuntimeOperationState.values),
+                name="runtime_workspace_operation_state_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(runtime_operation_trigger__isnull=True)
+                    | Q(runtime_operation_trigger__in=RuntimeOperationTrigger.values)
+                ),
+                name="runtime_workspace_operation_trigger_valid",
+            ),
+            models.CheckConstraint(
                 condition=(
                     ~Q(provisioning_phase=WorkspaceProvisioningPhase.IDLE)
                     | (
@@ -162,9 +232,74 @@ class Workspace(models.Model):
                 name="runtime_workspace_idle_binding_contract",
             ),
         ]
+        indexes: ClassVar = [
+            models.Index(
+                fields=["runtime_operation_state", "runtime_operation_requested_at"],
+                name="rt_ws_power_requested_idx",
+            ),
+            models.Index(
+                fields=["runtime_operation_state", "speculative_keep_warm_until"],
+                name="rt_ws_power_idle_idx",
+            ),
+        ]
 
     def __str__(self) -> str:
         return self.tenant_ref
+
+
+class RuntimeIntent(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="runtime_intents",
+    )
+    idempotency_key = models.UUIDField()
+    intent_type = models.CharField(
+        max_length=32,
+        choices=RuntimeIntentType,
+    )
+    received_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    delete_after = models.DateTimeField()
+    outcome = models.CharField(
+        max_length=32,
+        choices=RuntimeIntentOutcome,
+    )
+    coalesced_operation_id = models.UUIDField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["workspace", "idempotency_key"],
+                name="runtime_intent_workspace_key_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(intent_type__in=RuntimeIntentType.values),
+                name="runtime_intent_type_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(outcome__in=RuntimeIntentOutcome.values),
+                name="runtime_intent_outcome_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(received_at__lt=models.F("expires_at")),
+                name="runtime_intent_expiry_after_received",
+            ),
+            models.CheckConstraint(
+                condition=Q(expires_at__lte=models.F("delete_after")),
+                name="runtime_intent_cleanup_after_expiry",
+            ),
+        ]
+        indexes: ClassVar = [
+            models.Index(
+                fields=["workspace", "received_at"],
+                name="rt_intent_ws_received_idx",
+            ),
+            models.Index(fields=["delete_after"], name="rt_intent_delete_after_idx"),
+        ]
 
 
 class RuntimeCredential(models.Model):

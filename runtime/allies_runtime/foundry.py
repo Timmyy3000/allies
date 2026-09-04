@@ -230,6 +230,15 @@ class ProfileDesiredState:
 
 
 @dataclass(frozen=True, slots=True)
+class RuntimeReconciliationSnapshot:
+    """Authenticated current-generation state used for readiness fencing."""
+
+    machine_generation: int
+    runtime_start_epoch: int | None
+    profiles: tuple[ProfileDesiredState, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class ProfileReceipt:
     profile_id: str
     lifecycle_state: str
@@ -546,6 +555,7 @@ class FoundryClient:
         self._transport = transport or UrllibFoundryTransport(
             base_url or "http://127.0.0.1:8000", timeout=timeout
         )
+        self.last_reconciliation_snapshot: RuntimeReconciliationSnapshot | None = None
 
     def __repr__(self) -> str:  # pragma: no cover - defensive redaction
         return "FoundryClient(<redacted-token>)"
@@ -648,8 +658,8 @@ class FoundryClient:
             claim_id=str(payload["claim_id"]),
         )
 
-    async def reconcile_profiles(self) -> tuple[ProfileDesiredState, ...]:
-        """Read the current-generation, workspace-scoped profile desired state."""
+    async def reconciliation_snapshot(self) -> RuntimeReconciliationSnapshot:
+        """Read profile state plus the current server-owned start epoch."""
 
         payload = await self._request("GET", "/api/v1/runtime/profiles/reconciliation")
         if not payload or payload.get("version") != 1:
@@ -660,6 +670,7 @@ class FoundryClient:
             )
         rows = payload.get("profiles")
         generation = payload.get("machine_generation")
+        runtime_start_epoch = payload.get("runtime_start_epoch")
         if (
             not isinstance(rows, list)
             or isinstance(generation, bool)
@@ -671,7 +682,78 @@ class FoundryClient:
                 status=200,
                 code="MALFORMED_RESPONSE",
             )
-        return tuple(_profile_desired_state(row, generation) for row in rows)
+        if runtime_start_epoch is not None and (
+            isinstance(runtime_start_epoch, bool)
+            or not isinstance(runtime_start_epoch, int)
+            or runtime_start_epoch < 0
+        ):
+            raise FoundryError(
+                "Foundry profile reconciliation response was malformed",
+                status=200,
+                code="MALFORMED_RESPONSE",
+            )
+        snapshot = RuntimeReconciliationSnapshot(
+            machine_generation=generation,
+            runtime_start_epoch=runtime_start_epoch,
+            profiles=tuple(_profile_desired_state(row, generation) for row in rows),
+        )
+        self.last_reconciliation_snapshot = snapshot
+        return snapshot
+
+    async def reconcile_profiles(self) -> tuple[ProfileDesiredState, ...]:
+        """Read the current-generation, workspace-scoped profile desired state."""
+
+        return (await self.reconciliation_snapshot()).profiles
+
+    async def report_readiness(
+        self,
+        *,
+        boot_id: str | UUID,
+        reconciled_generation: int,
+        runtime_start_epoch: int,
+    ) -> Mapping[str, Any]:
+        try:
+            boot_uuid = boot_id if isinstance(boot_id, UUID) else UUID(str(boot_id))
+        except (TypeError, ValueError) as error:
+            raise ValueError("boot_id must be a UUID") from error
+        if (
+            isinstance(reconciled_generation, bool)
+            or not isinstance(reconciled_generation, int)
+            or reconciled_generation <= 0
+        ):
+            raise ValueError("reconciled_generation must be positive")
+        if (
+            isinstance(runtime_start_epoch, bool)
+            or not isinstance(runtime_start_epoch, int)
+            or runtime_start_epoch < 0
+        ):
+            raise ValueError("runtime_start_epoch must be nonnegative")
+        payload = await self._request(
+            "POST",
+            "/api/v1/runtime/readiness",
+            body={
+                "boot_id": str(boot_uuid),
+                "reconciled_generation": reconciled_generation,
+                "runtime_start_epoch": runtime_start_epoch,
+            },
+        )
+        if not payload or payload.get("status") != "ready":
+            raise FoundryError(
+                "Foundry readiness response was malformed",
+                status=200,
+                code="MALFORMED_RESPONSE",
+            )
+        if (
+            payload.get("generation") != reconciled_generation
+            or payload.get("runtime_start_epoch") != runtime_start_epoch
+            or not isinstance(payload.get("accepted_at"), str)
+        ):
+            raise FoundryError(
+                "Foundry readiness response was malformed",
+                status=200,
+                code="MALFORMED_RESPONSE",
+            )
+        return payload
 
     async def materialization_receipt(
         self,
@@ -1002,6 +1084,8 @@ class FoundryWorker:
         clock: Callable[[], float] = time.monotonic,
         profile_reconciler: Any | None = None,
         profile_reconcile_interval: float = DEFAULT_PROFILE_RECONCILE_INTERVAL,
+        readiness_heartbeat_interval: float = 15.0,
+        boot_id: str | UUID | None = None,
     ):
         if (
             isinstance(slots, bool)
@@ -1013,6 +1097,8 @@ class FoundryWorker:
             raise ValueError("renew interval must leave a stop safety margin")
         if profile_reconcile_interval <= 0:
             raise ValueError("profile reconcile interval must be positive")
+        if readiness_heartbeat_interval <= 0:
+            raise ValueError("readiness heartbeat interval must be positive")
         self.foundry = foundry
         self.hermes = hermes
         self.slots = slots
@@ -1025,6 +1111,9 @@ class FoundryWorker:
         self._profile_reconcile_interval = profile_reconcile_interval
         self._last_profile_reconciliation: float | None = None
         self._profile_reconciliation_retry_attempts = 0
+        self._readiness_heartbeat_interval = readiness_heartbeat_interval
+        self.boot_id = str(boot_id or uuid4())
+        self._last_readiness_report: float | None = None
         self._active: set[asyncio.Task[Any]] = set()
         self._ambiguous_claims: dict[str, float] = {}
         self._stopping = False
@@ -1571,7 +1660,12 @@ class FoundryWorker:
     ) -> bool:
         try:
             await self._reconcile_profiles(force=force)
-        except (ResponseLossError, RateLimitedError, ServiceUnavailableError) as error:
+        except (
+            NotReadyError,
+            ResponseLossError,
+            RateLimitedError,
+            ServiceUnavailableError,
+        ) as error:
             self._profiles_reconciled = False
             self._profile_reconciliation_retry_attempts += 1
             base_delay = max(retry_delay, 0.01)
@@ -1608,6 +1702,68 @@ class FoundryWorker:
         await self.profile_reconciler.reconcile()
         self._profiles_reconciled = True
         self._last_profile_reconciliation = self._clock()
+        snapshot = getattr(self.foundry, "last_reconciliation_snapshot", None)
+        if (
+            snapshot is not None
+            and snapshot.runtime_start_epoch is not None
+            and (
+                force
+                or self._last_readiness_report is None
+                or now - self._last_readiness_report
+                >= self._readiness_heartbeat_interval
+            )
+        ):
+            try:
+                hermes_ready = await self._hermes_ready()
+            except HermesError as error:
+                raise ServiceUnavailableError(
+                    "Hermes is not ready for a runtime receipt",
+                    status=503,
+                    code="HERMES_NOT_READY",
+                ) from error
+            if not hermes_ready:
+                raise ServiceUnavailableError(
+                    "Hermes is not ready for a runtime receipt",
+                    status=503,
+                    code="HERMES_NOT_READY",
+                )
+            try:
+                await self.foundry.report_readiness(
+                    boot_id=self.boot_id,
+                    reconciled_generation=snapshot.machine_generation,
+                    runtime_start_epoch=snapshot.runtime_start_epoch,
+                )
+            except FencedError as error:
+                self._profiles_reconciled = False
+                raise NotReadyError(
+                    "runtime readiness receipt was fenced",
+                    status=error.status,
+                    code="NOT_READY",
+                ) from error
+            self._last_readiness_report = self._clock()
+
+    async def _hermes_ready(self) -> bool:
+        health_method = getattr(self.hermes, "health_detailed", None)
+        if not callable(health_method):
+            health_method = getattr(self.hermes, "health", None)
+        if not callable(health_method):
+            return True
+        health = health_method()
+        if inspect.isawaitable(health):
+            health = await health
+        status = getattr(health, "status", None)
+        if isinstance(status, str) and status.lower() in {"ok", "ready", "healthy"}:
+            return True
+        if not isinstance(status, str) or status.lower() != "degraded":
+            return False
+        readiness = getattr(health, "readiness", None)
+        checks = readiness.get("checks") if isinstance(readiness, Mapping) else None
+        gateway = checks.get("gateway") if isinstance(checks, Mapping) else None
+        return bool(
+            isinstance(gateway, Mapping)
+            and gateway.get("status") == "ok"
+            and gateway.get("state") == "running"
+        )
 
 
 RuntimeWorker = FoundryWorker
@@ -1645,6 +1801,7 @@ __all__ = [
     "RateLimitedError",
     "RepairRequiredError",
     "ResponseLossError",
+    "RuntimeReconciliationSnapshot",
     "RuntimeWorker",
     "ServiceUnavailableError",
     "SessionReceipt",

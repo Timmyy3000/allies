@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import unicodedata
-from typing import Any
+from datetime import datetime
+from typing import Any, Literal
 from uuid import UUID
 
 from ninja import Schema
@@ -27,6 +28,10 @@ __all__ = [
     "ProfileProvisioningReceipt",
     "ProfileProvisioningRequest",
     "ReconciliationReceipt",
+    "RuntimeIntentReceipt",
+    "RuntimeIntentRequest",
+    "RuntimeReadinessReceipt",
+    "RuntimeReadinessRequest",
     "SessionBindingRequest",
     "StoppedRequest",
     "TerminalEventRequest",
@@ -36,6 +41,43 @@ __all__ = [
 class ClaimRequest(Schema):
     claim_id: UUID
     available_slots: int
+
+
+class RuntimeIntentRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    intent: Literal["composing_started"]
+    received_at: datetime
+
+
+class RuntimeIntentReceipt(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal[
+        "already_ready",
+        "waking",
+        "ready",
+        "first_provision_required",
+        "rate_limited",
+        "failed",
+    ]
+
+
+class RuntimeReadinessRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    boot_id: UUID
+    reconciled_generation: StrictInt = Field(..., ge=1)
+    runtime_start_epoch: StrictInt = Field(..., ge=0)
+
+
+class RuntimeReadinessReceipt(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    status: Literal["ready"]
+    generation: StrictInt = Field(..., ge=1)
+    runtime_start_epoch: StrictInt = Field(..., ge=0)
+    accepted_at: datetime
 
 
 class EventRequest(Schema):

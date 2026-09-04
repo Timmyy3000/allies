@@ -23,6 +23,7 @@ from runtime.management.commands.activate_fly_workspace import (
 from runtime.management.commands.activate_fly_workspace import (
     Command as ActivateFlyWorkspaceCommand,
 )
+from runtime.models import Workspace
 from runtime.services.attempts import complete_attempt, fail_attempt
 from runtime.services.claims import claim_next_execution
 from runtime.services.events import append_runtime_event
@@ -39,6 +40,8 @@ from runtime.services.profiles import (
     list_profile_reconciliation,
 )
 from runtime.services.runtime_auth import authenticate_runtime_token
+from runtime.services.runtime_intents import request_runtime_intent
+from runtime.services.runtime_readiness import accept_runtime_readiness
 from runtime.services.sessions import update_session_binding
 from runtime.services.workspaces import register_workspace
 from runtime.soul import render_default_allies_soul
@@ -52,6 +55,10 @@ from .schemas import (
     FailRequest,
     MaterializationReceiptRequest,
     ProfileProvisioningRequest,
+    RuntimeIntentReceipt,
+    RuntimeIntentRequest,
+    RuntimeReadinessReceipt,
+    RuntimeReadinessRequest,
     SessionBindingRequest,
     StoppedRequest,
     WorkspaceActivationReceipt,
@@ -89,16 +96,63 @@ def register(api: NinjaExtraAPI) -> None:
         except RuntimeDomainError as exc:
             return _error(exc)
 
+    @api.post("/control/workspaces/{workspace_id}/runtime-intents", auth=None)
+    def runtime_intent(
+        request: HttpRequest,
+        workspace_id: UUID,
+        payload: RuntimeIntentRequest,
+    ):
+        try:
+            _authenticate_cloud_service(request)
+            idempotency_key = request.headers.get("Idempotency-Key", "")
+            if not idempotency_key:
+                raise RuntimeValidationError("Idempotency-Key is required")
+            receipt = request_runtime_intent(
+                workspace_id,
+                payload.intent,
+                idempotency_key,
+                payload.received_at,
+            )
+            response = RuntimeIntentReceipt(status=receipt.status)
+            return JsonResponse(
+                response.model_dump(mode="json"),
+                status=202 if receipt.status == "waking" else 200,
+            )
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post("/runtime/readiness", auth=None)
+    def readiness(request: HttpRequest, payload: RuntimeReadinessRequest):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            receipt = accept_runtime_readiness(
+                context,
+                payload.boot_id,
+                payload.reconciled_generation,
+                payload.runtime_start_epoch,
+            )
+            response = RuntimeReadinessReceipt(
+                status=receipt.status,
+                generation=receipt.generation,
+                runtime_start_epoch=receipt.runtime_start_epoch,
+                accepted_at=receipt.accepted_at,
+            )
+            return JsonResponse(response.model_dump(mode="json"), status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
     @api.get("/runtime/profiles/reconciliation", auth=None)
     def profile_reconciliation(request: HttpRequest):
         try:
             context = authenticate_runtime_token(_bearer(request))
+            workspace = Workspace.objects.get(pk=context.workspace_id)
             profiles = list_profile_reconciliation(context)
             return JsonResponse(
                 {
                     "version": 1,
                     "workspace_id": str(context.workspace_id),
                     "machine_generation": context.machine_generation,
+                    "runtime_start_epoch": workspace.runtime_start_epoch,
                     "profiles": [_profile_json(profile) for profile in profiles],
                 },
                 status=200,

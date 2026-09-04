@@ -58,6 +58,10 @@ def ready_workspace(db):
         machine_ref="machine-1",
         machine_generation=1,
         provisioning_phase=WorkspaceProvisioningPhase.IDLE,
+        ready_generation=1,
+        ready_start_epoch=0,
+        ready_boot_id=uuid4(),
+        runtime_last_seen_at=timezone.now(),
     )
 
 

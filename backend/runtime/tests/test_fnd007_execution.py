@@ -50,6 +50,10 @@ def claimed_execution(db):
         machine_ref="machine-1",
         machine_generation=1,
         provisioning_phase=WorkspaceProvisioningPhase.IDLE,
+        ready_generation=1,
+        ready_start_epoch=0,
+        ready_boot_id=uuid4(),
+        runtime_last_seen_at=timezone.now(),
     )
     profile = RuntimeProfile.objects.create(
         workspace=workspace,
@@ -432,7 +436,19 @@ def test_expired_retired_generation_is_failed_and_fenced(claimed_execution):
     workspace = execution.workspace
     workspace.machine_generation = 2
     workspace.machine_ref = "machine-2"
-    workspace.save(update_fields=["machine_generation", "machine_ref", "updated_at"])
+    workspace.ready_generation = 2
+    workspace.ready_start_epoch = workspace.runtime_start_epoch
+    workspace.runtime_last_seen_at = timezone.now()
+    workspace.save(
+        update_fields=[
+            "machine_generation",
+            "machine_ref",
+            "ready_generation",
+            "ready_start_epoch",
+            "runtime_last_seen_at",
+            "updated_at",
+        ]
+    )
     Lease.objects.filter(pk=claim.lease_id).update(
         expires_at=timezone.now() - timedelta(seconds=1)
     )

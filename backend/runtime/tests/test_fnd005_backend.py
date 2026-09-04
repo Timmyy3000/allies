@@ -57,6 +57,10 @@ def ready_workspace(db):
         machine_ref="machine-1",
         machine_generation=1,
         provisioning_phase=WorkspaceProvisioningPhase.IDLE,
+        ready_generation=1,
+        ready_start_epoch=0,
+        ready_boot_id=uuid4(),
+        runtime_last_seen_at=timezone.now(),
     )
 
 
@@ -311,11 +315,17 @@ def test_claim_replay_cannot_return_a_retired_generation(runtime_setup):
     workspace.machine_generation = 2
     workspace.machine_ref = "machine-2"
     workspace.provisioning_phase = WorkspaceProvisioningPhase.IDLE
+    workspace.ready_generation = 2
+    workspace.ready_start_epoch = workspace.runtime_start_epoch
+    workspace.runtime_last_seen_at = timezone.now()
     workspace.save(
         update_fields=[
             "machine_generation",
             "machine_ref",
             "provisioning_phase",
+            "ready_generation",
+            "ready_start_epoch",
+            "runtime_last_seen_at",
             "updated_at",
         ]
     )
