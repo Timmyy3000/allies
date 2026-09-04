@@ -146,11 +146,14 @@ def test_v1_fixture_is_strict_and_cloud_types_match_contract():
     fixture = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
 
     command = ExecutionCommand.model_validate(fixture["command"])
+    bootstrap_command = ExecutionCommand.model_validate(fixture["bootstrap_command"])
     event = FoundryEventEnvelope.model_validate(fixture["event"])
     receipt = ExecutionReceipt.model_validate(fixture["receipt"])
     reconciliation = ReconciliationReceipt.model_validate(fixture["reconciliation"])
 
     assert command.fingerprint == canonical_fingerprint(command)
+    assert bootstrap_command.fingerprint == canonical_fingerprint(bootstrap_command)
+    assert "absent or null" in fixture["canonicalization"]["optional_fields"]
     assert event.fingerprint == canonical_fingerprint(event)
     assert receipt.fingerprint == command.fingerprint
     assert reconciliation.fingerprint == command.fingerprint

@@ -13,7 +13,9 @@ from allies.exceptions import FoundryGatewayRetryable, FoundryGatewayUnknownOutc
 from allies.gateways.contracts import (
     ExecutionCommand,
     ExecutionReceipt,
+    FirstTurnBootstrap,
     ReconciliationReceipt,
+    canonical_fingerprint,
 )
 from allies.models import Ally, AllyBinding, BindingStatus
 from auths.models import User
@@ -82,6 +84,167 @@ def receipt_for(command: ExecutionCommand) -> ExecutionReceipt:
         idempotency_key=command.idempotency_key,
         fingerprint=command.fingerprint,
     )
+
+
+def test_first_turn_bootstrap_contract_is_strict_and_bounded():
+    values = {
+        "kind": "assistant_message",
+        "message_id": "550e8400-e29b-41d4-a716-446655440000",
+        "text": "Hello, what should we work on first?",
+    }
+    bootstrap = FirstTurnBootstrap.model_validate(values)
+
+    assert bootstrap.model_dump(mode="json") == values
+    with pytest.raises(ValueError):
+        FirstTurnBootstrap.model_validate({**values, "unexpected": True})
+    with pytest.raises(ValueError):
+        FirstTurnBootstrap.model_validate({**values, "text": "界" * 6000})
+
+
+@pytest.mark.django_db
+def test_first_turn_bootstrap_uses_exact_greeting_and_replays_exact_outbox(
+    dispatch_records,
+):
+    _workspace, _binding, conversation, message = dispatch_records
+    message.sequence = 2
+    message.save(update_fields=("sequence", "updated_at"))
+    greeting = Message.objects.create(
+        id=UUID("550e8400-e29b-41d4-a716-446655440000"),
+        conversation=conversation,
+        sequence=1,
+        sender=MessageSender.ASSISTANT,
+        origin=MessageOrigin.ONBOARDING,
+        content="Hello,\nwhat should we work on first?",
+        status=MessageLifecycle.COMPLETED,
+    )
+
+    first = dispatch_accepted_message(message)
+    outbox = DispatchOutbox.objects.get(message=message)
+    persisted = bytes(outbox.command_bytes)
+    command = ExecutionCommand.model_validate_json(persisted)
+
+    assert command.payload.bootstrap == FirstTurnBootstrap(
+        kind="assistant_message", message_id=greeting.id, text=greeting.content
+    )
+    assert command.fingerprint == canonical_fingerprint(command)
+    assert b'"bootstrap"' in persisted
+
+    replay = dispatch_accepted_message(message)
+    outbox.refresh_from_db()
+    assert replay.command_fingerprint == first.command_fingerprint
+    assert bytes(outbox.command_bytes) == persisted
+
+
+@pytest.mark.django_db
+def test_later_turn_omits_first_turn_bootstrap(dispatch_records):
+    _workspace, _binding, conversation, message = dispatch_records
+    message.delete()
+    Message.objects.create(
+        conversation=conversation,
+        sequence=1,
+        sender=MessageSender.ASSISTANT,
+        origin=MessageOrigin.ONBOARDING,
+        content="Hello",
+        status=MessageLifecycle.COMPLETED,
+    )
+    Message.objects.create(
+        conversation=conversation,
+        sequence=2,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content="First reply",
+        status=MessageLifecycle.COMPLETED,
+        send_key_digest="b" * 64,
+        content_fingerprint="c" * 64,
+    )
+    later = Message.objects.create(
+        conversation=conversation,
+        sequence=3,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content="Later reply",
+        status=MessageLifecycle.QUEUED,
+        send_key_digest="d" * 64,
+        content_fingerprint="e" * 64,
+    )
+
+    dispatch_accepted_message(later)
+    command = ExecutionCommand.model_validate_json(
+        bytes(DispatchOutbox.objects.get(message=later).command_bytes)
+    )
+
+    assert command.payload.bootstrap is None
+    assert b'"bootstrap"' not in bytes(
+        DispatchOutbox.objects.get(message=later).command_bytes
+    )
+
+
+@pytest.mark.django_db
+def test_retry_of_first_turn_keeps_the_greeting_bootstrap(dispatch_records):
+    _workspace, _binding, conversation, message = dispatch_records
+    message.delete()
+    greeting = Message.objects.create(
+        conversation=conversation,
+        sequence=1,
+        sender=MessageSender.ASSISTANT,
+        origin=MessageOrigin.ONBOARDING,
+        content="Hello, what should we work on first?",
+        status=MessageLifecycle.COMPLETED,
+    )
+    first_reply = Message.objects.create(
+        conversation=conversation,
+        sequence=2,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content="My subscriptions",
+        status=MessageLifecycle.FAILED,
+        send_key_digest="b" * 64,
+        content_fingerprint="c" * 64,
+    )
+    retry = Message.objects.create(
+        conversation=conversation,
+        sequence=3,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content=first_reply.content,
+        status=MessageLifecycle.QUEUED,
+        send_key_digest="d" * 64,
+        content_fingerprint="c" * 64,
+        retry_of=first_reply,
+    )
+
+    dispatch_accepted_message(retry)
+    command = ExecutionCommand.model_validate_json(
+        bytes(DispatchOutbox.objects.get(message=retry).command_bytes)
+    )
+
+    assert command.payload.bootstrap == FirstTurnBootstrap(
+        kind="assistant_message", message_id=greeting.id, text=greeting.content
+    )
+
+
+@pytest.mark.django_db
+def test_corrupt_first_turn_history_fails_closed_before_outbox_creation(
+    dispatch_records,
+):
+    _workspace, _binding, conversation, message = dispatch_records
+    message.sequence = 2
+    message.save(update_fields=("sequence", "updated_at"))
+    Message.objects.create(
+        conversation=conversation,
+        sequence=1,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content="Not a durable onboarding greeting",
+        status=MessageLifecycle.QUEUED,
+        send_key_digest="b" * 64,
+        content_fingerprint="c" * 64,
+    )
+
+    with pytest.raises(OnboardingHandoffRepairRequired):
+        dispatch_accepted_message(message)
+
+    assert not DispatchOutbox.objects.filter(message=message).exists()
 
 
 @pytest.mark.django_db
@@ -275,6 +438,68 @@ def test_missing_onboarding_handoff_is_terminal_and_does_not_starve_batch(
     assert other_outbox.status == DispatchState.ACCEPTED
     assert calls == [str(other_message.id)]
     assert dispatch_pending_messages(now=now + timedelta(days=1)).claimed == 0
+
+
+@pytest.mark.django_db
+@override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=True)
+def test_malformed_prior_first_turn_is_terminal_without_crashing_batch(
+    dispatch_records, monkeypatch
+):
+    _workspace, _binding, conversation, message = dispatch_records
+    message.delete()
+    Message.objects.create(
+        conversation=conversation,
+        sequence=1,
+        sender=MessageSender.ASSISTANT,
+        origin=MessageOrigin.ONBOARDING,
+        content="   ",
+        status=MessageLifecycle.COMPLETED,
+    )
+    first_reply = Message.objects.create(
+        conversation=conversation,
+        sequence=2,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content="First reply",
+        status=MessageLifecycle.FAILED,
+        send_key_digest="b" * 64,
+        content_fingerprint="c" * 64,
+    )
+    retry = Message.objects.create(
+        conversation=conversation,
+        sequence=3,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content=first_reply.content,
+        status=MessageLifecycle.QUEUED,
+        send_key_digest="d" * 64,
+        content_fingerprint="c" * 64,
+        retry_of=first_reply,
+    )
+    later = Message.objects.create(
+        conversation=conversation,
+        sequence=4,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content="Later work",
+        status=MessageLifecycle.QUEUED,
+        send_key_digest="e" * 64,
+        content_fingerprint="f" * 64,
+    )
+    dispatch_accepted_message(later)
+    monkeypatch.setattr(
+        "chat.services.dispatch.create_execution_intent",
+        lambda command, **_kwargs: receipt_for(command),
+    )
+
+    report = dispatch_pending_messages(now=timezone.now())
+
+    prior_outbox = DispatchOutbox.objects.get(message=retry)
+    later_outbox = DispatchOutbox.objects.get(message=later)
+    assert report.accepted == 1
+    assert prior_outbox.status == DispatchState.FAILED
+    assert prior_outbox.safe_error_code == "onboarding_handoff_repair_required"
+    assert later_outbox.status == DispatchState.ACCEPTED
 
 
 @pytest.mark.django_db

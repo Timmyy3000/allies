@@ -86,9 +86,24 @@ class CloudCorrelation(ContractModel):
     cloud_binding_id: UUID
 
 
+class FirstTurnBootstrap(ContractModel):
+    kind: Literal["assistant_message"]
+    message_id: UUID
+    text: StrictStr = Field(min_length=1, max_length=MAX_COMMAND_TEXT_BYTES)
+
+    @model_validator(mode="after")
+    def bounded_utf8(self) -> FirstTurnBootstrap:
+        if len(self.text.encode("utf-8")) > MAX_COMMAND_TEXT_BYTES:
+            raise ValueError("bootstrap text is too large")
+        return self
+
+
 class ExecutionInput(ContractModel):
     kind: Literal["execution_input"]
     text: StrictStr = Field(min_length=1, max_length=MAX_COMMAND_TEXT_BYTES)
+    bootstrap: FirstTurnBootstrap | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
 
     @model_validator(mode="after")
     def bounded_utf8(self) -> ExecutionInput:
@@ -255,6 +270,7 @@ __all__ = [
     "ExecutionCommand",
     "ExecutionInput",
     "ExecutionReceipt",
+    "FirstTurnBootstrap",
     "FoundryEventEnvelope",
     "FoundryIdentity",
     "ReconciliationReceipt",
