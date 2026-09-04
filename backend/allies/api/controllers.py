@@ -10,15 +10,27 @@ from allies.api.schemas import (
     CreateAllyRequest,
     OnboardingAttemptRequest,
     OnboardingAttemptResponse,
+    RuntimeIntentRequest,
+    RuntimeIntentResponse,
 )
 from allies.exceptions import (
     IdempotencyConflict,
     OnboardingInvalid,
     OnboardingUnavailable,
+    RuntimeIntentInvalid,
+)
+from allies.gateways.foundry import (
+    FoundryGatewayConflict,
+    FoundryGatewayInvalid,
+    FoundryGatewayNotFound,
+    FoundryGatewayRejected,
+    FoundryGatewayRetryable,
+    FoundryGatewayUnknownOutcome,
 )
 from allies.models import Ally, ProvisioningStatus
 from allies.services.creation import create_ally, list_allies, retrieve_ally
 from allies.services.onboarding import begin_onboarding
+from allies.services.runtime_intents import request_runtime_intent
 from auths.api.common import (
     _client_identity,
     _csrf_binding,
@@ -30,6 +42,7 @@ from auths.api.common import (
 )
 from auths.api.schemas import SuccessResponse
 from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
+from auths.throttle import ThrottleExceeded, ThrottleUnavailable
 from common.uuids import CanonicalUUID
 
 
@@ -182,3 +195,76 @@ class AllyController(ControllerBase):
         except (Ally.DoesNotExist, WorkspaceAccessDenied, ValueError):
             return error_json("ally_unavailable", "Ally unavailable", 404)
         return success_json(_response(ally), "Ally loaded")
+
+
+@api_controller("/allies", tags=["Allies"])
+class RuntimeIntentController(ControllerBase):
+    @http_post(
+        "/{ally_id}/runtime-intents",
+        response={
+            200: SuccessResponse[RuntimeIntentResponse],
+            202: SuccessResponse[RuntimeIntentResponse],
+            **error_responses(401, 404, 409, 422, 429, 503),
+        },
+    )
+    def request(
+        self,
+        request: HttpRequest,
+        ally_id: CanonicalUUID,
+        payload: RuntimeIntentRequest,
+        idempotency_key: Annotated[
+            str,
+            Header(
+                alias="Idempotency-Key",
+                min_length=36,
+                max_length=36,
+                description="Stable UUID for repeating one runtime intent.",
+            ),
+        ],
+    ):
+        if rejected := _require_origin(request):
+            return rejected
+        try:
+            session = _session(request)
+            result = request_runtime_intent(
+                user=session.user,
+                ally_id=ally_id,
+                intent=payload.intent,
+                occurred_at=payload.occurred_at,
+                idempotency_key=idempotency_key,
+            )
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        except RuntimeIntentInvalid:
+            return error_json("validation_error", "request validation failed", 422)
+        except (WorkspaceAccessDenied, ValueError):
+            return error_json("ally_unavailable", "Ally unavailable", 404)
+        except ThrottleExceeded:
+            return error_json("rate_limited", "Request temporarily unavailable", 429)
+        except ThrottleUnavailable:
+            return error_json(
+                "throttle_unavailable", "Request temporarily unavailable", 503
+            )
+        except FoundryGatewayConflict:
+            return error_json(
+                "runtime_intent_conflict", "Runtime intent unavailable", 409
+            )
+        except FoundryGatewayNotFound:
+            return error_json(
+                "runtime_intent_unavailable", "Runtime intent unavailable", 404
+            )
+        except (
+            FoundryGatewayInvalid,
+            FoundryGatewayRejected,
+            FoundryGatewayRetryable,
+            FoundryGatewayUnknownOutcome,
+        ):
+            return error_json(
+                "runtime_intent_unavailable", "Runtime intent unavailable", 503
+            )
+        response = RuntimeIntentResponse(status=result.status)
+        return success_json(
+            response,
+            "Runtime intent accepted",
+            status=202 if result.status == "waking" else 200,
+        )

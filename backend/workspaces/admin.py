@@ -6,7 +6,7 @@ from .models import Membership, Workspace
 
 @admin.register(Workspace)
 class WorkspaceAdmin(ModelAdmin):
-    list_display = ("id", "name", "kind", "owner", "is_active")
+    list_display = ("id", "name", "kind", "owner", "is_active", "runtime_intent_mode")
     search_fields = ("id", "name", "owner__id")
     readonly_fields = ("id",)
 
