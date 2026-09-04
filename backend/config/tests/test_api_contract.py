@@ -85,8 +85,44 @@ def test_error_responses_publish_safe_route_examples():
                                         example["value"]["message"]
                                         == "waitlist unavailable"
                                     )
+                    elif path in {
+                        "/api/v1/onboarding/attempts",
+                        "/api/v1/workspaces/{workspace_id}/allies",
+                    }:
+                        if "examples" in content:
+                            examples = content["examples"]
+                            assert examples
+                            for code, example in examples.items():
+                                assert example["value"]["data"]["code"] == code
+                        else:
+                            assert content["example"] == GENERIC_ERROR_RESPONSE_EXAMPLE
                     else:
                         assert content["example"] == GENERIC_ERROR_RESPONSE_EXAMPLE
+
+
+def test_onboarding_openapi_declares_closed_transports_and_no_store():
+    schema = api.get_openapi_schema()
+    attempt = schema["paths"]["/api/v1/onboarding/attempts"]["post"]
+    attempt_parameters = {parameter["name"] for parameter in attempt["parameters"]}
+
+    assert attempt["security"] == []
+    assert {"Origin", "Referer", "X-CSRFToken"} <= attempt_parameters
+    assert "ALLIES_AUTH_NATIVE_ENABLED" in attempt["description"]
+    attempt_response = attempt["responses"].get(200) or attempt["responses"]["200"]
+    assert attempt_response["headers"]["Cache-Control"]["example"] == "no-store"
+    response_422 = attempt["responses"].get(422) or attempt["responses"]["422"]
+    response_429 = attempt["responses"].get(429) or attempt["responses"]["429"]
+    assert set(response_422["content"]["application/json"]["examples"])
+    assert set(response_429["content"]["application/json"]["examples"])
+
+    create = schema["paths"]["/api/v1/workspaces/{workspace_id}/allies"]["post"]
+    assert create["security"] == [
+        {"BrowserSession": []},
+        {"BearerAuth": []},
+    ]
+    assert "never anonymous" in create["description"]
+    assert "BrowserSession" in schema["components"]["securitySchemes"]
+    assert "BearerAuth" in schema["components"]["securitySchemes"]
 
 
 def test_waitlist_openapi_declares_two_public_origin_checked_mutations():

@@ -10,7 +10,12 @@ from django.utils import timezone
 from allies.api.controllers import _response
 from allies.exceptions import IdempotencyConflict, OnboardingInvalid
 from allies.models import Ally, AllyBinding, OnboardingAttempt, ProvisioningOperation
-from allies.services.creation import create_ally, list_allies, retrieve_ally
+from allies.services.creation import (
+    _fingerprint,
+    create_ally,
+    list_allies,
+    retrieve_ally,
+)
 from allies.services.onboarding import (
     begin_onboarding,
     cleanup_expired_onboarding_attempts,
@@ -122,6 +127,76 @@ def test_create_replays_same_intent_and_conflicts_on_changed_content(account):
     assert attempt.ally == first.ally
     with pytest.raises(IdempotencyConflict):
         create_ally(**{**values, "reply": "Different reply."})
+
+
+@pytest.mark.django_db
+def test_legacy_idempotency_retry_requires_the_original_attempt(account):
+    user, workspace = account
+    start = begin_onboarding(
+        **payload(),
+        browser_binding=b"browser",
+        generation_identity="test:legacy-replay",
+        provider=GreetingProvider(),
+    )
+    values = {
+        **payload(),
+        "user": user,
+        "workspace_id": workspace.id,
+        "onboarding_attempt": start.attempt_token,
+        "reply": "Help me plan tomorrow.",
+        "browser_binding": b"browser",
+        "idempotency_key": "legacy-create-key-1",
+    }
+
+    first = create_ally(**values)
+    operation = ProvisioningOperation.objects.get(pk=first.operation.pk)
+    operation.content_fingerprint = _fingerprint(
+        {**payload(), "reply": values["reply"]}
+    )
+    operation.save(update_fields=("content_fingerprint", "updated_at"))
+
+    replay = create_ally(**values)
+
+    assert replay.replayed
+    with pytest.raises(IdempotencyConflict):
+        create_ally(**{**values, "onboarding_attempt": "x" * 32})
+
+
+@pytest.mark.django_db
+def test_native_attempt_binding_and_attempt_aware_idempotency(account):
+    user, workspace = account
+    start = begin_onboarding(
+        **payload(),
+        browser_binding=None,
+        generation_identity="test:native-create",
+        provider=GreetingProvider(),
+    )
+    attempt = OnboardingAttempt.objects.get()
+    assert attempt.browser_binding_digest == digest_value(
+        f"native:{start.attempt_token}"
+    )
+    values = {
+        **payload(),
+        "user": user,
+        "workspace_id": workspace.id,
+        "onboarding_attempt": start.attempt_token,
+        "reply": "Help me plan tomorrow.",
+        "browser_binding": None,
+        "idempotency_key": "stable-native-key-1",
+    }
+
+    with pytest.raises(OnboardingInvalid):
+        create_ally(**{**values, "onboarding_attempt": "x" * 32})
+    assert OnboardingAttempt.objects.get().consumed_at is None
+
+    first = create_ally(**values)
+    replay = create_ally(**values)
+
+    assert not first.replayed
+    assert replay.replayed
+    with pytest.raises(IdempotencyConflict):
+        create_ally(**{**values, "onboarding_attempt": "y" * 32})
+    assert Ally.objects.count() == 1
 
 
 @pytest.mark.django_db

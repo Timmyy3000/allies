@@ -192,6 +192,20 @@ def test_production_settings_reject_native_auth_without_explicit_edge_and_redire
     )
 
 
+def test_production_settings_reject_nonpositive_native_onboarding_limit():
+    result = _settings_subprocess(
+        {
+            "DJANGO_DEBUG": "false",
+            "DJANGO_SECRET_KEY": "d" * 32,
+            "ALLIES_AUTH_NATIVE_ENABLED": "true",
+            "ALLIES_AUTH_NATIVE_ONBOARDING_LIMIT": "0",
+        }
+    )
+
+    assert result.returncode != 0
+    assert "positive native auth lifetimes and rate limits" in result.stderr
+
+
 def test_production_settings_accept_native_auth_with_placeholder_contract_values():
     result = _settings_subprocess(
         {
@@ -218,6 +232,15 @@ def test_production_settings_accept_native_auth_with_placeholder_contract_values
             "CACHE_URL": "redis://cache.internal:6379/0",
             "DATABASE_URL": "postgresql://allies:secret@database.internal/allies",
         }
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_native_onboarding_limit_defaults_to_five():
+    result = _settings_subprocess(
+        {"DJANGO_DEBUG": "true"},
+        "import config.settings as s; assert s.ALLIES_AUTH_NATIVE_ONBOARDING_LIMIT == 5",
     )
 
     assert result.returncode == 0, result.stderr
