@@ -10,7 +10,11 @@ from django.db import IntegrityError, transaction
 
 from allies.exceptions import IdempotencyConflict, OnboardingInvalid
 from allies.models import Ally, AllyBinding, OnboardingAttempt, ProvisioningOperation
-from allies.services.onboarding import digest_value, normalize_seed
+from allies.services.onboarding import (
+    _native_attempt_binding,
+    digest_value,
+    normalize_seed,
+)
 from auths.config import digest_key
 from auths.models import User
 from chat.exceptions import ChatError
@@ -39,8 +43,31 @@ def _fingerprint(payload: dict[str, str]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
-def _load_result(operation: ProvisioningOperation, fingerprint: str):
-    if operation.content_fingerprint != fingerprint:
+def _load_result(
+    operation: ProvisioningOperation,
+    fingerprint: str,
+    legacy_fingerprint: str,
+    onboarding_attempt: str,
+    browser_binding: bytes | None,
+):
+    if operation.content_fingerprint not in {fingerprint, legacy_fingerprint}:
+        raise IdempotencyConflict("idempotency key conflicts with accepted content")
+    try:
+        attempt = operation.binding.ally.onboarding_attempt
+    except OnboardingAttempt.DoesNotExist as exc:
+        raise IdempotencyConflict(
+            "idempotency key conflicts with accepted content"
+        ) from exc
+    if attempt.consumed_at is None or not hmac.compare_digest(
+        attempt.attempt_token_digest, digest_value(onboarding_attempt)
+    ):
+        raise IdempotencyConflict("idempotency key conflicts with accepted content")
+    binding = (
+        browser_binding
+        if browser_binding is not None
+        else _native_attempt_binding(onboarding_attempt)
+    )
+    if not hmac.compare_digest(attempt.browser_binding_digest, digest_value(binding)):
         raise IdempotencyConflict("idempotency key conflicts with accepted content")
     return AllyCreationResult(operation.binding.ally, operation, True)
 
@@ -56,7 +83,7 @@ def create_ally(
     appearance_key: str,
     onboarding_attempt: str,
     reply: str,
-    browser_binding: bytes,
+    browser_binding: bytes | None,
     idempotency_key: str,
 ) -> AllyCreationResult:
     context = require_workspace_capability(
@@ -68,8 +95,10 @@ def create_ally(
         not isinstance(onboarding_attempt, str)
         or not 32 <= len(onboarding_attempt) <= 256
         or not onboarding_attempt.strip()
-        or not isinstance(browser_binding, bytes)
-        or not browser_binding
+        or (
+            browser_binding is not None
+            and (not isinstance(browser_binding, bytes) or not browser_binding)
+        )
     ):
         raise OnboardingInvalid("onboarding attempt is invalid")
     if (
@@ -88,7 +117,11 @@ def create_ally(
     if not isinstance(reply, str) or not reply.strip() or len(reply) > 4000:
         raise OnboardingInvalid("onboarding reply is invalid")
     values["reply"] = reply
-    fingerprint = _fingerprint(values)
+    attempt_token_digest = digest_value(onboarding_attempt)
+    legacy_fingerprint = _fingerprint(values)
+    fingerprint = _fingerprint(
+        {**values, "onboarding_attempt_digest": attempt_token_digest}
+    )
     key_digest = _key_digest(idempotency_key)
 
     def existing_result():
@@ -101,7 +134,17 @@ def create_ally(
             )
             .first()
         )
-        return _load_result(operation, fingerprint) if operation else None
+        return (
+            _load_result(
+                operation,
+                fingerprint,
+                legacy_fingerprint,
+                onboarding_attempt,
+                browser_binding,
+            )
+            if operation
+            else None
+        )
 
     if existing := existing_result():
         return existing
@@ -112,14 +155,19 @@ def create_ally(
                 return existing
             try:
                 attempt = OnboardingAttempt.objects.select_for_update().get(
-                    attempt_token_digest=digest_value(onboarding_attempt)
+                    attempt_token_digest=attempt_token_digest
                 )
             except OnboardingAttempt.DoesNotExist as exc:
                 raise OnboardingInvalid("onboarding attempt unavailable") from exc
             if existing := existing_result():
                 return existing
+            binding = (
+                browser_binding
+                if browser_binding is not None
+                else _native_attempt_binding(onboarding_attempt)
+            )
             if not hmac.compare_digest(
-                attempt.browser_binding_digest, digest_value(browser_binding)
+                attempt.browser_binding_digest, digest_value(binding)
             ):
                 raise OnboardingInvalid("onboarding attempt unavailable")
             if not attempt.is_usable():

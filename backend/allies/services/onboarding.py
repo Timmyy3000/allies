@@ -17,7 +17,6 @@ from waitlist.admission import acquire_generation, release_generation
 from waitlist.exceptions import (
     AdmissionUnavailable,
     GenerationUnavailable,
-    Throttled,
     WaitlistValidationError,
 )
 from waitlist.providers.base import (
@@ -77,6 +76,10 @@ def digest_value(value: str | bytes) -> str:
     return hmac.new(digest_key(), raw, hashlib.sha256).hexdigest()
 
 
+def _native_attempt_binding(attempt_token: str) -> bytes:
+    return f"native:{attempt_token}".encode()
+
+
 def begin_onboarding(
     *,
     name: str,
@@ -84,11 +87,13 @@ def begin_onboarding(
     personality: str,
     appearance_catalog_version: str,
     appearance_key: str,
-    browser_binding: bytes,
+    browser_binding: bytes | None,
     generation_identity: str,
     provider=None,
 ) -> OnboardingStart:
-    if not browser_binding:
+    if browser_binding is not None and (
+        not isinstance(browser_binding, bytes) or not browser_binding
+    ):
         raise OnboardingInvalid("browser binding is required")
     values = normalize_seed(
         name=name,
@@ -113,7 +118,6 @@ def begin_onboarding(
         GenerationUnavailable,
         ProviderUnavailableError,
         ProviderUnknownError,
-        Throttled,
         WaitlistValidationError,
     ) as exc:
         raise OnboardingUnavailable("onboarding unavailable") from exc
@@ -122,9 +126,14 @@ def begin_onboarding(
             release_generation(lease)
 
     token = secrets.token_urlsafe(32)
+    binding = (
+        browser_binding
+        if browser_binding is not None
+        else _native_attempt_binding(token)
+    )
     OnboardingAttempt.objects.create(
         attempt_token_digest=digest_value(token),
-        browser_binding_digest=digest_value(browser_binding),
+        browser_binding_digest=digest_value(binding),
         **values,
         greeting=greeting,
         expires_at=timezone.now()

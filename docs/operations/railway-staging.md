@@ -110,6 +110,29 @@ Session, family, and user-specific limits remain unchanged. If the service is
 scaled across more web processes, the bootstrap cap applies per process and the
 managed edge remains the primary abuse-control boundary.
 
+## Native onboarding rollout
+
+Native onboarding and native Google continuation share the
+`ALLIES_AUTH_NATIVE_ENABLED` gate, which is disabled by default. Enable it only
+after the deployment/security owner confirms that Railway overwrites forged
+`X-Real-IP`, no alternate public ingress exists, and every web process uses the
+shared Redis cache. A native attempt must contain no Origin, Referer, Cookie,
+CSRF, or Authorization header; the edge-provided address is used only for the
+bounded requester/global throttles. Browser requests retain trusted-origin and
+double-submit CSRF checks, and hybrid bearer/browser requests are rejected.
+
+The onboarding requester limit is
+`ALLIES_AUTH_NATIVE_ONBOARDING_LIMIT` (default `5` per native rate-limit
+period). It is separate from the generation budget/concurrency controls; both
+must remain active. Record only sanitized status codes, error codes, response
+field names, the deployed commit, and timestamps when proving the native 200
+and browser regression paths. Never record attempt/session tokens, addresses,
+CSRF values, Authorization headers, or provider details.
+
+To roll back, set `ALLIES_AUTH_NATIVE_ENABLED=false` through the authorized
+Railway configuration workflow and redeploy the exact revision. Verify browser
+onboarding and create still pass; do not delete outstanding attempt rows.
+
 Cache and broker state use separate Redis logical databases. `CACHE_URL` uses
 database 0 for Django cache/throttle data; `CELERY_BROKER_URL` is derived as
 database 1 when it is not supplied explicitly. Never run `FLUSHDB` against the

@@ -2,6 +2,7 @@ import pytest
 from django.test import RequestFactory, override_settings
 
 from auths.api.common import check_native_rate_limit, native_rate_limit_identity
+from auths.config import native_rate_limit
 from auths.exceptions import NativeIdentityUnavailable
 from auths.throttle import ThrottleExceeded, check_rate_limit
 
@@ -81,6 +82,34 @@ def test_native_rate_limit_passes_normalized_identity_to_shared_helper(monkeypat
         "global_period": 60,
         "global_scope": "native-global",
     }
+
+
+def test_native_onboarding_rate_limit_is_a_closed_bounded_operation():
+    with override_settings(ALLIES_AUTH_NATIVE_ONBOARDING_LIMIT=7):
+        assert native_rate_limit("onboarding") == 7
+
+
+def test_native_rate_limit_rejects_unknown_operations():
+    with pytest.raises(ValueError, match="unknown native rate-limit operation"):
+        native_rate_limit("unknown")
+
+
+def test_native_onboarding_rate_limit_uses_its_own_scope(monkeypatch):
+    captured = {}
+
+    def capture(**kwargs):
+        captured.update(kwargs)
+
+    monkeypatch.setattr("auths.api.common.check_rate_limit", capture)
+    request = RequestFactory().post("/", REMOTE_ADDR="198.51.100.73")
+    with override_settings(
+        ALLIES_AUTH_NATIVE_ONBOARDING_LIMIT=7,
+        ALLIES_AUTH_NATIVE_RATE_LIMIT_PERIOD_SECONDS=60,
+        ALLIES_AUTH_NATIVE_GLOBAL_LIMIT=1000,
+    ):
+        check_native_rate_limit(request, "onboarding")
+    assert captured["scope"] == "native-onboarding"
+    assert captured["limit"] == 7
 
 
 class MemoryCache:

@@ -29,21 +29,60 @@ from allies.gateways.foundry import (
 )
 from allies.models import Ally, ProvisioningStatus
 from allies.services.creation import create_ally, list_allies, retrieve_ally
-from allies.services.onboarding import begin_onboarding
+from allies.services.onboarding import begin_onboarding, digest_value
 from allies.services.runtime_intents import request_runtime_intent
 from auths.api.common import (
     _client_identity,
     _csrf_binding,
     _require_origin,
     _session,
+    check_native_rate_limit,
     error_json,
     error_responses,
     success_json,
 )
 from auths.api.schemas import SuccessResponse
-from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
+from auths.config import native_enabled
+from auths.exceptions import (
+    NativeIdentityUnavailable,
+    SessionInvalid,
+    WorkspaceAccessDenied,
+)
+from auths.models import SessionClientKind
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable
 from common.uuids import CanonicalUUID
+from waitlist.exceptions import Throttled
+
+_BROWSER_SIGNAL_HEADERS = ("Origin", "Referer", "X-CSRFToken")
+
+
+def _has_browser_signal(request: HttpRequest) -> bool:
+    return (
+        bool(request.COOKIES)
+        or bool(request.headers.get("Cookie", "").strip())
+        or any(
+            request.headers.get(name) is not None for name in _BROWSER_SIGNAL_HEADERS
+        )
+    )
+
+
+def _is_native_attempt_request(request: HttpRequest) -> bool:
+    return (
+        not _has_browser_signal(request)
+        and request.headers.get("Authorization") is None
+    )
+
+
+def _is_native_create_request(request: HttpRequest) -> bool:
+    return request.headers.get("Authorization") is not None and not _has_browser_signal(
+        request
+    )
+
+
+def _no_store(response):
+    response["Cache-Control"] = "no-store"
+    response["Pragma"] = "no-cache"
+    return response
 
 
 def _response(ally: Ally) -> AllyResponse:
@@ -74,8 +113,26 @@ class OnboardingController(ControllerBase):
         },
     )
     def begin(self, request: HttpRequest, payload: OnboardingAttemptRequest):
-        if rejected := _require_origin(request):
-            return rejected
+        browser_binding = None
+        if _is_native_attempt_request(request):
+            if not native_enabled():
+                return error_json(
+                    "onboarding_unavailable", "onboarding unavailable", 503
+                )
+            try:
+                requester_identity = check_native_rate_limit(request, "onboarding")
+            except ThrottleExceeded:
+                return error_json("throttled", "try again later", 429)
+            except (NativeIdentityUnavailable, ThrottleUnavailable, ValueError):
+                return error_json(
+                    "onboarding_unavailable", "onboarding unavailable", 503
+                )
+            generation_identity = f"onboarding:{digest_value(requester_identity)}"
+        else:
+            if rejected := _require_origin(request):
+                return rejected
+            browser_binding = _csrf_binding(request)
+            generation_identity = f"onboarding:{_client_identity(request)}"
         try:
             start = begin_onboarding(
                 name=payload.name,
@@ -83,19 +140,23 @@ class OnboardingController(ControllerBase):
                 personality=payload.personality,
                 appearance_catalog_version=payload.appearance.catalog_version,
                 appearance_key=payload.appearance.key,
-                browser_binding=_csrf_binding(request),
-                generation_identity=f"onboarding:{_client_identity(request)}",
+                browser_binding=browser_binding,
+                generation_identity=generation_identity,
             )
         except OnboardingInvalid:
             return error_json("validation_error", "request validation failed", 422)
+        except Throttled:
+            return error_json("throttled", "try again later", 429)
         except OnboardingUnavailable:
             return error_json("onboarding_unavailable", "onboarding unavailable", 503)
-        return success_json(
-            OnboardingAttemptResponse(
-                attempt_token=start.attempt_token,
-                greeting=start.greeting,
-            ),
-            "Onboarding started",
+        return _no_store(
+            success_json(
+                OnboardingAttemptResponse(
+                    attempt_token=start.attempt_token,
+                    greeting=start.greeting,
+                ),
+                "Onboarding started",
+            )
         )
 
 
@@ -147,10 +208,24 @@ class AllyController(ControllerBase):
             ),
         ],
     ):
-        if rejected := _require_origin(request):
-            return rejected
+        native_request = _is_native_create_request(request)
+        if native_request:
+            if not native_enabled():
+                return error_json("session_invalid", "session invalid", 401)
+        elif request.headers.get("Authorization") is not None:
+            return error_json("csrf_rejected", "csrf rejected", 403)
+        else:
+            if rejected := _require_origin(request):
+                return rejected
         try:
-            session = _session(request)
+            session = _session(
+                request,
+                expected_client_kind=(
+                    SessionClientKind.NATIVE
+                    if native_request
+                    else SessionClientKind.BROWSER
+                ),
+            )
             result = create_ally(
                 user=session.user,
                 workspace_id=workspace_id,
@@ -161,7 +236,7 @@ class AllyController(ControllerBase):
                 appearance_key=payload.appearance.key,
                 onboarding_attempt=payload.onboarding_attempt,
                 reply=payload.reply,
-                browser_binding=_csrf_binding(request),
+                browser_binding=None if native_request else _csrf_binding(request),
                 idempotency_key=idempotency_key,
             )
         except SessionInvalid:

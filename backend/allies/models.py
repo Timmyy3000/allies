@@ -152,7 +152,7 @@ class AllyBinding(models.Model):
 
 
 class OnboardingAttempt(models.Model):
-    """One expiring, browser-bound official onboarding handoff."""
+    """One expiring, transport-bound official onboarding handoff."""
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     attempt_token_digest = models.CharField(

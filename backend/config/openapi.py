@@ -239,6 +239,22 @@ WAITLIST_ERROR_CODES: dict[tuple[str, str], dict[int, tuple[str, ...]]] = {
     },
 }
 
+ONBOARDING_ERROR_CODES: dict[tuple[str, str], dict[int, tuple[str, ...]]] = {
+    ("/api/v1/onboarding/attempts", "post"): {
+        403: ("origin_rejected", "csrf_rejected"),
+        422: ("validation_error",),
+        429: ("throttled",),
+        503: ("onboarding_unavailable",),
+    },
+    ("/api/v1/workspaces/{workspace_id}/allies", "post"): {
+        401: ("session_invalid",),
+        403: ("origin_rejected", "csrf_rejected"),
+        404: ("ally_unavailable",),
+        409: ("idempotency_conflict",),
+        422: ("onboarding_invalid",),
+    },
+}
+
 
 def _waitlist_error_example(code: str) -> dict[str, Any]:
     message = {
@@ -255,6 +271,60 @@ def _waitlist_error_example(code: str) -> dict[str, Any]:
             "errors": [{"field": "body.payload.name", "code": "string_type"}]
         }
     return {"status": "error", "message": message, "data": data}
+
+
+def _onboarding_error_example(code: str) -> dict[str, Any]:
+    message = {
+        "origin_rejected": "origin rejected",
+        "csrf_rejected": "csrf rejected",
+        "session_invalid": "session invalid",
+        "ally_unavailable": "Ally unavailable",
+        "idempotency_conflict": "request conflicts",
+        "onboarding_invalid": "onboarding attempt invalid",
+        "validation_error": "request validation failed",
+        "throttled": "try again later",
+        "onboarding_unavailable": "onboarding unavailable",
+    }.get(code, "onboarding request failed")
+    data: dict[str, Any] = {"code": code}
+    if code == "validation_error":
+        data["details"] = {
+            "errors": [{"field": "body.payload.name", "code": "string_type"}]
+        }
+    return {"status": "error", "message": message, "data": data}
+
+
+def _response(operation: dict[str, Any], status: int) -> dict[str, Any] | None:
+    responses = operation.get("responses", {})
+    response = responses.get(status) or responses.get(str(status))
+    return response if isinstance(response, dict) else None
+
+
+def _add_header_parameter(
+    operation: dict[str, Any], name: str, description: str
+) -> None:
+    parameters = operation.setdefault("parameters", [])
+    names = {item.get("name") for item in parameters if isinstance(item, dict)}
+    if name not in names:
+        parameters.append(
+            {
+                "name": name,
+                "in": "header",
+                "required": False,
+                "description": description,
+                "schema": {"type": "string"},
+            }
+        )
+
+
+def _add_no_store_header(operation: dict[str, Any], status: int = 200) -> None:
+    response = _response(operation, status)
+    if response is None:
+        return
+    response.setdefault("headers", {})["Cache-Control"] = {
+        "schema": {"type": "string"},
+        "example": "no-store",
+        "description": "The response must not be cached.",
+    }
 
 
 def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
@@ -330,6 +400,118 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
                     }
                     for code in codes
                 }
+
+    security_schemes = schema.setdefault("components", {}).setdefault(
+        "securitySchemes", {}
+    )
+    security_schemes["BrowserSession"] = {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "allies_access",
+        "description": (
+            "Browser session cookie. Mutating requests also require a trusted "
+            "Origin or Referer and a matching CSRF cookie/header."
+        ),
+    }
+    onboarding_attempt = (
+        schema.get("paths", {}).get("/api/v1/onboarding/attempts", {}).get("post")
+    )
+    if isinstance(onboarding_attempt, dict):
+        onboarding_attempt["security"] = []
+        onboarding_attempt["description"] = (
+            f"{onboarding_attempt.get('description', '').rstrip()}\n\n"
+            "This public operation has two closed transports. Native requests "
+            "must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; "
+            "they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and "
+            "the Railway server-provided X-Real-IP passes the bounded native "
+            "requester and global throttles. Browser-marked requests stay on the "
+            "trusted-origin and double-submit CSRF path; they never fall through "
+            "to native. The native gate is disabled by default."
+        ).strip()
+        _add_header_parameter(
+            onboarding_attempt,
+            "Origin",
+            "Browser-only signal; if present it must be a configured trusted origin.",
+        )
+        _add_header_parameter(
+            onboarding_attempt,
+            "Referer",
+            "Browser-only signal; if present its origin must be trusted.",
+        )
+        _add_header_parameter(
+            onboarding_attempt,
+            "X-CSRFToken",
+            "Browser-only double-submit header; never send it from native clients.",
+        )
+        _add_no_store_header(onboarding_attempt)
+        for status, codes in ONBOARDING_ERROR_CODES[
+            ("/api/v1/onboarding/attempts", "post")
+        ].items():
+            response = _response(onboarding_attempt, status)
+            if response is None:
+                continue
+            content = response.get("content", {}).get("application/json")
+            if not isinstance(content, dict):
+                continue
+            content.pop("example", None)
+            content["examples"] = {
+                code: {
+                    "summary": code.replace("_", " "),
+                    "value": _onboarding_error_example(code),
+                }
+                for code in codes
+            }
+
+    allies_create = (
+        schema.get("paths", {})
+        .get("/api/v1/workspaces/{workspace_id}/allies", {})
+        .get("post")
+    )
+    if isinstance(allies_create, dict):
+        allies_create["security"] = [
+            {"BrowserSession": []},
+            {"BearerAuth": []},
+        ]
+        allies_create["description"] = (
+            f"{allies_create.get('description', '').rstrip()}\n\n"
+            "Create accepts either a browser session cookie plus trusted Origin/"
+            "Referer and CSRF, or a validated native bearer with no browser or "
+            "session signals. Native bearer requests require the native feature "
+            "gate and Workspace write capability; Authorization/browser hybrids "
+            "cannot bypass CSRF. This operation is never anonymous."
+        ).strip()
+        _add_header_parameter(
+            allies_create,
+            "Origin",
+            "Required for browser transport and must be trusted; omit for native.",
+        )
+        _add_header_parameter(
+            allies_create,
+            "Referer",
+            "Browser alternative to Origin; omit for native.",
+        )
+        _add_header_parameter(
+            allies_create,
+            "X-CSRFToken",
+            "Required with the browser CSRF cookie; omit for native.",
+        )
+        for status, codes in ONBOARDING_ERROR_CODES[
+            ("/api/v1/workspaces/{workspace_id}/allies", "post")
+        ].items():
+            response = _response(allies_create, status)
+            if response is None:
+                continue
+            content = response.get("content", {}).get("application/json")
+            if not isinstance(content, dict):
+                continue
+            content.pop("example", None)
+            content["examples"] = {
+                code: {
+                    "summary": code.replace("_", " "),
+                    "value": _onboarding_error_example(code),
+                }
+                for code in codes
+            }
 
     bearer_paths = {
         ("/api/v1/auths/me", "get"),
