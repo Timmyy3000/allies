@@ -24,6 +24,7 @@ from allies.exceptions import (
 from allies.gateways.contracts import (
     ExecutionCommand,
     ExecutionReceipt,
+    FirstTurnBootstrap,
     ReconciliationReceipt,
     canonical_fingerprint,
     canonical_json_bytes,
@@ -80,6 +81,64 @@ def _enabled() -> bool:
     return bool(getattr(settings, "ALLIES_FOUNDRY_EXECUTION_ENABLED", False))
 
 
+def _first_turn_bootstrap(message: Message) -> FirstTurnBootstrap | None:
+    if (
+        not message.conversation.is_default
+        or message.sender != MessageSender.USER
+        or message.origin != MessageOrigin.SEND
+    ):
+        return None
+    if message.sequence != 2:
+        if message.retry_of_id is None:
+            return None
+        first_reply_id = (
+            Message.objects.filter(
+                conversation_id=message.conversation_id,
+                sequence=2,
+                sender=MessageSender.USER,
+                origin=MessageOrigin.SEND,
+            )
+            .values_list("id", flat=True)
+            .first()
+        )
+        if message.retry_of_id != first_reply_id:
+            return None
+    try:
+        greeting = Message.objects.only(
+            "id",
+            "content",
+            "sender",
+            "origin",
+            "status",
+            "send_key_digest",
+            "content_fingerprint",
+        ).get(conversation_id=message.conversation_id, sequence=1)
+    except Message.DoesNotExist as exc:
+        raise OnboardingHandoffRepairRequired(
+            "onboarding handoff needs repair"
+        ) from exc
+    if (
+        greeting.sender != MessageSender.ASSISTANT
+        or greeting.origin != MessageOrigin.ONBOARDING
+        or greeting.status != MessageLifecycle.COMPLETED
+        or greeting.send_key_digest
+        or greeting.content_fingerprint
+        or not isinstance(greeting.content, str)
+        or not greeting.content.strip()
+    ):
+        raise OnboardingHandoffRepairRequired("onboarding handoff needs repair")
+    try:
+        return FirstTurnBootstrap(
+            kind="assistant_message",
+            message_id=greeting.id,
+            text=greeting.content,
+        )
+    except ValueError as exc:
+        raise OnboardingHandoffRepairRequired(
+            "onboarding handoff needs repair"
+        ) from exc
+
+
 def _command_for_message(message: Message) -> tuple[ExecutionCommand, bytes, str]:
     if (
         message.sender != MessageSender.USER
@@ -93,6 +152,10 @@ def _command_for_message(message: Message) -> tuple[ExecutionCommand, bytes, str
         raise DispatchUnavailable("ally binding unavailable") from None
     issued_at = timezone.now()
     deadline_at = issued_at + timedelta(seconds=5)
+    payload = {"kind": "execution_input", "text": message.content}
+    bootstrap = _first_turn_bootstrap(message)
+    if bootstrap is not None:
+        payload["bootstrap"] = bootstrap.model_dump(mode="json")
     values = {
         "schema_version": "v1",
         "kind": "execution.command",
@@ -112,7 +175,7 @@ def _command_for_message(message: Message) -> tuple[ExecutionCommand, bytes, str
             "cloud_binding_id": str(binding_id),
         },
         "source_kind": "conversation_message",
-        "payload": {"kind": "execution_input", "text": message.content},
+        "payload": payload,
         "issued_at": issued_at.isoformat(),
         "deadline_at": deadline_at.isoformat(),
     }
@@ -323,6 +386,16 @@ def _prior_turn_ready(message: Message) -> bool:
                 defaults={
                     "status": DispatchState.FAILED,
                     "safe_error_code": "binding_unavailable",
+                    "next_attempt_at": None,
+                    "completed_at": timezone.now(),
+                },
+            )
+        except (OnboardingHandoffUnavailable, OnboardingHandoffRepairRequired) as exc:
+            DispatchOutbox.objects.get_or_create(
+                message=prior,
+                defaults={
+                    "status": DispatchState.FAILED,
+                    "safe_error_code": exc.code,
                     "next_attempt_at": None,
                     "completed_at": timezone.now(),
                 },
