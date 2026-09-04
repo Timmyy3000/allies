@@ -15,8 +15,10 @@ from allies_runtime.errors import (
     HermesError,
     HermesMalformedResponse,
     HermesTimeout,
+    HermesTranscriptConflict,
 )
 from allies_runtime.hermes import (
+    HermesBootstrap,
     HermesClient,
     UnixSocketCredentialResolver,
     _IncrementalHTTPStream,
@@ -259,6 +261,119 @@ async def test_profile_session_create_uses_selected_profile_credential(monkeypat
         "id": "candidate-1",
         "model": "gpt-5.6-luna",
     }
+
+
+@pytest.mark.asyncio
+async def test_profile_bootstrap_uses_strict_private_payload(monkeypatch):
+    response = FakeResponse(
+        json.dumps(
+            {
+                "object": "hermes.session.bootstrap",
+                "session_id": "candidate-1",
+                "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+                "status": "created",
+            }
+        ).encode(),
+        status=201,
+    )
+    client, calls = _client(monkeypatch, response)
+    bootstrap = HermesBootstrap(
+        message_id="8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        text="Hi, I'm Nova.",
+    )
+
+    result = await client.bootstrap_session("ally-a", "candidate-1", bootstrap)
+
+    assert result.status == "created"
+    assert calls[0][0].endswith("/p/ally-a/api/sessions/candidate-1/bootstrap")
+    assert json.loads(calls[0][3]) == {
+        "schema_version": "v1",
+        "kind": "assistant_transcript_bootstrap",
+        "message_id": bootstrap.message_id,
+        "text": bootstrap.text,
+    }
+    assert response.closed
+
+
+@pytest.mark.asyncio
+async def test_profile_bootstrap_rejects_conflict_and_malformed_success(monkeypatch):
+    bootstrap = {
+        "kind": "assistant_message",
+        "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        "text": "Hi, I'm Nova.",
+    }
+    conflict, _calls = _client(monkeypatch, FakeResponse(status=409))
+    with pytest.raises(HermesTranscriptConflict):
+        await conflict.bootstrap_session("ally-a", "candidate-1", bootstrap)
+
+    malformed, _calls = _client(monkeypatch, FakeResponse(b"{}", status=200))
+    with pytest.raises(HermesMalformedResponse):
+        await malformed.bootstrap_session("ally-a", "candidate-1", bootstrap)
+
+
+@pytest.mark.asyncio
+async def test_profile_bootstrap_validates_identity_before_request(monkeypatch):
+    client, calls = _client(monkeypatch, FakeResponse())
+    with pytest.raises(ValueError):
+        await client.bootstrap_session(
+            "ally-a",
+            "candidate-1",
+            {"kind": "assistant_message", "message_id": "bad", "text": "hello"},
+        )
+    with pytest.raises(ValueError):
+        await client.bootstrap_session(
+            "ally-a",
+            "candidate-1",
+            {"kind": "user_message", "message_id": "bad", "text": "hello"},
+        )
+    with pytest.raises(TypeError):
+        await client.bootstrap_session("ally-a", "candidate-1", object())
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_profile_bootstrap_rejects_wrong_success_identity(monkeypatch):
+    response = FakeResponse(
+        json.dumps(
+            {
+                "object": "wrong",
+                "session_id": "candidate-1",
+                "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+                "status": "created",
+            }
+        ).encode()
+    )
+    client, _calls = _client(monkeypatch, response)
+    with pytest.raises(HermesMalformedResponse):
+        await client.bootstrap_session(
+            "ally-a",
+            "candidate-1",
+            {
+                "kind": "assistant_message",
+                "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+                "text": "hello",
+            },
+        )
+
+
+@pytest.mark.asyncio
+async def test_profile_bootstrap_maps_timeout(monkeypatch):
+    client, _calls = _client(monkeypatch, FakeResponse())
+
+    async def timeout(*_args, **_kwargs):
+        raise TimeoutError
+
+    monkeypatch.setattr("allies_runtime.hermes.asyncio.to_thread", timeout)
+    with pytest.raises(HermesTimeout):
+        await client.bootstrap_session(
+            "ally-a",
+            "candidate-1",
+            {
+                "kind": "assistant_message",
+                "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+                "text": "hello",
+            },
+        )
 
 
 @pytest.mark.asyncio

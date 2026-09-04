@@ -173,10 +173,17 @@ def _create_contract_execution_once(
         raise RuntimeConflictError(
             "command identity already identifies another execution"
         )
+    binding = ConversationBinding.objects.select_for_update().get(profile_id=profile.id)
+    if command.payload.bootstrap is not None and binding.hermes_session_id is not None:
+        raise RuntimeConflictError("bootstrap requires an unbound conversation")
     payload = {
         "message": command.payload.text,
         "cloud_conversation_ref": str(command.cloud.conversation_id),
     }
+    if command.payload.bootstrap is not None:
+        payload["bootstrap"] = command.payload.bootstrap.model_dump(
+            mode="json", exclude_none=True
+        )
     try:
         execution = Execution.objects.create(
             workspace=workspace,

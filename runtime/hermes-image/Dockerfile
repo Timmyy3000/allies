@@ -42,6 +42,15 @@ RUN site=$(/opt/hermes/.venv/bin/python -c 'import sysconfig; print(sysconfig.ge
 # registration bridge separate from the installed wrapper package.
 COPY plugins/memory/allies_mnemosyne/ /opt/hermes/plugins/memory/allies_mnemosyne/
 
+# Keep the private Allies transcript seam as a small, pinned-source overlay.
+# A rejected hunk must fail the image build instead of silently shipping an
+# image without the capability the runtime expects.
+COPY patches/first-turn-transcript-bootstrap.patch /tmp/allies-first-turn-transcript-bootstrap.patch
+RUN cd /opt/hermes \
+    && git apply --check --whitespace=nowarn /tmp/allies-first-turn-transcript-bootstrap.patch \
+    && git apply --whitespace=nowarn /tmp/allies-first-turn-transcript-bootstrap.patch \
+    && rm -f /tmp/allies-first-turn-transcript-bootstrap.patch
+
 LABEL org.opencontainers.image.title="Allies Hermes with Mnemosyne" \
       org.opencontainers.image.description="Policy-fenced profile-local Mnemosyne provider" \
       org.opencontainers.image.version="${ALLIES_WRAPPER_VERSION}" \

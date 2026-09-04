@@ -17,6 +17,7 @@ from runtime.contracts import (
     build_event_envelope,
     command_fingerprint,
     event_fingerprint,
+    validate_command,
 )
 from runtime.exceptions import (
     RuntimeConflictError,
@@ -118,11 +119,81 @@ def delivery(binding, contract):
 
 def test_fixture_is_strict_and_fingerprints_are_reproducible(contract):
     command = ExecutionCommand.model_validate(contract["command"])
+    bootstrap_command = ExecutionCommand.model_validate(contract["bootstrap_command"])
     event = FoundryEventEnvelope.model_validate(contract["event"])
 
     assert command_fingerprint(command) == command.fingerprint
+    assert command_fingerprint(bootstrap_command) == bootstrap_command.fingerprint
+    validate_command(bootstrap_command)
+    assert "absent or null" in contract["canonicalization"]["optional_fields"]
     assert event_fingerprint(event) == event.fingerprint
     assert command.payload.text == "normalized user text"
+
+
+def test_optional_bootstrap_is_fingerprinted_and_legacy_shape_stays_compatible(
+    contract,
+):
+    command = ExecutionCommand.model_validate(contract["command"])
+    assert "bootstrap" not in command.payload.model_fields_set
+    assert command_fingerprint(command) == contract["command"]["fingerprint"]
+
+    data = command.model_dump(mode="json", exclude_none=True)
+    data["conversation_turn_ordinal"] = 2
+    data["payload"]["bootstrap"] = {
+        "kind": "assistant_message",
+        "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        "text": "Hi, I'm Nova.",
+    }
+    bootstrapped = ExecutionCommand.model_validate(data)
+    bootstrapped = bootstrapped.model_copy(
+        update={"fingerprint": command_fingerprint(bootstrapped)}
+    )
+    validate_command(bootstrapped)
+    assert bootstrapped.payload.bootstrap.message_id == UUID(
+        "8ef84387-581e-4e6f-a31d-6fbca75d95f4"
+    )
+
+    retry = bootstrapped.model_copy(update={"conversation_turn_ordinal": 3})
+    retry = retry.model_copy(update={"fingerprint": command_fingerprint(retry)})
+    validate_command(retry)
+
+    invalid = bootstrapped.model_copy(update={"conversation_turn_ordinal": 1})
+    invalid = invalid.model_copy(update={"fingerprint": command_fingerprint(invalid)})
+    with pytest.raises(RuntimeValidationError, match="before the second"):
+        validate_command(invalid)
+
+
+def test_bootstrap_is_persisted_and_claimed_as_an_immutable_payload(
+    binding, contract
+):
+    workspace, profile = binding
+    ConversationBinding.objects.filter(profile=profile).update(hermes_session_id=None)
+    data = json.loads(json.dumps(contract["command"]))
+    data["conversation_turn_ordinal"] = 2
+    data["payload"]["bootstrap"] = {
+        "kind": "assistant_message",
+        "message_id": "8ef84387-581e-4e6f-a31d-6fbca75d95f4",
+        "text": "Hi, I'm Nova.",
+    }
+    command = ExecutionCommand.model_validate(data)
+    command = command.model_copy(
+        update={"fingerprint": command_fingerprint(command)}
+    )
+
+    receipt = create_execution_intent(command)
+    assert receipt.status == "accepted"
+    execution = Execution.objects.get()
+    assert execution.input_payload["bootstrap"]["text"] == "Hi, I'm Nova."
+
+    issued = issue_runtime_credential(workspace.id, "runtime-contract-token")
+    claim = claim_next_execution(authenticate_runtime_token(issued.raw_token), uuid4(), 1)
+    assert claim is not None
+    assert claim.payload["bootstrap"]["message_id"] == (
+        "8ef84387-581e-4e6f-a31d-6fbca75d95f4"
+    )
+    claim.payload["bootstrap"]["text"] = "mutated locally"
+    execution.refresh_from_db()
+    assert execution.input_payload["bootstrap"]["text"] == "Hi, I'm Nova."
 
 
 def test_cloud_projection_budget_allows_only_terminal_sequence_513(delivery):

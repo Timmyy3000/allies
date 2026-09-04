@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -366,7 +367,7 @@ def _claim_from_records(
         lease_id=lease.id,
         lease_token=token,
         expires_at=lease.expires_at,
-        payload=attempt.execution.input_payload,
+        payload=deepcopy(attempt.execution.input_payload),
         claim_id=attempt.claim_id or lease.claim_id or attempt.id,
     )
 
