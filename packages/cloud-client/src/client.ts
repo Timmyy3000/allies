@@ -108,6 +108,12 @@ export interface WorkspaceViewModel {
   capabilities: string[];
 }
 
+export type RuntimeIntentStatus = z.infer<typeof runtimeIntentStatusSchema>;
+
+export interface RuntimeIntentViewModel {
+  status: RuntimeIntentStatus;
+}
+
 export interface WaitlistEntryInput {
   attemptId: string;
   name: string;
@@ -199,6 +205,18 @@ const activityOptionsSchema = z.object({
   replay: z.boolean().optional(),
 });
 const messageContentSchema = z.string().min(1).max(16_000);
+const runtimeIntentOccurredAtSchema = z.iso.datetime({ offset: true });
+const runtimeIntentIdempotencyKeySchema = z.uuid();
+const runtimeIntentStatusSchema = z.enum([
+  "disabled",
+  "already_ready",
+  "waking",
+  "ready",
+  "first_provision_required",
+  "rate_limited",
+  "failed",
+]);
+const runtimeIntentResponseSchema = z.object({ status: runtimeIntentStatusSchema }).strict();
 
 export interface ConversationOptions {
   limit?: number;
@@ -427,6 +445,32 @@ export function createCloudClient(options: CloudClientOptions) {
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => successEnvelope(workspaceSchema).parse(data).data,
+      );
+    },
+
+    async requestRuntimeIntent(
+      allyId: string,
+      occurredAt: string,
+      idempotencyKey: string,
+      signal?: AbortSignal,
+    ): Promise<RuntimeIntentViewModel> {
+      rejectPreAborted(signal);
+      const ally = parsePathSegment(allyId);
+      const timestamp = parseInput(runtimeIntentOccurredAtSchema, occurredAt);
+      const key = parseInput(runtimeIntentIdempotencyKeySchema, idempotencyKey);
+      return unwrap(
+        api.POST("/api/v1/allies/{ally_id}/runtime-intents", {
+          params: {
+            path: { ally_id: ally },
+            header: { "Idempotency-Key": key },
+          },
+          body: { intent: "composing_started", occurred_at: timestamp },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => ({
+          status: successEnvelope(runtimeIntentResponseSchema).parse(data).data.status,
+        }),
+        [200, 202],
       );
     },
 

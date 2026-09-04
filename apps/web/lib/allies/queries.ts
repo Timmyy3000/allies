@@ -30,7 +30,7 @@ export function alliesQueryOptions(
       ),
     refetchInterval: (query) => {
       const hasPendingAlly = query.state.data?.some(
-        (ally) => ally.provisioningState === "pending",
+        (ally) => ally.provisioningState === "pending" || ally.provisioningState === "retryable",
       ) ?? false;
       if (!hasPendingAlly) {
         provisioningRefetches = 0;
