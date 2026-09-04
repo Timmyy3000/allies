@@ -169,6 +169,49 @@ describe("createCloudClient", () => {
     await expect(client.getWorkspace("wsp_example")).resolves.toEqual(workspaceResponse.data);
   });
 
+  it("sends a strict content-free runtime intent and maps its bounded result", async () => {
+    const idempotencyKey = "00000000-0000-4000-8000-000000000001";
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      expect(new URL(request.url).pathname).toBe("/api/v1/allies/ally_example/runtime-intents");
+      expect(request.method).toBe("POST");
+      expect(request.headers.get("Idempotency-Key")).toBe(idempotencyKey);
+      expect(await request.clone().json()).toEqual({
+        intent: "composing_started",
+        occurred_at: "2026-09-04T12:00:00.000Z",
+      });
+      return Response.json({
+        status: "success",
+        message: "Runtime intent accepted",
+        data: { status: "waking" },
+      }, { status: 202 });
+    });
+    const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch });
+
+    await expect(client.requestRuntimeIntent(
+      "ally_example",
+      "2026-09-04T12:00:00.000Z",
+      idempotencyKey,
+    )).resolves.toEqual({ status: "waking" });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it("rejects malformed runtime-intent input and response before exposing it", async () => {
+    const idempotencyKey = "00000000-0000-4000-8000-000000000001";
+    const fetch = vi.fn(async () => Response.json({
+      status: "success",
+      message: "Runtime intent accepted",
+      data: { status: "provider_detail" },
+    }, { status: 200 }));
+    const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch });
+
+    await expect(client.requestRuntimeIntent("ally_example", "not-a-timestamp", idempotencyKey))
+      .rejects.toMatchObject({ kind: "bad-request" });
+    expect(fetch).not.toHaveBeenCalled();
+    await expect(client.requestRuntimeIntent("ally_example", "2026-09-04T12:00:00.000Z", idempotencyKey))
+      .rejects.toMatchObject({ kind: "contract" });
+  });
+
   it("normalizes a contract-declared failure for every exported operation", async () => {
     const operations = [
       (client: ReturnType<typeof createCloudClient>) => client.getCsrf(),

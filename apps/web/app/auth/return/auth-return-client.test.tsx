@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sessionMock = vi.hoisted(() => ({ useSession: vi.fn() }));
@@ -9,6 +10,11 @@ const navigationMock = vi.hoisted(() => ({
 }));
 vi.mock("../../../lib/session/session-context", () => sessionMock);
 vi.mock("next/navigation", () => navigationMock);
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...props }: { href: string; children: ReactNode }) => (
+    <a href={href} {...props}>{children}</a>
+  ),
+}));
 
 import { AuthReturnClient } from "./auth-return-client";
 

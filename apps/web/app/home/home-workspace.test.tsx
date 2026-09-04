@@ -2,19 +2,48 @@
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createElement } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ActivityReplayBoundError, activityReplayFailure, HomeWorkspace } from "./home-workspace";
+import type { AllyViewModel } from "@allies/cloud-client";
+import type { RuntimeIntentRequester } from "../../lib/allies/runtime-intent";
+
+import {
+  ActivityReplayBoundError,
+  ALLY_SLEEP_AFTER_MS,
+  activityReplayFailure,
+  HomeWorkspace,
+  isAllySleeping,
+} from "./home-workspace";
 
 const replace = vi.hoisted(() => vi.fn());
 const push = vi.hoisted(() => vi.fn());
 const useSessionMock = vi.hoisted(() => vi.fn());
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, push }) }));
+vi.mock("next/link", () => ({
+  default: ({
+    children,
+    ...props
+  }: React.PropsWithChildren<React.AnchorHTMLAttributes<HTMLAnchorElement>>) => <a {...props}>{children}</a>,
+}));
+vi.mock("next/image", () => ({
+  default: ({
+    priority,
+    unoptimized,
+    ...props
+  }: React.ImgHTMLAttributes<HTMLImageElement> & { priority?: boolean; unoptimized?: boolean }) => {
+    void priority;
+    void unoptimized;
+    return createElement("img", { ...props, alt: props.alt ?? "" });
+  },
+}));
 vi.mock("../../lib/session/session-context", () => ({ useSession: useSessionMock }));
 vi.mock("../../components/ally-avatar", () => ({
   ALLY_SHAPES: ["boxy", "ghosty", "rocky", "rolly"],
-  AllyAvatar: ({ label }: { label?: string }) => <span data-testid="ally-avatar" aria-label={label} />,
+  AllyAvatar: ({ label, className }: { label?: string; className?: string }) => (
+    <span data-testid="ally-avatar" aria-label={label} className={className} />
+  ),
 }));
 vi.mock("../(onboarding)/_components", () => ({ default: () => <div>Shape your Ally</div> }));
 vi.mock("../(onboarding)/_store/onboarding-store", () => ({ OnboardingStateProvider: ({ children }: { children: React.ReactNode }) => children }));
@@ -27,7 +56,7 @@ const account = {
   session: { id: "session", expiresAt: "2026-08-20T16:00:00Z" },
   workspace: { id: "workspace", name: "Personal", role: "owner", capabilities: [] },
 };
-const ally = {
+const ally: AllyViewModel = {
   id: "00000000-0000-4000-8000-000000000002",
   bindingId: "00000000-0000-4000-8000-000000000003",
   operationId: "00000000-0000-4000-8000-000000000004",
@@ -42,10 +71,11 @@ const ally = {
 afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
 });
 
 function renderHome(
-  allies: typeof ally[],
+  allies: AllyViewModel[],
   selectedAllyId: string | null = null,
   clientOverrides: Record<string, unknown> = {},
 ) {
@@ -71,6 +101,7 @@ function renderHome(
       state: "completed" as const,
       lastContiguousSequence: 0,
     })),
+    requestRuntimeIntent: vi.fn(async () => ({ status: "waking" as const })),
     ...clientOverrides,
   };
   useSessionMock.mockReturnValue({
@@ -91,6 +122,12 @@ function renderHome(
   return Object.assign(client, { queryClient });
 }
 
+async function clickSendMessage() {
+  const button = screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement;
+  await waitFor(() => expect(button.disabled).toBe(false));
+  fireEvent.click(button);
+}
+
 describe("HomeWorkspace", () => {
   it.each([
     [{ kind: "activity-cursor-gap" }, "gap"],
@@ -99,6 +136,31 @@ describe("HomeWorkspace", () => {
     [new ActivityReplayBoundError(), "bounds"],
   ] as const)("classifies replay recovery failure %s", (error, expected) => {
     expect(activityReplayFailure(error)).toBe(expected);
+  });
+
+  it("treats a bound Ally as sleeping after ten minutes without activity", () => {
+    const latestMessage = {
+      id: "00000000-0000-4000-8000-000000000006",
+      sender: "assistant" as const,
+      content: "What should we work on first?",
+      sequence: 1,
+      status: "completed" as const,
+      createdAt: "2026-08-20T16:00:00Z",
+    };
+    const lastActivityAt = Date.parse(latestMessage.createdAt);
+
+    expect(isAllySleeping(ally, latestMessage, lastActivityAt + ALLY_SLEEP_AFTER_MS - 1)).toBe(false);
+    expect(isAllySleeping(ally, latestMessage, lastActivityAt + ALLY_SLEEP_AFTER_MS)).toBe(true);
+    expect(isAllySleeping({ ...ally, provisioningState: "pending" }, latestMessage, lastActivityAt + ALLY_SLEEP_AFTER_MS)).toBe(false);
+  });
+
+  it("desaturates an inactive Ally and quiets its presence dot", async () => {
+    renderHome([ally]);
+
+    const row = await screen.findByRole("link", { name: /Mira/ });
+    await waitFor(() => expect(row.getAttribute("data-ally-sleeping")).toBe("true"));
+    expect(row.querySelector('[data-testid="ally-avatar"]')?.className).toContain("sleepingAvatar");
+    expect(row.querySelector('[aria-hidden="true"]')?.className).toContain("presenceDotQuiet");
   });
 
   it("keeps an empty account honest and offers the first-Ally flow", async () => {
@@ -124,6 +186,140 @@ describe("HomeWorkspace", () => {
     expect(screen.queryByText(/unread/i)).toBeNull();
   });
 
+  it("wakes once on the first meaningful edit without gating send", async () => {
+    const requestRuntimeIntent = vi.fn<RuntimeIntentRequester>(async () => ({ status: "waking" as const }));
+    const sendMessage = vi.fn(async () => ({
+      conversationId: "00000000-0000-4000-8000-000000000005",
+      message: {
+        id: "00000000-0000-4000-8000-000000000007",
+        sender: "user" as const,
+        content: "Hello",
+        sequence: 2,
+        status: "queued" as const,
+        createdAt: "2026-08-20T16:01:00Z",
+      },
+      execution: null,
+      replayed: false,
+    }));
+    renderHome([ally], ally.id, { requestRuntimeIntent, sendMessage });
+    const input = await screen.findByRole("textbox");
+    const row = screen.getByRole("link", { name: /Mira/ });
+    await waitFor(() => expect(row.getAttribute("data-ally-sleeping")).toBe("true"));
+
+    fireEvent.change(input, { target: { value: "  " } });
+    expect(requestRuntimeIntent).not.toHaveBeenCalled();
+    fireEvent.change(input, { target: { value: "Hello" } });
+    fireEvent.change(input, { target: { value: "Hello, again" } });
+
+    expect(row.getAttribute("data-ally-sleeping")).toBe("false");
+    expect(requestRuntimeIntent).toHaveBeenCalledOnce();
+    expect(requestRuntimeIntent.mock.calls[0]?.[0]).toBe(ally.id);
+    expect(requestRuntimeIntent.mock.calls[0]).toHaveLength(4);
+    await clickSendMessage();
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+  });
+
+  it("defers the first runtime intent until IME composition ends", async () => {
+    const requestRuntimeIntent = vi.fn<RuntimeIntentRequester>(async () => ({ status: "waking" as const }));
+    renderHome([ally], ally.id, { requestRuntimeIntent });
+    const input = await screen.findByRole("textbox");
+
+    fireEvent.compositionStart(input);
+    fireEvent.change(input, { target: { value: "日" } });
+    expect(requestRuntimeIntent).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input, { target: { value: "日本語" } });
+
+    expect(requestRuntimeIntent).toHaveBeenCalledOnce();
+  });
+
+  it("keeps automatic provisioning retries explicit and actionable", async () => {
+    const retryingAlly = { ...ally, provisioningState: "retryable" as const, retryable: true };
+    renderHome([retryingAlly], retryingAlly.id);
+
+    expect((await screen.findAllByText("Setup needs retry")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Mira's setup can be retried outside Home.")).toBeTruthy();
+  });
+
+  it("starts watching the retained initial turn when provisioning completes", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const greeting = {
+      id: "00000000-0000-4000-8000-000000000006",
+      sender: "assistant" as const,
+      content: "What should we work on first?",
+      sequence: 1,
+      status: "completed" as const,
+      createdAt: "2026-08-20T16:00:00Z",
+    };
+    const initialQuestion = {
+      id: "00000000-0000-4000-8000-000000000007",
+      sender: "user" as const,
+      content: "Initial question",
+      sequence: 2,
+      status: "completed" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    let provisioned = false;
+    let resolveResponse: ((snapshot: unknown) => void) | undefined;
+    const getActivities = vi.fn()
+      .mockResolvedValueOnce({
+        conversationId,
+        activities: [],
+        state: "completed" as const,
+        lastContiguousSequence: 0,
+      })
+      .mockImplementation(() => new Promise((resolve) => { resolveResponse = resolve; }));
+    const getAllyConversation = vi.fn(async (
+      _workspaceId: string,
+      _allyId: string,
+      options: { limit?: number },
+    ) => ({
+      id: conversationId,
+      allyId: ally.id,
+      messages: options.limit === 50
+        ? [greeting, { ...initialQuestion, status: provisioned ? "queued" as const : "completed" as const }]
+        : [initialQuestion],
+      nextCursor: null,
+    }));
+    const pendingAlly = { ...ally, provisioningState: "pending" as const };
+    const client = renderHome([pendingAlly], ally.id, {
+      getAllyConversation,
+      getActivities,
+    });
+
+    expect(await screen.findByText("Initial question", { selector: "article p" })).toBeTruthy();
+    await waitFor(() => expect(getActivities).toHaveBeenCalledOnce());
+    expect(screen.queryByText("Thinking")).toBeNull();
+    const conversationReadsBeforeProvisioning = getAllyConversation.mock.calls
+      .filter((call) => call[2]?.limit === 50).length;
+    provisioned = true;
+    await act(async () => {
+      client.queryClient.setQueryData(["workspaces", "workspace", "allies"], [ally]);
+    });
+
+    expect(await screen.findByText("Thinking")).toBeTruthy();
+    await waitFor(() => expect(getActivities).toHaveBeenCalledTimes(2), { timeout: 2_000 });
+    await waitFor(() => expect(
+      getAllyConversation.mock.calls.filter((call) => call[2]?.limit === 50).length,
+    ).toBeGreaterThan(conversationReadsBeforeProvisioning));
+    expect(screen.getByText("Thinking")).toBeTruthy();
+    await act(async () => resolveResponse?.({
+      conversationId,
+      activities: [{
+        id: "00000000-0000-4000-8000-000000000009",
+        messageId: "00000000-0000-4000-8000-000000000007",
+        sequence: 1,
+        conversationTurnOrdinal: 2,
+        kind: "assistant_delta",
+        text: "The initial response arrived.",
+        state: "running",
+        createdAt: "2026-08-20T16:01:01Z",
+      }],
+      state: "running",
+      lastContiguousSequence: 1,
+    }));
+    expect((await screen.findByTestId("activity-reply-2")).textContent).toBe("The initial response arrived.");
+  });
+
   it("keeps the Ally roster on /home on desktop", async () => {
     const newest = { ...ally, id: "00000000-0000-4000-8000-000000000009", name: "Nova" };
     renderHome([newest, ally]);
@@ -142,7 +338,7 @@ describe("HomeWorkspace", () => {
   it("uses the roster-only layout on /home", async () => {
     renderHome([ally]);
 
-    expect(await screen.findByRole("link", { name: "Account settings" })).toBeTruthy();
+    expect((await screen.findByRole("link", { name: "Timi Person" })).getAttribute("href")).toBe("/account");
     expect(screen.getByRole("link", { name: "Make an Ally" })).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Selected Ally conversation" })).toBeNull();
   });
@@ -197,7 +393,7 @@ describe("HomeWorkspace", () => {
     };
     renderHome([unsupported], unsupported.id);
 
-    expect((await screen.findAllByTestId("ally-appearance-unavailable"))).toHaveLength(1);
+    expect((await screen.findAllByTestId("ally-appearance-unavailable"))).toHaveLength(2);
   });
 
   it("reuses an exact failed send key but rotates it after any draft edit", async () => {
@@ -221,17 +417,17 @@ describe("HomeWorkspace", () => {
 
     const input = await screen.findByRole("textbox");
     fireEvent.change(input, { target: { value: "Hello again" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await clickSendMessage();
     await screen.findByRole("alert");
     const firstKey = sendMessage.mock.calls[0]?.[3];
 
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await clickSendMessage();
     await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
     expect(sendMessage.mock.calls[1]?.[3]).toBe(firstKey);
 
     fireEvent.change(input, { target: { value: "Hello again!" } });
     fireEvent.change(input, { target: { value: "Hello again" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await clickSendMessage();
     await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(3));
     expect(sendMessage.mock.calls[2]?.[3]).not.toBe(firstKey);
   });
@@ -254,10 +450,342 @@ describe("HomeWorkspace", () => {
 
     const input = await screen.findByRole("textbox");
     fireEvent.change(input, { target: { value: "Hello again   " } });
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await clickSendMessage();
 
     await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
     await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""));
+  });
+
+  it("holds later messages in the frontend queue until the active turn finishes", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const activeMessage = {
+      id: "00000000-0000-4000-8000-000000000007",
+      sender: "user" as const,
+      content: "First question",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    let finishActiveTurn: ((snapshot: unknown) => void) | undefined;
+    let activeMessageStatus: "queued" | "completed" = "queued";
+    const getActivities = vi.fn(() => new Promise((resolve) => {
+      finishActiveTurn = resolve;
+    }));
+    const sendMessage = vi.fn(async () => ({
+      conversationId,
+      message: {
+        ...activeMessage,
+        id: "00000000-0000-4000-8000-000000000008",
+        content: "Second question",
+        sequence: 3,
+      },
+      execution: null,
+      replayed: false,
+    }));
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [{ ...activeMessage, status: activeMessageStatus }],
+        nextCursor: null,
+      })),
+      getActivities,
+      sendMessage,
+    });
+
+    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    await waitFor(() => expect(getActivities).toHaveBeenCalledOnce());
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "Second question" } });
+    await clickSendMessage();
+
+    const queue = await screen.findByRole("list", { name: "Queued messages" });
+    expect(queue.textContent).toBe("Second question");
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(screen.queryByText("Queued")).toBeNull();
+    expect(screen.queryByText("Working")).toBeNull();
+    expect(screen.getByText("Thinking")).toBeTruthy();
+    expect(screen.queryByText("Push")).toBeNull();
+
+    await act(async () => {
+      activeMessageStatus = "completed";
+      finishActiveTurn?.({
+        conversationId,
+        activities: [],
+        state: "completed",
+        lastContiguousSequence: 0,
+      });
+    });
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    expect(sendMessage.mock.calls[0]?.slice(0, 3)).toEqual(["workspace", conversationId, "Second question"]);
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
+  });
+
+  it("keeps a failed queued message at the head and reuses its key on retry", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const activeMessage = {
+      id: "00000000-0000-4000-8000-000000000007",
+      sender: "user" as const,
+      content: "First question",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    let finishActiveTurn: ((snapshot: unknown) => void) | undefined;
+    let activeMessageStatus: "queued" | "completed" = "queued";
+    const getActivities = vi.fn(() => new Promise((resolve) => {
+      finishActiveTurn = resolve;
+    }));
+    const sendMessage = vi.fn()
+      .mockRejectedValueOnce(new Error("ambiguous queued send failure"))
+      .mockResolvedValue({
+        conversationId,
+        message: {
+          ...activeMessage,
+          id: "00000000-0000-4000-8000-000000000008",
+          content: "Second question",
+          sequence: 3,
+        },
+        execution: null,
+        replayed: true,
+      });
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [{ ...activeMessage, status: activeMessageStatus }],
+        nextCursor: null,
+      })),
+      getActivities,
+      sendMessage,
+    });
+
+    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    await waitFor(() => expect(getActivities).toHaveBeenCalledOnce());
+    const input = screen.getByRole("textbox") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "Second question" } });
+    await clickSendMessage();
+
+    await act(async () => {
+      activeMessageStatus = "completed";
+      finishActiveTurn?.({
+        conversationId,
+        activities: [],
+        state: "completed",
+        lastContiguousSequence: 0,
+      });
+    });
+
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    const queuedIntentKey = sendMessage.mock.calls[0]?.[3];
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(input.value).toBe("");
+    expect(screen.getByRole("list", { name: "Queued messages" }).textContent).toContain("Second question");
+
+    fireEvent.change(input, { target: { value: "Third question" } });
+    await clickSendMessage();
+    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(screen.getAllByRole("listitem").map((item) => item.querySelector("span")?.textContent))
+      .toEqual(["Second question", "Third question"]);
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+    expect(sendMessage.mock.calls[1]?.[3]).toBe(queuedIntentKey);
+    expect(sendMessage.mock.calls[1]?.[2]).toBe("Second question");
+    expect(screen.getByRole("list", { name: "Queued messages" }).textContent).toContain("Third question");
+  });
+
+  it("keeps a failed dispatch durable after unmount", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const activeMessage = {
+      id: "00000000-0000-4000-8000-000000000007",
+      sender: "user" as const,
+      content: "First question",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    let finishActiveTurn: ((snapshot: unknown) => void) | undefined;
+    let rejectQueuedSend: ((error: Error) => void) | undefined;
+    let activeMessageStatus: "queued" | "completed" = "queued";
+    const overrides = {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [{ ...activeMessage, status: activeMessageStatus }],
+        nextCursor: null,
+      })),
+      getActivities: vi.fn(() => new Promise((resolve) => { finishActiveTurn = resolve; })),
+      sendMessage: vi.fn(() => new Promise((_, reject) => { rejectQueuedSend = reject; })),
+    };
+    renderHome([ally], ally.id, overrides);
+
+    await screen.findByText("First question", { selector: "article p" });
+    await waitFor(() => expect(overrides.getActivities).toHaveBeenCalledOnce());
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Keep this if sending fails" } });
+    await clickSendMessage();
+    await act(async () => {
+      activeMessageStatus = "completed";
+      finishActiveTurn?.({ conversationId, activities: [], state: "completed", lastContiguousSequence: 0 });
+    });
+    await waitFor(() => expect(overrides.sendMessage).toHaveBeenCalledOnce());
+    expect(screen.queryByRole("button", { name: "Remove queued message" })).toBeNull();
+
+    cleanup();
+    await act(async () => rejectQueuedSend?.(new Error("ambiguous failure")));
+    renderHome([ally], ally.id, overrides);
+
+    expect(await screen.findByText("Keep this if sending fails")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+    expect(overrides.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  it("merges cross-tab queue additions and does not resurrect removals", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const activeMessage = {
+      id: "00000000-0000-4000-8000-000000000007",
+      sender: "user" as const,
+      content: "First question",
+      sequence: 2,
+      status: "in_progress" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [activeMessage],
+        nextCursor: null,
+      })),
+      getActivities: vi.fn(() => new Promise(() => undefined)),
+    });
+
+    await screen.findByText("First question", { selector: "article p" });
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "From this tab" } });
+    await clickSendMessage();
+    const storageKey = `allies:v1:queued-messages:workspace:${ally.id}`;
+    const remoteQueue = [{
+      id: "queued-remote",
+      content: "From another tab",
+      intentKey: "message-remote",
+      queuedAt: Date.now() + 1,
+      state: "queued",
+    }];
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: storageKey,
+      newValue: JSON.stringify(remoteQueue),
+      storageArea: window.localStorage,
+    }));
+
+    const queue = await screen.findByRole("list", { name: "Queued messages" });
+    expect(queue.textContent).toContain("From this tab");
+    expect(queue.textContent).toContain("From another tab");
+    const staleSnapshot = window.localStorage.getItem(storageKey);
+
+    const localItem = screen.getByText("From this tab").closest("li");
+    fireEvent.click(localItem!.querySelector('button[aria-label="Remove queued message"]')!);
+    const remoteTombstoneKey = `${storageKey}:removed:${encodeURIComponent("queued-remote")}`;
+    window.localStorage.setItem(remoteTombstoneKey, String(Date.now()));
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: remoteTombstoneKey,
+      newValue: window.localStorage.getItem(remoteTombstoneKey),
+      storageArea: window.localStorage,
+    }));
+    window.dispatchEvent(new StorageEvent("storage", {
+      key: storageKey,
+      newValue: staleSnapshot,
+      storageArea: window.localStorage,
+    }));
+    await waitFor(() => {
+      expect(screen.queryByText("From this tab")).toBeNull();
+      expect(screen.queryByText("From another tab")).toBeNull();
+    });
+
+    window.localStorage.setItem(storageKey, staleSnapshot!);
+    cleanup();
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [activeMessage],
+        nextCursor: null,
+      })),
+      getActivities: vi.fn(() => new Promise(() => undefined)),
+    });
+    await screen.findByText("First question", { selector: "article p" });
+    expect(screen.queryByText("From this tab")).toBeNull();
+    expect(screen.queryByText("From another tab")).toBeNull();
+  });
+
+  it("lets the user remove a frontend-queued message", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const activeMessage = {
+      id: "00000000-0000-4000-8000-000000000007",
+      sender: "user" as const,
+      content: "First question",
+      sequence: 2,
+      status: "in_progress" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const sendMessage = vi.fn();
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [activeMessage],
+        nextCursor: null,
+      })),
+      getActivities: vi.fn(() => new Promise(() => undefined)),
+      sendMessage,
+    });
+
+    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "Never mind" } });
+    await clickSendMessage();
+    expect(await screen.findByText("Never mind")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove queued message" }));
+    expect(screen.queryByText("Never mind")).toBeNull();
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("keeps frontend-queued messages across unmounts", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const activeMessage = {
+      id: "00000000-0000-4000-8000-000000000007",
+      sender: "user" as const,
+      content: "First question",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const overrides = {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [activeMessage],
+        nextCursor: null,
+      })),
+      getActivities: vi.fn(() => new Promise(() => undefined)),
+      sendMessage: vi.fn(),
+    };
+    renderHome([ally], ally.id, overrides);
+
+    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "Keep me waiting" } });
+    await clickSendMessage();
+    expect(await screen.findByText("Keep me waiting")).toBeTruthy();
+    await waitFor(() => expect(window.localStorage.length).toBe(1));
+
+    cleanup();
+    renderHome([ally], ally.id, overrides);
+
+    expect(await screen.findByText("Keep me waiting")).toBeTruthy();
+    expect(screen.getByRole("list", { name: "Queued messages" })).toBeTruthy();
+    expect(overrides.sendMessage).not.toHaveBeenCalled();
   });
 
   it("offers a per-message retry and starts a fresh turn", async () => {
@@ -390,7 +918,7 @@ describe("HomeWorkspace", () => {
 
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "A terminal question" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await clickSendMessage();
 
     await waitFor(() => expect(
       getAllyConversation.mock.calls.filter((call) => call[2]?.limit === 50),
@@ -421,21 +949,24 @@ describe("HomeWorkspace", () => {
       status: "queued" as const,
       createdAt: "2026-08-20T16:01:00Z",
     };
-    const getAllyConversation = vi.fn()
-      .mockResolvedValueOnce({
-        conversationId,
-        id: conversationId,
-        allyId: ally.id,
-        messages: [previousLatestMessage],
-        nextCursor: "cursor-1",
-      })
-      .mockResolvedValueOnce({
-        conversationId,
-        id: conversationId,
-        allyId: ally.id,
-        messages: [acceptedMessage],
-        nextCursor: null,
-      });
+    let messageAccepted = false;
+    const getAllyConversation = vi.fn(async () => (
+      messageAccepted
+        ? {
+          conversationId,
+          id: conversationId,
+          allyId: ally.id,
+          messages: [acceptedMessage],
+          nextCursor: null,
+        }
+        : {
+          conversationId,
+          id: conversationId,
+          allyId: ally.id,
+          messages: [previousLatestMessage],
+          nextCursor: "cursor-1",
+        }
+    ));
     const getActivities = vi.fn()
       .mockResolvedValueOnce({
         conversationId,
@@ -443,29 +974,33 @@ describe("HomeWorkspace", () => {
         state: "completed" as const,
         lastContiguousSequence: 0,
       })
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         conversationId,
         activities: [],
         state: "completed" as const,
         lastContiguousSequence: 0,
       });
-    const sendMessage = vi.fn(async () => ({
-      conversationId,
-      message: acceptedMessage,
-      execution: null,
-      replayed: false,
-    }));
+    const sendMessage = vi.fn(async () => {
+      messageAccepted = true;
+      return {
+        conversationId,
+        message: acceptedMessage,
+        execution: null,
+        replayed: false,
+      };
+    });
     renderHome([ally], ally.id, { getAllyConversation, getActivities, sendMessage });
 
-    expect(await screen.findByText("Previous latest answer")).toBeTruthy();
+    expect((await screen.findAllByText("Previous latest answer")).length).toBeGreaterThan(0);
     await waitFor(() => expect(getActivities).toHaveBeenCalledOnce());
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: acceptedMessage.content } });
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await clickSendMessage();
 
     await waitFor(() => expect(getActivities).toHaveBeenCalledTimes(2), { timeout: 2_000 });
     await waitFor(() => expect(getAllyConversation).toHaveBeenCalled());
-    expect(screen.getByText("Previous latest answer")).toBeTruthy();
+    expect(screen.getAllByText("Previous latest answer").length).toBeGreaterThan(0);
+    expect(screen.getByText("Thinking")).toBeTruthy();
   });
 
   it("shows pending activity text when a terminal snapshot has a sequence gap", async () => {
@@ -672,6 +1207,7 @@ describe("HomeWorkspace", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "A streamed heading", level: 2 })).toBeTruthy();
+    expect(screen.queryByText("Thinking")).toBeNull();
     expect(screen.getByRole("list")).toBeTruthy();
     expect(screen.getAllByRole("listitem")[0]?.textContent).toContain("The first detail");
   });

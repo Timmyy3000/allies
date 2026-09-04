@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { render, screen } from '@testing-library/react';
+import { version as reactVersion } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 
 import { useNativeSession } from '../session/session-context';
@@ -18,6 +19,10 @@ function SessionProbe() {
 }
 
 describe('AppProviders', () => {
+  it('uses the React version pinned by the mobile app', () => {
+    expect(reactVersion).toBe('19.2.3');
+  });
+
   it('composes the mobile Query and unavailable native-session boundaries', () => {
     render(
       <AppProviders>

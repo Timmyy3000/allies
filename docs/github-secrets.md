@@ -8,6 +8,8 @@ This file records secret names and their purpose only. Secret values must be add
 | `PROMOTION_TOKEN` | Protected branch promotions and Fastlane back-merge PRs | To be added |
 | `GITLEAKS_LICENSE` | Gitleaks scan for private-repository licensing, if required by the action | To be confirmed |
 | `RAILWAY_API_TOKEN` | Interface web PR-environment creation, deployment, and cleanup | To be added |
+| `CLOUDFLARE_API_TOKEN` | Create and remove authenticated Interface PR-preview DNS records | Cloudflare token scoped to DNS Edit and Zone Read for `yourallies.io` |
+| `CLOUDFLARE_ZONE_ID` | Select the `yourallies.io` zone for PR-preview DNS automation | Cloudflare dashboard zone identifier |
 | `VERCEL_TOKEN` | Future Vercel deployment workflow, if GitHub Actions owns deployment | Not used yet |
 | `VERCEL_ORG_ID` | Future Vercel deployment workflow | Not used yet |
 | `VERCEL_PROJECT_ID` | Future Vercel deployment workflow | Not used yet |
