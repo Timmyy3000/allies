@@ -85,6 +85,7 @@ def native_rate_limit(operation: str) -> int:
         "exchange": 10,
         "refresh": 20,
         "logout": 30,
+        "onboarding": 5,
     }
     if operation not in defaults:
         raise ValueError("unknown native rate-limit operation")

@@ -9,6 +9,7 @@ import pytest
 from django.db import close_old_connections, connection
 from django.utils import timezone
 
+from allies.exceptions import OnboardingInvalid
 from allies.models import (
     Ally,
     AllyBinding,
@@ -21,10 +22,13 @@ from allies.services.provisioning import _claim_due
 from auths.models import User
 from workspaces.models import Membership, Workspace
 
-pytestmark = pytest.mark.skipif(
-    connection.vendor != "postgresql",
-    reason="requires PostgreSQL row-lock and skip-locked semantics",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        connection.vendor != "postgresql",
+        reason="requires PostgreSQL row-lock and skip-locked semantics",
+    ),
+    pytest.mark.postgresql,
+]
 
 
 @dataclass
@@ -84,6 +88,88 @@ def test_concurrent_same_key_create_converges_on_one_ally(settings, monkeypatch)
     assert AllyBinding.objects.count() == 1
     assert ProvisioningOperation.objects.count() == 1
     assert OnboardingAttempt.objects.get().consumed_at is not None
+
+
+@pytest.mark.django_db(transaction=True)
+def test_concurrent_native_create_preserves_attempt_and_key_boundaries(
+    settings, monkeypatch
+):
+    settings.ALLIES_AUTH_DIGEST_KEY = "d" * 32
+    monkeypatch.setattr("allies.services.creation._enqueue_dispatch", lambda: None)
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Native Workspace")
+    Membership.objects.create(
+        workspace=workspace, user=user, role="owner", status="active"
+    )
+    start = begin_onboarding(
+        **seed(),
+        browser_binding=None,
+        generation_identity="test:native-create-race",
+        provider=GreetingProvider(),
+    )
+    gate = Barrier(2)
+
+    def create_same_key():
+        close_old_connections()
+        gate.wait()
+        try:
+            result = create_ally(
+                **seed(),
+                user=user,
+                workspace_id=workspace.id,
+                onboarding_attempt=start.attempt_token,
+                reply="Help me plan tomorrow.",
+                browser_binding=None,
+                idempotency_key="native-concurrent-key-1",
+            )
+            return "ok", result.ally.id, result.replayed
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        same_key_results = list(
+            executor.map(lambda _index: create_same_key(), range(2))
+        )
+
+    assert {result[0] for result in same_key_results} == {"ok"}
+    assert len({result[1] for result in same_key_results}) == 1
+    assert {result[2] for result in same_key_results} == {False, True}
+    assert Ally.objects.count() == 1
+    assert OnboardingAttempt.objects.get().consumed_at is not None
+
+    second = begin_onboarding(
+        **seed(),
+        browser_binding=None,
+        generation_identity="test:native-different-key-race",
+        provider=GreetingProvider(),
+    )
+    different_gate = Barrier(2)
+
+    def create_different_key(index):
+        close_old_connections()
+        different_gate.wait()
+        try:
+            result = create_ally(
+                **seed(),
+                user=user,
+                workspace_id=workspace.id,
+                onboarding_attempt=second.attempt_token,
+                reply="Help me plan tomorrow.",
+                browser_binding=None,
+                idempotency_key=f"native-different-key-{index}",
+            )
+            return "ok", result.ally.id
+        except OnboardingInvalid:
+            return "invalid", None
+        finally:
+            close_old_connections()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        different_key_results = list(executor.map(create_different_key, range(2)))
+
+    assert [result[0] for result in different_key_results].count("ok") == 1
+    assert [result[0] for result in different_key_results].count("invalid") == 1
+    assert Ally.objects.count() == 2
 
 
 @pytest.mark.django_db(transaction=True)
