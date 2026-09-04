@@ -1059,6 +1059,49 @@
         "title": "RedirectRequest",
         "type": "object"
       },
+      "RuntimeIntentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "const": "composing_started",
+            "title": "Intent",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "intent",
+          "occurred_at"
+        ],
+        "title": "RuntimeIntentRequest",
+        "type": "object"
+      },
+      "RuntimeIntentResponse": {
+        "properties": {
+          "status": {
+            "enum": [
+              "disabled",
+              "already_ready",
+              "waking",
+              "ready",
+              "first_provision_required",
+              "rate_limited",
+              "failed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "RuntimeIntentResponse",
+        "type": "object"
+      },
       "SendMessageRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1616,6 +1659,36 @@
         "title": "SuccessResponse[ProfileResponse]",
         "type": "object"
       },
+      "SuccessResponse_RuntimeIntentResponse_": {
+        "example": {
+          "data": {
+            "status": "waking"
+          },
+          "message": "Runtime intent accepted",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RuntimeIntentResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[RuntimeIntentResponse]",
+        "type": "object"
+      },
       "SuccessResponse_WaitlistEntryCompletionResponse_": {
         "example": {
           "data": {
@@ -1949,9 +2022,165 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/api/v1/allies/{ally_id}/runtime-intents": {
+      "post": {
+        "operationId": "runtimeintent_request_dda78c85",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable UUID for repeating one runtime intent.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "Stable UUID for repeating one runtime intent.",
+              "maxLength": 36,
+              "minLength": 36,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RuntimeIntentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RuntimeIntentResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RuntimeIntentResponse_"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Request",
+        "tags": [
+          "Allies"
+        ]
+      }
+    },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_e27cb868",
+        "operationId": "authentication_callback_090cafbd",
         "parameters": [
           {
             "in": "path",
@@ -2056,7 +2285,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_b3e3651d",
+        "operationId": "authentication_csrf_f454ecdf",
         "parameters": [],
         "responses": {
           "204": {
@@ -2086,7 +2315,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_3713ef25",
+        "operationId": "identity_link_afbc7521",
         "parameters": [
           {
             "in": "path",
@@ -2263,7 +2492,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_f28b333b",
+        "operationId": "session_logout_9053a320",
         "parameters": [],
         "responses": {
           "204": {
@@ -2308,7 +2537,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_3258b602",
+        "operationId": "profile_me_e05e620b",
         "parameters": [],
         "responses": {
           "200": {
@@ -2365,7 +2594,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_ab861289",
+        "operationId": "avatar_delete_476a3276",
         "parameters": [],
         "responses": {
           "204": {
@@ -2475,7 +2704,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_1d554451",
+        "operationId": "avatar_complete_f3b65f1b",
         "parameters": [
           {
             "in": "path",
@@ -2633,7 +2862,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_6dacfa7f",
+        "operationId": "avatar_read_9ab583e3",
         "parameters": [],
         "responses": {
           "200": {
@@ -2720,7 +2949,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_3ce21700",
+        "operationId": "avatar_prepare_907901c5",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -2862,7 +3091,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_319d93cc",
+        "operationId": "profile_profile_36bfadbc",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -2975,7 +3204,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_fd773da4",
+        "operationId": "nativeauthentication_callback_2033152e",
         "parameters": [
           {
             "in": "path",
@@ -3107,7 +3336,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_d2dd83b4",
+        "operationId": "nativeauthentication_logout_dd7ee4a5",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3199,7 +3428,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_2ce22df2",
+        "operationId": "nativeauthentication_sign_in_cc736a9c",
         "parameters": [
           {
             "in": "path",
@@ -3303,7 +3532,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_3ff330ad",
+        "operationId": "nativeauthentication_token_49e0a301",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3467,7 +3696,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_bb75330a",
+        "operationId": "nativeauthentication_refresh_1e78cec4",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3630,7 +3859,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_78751887",
+        "operationId": "session_refresh_762f59c3",
         "parameters": [],
         "responses": {
           "204": {
@@ -3720,7 +3949,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_e94a6906",
+        "operationId": "authentication_sign_in_2dadcfca",
         "parameters": [
           {
             "in": "path",
@@ -3867,7 +4096,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_d8053d31",
+        "operationId": "health_health_47d9d79e",
         "parameters": [],
         "responses": {
           "200": {
@@ -3941,7 +4170,7 @@
     },
     "/api/v1/onboarding/attempts": {
       "post": {
-        "operationId": "onboarding_begin_e60fcf2d",
+        "operationId": "onboarding_begin_3d6965c9",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -4034,7 +4263,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_23cee2eb",
+        "operationId": "waitlist_create_6dff0bb6",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -4215,7 +4444,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_edf9d8a3",
+        "operationId": "waitlist_complete_769d3be3",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -4385,7 +4614,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_140eed4d",
+        "operationId": "workspace_context_dc1ec8a4",
         "parameters": [
           {
             "in": "path",
@@ -4468,7 +4697,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_7c7a08b2",
+        "operationId": "ally_list_4f185bdc",
         "parameters": [
           {
             "in": "path",
@@ -4544,7 +4773,7 @@
         ]
       },
       "post": {
-        "operationId": "ally_create_b8a5c9ba",
+        "operationId": "ally_create_4680f335",
         "parameters": [
           {
             "in": "path",
@@ -4700,7 +4929,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_70ce3dc8",
+        "operationId": "ally_retrieve_eff28f63",
         "parameters": [
           {
             "in": "path",
@@ -4788,7 +5017,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_3055e031",
+        "operationId": "conversation_by_ally_641f236a",
         "parameters": [
           {
             "in": "path",
@@ -4919,7 +5148,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_e96f2d93",
+        "operationId": "conversation_by_conversation_c5fbb8dd",
         "parameters": [
           {
             "in": "path",
@@ -5050,7 +5279,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_27ae8448",
+        "operationId": "activity_snapshot_d0077afd",
         "parameters": [
           {
             "in": "path",
@@ -5222,7 +5451,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
       "get": {
-        "operationId": "activity_stream_cf914703",
+        "operationId": "activity_stream_f78cf6c4",
         "parameters": [
           {
             "in": "path",
@@ -5275,7 +5504,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
-        "operationId": "conversation_send_608539d5",
+        "operationId": "conversation_send_4ffd5997",
         "parameters": [
           {
             "in": "path",
@@ -5441,7 +5670,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
       "post": {
-        "operationId": "conversation_retry_52098bd4",
+        "operationId": "conversation_retry_1da5631f",
         "parameters": [
           {
             "in": "path",

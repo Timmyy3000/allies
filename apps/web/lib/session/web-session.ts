@@ -27,6 +27,7 @@ export interface LogoutResult {
 export interface RunCloudOperationOptions {
   signal?: AbortSignal;
   csrf?: boolean;
+  retryTransient?: boolean;
 }
 
 export type RunCloudOperation = <T>(
@@ -94,6 +95,10 @@ function isUnauthorized(error: unknown): boolean {
 
 function isCsrfRejected(error: unknown): boolean {
   return isCloudError(error) && error.kind === "security" && error.code === "csrf_rejected";
+}
+
+function isTransient(error: unknown): boolean {
+  return isCloudError(error) && (error.kind === "network" || error.kind === "timeout");
 }
 
 export function createWebSessionAdapter(client: WebSessionClient, csrf: CloudCsrfTokenOwner) {
@@ -169,8 +174,11 @@ export function createWebSessionAdapter(client: WebSessionClient, csrf: CloudCsr
     if (options.csrf) await ensureCsrf(options.signal);
     if (operationGeneration !== generation) throw abortedError();
 
+    let remainingInvocations = 2;
     const invoke = () => {
       throwIfAborted(options.signal);
+      if (remainingInvocations === 0) throw { kind: "client" } satisfies CloudError;
+      remainingInvocations -= 1;
       return operation(options.signal);
     };
 
@@ -185,7 +193,7 @@ export function createWebSessionAdapter(client: WebSessionClient, csrf: CloudCsr
         await awaitWithSignal(refreshOnce(), options.signal);
       } else if (isCsrfRejected(error)) {
         await refreshCsrf(options.signal);
-      } else {
+      } else if (!options.retryTransient || !isTransient(error)) {
         throw error;
       }
       if (operationGeneration !== generation) throw abortedError();

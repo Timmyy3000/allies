@@ -34,7 +34,7 @@ describe("Ally query ownership", () => {
     expect(listAllies).toHaveBeenCalledOnce();
   });
 
-  it("refetches while any Ally is pending and stops at terminal or budget states", () => {
+  it("refetches while any Ally is getting ready and stops at terminal or budget states", () => {
     const options = alliesQueryOptions(
       { listAllies: vi.fn(async () => []) } as Pick<CloudClient, "listAllies">,
       vi.fn() as never,
@@ -48,6 +48,11 @@ describe("Ally query ownership", () => {
         data: [{ provisioningState: "pending" }],
       },
     } as unknown as Parameters<typeof refetchInterval>[0];
+    const retryableQuery = {
+      state: {
+        data: [{ provisioningState: "retryable" }],
+      },
+    } as unknown as Parameters<typeof refetchInterval>[0];
     const readyQuery = {
       state: {
         data: [{ provisioningState: "bound" }],
@@ -55,6 +60,7 @@ describe("Ally query ownership", () => {
     } as unknown as Parameters<typeof refetchInterval>[0];
 
     expect(refetchInterval(pendingQuery)).toBe(ALLY_PROVISIONING_REFETCH_INTERVAL_MS);
+    expect(refetchInterval(retryableQuery)).toBe(ALLY_PROVISIONING_REFETCH_INTERVAL_MS);
     expect(refetchInterval(readyQuery)).toBe(false);
     expect(refetchInterval(pendingQuery)).toBe(ALLY_PROVISIONING_REFETCH_INTERVAL_MS);
     for (let attempt = 1; attempt < ALLY_PROVISIONING_REFETCH_LIMIT; attempt += 1) {

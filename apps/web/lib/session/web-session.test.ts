@@ -194,6 +194,48 @@ describe("createWebSessionAdapter", () => {
     expect(operation).not.toHaveBeenCalled();
   });
 
+  it("does not retry a transient failure unless the caller opts in", async () => {
+    const owner = createCloudCsrfTokenOwner();
+    owner.replace(token);
+    const adapter = createWebSessionAdapter(client(), owner);
+    const operation = vi.fn(async () => { throw { kind: "network" } as const; });
+
+    await expect(adapter.runCloudOperation(operation)).rejects.toMatchObject({ kind: "network" });
+    expect(operation).toHaveBeenCalledOnce();
+  });
+
+  it("uses the second and final operation slot for an opted-in transient retry", async () => {
+    const owner = createCloudCsrfTokenOwner();
+    owner.replace(token);
+    const adapter = createWebSessionAdapter(client(), owner);
+    const operation = vi.fn()
+      .mockRejectedValueOnce({ kind: "timeout" })
+      .mockResolvedValueOnce("ok");
+
+    await expect(adapter.runCloudOperation(operation, { retryTransient: true })).resolves.toBe("ok");
+    expect(operation).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    ["401 -> refresh -> network", unauthorized(), { kind: "network" }],
+    ["csrf_rejected -> refresh -> timeout", csrfRejected(), { kind: "timeout" }],
+  ] as const)("never spends a third operation slot after %s", async (_name, firstFailure, secondFailure) => {
+    const owner = createCloudCsrfTokenOwner();
+    owner.replace(token);
+    const adapterClient = client();
+    const adapter = createWebSessionAdapter(adapterClient, owner);
+    const operation = vi.fn()
+      .mockRejectedValueOnce(firstFailure)
+      .mockRejectedValueOnce(secondFailure)
+      .mockResolvedValue("unexpected third result");
+
+    await expect(adapter.runCloudOperation(operation, { csrf: true, retryTransient: true }))
+      .rejects.toMatchObject(secondFailure);
+    expect(operation).toHaveBeenCalledTimes(2);
+    if (firstFailure.kind === "unauthorized") expect(adapterClient.refreshSession).toHaveBeenCalledOnce();
+    expect(adapterClient.getCsrf).toHaveBeenCalledOnce();
+  });
+
   it("shares one refresh gate while retaining a budget per concurrent operation", async () => {
     const owner = createCloudCsrfTokenOwner();
     owner.replace(token);

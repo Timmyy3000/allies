@@ -15,6 +15,8 @@ export type {
   ActivityOptions,
   PreparedAvatarViewModel,
   ProfileViewModel,
+  RuntimeIntentStatus,
+  RuntimeIntentViewModel,
   WaitlistCompletionInput,
   WaitlistCompletionViewModel,
   WaitlistEntryInput,
