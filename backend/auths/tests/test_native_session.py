@@ -2,10 +2,13 @@ import base64
 import hashlib
 import json
 import logging
+from datetime import timedelta
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import pytest
 from django.core.cache import cache
+from django.db import connection
+from django.db.migrations.executor import MigrationExecutor
 from django.test import Client
 from django.utils import timezone
 
@@ -22,6 +25,7 @@ from auths.exceptions import (
 )
 from auths.models import (
     NativeAuthorizationTransaction,
+    NativeCompletionMode,
     NativeExchangeCode,
     NativeTransactionStatus,
     SessionClientKind,
@@ -31,6 +35,7 @@ from auths.providers.base import ProviderFlow, ProviderKey, VerifiedIdentity
 from auths.services import native_authorization, native_sessions
 from auths.services.accounts import resolve_or_create_user
 from auths.services.native_authorization import (
+    NativeCallbackResult,
     begin_native_sign_in,
     complete_native_callback,
 )
@@ -125,13 +130,14 @@ def _pkce() -> tuple[str, str]:
     return verifier, challenge
 
 
-def _start_flow(fixture_provider):
+def _start_flow(fixture_provider, *, completion_mode=NativeCompletionMode.REDIRECT):
     verifier, challenge = _pkce()
     start = begin_native_sign_in(
         provider=ProviderKey.GOOGLE,
         redirect_uri=APP_REDIRECT,
         code_challenge=challenge,
         state="app-state-123",
+        completion_mode=completion_mode,
     )
     provider_state = parse_qs(urlparse(start.authorization_url).query)["state"][0]
     return start, provider_state, verifier, challenge
@@ -285,6 +291,255 @@ def test_native_callback_replay_is_safe_and_provider_is_called_once(fixture_prov
     terminal_values = _callback_query(terminal.location)
     assert terminal_values["error"] == ["exchange_invalid"]
     assert "code" not in terminal_values
+
+
+@pytest.mark.django_db
+def test_manual_callback_retries_reuse_code_and_original_expiry(fixture_provider):
+    _, provider_state, _, _ = _start_flow(
+        fixture_provider, completion_mode=NativeCompletionMode.MANUAL_CODE
+    )
+    first = complete_native_callback(
+        provider=ProviderKey.GOOGLE,
+        provider_state=provider_state,
+        provider_code="provider:manual-retry",
+    )
+    assert first.completion_mode is NativeCompletionMode.MANUAL_CODE
+    assert first.location is None
+    assert first.code
+    assert first.expires_at is not None
+    exchange = NativeExchangeCode.objects.get()
+    assert first.expires_at == exchange.expires_at
+
+    second = complete_native_callback(
+        provider=ProviderKey.GOOGLE,
+        provider_state=provider_state,
+        provider_code="provider:manual-retry",
+    )
+    assert second.completion_mode is NativeCompletionMode.MANUAL_CODE
+    assert second.code == first.code
+    assert second.expires_at == first.expires_at
+    assert NativeExchangeCode.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_manual_code_wrong_verifier_does_not_consume_code(fixture_provider):
+    _, provider_state, verifier, _ = _start_flow(
+        fixture_provider, completion_mode=NativeCompletionMode.MANUAL_CODE
+    )
+    callback = complete_native_callback(
+        provider=ProviderKey.GOOGLE,
+        provider_state=provider_state,
+        provider_code="provider:manual-pkce",
+    )
+    assert callback.code is not None
+
+    with pytest.raises(NativeExchangeInvalid):
+        exchange_native_code(
+            code=callback.code,
+            code_verifier="W" * 43,
+            redirect_uri=APP_REDIRECT,
+        )
+    exchange = NativeExchangeCode.objects.get()
+    assert exchange.consumed_at is None
+
+    exchange_native_code(
+        code=callback.code,
+        code_verifier=verifier,
+        redirect_uri=APP_REDIRECT,
+    )
+
+
+@pytest.mark.django_db
+def test_manual_callback_hides_consumed_and_expired_codes(fixture_provider):
+    _, consumed_state, verifier, _ = _start_flow(
+        fixture_provider, completion_mode=NativeCompletionMode.MANUAL_CODE
+    )
+    consumed = complete_native_callback(
+        provider=ProviderKey.GOOGLE,
+        provider_state=consumed_state,
+        provider_code="provider:manual-consumed",
+    )
+    exchange_native_code(
+        code=consumed.code,
+        code_verifier=verifier,
+        redirect_uri=APP_REDIRECT,
+    )
+    consumed_retry = complete_native_callback(
+        provider=ProviderKey.GOOGLE,
+        provider_state=consumed_state,
+        provider_code="provider:manual-consumed",
+    )
+    assert consumed_retry.code is None
+    assert consumed_retry.expires_at is None
+    assert consumed_retry.error_code == "exchange_invalid"
+
+    _, expired_state, _, _ = _start_flow(
+        fixture_provider, completion_mode=NativeCompletionMode.MANUAL_CODE
+    )
+    complete_native_callback(
+        provider=ProviderKey.GOOGLE,
+        provider_state=expired_state,
+        provider_code="provider:manual-expired",
+    )
+    NativeExchangeCode.objects.filter(
+        transaction__state_digest=native_authorization._digest(expired_state)
+    ).update(expires_at=timezone.now())
+    expired_retry = complete_native_callback(
+        provider=ProviderKey.GOOGLE,
+        provider_state=expired_state,
+        provider_code="provider:manual-expired",
+    )
+    assert expired_retry.code is None
+    assert expired_retry.error_code == "exchange_invalid"
+
+
+@pytest.mark.django_db
+def test_manual_callback_http_page_is_private_and_escapes_code(fixture_provider):
+    client = Client()
+    _, challenge = _pkce()
+    start_response = client.post(
+        "/api/v1/auths/native/sign-in/google",
+        {
+            "redirect_uri": APP_REDIRECT,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": "manual-http-state",
+            "completion_mode": "manual_code",
+        },
+        content_type="application/json",
+        HTTP_HOST="testserver",
+        REMOTE_ADDR="198.51.100.8",
+    )
+    provider_state = parse_qs(
+        urlparse(start_response.json()["data"]["authorization_url"]).query
+    )["state"][0]
+    assert (
+        NativeAuthorizationTransaction.objects.get(
+            state_digest=native_authorization._digest(provider_state)
+        ).completion_mode
+        == NativeCompletionMode.MANUAL_CODE
+    )
+    callback_response = client.get(
+        "/api/v1/auths/native/callback/google",
+        {"state": provider_state, "code": "provider:manual-http"},
+        HTTP_HOST="testserver",
+        REMOTE_ADDR="198.51.100.8",
+    )
+    body = callback_response.content.decode()
+    assert callback_response.status_code == 200
+    assert callback_response["Content-Type"] == "text/html; charset=utf-8"
+    assert "Location" not in callback_response
+    assert callback_response["Cache-Control"] == "no-store"
+    assert callback_response["Pragma"] == "no-cache"
+    assert callback_response["Referrer-Policy"] == "no-referrer"
+    assert callback_response["X-Content-Type-Options"] == "nosniff"
+    csp = callback_response["Content-Security-Policy"]
+    assert "default-src 'none'" in csp
+    assert "script-src 'nonce-" in csp
+    assert "Copy sign-in code" in body
+    assert "readonly" in body
+    exchange = NativeExchangeCode.objects.get()
+    raw_code = native_authorization._unseal(
+        exchange.code_sealed,
+        max_age=native_authorization.native_exchange_ttl_seconds() + 60,
+    )
+    assert raw_code in body
+    assert "Expires in" in body
+
+    escaped_expires_at = timezone.now() + timedelta(seconds=30)
+    escaped = native_api._manual_callback_response(
+        NativeCallbackResult(
+            completion_mode=NativeCompletionMode.MANUAL_CODE,
+            code='</textarea><script>alert("x")</script>',
+            expires_at=escaped_expires_at,
+        )
+    )
+    escaped_body = escaped.content.decode()
+    assert '</textarea><script>alert("x")</script>' not in escaped_body
+    assert "&lt;/textarea&gt;&lt;script&gt;" in escaped_body
+    assert "const deadline = Date.now() + " in escaped_body
+    assert "window.setInterval" in escaped_body
+    assert 'input.value = "";' in escaped_body
+    assert "input.disabled = true;" in escaped_body
+    assert "button.disabled = true;" in escaped_body
+
+    expired_page = native_api._manual_callback_response(
+        NativeCallbackResult(
+            completion_mode=NativeCompletionMode.MANUAL_CODE,
+            code="expired-code",
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+    )
+    expired_body = expired_page.content.decode()
+    assert '<input id="sign-in-code"' not in expired_body
+    assert "expired-code" not in expired_body
+    assert "expired or was already used" in expired_body
+
+    failure = native_api._manual_callback_response(
+        NativeCallbackResult(
+            completion_mode=NativeCompletionMode.MANUAL_CODE,
+            error_code="exchange_invalid",
+        )
+    )
+    failure_body = failure.content.decode()
+    assert failure.status_code == 200
+    assert '<input id="sign-in-code"' not in failure_body
+    assert "expired or was already used" in failure_body
+    assert "Location" not in failure
+
+
+@pytest.mark.django_db
+def test_native_start_rejects_unknown_completion_mode(fixture_provider):
+    client = Client()
+    _, challenge = _pkce()
+    response = client.post(
+        "/api/v1/auths/native/sign-in/google",
+        {
+            "redirect_uri": APP_REDIRECT,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": "invalid-mode-state",
+            "completion_mode": "unknown",
+        },
+        content_type="application/json",
+        HTTP_HOST="testserver",
+        REMOTE_ADDR="198.51.100.8",
+    )
+    assert response.status_code == 422
+    assert response.json()["data"]["code"] == "validation_error"
+    assert NativeAuthorizationTransaction.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_legacy_0001_insert_uses_database_completion_mode_default():
+    historical_apps = (
+        MigrationExecutor(connection)
+        .loader.project_state([("auths", "0001_initial")])
+        .apps
+    )
+    historical_transaction = historical_apps.get_model(
+        "auths", "NativeAuthorizationTransaction"
+    )
+    now = timezone.now()
+    legacy_row = historical_transaction(
+        state_digest=native_authorization._digest("legacy-provider-state"),
+        provider="google",
+        callback_uri=NATIVE_CALLBACK,
+        redirect_uri=APP_REDIRECT,
+        app_state_sealed="legacy-app-state",
+        code_challenge="A" * 43,
+        nonce_digest="N" * 64,
+        nonce_sealed="legacy-nonce",
+        pkce_verifier_sealed="legacy-verifier",
+        status=NativeTransactionStatus.PENDING,
+        claim_digest="",
+        error_code="",
+        expires_at=now + timedelta(minutes=1),
+    )
+    legacy_row.save(force_insert=True)
+
+    current_row = NativeAuthorizationTransaction.objects.get(pk=legacy_row.pk)
+    assert current_row.completion_mode == NativeCompletionMode.REDIRECT
 
 
 @pytest.mark.django_db
@@ -456,6 +711,12 @@ def test_native_http_contract_has_no_cookie_dependency_and_rejects_cross_transpo
     provider_state = parse_qs(
         urlparse(start_response.json()["data"]["authorization_url"]).query
     )["state"][0]
+    assert (
+        NativeAuthorizationTransaction.objects.get(
+            state_digest=native_authorization._digest(provider_state)
+        ).completion_mode
+        == NativeCompletionMode.REDIRECT
+    )
     callback_response = client.get(
         "/api/v1/auths/native/callback/google",
         {"state": provider_state, "code": "provider:http-user"},

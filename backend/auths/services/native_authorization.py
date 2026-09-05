@@ -9,7 +9,7 @@ import re
 import secrets
 import time
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlencode, urlparse, urlsplit, urlunsplit
 from uuid import UUID
 
@@ -41,6 +41,7 @@ from auths.exceptions import (
 )
 from auths.models import (
     NativeAuthorizationTransaction,
+    NativeCompletionMode,
     NativeExchangeCode,
     NativeTransactionStatus,
 )
@@ -60,8 +61,12 @@ class NativeAuthorizationStart:
 
 
 @dataclass(frozen=True)
-class NativeAppRedirect:
-    location: str
+class NativeCallbackResult:
+    completion_mode: NativeCompletionMode
+    location: str | None = None
+    code: str | None = None
+    expires_at: datetime | None = None
+    error_code: str | None = None
 
 
 def _digest(raw: str | bytes) -> str:
@@ -111,6 +116,15 @@ def _validate_code_challenge(code_challenge: str) -> str:
     ):
         raise InvalidFlow("pkce challenge is invalid")
     return code_challenge
+
+
+def _validate_completion_mode(
+    completion_mode: NativeCompletionMode | str,
+) -> NativeCompletionMode:
+    try:
+        return NativeCompletionMode(completion_mode)
+    except (TypeError, ValueError) as exc:
+        raise InvalidFlow("native completion mode is invalid") from exc
 
 
 def _validate_app_redirect(redirect_uri: str) -> str:
@@ -180,50 +194,77 @@ def _app_state(transaction_row: NativeAuthorizationTransaction) -> str:
     )
 
 
-def _failure_redirect(
-    transaction_row: NativeAuthorizationTransaction, error_code: str
-) -> NativeAppRedirect:
-    return NativeAppRedirect(
-        _append_query(
-            transaction_row.redirect_uri,
-            {"error": error_code, "state": _app_state(transaction_row)},
-        )
-    )
-
-
-def _success_redirect(
-    transaction_row: NativeAuthorizationTransaction, code: str
-) -> NativeAppRedirect:
-    return NativeAppRedirect(
-        _append_query(
-            transaction_row.redirect_uri,
-            {"code": code, "state": _app_state(transaction_row)},
-        )
-    )
-
-
-def _terminal_redirect(
+def _completion_mode(
     transaction_row: NativeAuthorizationTransaction,
-) -> NativeAppRedirect:
+) -> NativeCompletionMode:
+    try:
+        return NativeCompletionMode(transaction_row.completion_mode)
+    except (TypeError, ValueError) as exc:
+        raise NativeConfigurationInvalid(
+            "native completion mode is unavailable"
+        ) from exc
+
+
+def _failure_result(
+    transaction_row: NativeAuthorizationTransaction, error_code: str
+) -> NativeCallbackResult:
+    mode = _completion_mode(transaction_row)
+    return NativeCallbackResult(
+        completion_mode=mode,
+        location=(
+            None
+            if mode is NativeCompletionMode.MANUAL_CODE
+            else _append_query(
+                transaction_row.redirect_uri,
+                {"error": error_code, "state": _app_state(transaction_row)},
+            )
+        ),
+        error_code=error_code,
+    )
+
+
+def _success_result(
+    transaction_row: NativeAuthorizationTransaction,
+    code: str,
+    expires_at: datetime,
+) -> NativeCallbackResult:
+    mode = _completion_mode(transaction_row)
+    return NativeCallbackResult(
+        completion_mode=mode,
+        location=(
+            None
+            if mode is NativeCompletionMode.MANUAL_CODE
+            else _append_query(
+                transaction_row.redirect_uri,
+                {"code": code, "state": _app_state(transaction_row)},
+            )
+        ),
+        code=code if mode is NativeCompletionMode.MANUAL_CODE else None,
+        expires_at=expires_at if mode is NativeCompletionMode.MANUAL_CODE else None,
+    )
+
+
+def _terminal_result(
+    transaction_row: NativeAuthorizationTransaction,
+) -> NativeCallbackResult:
     if transaction_row.status == NativeTransactionStatus.COMPLETED:
         exchange = NativeExchangeCode.objects.filter(
             transaction=transaction_row
         ).first()
         now = timezone.now()
         if exchange and exchange.consumed_at is None and exchange.expires_at > now:
-            return _success_redirect(
+            return _success_result(
                 transaction_row,
                 _unseal(
                     exchange.code_sealed,
                     max_age=native_exchange_ttl_seconds() + 60,
                 ),
+                exchange.expires_at,
             )
-        return _failure_redirect(transaction_row, "exchange_invalid")
+        return _failure_result(transaction_row, "exchange_invalid")
     if transaction_row.status == NativeTransactionStatus.DENIED:
-        return _failure_redirect(transaction_row, "access_denied")
-    return _failure_redirect(
-        transaction_row, transaction_row.error_code or "flow_failed"
-    )
+        return _failure_result(transaction_row, "access_denied")
+    return _failure_result(transaction_row, transaction_row.error_code or "flow_failed")
 
 
 def _mark_failed(
@@ -231,25 +272,30 @@ def _mark_failed(
     *,
     claim_digest: str | None,
     error_code: str = "provider_unavailable",
-) -> NativeAppRedirect | None:
+) -> NativeCallbackResult | None:
     with transaction.atomic():
         locked = NativeAuthorizationTransaction.objects.select_for_update().get(
             pk=transaction_id
         )
         if locked.status != NativeTransactionStatus.CLAIMED:
-            return _terminal_redirect(locked)
+            return _terminal_result(locked)
         if claim_digest and not hmac.compare_digest(locked.claim_digest, claim_digest):
-            return _terminal_redirect(locked)
+            return _terminal_result(locked)
         now = timezone.now()
         locked.status = NativeTransactionStatus.FAILED
         locked.error_code = error_code[:64]
         locked.terminal_at = now
         locked.save(update_fields=("status", "error_code", "terminal_at"))
-        return _failure_redirect(locked, error_code)
+        return _failure_result(locked, error_code)
 
 
 def begin_native_sign_in(
-    *, provider: ProviderKey | str, redirect_uri: str, code_challenge: str, state: str
+    *,
+    provider: ProviderKey | str,
+    redirect_uri: str,
+    code_challenge: str,
+    state: str,
+    completion_mode: NativeCompletionMode | str = NativeCompletionMode.REDIRECT,
 ) -> NativeAuthorizationStart:
     if not native_enabled():
         raise NativeUnavailable("native authentication is disabled")
@@ -257,6 +303,7 @@ def begin_native_sign_in(
     redirect = _validate_app_redirect(redirect_uri)
     challenge = _validate_code_challenge(code_challenge)
     app_state = _validate_state(state)
+    mode = _validate_completion_mode(completion_mode)
     callback_uri = _native_callback_uri()
     adapter = get_provider(provider_key)
     provider_state = secrets.token_urlsafe(32)
@@ -278,6 +325,7 @@ def begin_native_sign_in(
         provider=provider_key.value,
         callback_uri=callback_uri,
         redirect_uri=redirect,
+        completion_mode=mode,
         app_state_sealed=_seal(app_state),
         code_challenge=challenge,
         nonce_digest=_digest(nonce),
@@ -294,7 +342,7 @@ def begin_native_sign_in(
 
 def _claim_transaction(
     provider_key: ProviderKey, provider_state: str
-) -> tuple[NativeAuthorizationTransaction, str | None, NativeAppRedirect | None]:
+) -> tuple[NativeAuthorizationTransaction, str | None, NativeCallbackResult | None]:
     try:
         transaction_row = NativeAuthorizationTransaction.objects.get(
             state_digest=_digest(provider_state)
@@ -317,7 +365,7 @@ def _claim_transaction(
                 locked.error_code = "flow_expired"
                 locked.terminal_at = now
                 locked.save(update_fields=("status", "error_code", "terminal_at"))
-                return locked, None, _failure_redirect(locked, "flow_expired")
+                return locked, None, _failure_result(locked, "flow_expired")
             claim = secrets.token_urlsafe(32)
             locked.status = NativeTransactionStatus.CLAIMED
             locked.claim_digest = _digest(claim)
@@ -341,7 +389,7 @@ def _claim_transaction(
             locked.error_code = "provider_unavailable"
             locked.terminal_at = now
             locked.save(update_fields=("status", "error_code", "terminal_at"))
-        return locked, None, _terminal_redirect(locked)
+        return locked, None, _terminal_result(locked)
 
 
 def _finalize_provider_result(
@@ -349,7 +397,7 @@ def _finalize_provider_result(
     *,
     claim_digest: str,
     identity,
-) -> NativeAppRedirect:
+) -> NativeCallbackResult:
     with transaction.atomic():
         locked = NativeAuthorizationTransaction.objects.select_for_update().get(
             pk=transaction_id
@@ -357,16 +405,17 @@ def _finalize_provider_result(
         if locked.status != NativeTransactionStatus.CLAIMED or not hmac.compare_digest(
             locked.claim_digest, claim_digest
         ):
-            return _terminal_redirect(locked)
+            return _terminal_result(locked)
         now = timezone.now()
         if locked.claim_expires_at is None or locked.claim_expires_at <= now:
             locked.status = NativeTransactionStatus.FAILED
             locked.error_code = "provider_unavailable"
             locked.terminal_at = now
             locked.save(update_fields=("status", "error_code", "terminal_at"))
-            return _failure_redirect(locked, "provider_unavailable")
+            return _failure_result(locked, "provider_unavailable")
         bootstrap = resolve_or_create_user(identity)
         raw_code = secrets.token_urlsafe(32)
+        exchange_expires_at = now + timedelta(seconds=native_exchange_ttl_seconds())
         NativeExchangeCode.objects.create(
             transaction=locked,
             code_digest=_digest(raw_code),
@@ -374,7 +423,7 @@ def _finalize_provider_result(
             user=bootstrap.user,
             redirect_uri=locked.redirect_uri,
             code_challenge=locked.code_challenge,
-            expires_at=now + timedelta(seconds=native_exchange_ttl_seconds()),
+            expires_at=exchange_expires_at,
         )
         locked.status = NativeTransactionStatus.COMPLETED
         locked.terminal_at = now
@@ -386,7 +435,7 @@ def _finalize_provider_result(
             provider=locked.provider,
             user_ref=str(bootstrap.user.id),
         )
-        return _success_redirect(locked, raw_code)
+        return _success_result(locked, raw_code, exchange_expires_at)
 
 
 def complete_native_callback(
@@ -395,7 +444,7 @@ def complete_native_callback(
     provider_state: str,
     provider_code: str | None = None,
     provider_error: str | None = None,
-) -> NativeAppRedirect:
+) -> NativeCallbackResult:
     if not native_enabled():
         raise NativeUnavailable("native authentication is disabled")
     provider_key = _provider_key(provider)
@@ -404,7 +453,7 @@ def complete_native_callback(
     if terminal is not None:
         return terminal
     if claim is None:
-        return _terminal_redirect(transaction_row)
+        return _terminal_result(transaction_row)
     if provider_error:
         error_code = (
             "access_denied"
@@ -419,7 +468,7 @@ def complete_native_callback(
                 locked.status != NativeTransactionStatus.CLAIMED
                 or not hmac.compare_digest(locked.claim_digest, _digest(claim))
             ):
-                return _terminal_redirect(locked)
+                return _terminal_result(locked)
             locked.status = (
                 NativeTransactionStatus.DENIED
                 if error_code == "access_denied"
@@ -434,7 +483,7 @@ def complete_native_callback(
                 reason_code=error_code,
                 provider=provider_key.value,
             )
-            return _failure_redirect(locked, error_code)
+            return _failure_result(locked, error_code)
     if (
         not isinstance(provider_code, str)
         or not provider_code

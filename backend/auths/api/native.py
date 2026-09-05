@@ -1,8 +1,11 @@
 """HTTP boundary for native Google authorization and sessions."""
 
+import html
 import math
+import secrets
 
 from django.http import HttpRequest, HttpResponse
+from django.utils import timezone
 from ninja_extra import ControllerBase, api_controller, http_get, http_post
 
 from auths.api.common import (
@@ -30,7 +33,9 @@ from auths.exceptions import (
     NativeIdentityUnavailable,
     SessionInvalid,
 )
+from auths.models import NativeCompletionMode
 from auths.services.native_authorization import (
+    NativeCallbackResult,
     begin_native_sign_in,
     complete_native_callback,
 )
@@ -51,8 +56,6 @@ def _no_bearer(request: HttpRequest) -> bool:
 
 
 def _token_response(issued) -> NativeTokenResponse:
-    from django.utils import timezone
-
     now = timezone.now()
     return NativeTokenResponse(
         token_type="Bearer",
@@ -69,6 +72,114 @@ def _token_response(issued) -> NativeTokenResponse:
 def _no_store(response: HttpResponse) -> HttpResponse:
     response["Cache-Control"] = "no-store"
     response["Pragma"] = "no-cache"
+    return response
+
+
+def _manual_callback_response(result: NativeCallbackResult) -> HttpResponse:
+    nonce = secrets.token_urlsafe(24)
+    escaped_nonce = html.escape(nonce, quote=True)
+    now = timezone.now()
+    code_is_active = (
+        result.code is not None
+        and result.expires_at is not None
+        and result.expires_at > now
+    )
+    if code_is_active:
+        remaining_seconds = max(0, math.ceil((result.expires_at - now).total_seconds()))
+        remaining_ms = max(0, int((result.expires_at - now).total_seconds() * 1000))
+        code = html.escape(result.code, quote=True)
+        body = f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Allies sign-in code</title>
+  <style>body{{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:38rem}}input{{font:inherit;padding:.65rem;width:100%;box-sizing:border-box}}button{{background:#ff5800;border:0;border-radius:.5rem;color:#fff;cursor:pointer;font:inherit;margin-top:.75rem;padding:.65rem 1rem}}</style>
+</head>
+<body>
+  <main>
+    <h1>Copy your Allies sign-in code</h1>
+    <p>Return to the Allies app and enter this code.</p>
+    <label for="sign-in-code">Sign-in code</label>
+    <input id="sign-in-code" value="{code}" readonly aria-describedby="code-expiry">
+    <button id="copy-sign-in-code" type="button">Copy sign-in code</button>
+    <p id="copy-status" aria-live="polite">If copying is unavailable, select the code above and copy it.</p>
+    <p id="code-expiry">Expires in {remaining_seconds} seconds. If it expires, start sign-in again in Allies.</p>
+  </main>
+  <script nonce="{escaped_nonce}">
+    (() => {{
+      const input = document.getElementById("sign-in-code");
+      const button = document.getElementById("copy-sign-in-code");
+      const status = document.getElementById("copy-status");
+      const expiry = document.getElementById("code-expiry");
+      const deadline = Date.now() + {remaining_ms};
+      const updateExpiry = () => {{
+        const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
+        if (remaining === 0) {{
+          input.value = "";
+          input.disabled = true;
+          button.disabled = true;
+          status.textContent = "This code has expired. Start sign-in again in Allies.";
+          expiry.textContent = "This code has expired. Start sign-in again in Allies.";
+          return false;
+        }}
+        expiry.textContent = "Expires in " + remaining + " seconds. If it expires, start sign-in again in Allies.";
+        return true;
+      }};
+      const selectCode = () => {{
+        if (!updateExpiry()) return;
+        input.focus();
+        input.select();
+        status.textContent = "Copy is unavailable. Select the code and copy it.";
+      }};
+      updateExpiry();
+      const expiryTimer = window.setInterval(() => {{
+        if (!updateExpiry()) window.clearInterval(expiryTimer);
+      }}, 1000);
+      button.addEventListener("click", () => {{
+        if (!updateExpiry()) return;
+        if (!navigator.clipboard || !navigator.clipboard.writeText) {{
+          selectCode();
+          return;
+        }}
+        try {{
+          navigator.clipboard.writeText(input.value).then(
+            () => {{ status.textContent = "Copied. Return to the Allies app."; }},
+            selectCode,
+          );
+        }} catch (error) {{
+          selectCode();
+        }}
+      }});
+    }})();
+  </script>
+</body>
+</html>"""
+    else:
+        message = {
+            "access_denied": "Sign-in was canceled.",
+            "exchange_invalid": "This sign-in code has expired or was already used.",
+            "flow_expired": "This sign-in attempt has expired.",
+            "provider_unavailable": "The sign-in provider is temporarily unavailable.",
+        }.get(
+            result.error_code
+            or ("exchange_invalid" if result.code is not None else None),
+            "This sign-in attempt could not be completed.",
+        )
+        body = f"""<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Allies sign-in</title></head>
+<body><main><h1>Allies sign-in</h1><p>{html.escape(message)}</p><p>Return to the Allies app and start sign-in again.</p></main></body>
+</html>"""
+    response = HttpResponse(body, content_type="text/html; charset=utf-8")
+    _no_store(response)
+    response["Referrer-Policy"] = "no-referrer"
+    response["X-Content-Type-Options"] = "nosniff"
+    response["Content-Security-Policy"] = (
+        "default-src 'none'; style-src 'unsafe-inline'; "
+        f"script-src 'nonce-{escaped_nonce}'; base-uri 'none'; "
+        "form-action 'none'; frame-ancestors 'none'"
+    )
     return response
 
 
@@ -97,6 +208,7 @@ class NativeAuthenticationController(ControllerBase):
                 redirect_uri=payload.redirect_uri,
                 code_challenge=payload.code_challenge,
                 state=payload.state,
+                completion_mode=payload.completion_mode,
             )
         except ThrottleExceeded:
             return error_json("throttled", "try again later", 429)
@@ -120,7 +232,7 @@ class NativeAuthenticationController(ControllerBase):
 
     @http_get(
         "/callback/{provider}",
-        response={303: None, **error_responses(400, 404, 409, 429, 503)},
+        response={200: None, 303: None, **error_responses(400, 404, 409, 429, 503)},
     )
     def callback(
         self,
@@ -151,6 +263,8 @@ class NativeAuthenticationController(ControllerBase):
         except AuthDomainError as exc:
             code = getattr(exc, "code", "flow_invalid")
             return error_json(code, "authentication failed", _domain_status(code, 400))
+        if result.completion_mode is NativeCompletionMode.MANUAL_CODE:
+            return _manual_callback_response(result)
         response = HttpResponse(status=303)
         response["Location"] = result.location
         return _no_store(response)

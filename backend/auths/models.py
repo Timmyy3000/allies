@@ -38,6 +38,11 @@ class NativeTransactionStatus(models.TextChoices):
     FAILED = "failed", "Failed"
 
 
+class NativeCompletionMode(models.TextChoices):
+    REDIRECT = "redirect", "Redirect"
+    MANUAL_CODE = "manual_code", "Manual code"
+
+
 class SessionClientKind(models.TextChoices):
     BROWSER = "browser", "Browser"
     NATIVE = "native", "Native"
@@ -244,6 +249,12 @@ class NativeAuthorizationTransaction(models.Model):
     provider = models.CharField(max_length=32, choices=Provider.choices)
     callback_uri = models.CharField(max_length=500)
     redirect_uri = models.CharField(max_length=500)
+    completion_mode = models.CharField(
+        max_length=16,
+        choices=NativeCompletionMode.choices,
+        default=NativeCompletionMode.REDIRECT,
+        db_default=models.Value("redirect"),
+    )
     app_state_sealed = models.TextField(editable=False)
     code_challenge = models.CharField(max_length=128, editable=False)
     nonce_digest = models.CharField(max_length=64, editable=False)

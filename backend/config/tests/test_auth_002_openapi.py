@@ -56,6 +56,14 @@ def test_native_openapi_uses_closed_protocol_literals_and_safe_success_examples(
     assert request_schemas["NativeSignInRequest"]["properties"][
         "code_challenge_method"
     ]["enum"] == ["S256"]
+    completion_mode = request_schemas["NativeSignInRequest"]["properties"][
+        "completion_mode"
+    ]
+    assert completion_mode["enum"] == ["redirect", "manual_code"]
+    assert completion_mode["default"] == "redirect"
+    assert "completion_mode" not in request_schemas["NativeSignInRequest"].get(
+        "required", []
+    )
     assert request_schemas["NativeTokenExchangeRequest"]["properties"]["grant_type"][
         "enum"
     ] == ["authorization_code"]
@@ -73,3 +81,15 @@ def test_native_openapi_uses_closed_protocol_literals_and_safe_success_examples(
     assert "access_token" in token_example["data"]
     assert token_example["data"]["expires_in"] == 600
     assert token_example["data"]["refresh_expires_in"] == 1209600
+
+    callback = schema["paths"]["/api/v1/auths/native/callback/{provider}"]["get"]
+    manual_page = callback["responses"][200]
+    assert manual_page["content"]["text/html"]["schema"] == {"type": "string"}
+    assert manual_page["headers"]["Cache-Control"]["example"] == "no-store"
+    assert manual_page["headers"]["Referrer-Policy"]["example"] == "no-referrer"
+    assert manual_page["headers"]["X-Content-Type-Options"]["example"] == "nosniff"
+    assert (
+        "script-src 'nonce-"
+        in manual_page["headers"]["Content-Security-Policy"]["example"]
+    )
+    assert "Location" in callback["responses"][303]["headers"]
