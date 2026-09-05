@@ -5,6 +5,8 @@ from uuid import UUID
 
 from ninja import Schema
 
+from chat.api.schemas import AssistantReplyResponse
+
 
 class ActivityResponse(Schema):
     id: UUID
@@ -28,3 +30,4 @@ class ActivitySnapshotResponse(Schema):
     oldest_sequence: int | None = None
     latest_sequence: int | None = None
     retention_gap: bool = False
+    assistant_reply: AssistantReplyResponse | None = None

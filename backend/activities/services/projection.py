@@ -7,20 +7,20 @@ import hashlib
 import hmac
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Func, IntegerField, Sum
+from django.db.models import Func, IntegerField, Max, Sum
 from django.utils import timezone
 
-from allies.gateways.contracts import FoundryEventEnvelope
+from allies.gateways.contracts import MAX_TERMINAL_SEQUENCE, FoundryEventEnvelope
 from allies.models import AllyBinding, BindingStatus
 from chat.models import (
+    ASSISTANT_REPLY_MAX_BYTES,
+    AssistantReply,
     Conversation,
-    DispatchOutbox,
-    DispatchState,
     Message,
     MessageLifecycle,
     MessageOrigin,
@@ -45,10 +45,9 @@ from ..models import Activity, FoundryEventReceipt, ProjectionState
 MAX_ACTIVITY_SNAPSHOT = 200
 MAX_ACTIVITIES_PER_MESSAGE = 513
 MAX_ACTIVITIES_PER_CONVERSATION = 8192
-MAX_EVENT_RECEIPTS_PER_MESSAGE = 513
+MAX_EVENT_RECEIPTS_PER_MESSAGE = MAX_TERMINAL_SEQUENCE
 MAX_AGGREGATE_TEXT_BYTES = 64 * 1024
 MAX_CONVERSATION_TEXT_BYTES = 4 * 1024 * 1024
-STALE_QUEUED_TURN_SECONDS = 120
 _TERMINAL_STATES = {
     MessageLifecycle.COMPLETED,
     MessageLifecycle.FAILED,
@@ -89,6 +88,7 @@ class ActivitySnapshot:
     oldest_sequence: int | None = None
     latest_sequence: int | None = None
     retention_gap: bool = False
+    assistant_reply: AssistantReply | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,17 +306,15 @@ def _event_state(event_type: str) -> tuple[str, str, str, str]:
 
 
 def _last_contiguous(message_id: UUID, attempt_id: UUID, generation: int) -> int:
-    sequences = set(
+    # Receipts are inserted contiguously under the conversation lock.
+    return (
         FoundryEventReceipt.objects.filter(
             message_id=message_id,
             attempt_id=attempt_id,
             generation=generation,
-        ).values_list("attempt_sequence", flat=True)
+        ).aggregate(sequence=Max("attempt_sequence"))["sequence"]
+        or 0
     )
-    current = 0
-    while current + 1 in sequences:
-        current += 1
-    return current
 
 
 def _last_contiguous_activity_sequence(queryset) -> int:
@@ -337,25 +335,7 @@ def _prior_turn_is_open(message: Message) -> bool:
             MessageLifecycle.AWAITING_ACTION,
         ),
     )
-    for prior in prior_turns:
-        if prior.status != MessageLifecycle.QUEUED:
-            return True
-        outbox = DispatchOutbox.objects.filter(message_id=prior.id).first()
-        if (
-            outbox is not None
-            and outbox.status
-            in {
-                DispatchState.ACCEPTED,
-                DispatchState.FAILED,
-                DispatchState.RECONCILIATION_NEEDED,
-            }
-            and prior.updated_at
-            <= timezone.now() - timedelta(seconds=STALE_QUEUED_TURN_SECONDS)
-            and not Activity.objects.filter(message_id=prior.id).exists()
-        ):
-            continue
-        return True
-    return False
+    return prior_turns.exists()
 
 
 def _text_bytes(queryset) -> int:
@@ -363,23 +343,23 @@ def _text_bytes(queryset) -> int:
 
 
 def _ensure_projection_bounds(
-    *, message: Message, conversation: Conversation, text: str, terminal: bool
+    *,
+    message: Message,
+    conversation: Conversation,
+    text: str,
+    terminal: bool,
+    attempt_sequence: int,
 ) -> bool:
     message_activities = Activity.objects.filter(message_id=message.id)
     conversation_activities = Activity.objects.filter(conversation_id=conversation.id)
     reserved_terminal_slot = 0 if terminal else 1
-    if message_activities.count() >= (
-        MAX_ACTIVITIES_PER_MESSAGE - reserved_terminal_slot
-    ):
-        raise ProjectionInvalid("message activity limit reached")
-    visible_activity_allowed = conversation_activities.count() < (
-        MAX_ACTIVITIES_PER_CONVERSATION - reserved_terminal_slot
+    visible_activity_allowed = (
+        message_activities.count() < MAX_ACTIVITIES_PER_MESSAGE - reserved_terminal_slot
+        and conversation_activities.count()
+        < MAX_ACTIVITIES_PER_CONVERSATION - reserved_terminal_slot
     )
 
-    message_receipts = FoundryEventReceipt.objects.filter(message_id=message.id)
-    if message_receipts.count() >= (
-        MAX_EVENT_RECEIPTS_PER_MESSAGE - reserved_terminal_slot
-    ):
+    if attempt_sequence > (MAX_EVENT_RECEIPTS_PER_MESSAGE - reserved_terminal_slot):
         raise ProjectionInvalid("message event limit reached")
     if not text:
         return visible_activity_allowed
@@ -492,7 +472,25 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         conversation=conversation,
         text=text,
         terminal=message_status in _TERMINAL_STATES,
+        attempt_sequence=foundry.attempt_sequence,
     )
+    reply, created = AssistantReply.objects.get_or_create(
+        message=message,
+        defaults={
+            "has_full_prefix": foundry.attempt_sequence == 1
+            and current_execution is None
+        },
+    )
+    if not created and current_generation != foundry.generation:
+        raise ProjectionConflict("reply attempt cannot change after projection")
+    if envelope.event_type == "message.delta" and not reply.is_truncated:
+        current_bytes = len(reply.content.encode("utf-8"))
+        text_bytes = len(text.encode("utf-8"))
+        if current_bytes + text_bytes > ASSISTANT_REPLY_MAX_BYTES:
+            reply.is_truncated = True
+        else:
+            reply.content += text
+    reply.save(update_fields=("content", "is_truncated", "updated_at"))
     activity = None
     product_sequence = None
     if visible_activity_allowed:
@@ -531,7 +529,11 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         product_sequence=product_sequence,
     )
     message.status = message_status
-    message.save(update_fields=("status", "updated_at"))
+    message.retry_allowed = (
+        envelope.event_type == "execution.failed"
+        and envelope.payload["retryable"] is True
+    )
+    message.save(update_fields=("status", "retry_allowed", "updated_at"))
     return ProjectionResult(
         status="applied",
         event_id=envelope.event_id,
@@ -660,6 +662,7 @@ def read_activity_snapshot(
         oldest_sequence,
         latest_sequence,
         retention_gap,
+        AssistantReply.objects.select_related("message").filter(message=latest).first(),
     )
 
 

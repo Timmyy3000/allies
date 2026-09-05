@@ -5,6 +5,7 @@ from uuid import UUID
 
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
+from django.db.models.functions import Coalesce, Length
 
 from allies.models import Ally, AllyBinding, BindingStatus, OnboardingAttempt
 from auths.models import User
@@ -296,15 +297,29 @@ def _messages_page(
         before_sequence = parsed.before_sequence
     query: QuerySet[Message, Message] = (
         Message.objects.filter(conversation=conversation)
-        .select_related("dispatch_outbox")
+        .select_related("dispatch_outbox", "assistant_reply")
         .prefetch_related("retries")
     )
     if before_sequence is not None:
         query = query.filter(sequence__lt=before_sequence)
-    rows = list(query.order_by("-sequence", "-id")[: limit + 1])
-    has_more = len(rows) > limit
-    rows = rows[:limit]
-    rows.reverse()
+    # Select lengths first to bound memory, always admitting one large turn.
+    candidates = list(
+        query.annotate(
+            text_chars=Length("content")
+            + Coalesce(Length("assistant_reply__content"), 0)
+        )
+        .order_by("-sequence", "-id")
+        .values("id", "text_chars")[: limit + 1]
+    )
+    selected = []
+    page_chars = 0
+    for candidate in candidates[:limit]:
+        if selected and page_chars + candidate["text_chars"] > 1024 * 1024:
+            break
+        selected.append(candidate["id"])
+        page_chars += candidate["text_chars"]
+    has_more = len(candidates) > len(selected)
+    rows = list(query.filter(id__in=selected).order_by("sequence", "id"))
     next_cursor = None
     if has_more and rows:
         next_cursor = serialize_cursor(

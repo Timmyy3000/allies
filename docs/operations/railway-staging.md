@@ -35,6 +35,19 @@ uv run celery -A config.celery:app beat --loglevel=INFO --schedule=/tmp/celerybe
 
 ## Deployment order
 
+Conversation recovery must roll out Cloud first, then Foundry, then Interface.
+Apply Cloud's additive reply migration before serving the widened event contract;
+keep that consumer running until all events above sequence 513 have drained before
+rolling it back. Existing in-flight turns keep their legacy activity history when
+their complete reply prefix was not captured by the new table.
+
+Activity SSE defaults off. Explicitly remove an existing `true` override or set
+`ALLIES_ACTIVITY_SSE_ENABLED=false` during this rollout. The default WSGI process
+has eight request threads; long-lived streams share them with sends and callbacks.
+Enable SSE only after a concurrent-stream/reconnect load check proves spare request
+capacity for callbacks, sends, and health checks. Cursor polling and durable reply
+snapshots are the default transport.
+
 Railway application services are connected only to the `staging` branch. A
 release reaches staging by merging its PR into `dev`, running the manually
 dispatched `Promote Dev → Staging` workflow, and allowing that workflow to run
