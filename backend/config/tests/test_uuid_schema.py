@@ -27,6 +27,7 @@ PRODUCT_MODELS = (
     ("allies", "ProvisioningOperation"),
     ("chat", "Conversation"),
     ("chat", "Message"),
+    ("chat", "AssistantReply"),
     ("waitlist", "WaitlistEntry"),
 )
 
@@ -53,6 +54,7 @@ PRODUCT_RELATIONS = (
     ("allies", "ProvisioningOperation", "user"),
     ("chat", "Conversation", "ally"),
     ("chat", "Message", "conversation"),
+    ("chat", "AssistantReply", "message"),
 )
 
 

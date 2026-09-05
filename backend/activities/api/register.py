@@ -13,6 +13,7 @@ from auths.api.common import _session, error_json, error_responses, success_json
 from auths.api.schemas import SuccessResponse
 from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_limit
+from chat.services.messages import assistant_reply_response
 from common.uuids import CanonicalUUID
 
 from ..exceptions import (
@@ -108,6 +109,11 @@ class ActivityController(ControllerBase):
                 oldest_sequence=result.oldest_sequence,
                 latest_sequence=result.latest_sequence,
                 retention_gap=result.retention_gap,
+                assistant_reply=(
+                    assistant_reply_response(result.assistant_reply)
+                    if result.assistant_reply is not None
+                    else None
+                ),
             ),
             "Activities loaded",
         )

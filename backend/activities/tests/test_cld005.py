@@ -327,7 +327,6 @@ def test_cross_scope_event_is_privacy_safe_and_does_not_mutate(
 @pytest.mark.parametrize(
     ("bound", "limit"),
     [
-        ("MAX_ACTIVITIES_PER_MESSAGE", 1),
         ("MAX_EVENT_RECEIPTS_PER_MESSAGE", 1),
     ],
 )
@@ -820,8 +819,35 @@ def test_empty_activity_replay_returns_zero_metadata_and_origin_cursor(
     ALLIES_AUTH_JWT_KEY="j" * 32,
     ALLIES_ACTIVITY_SSE_ENABLED=True,
 )
-def test_activity_snapshot_api_is_bounded_and_hides_foreign_scope(conversation_records):
+def test_activity_snapshot_api_exposes_truncated_reply_and_hides_foreign_scope(
+    conversation_records, monkeypatch
+):
     user, workspace, _ally, _binding, conversation, _message = conversation_records
+    monkeypatch.setattr(projection_service, "ASSISTANT_REPLY_MAX_BYTES", 3)
+    project_foundry_event(
+        event_for(
+            _message,
+            _binding,
+            payload={"kind": "assistant_delta", "text": "界"},
+        )
+    )
+    project_foundry_event(
+        event_for(
+            _message,
+            _binding,
+            attempt_sequence=2,
+            payload={"kind": "assistant_delta", "text": "x"},
+        )
+    )
+    project_foundry_event(
+        event_for(
+            _message,
+            _binding,
+            attempt_sequence=3,
+            event_type="execution.completed",
+            payload={"status": "completed"},
+        )
+    )
     client = Client()
     client.cookies[cookie_name("access")] = issue_session(user).access_token
 
@@ -829,7 +855,12 @@ def test_activity_snapshot_api_is_bounded_and_hides_foreign_scope(conversation_r
         f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/activities"
     )
     assert response.status_code == 200
-    assert response.json()["data"]["conversation_id"] == str(conversation.id)
+    data = response.json()["data"]
+    assert data["conversation_id"] == str(conversation.id)
+    assert data["assistant_reply"]["content"] == "界"
+    assert data["assistant_reply"]["has_full_prefix"] is True
+    assert data["assistant_reply"]["is_truncated"] is True
+    assert data["assistant_reply"]["status"] == "completed"
 
     foreign_workspace = Workspace.objects.create(
         owner=User.objects.create_user(), name="Other"

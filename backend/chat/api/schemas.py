@@ -22,10 +22,23 @@ class MessageResponse(Schema):
     retryable: bool = False
 
 
+class AssistantReplyResponse(Schema):
+    id: UUID
+    source_message_id: UUID
+    conversation_turn_ordinal: int
+    content: str
+    status: str
+    has_full_prefix: bool
+    is_truncated: bool
+    created_at: datetime
+    updated_at: datetime
+
+
 class ConversationResponse(Schema):
     id: UUID
     ally_id: UUID
     messages: list[MessageResponse]
+    assistant_replies: list[AssistantReplyResponse] = Field(default_factory=list)
     next_cursor: str | None = None
 
 
