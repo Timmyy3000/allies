@@ -9,6 +9,9 @@ dist
 web-build/
 coverage/
 test-results/
+apps/web/playwright-report/
+apps/web/test-output/
+apps/web/output/
 *.tgz
 
 # Logs

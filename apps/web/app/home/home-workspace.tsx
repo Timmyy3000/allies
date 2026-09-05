@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  AssistantReplyViewModel,
   ActivitySnapshotViewModel,
   ActivityState,
   AllyViewModel,
@@ -12,16 +13,12 @@ import {
   isActivityTerminal,
   projectActivitySnapshot,
   type ActivityProjection,
-  type AssistantTurnProjection,
 } from "@allies/cloud-client";
 import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Streamdown } from "streamdown";
 import {
-  Fragment,
-  type CSSProperties,
   useCallback,
   useEffect,
   useMemo,
@@ -30,15 +27,21 @@ import {
 } from "react";
 
 import Onboarding from "../(onboarding)/_components";
+import OnboardingDrawer from "../(onboarding)/_components/onboarding-drawer";
+import { hasOnboardingResumePending } from "../(onboarding)/_store/onboarding-resume";
 import { OnboardingStateProvider } from "../(onboarding)/_store/onboarding-store";
 import { AllyAvatar, ALLY_SHAPES, type AllyShape } from "../../components/ally-avatar";
-import { ShinyText } from "../../components/text-animations/shiny-text";
 import { currentAccountQueryOptions } from "../../lib/account/account-query";
 import { AuthenticatedAllyFlowProvider } from "../../lib/allies/authenticated-onboarding-flow";
 import { alliesQueryOptions, conversationQueryKey } from "../../lib/allies/queries";
 import { alliesQueryKey } from "../../lib/allies/query-keys";
 import { readActivityStream, type ActivityStreamHandle } from "../../lib/allies/activity-stream";
 import { useComposingRuntimeIntent } from "../../lib/allies/runtime-intent";
+import {
+  EMPTY_ACTIVITY_PRESENTATION,
+  mergeActivityPresentation,
+  type ActivityPresentationState,
+} from "../../lib/allies/activity-presentation";
 import { getActivitySseEnabled, getWebEnvironment } from "../../lib/env";
 import { useSession } from "../../lib/session/session-context";
 import {
@@ -46,24 +49,48 @@ import {
   WAITLIST_COLORS,
 } from "../../lib/waitlist/catalog";
 
+import {
+  buildProductionConversationFrameModel,
+  type ProductionConversationFrameActions,
+} from "./conversation-frame-model";
+import {
+  classifyConversationAccessError,
+  type ConversationAccessFailure,
+} from "./conversation-access-error";
+import { ConversationFrame } from "./conversation-frame";
+import { DashboardUiPushExact } from "./_exact/dashboard-ui-push-exact";
+import { MobileHomeRosterExact } from "./_exact/mobile-home-roster-exact";
+import { HomeReadySplash } from "./home-ready-splash";
+import { useIsMobileHome } from "./use-is-mobile-home";
 import styles from "./home.module.css";
 
 const ACTIVITY_INTERVAL_MS = 500;
+const DURABLE_REPLY_SNAPSHOT_INTERVAL_MS = 3_000;
 const ACTIVITY_POLL_LIMIT = 240;
 const ACTIVITY_REPLAY_MAX_PAGES = 64;
 const ACTIVITY_REPLAY_MAX_BYTES = 4 * 1024 * 1024;
 const EMPTY_MESSAGES: MessageViewModel[] = [];
+const EMPTY_ASSISTANT_REPLIES: AssistantReplyViewModel[] = [];
 const ALLY_PREVIEW_LIMIT = 32;
-const QUEUED_MESSAGES_STORAGE_VERSION = "v1";
+const QUEUED_MESSAGES_STORAGE_VERSION = "v2";
+const MAX_QUEUED_MESSAGES = 32;
 export const ALLY_SLEEP_AFTER_MS = 10 * 60 * 1_000;
 const ALLY_SLEEP_CLOCK_INTERVAL_MS = 30_000;
+const QUEUED_MESSAGE_PERSISTENCE_ERROR = "Message not sent: browser storage is unavailable. Keep this page open, allow site storage or free up space, then try again.";
+const QUEUED_MESSAGE_REMOVAL_ERROR = "We couldn't remove this queued message. Try again.";
+const MESSAGE_ACCEPTANCE_UNKNOWN_ERROR = "We couldn't confirm your message";
+const BLOCKED_QUEUE_HEAD_ERROR = "Your earlier message still needs confirmation. Retry it before sending another message.";
 
 type QueuedMessage = {
   id: string;
   content: string;
   intentKey: string;
   queuedAt: number;
-  state: "queued" | "dispatching" | "blocked";
+};
+
+type AssistantReplyState = {
+  conversationId: string | null;
+  replies: AssistantReplyViewModel[];
 };
 
 export class ActivityReplayBoundError extends Error {
@@ -84,14 +111,18 @@ export function activityReplayFailure(error: unknown): ActivityReplayFailure {
   return null;
 }
 
-function activitySnapshotBytes(snapshot: unknown): number {
-  const encoded = JSON.stringify(snapshot);
-  return new TextEncoder().encode(encoded).byteLength;
+export function activitySnapshotBytes(snapshot: ActivitySnapshotViewModel): number {
+  return new TextEncoder().encode(JSON.stringify({
+    activities: snapshot.activities,
+    assistantReply: snapshot.assistantReply ?? null,
+  })).byteLength;
 }
 
 function hasVisibleAssistantText(snapshot: ActivitySnapshotViewModel): boolean {
   return snapshot.activities.some(
     (activity) => activity.kind === "assistant_delta" && Boolean(activity.text.trim()),
+  ) || Boolean(
+    snapshot.assistantReply?.hasFullPrefix && snapshot.assistantReply.content.trim(),
   );
 }
 
@@ -132,6 +163,11 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     restoreStarted.current = true;
     void restoreSession();
   }, [restoreSession, sessionStatus]);
+
+  useEffect(() => {
+    if (!hasOnboardingResumePending()) return;
+    router.replace("/");
+  }, [router]);
 
   useEffect(() => {
     if (session.state.status !== "signed-out" || redirectStarted.current) return;
@@ -184,6 +220,30 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     ? allies.find((ally) => ally.id === selectedAllyId) ?? null
     : null;
   const creatingAlly = selectedAllyId === "new";
+  const isMobileHome = useIsMobileHome();
+  const isDesktopDashboard = !isMobileHome;
+  const [createOverlayOpen, setCreateOverlayOpen] = useState(false);
+  const [dismissedCreateRoute, setDismissedCreateRoute] = useState(false);
+  const pendingCreatedAllyId = useRef<string | null>(null);
+
+  if (!creatingAlly && dismissedCreateRoute) {
+    setDismissedCreateRoute(false);
+  }
+
+  if (creatingAlly && !createOverlayOpen && !dismissedCreateRoute) {
+    setCreateOverlayOpen(true);
+  }
+
+  const openCreateOverlay = useCallback(() => {
+    pendingCreatedAllyId.current = null;
+    setDismissedCreateRoute(false);
+    setCreateOverlayOpen(true);
+  }, []);
+
+  const closeCreateOverlay = useCallback(() => {
+    setCreateOverlayOpen(false);
+    if (creatingAlly) setDismissedCreateRoute(true);
+  }, [creatingAlly]);
 
   const handleCreated = useCallback(
     (ally: AllyViewModel) => {
@@ -191,10 +251,19 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
         if (current?.some((item) => item.id === ally.id)) return current;
         return [...(current ?? []), ally];
       });
+      pendingCreatedAllyId.current = ally.id;
       router.replace(`/home/${encodeURIComponent(ally.id)}`);
+      setCreateOverlayOpen(false);
     },
     [queryClient, router, workspaceId],
   );
+
+  const handleCreateOverlayClosed = useCallback(() => {
+    const createdId = pendingCreatedAllyId.current;
+    pendingCreatedAllyId.current = null;
+    if (createdId || !creatingAlly) return;
+    router.replace("/home");
+  }, [creatingAlly, router]);
   const hasBlockingQueryError = (accountQuery.isError && !accountQuery.data)
     || (alliesQuery.isError && !alliesQuery.data);
   const hasBackgroundQueryError = (accountQuery.isError && Boolean(accountQuery.data))
@@ -205,12 +274,6 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     void Promise.all([refetchAccount(), refetchAllies()]);
   }, [refetchAccount, refetchAllies]);
 
-  if (session.state.status === "unknown" || session.state.status === "restoring") {
-    return <HomeStatus title="Restoring your Allies" detail="Checking your secure session…" />;
-  }
-  if (session.state.status === "signed-out") {
-    return <HomeStatus title="Opening sign-in" detail="Taking you to Google…" />;
-  }
   if (session.state.status === "unavailable") {
     return (
       <HomeStatus
@@ -232,141 +295,209 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
       />
     );
   }
-  if (!accountQuery.data || alliesQuery.isPending) {
-    return <HomeStatus title="Gathering your Allies" detail="Opening your conversations…" />;
+
+  const waitingForWorkspace = session.state.status === "unknown"
+    || session.state.status === "restoring"
+    || session.state.status === "signed-out"
+    || !accountQuery.data
+    || alliesQuery.isPending;
+
+  if (waitingForWorkspace) {
+    return (
+      <main className={isMobileHome ? styles.exactMobileHost : styles.exactHost}>
+        {isMobileHome ? <MobileHomeRosterExact allies={<></>} actions={<></>} createControl={<></>} /> : null}
+        <HomeReadySplash />
+      </main>
+    );
   }
 
   const invalidSelection = Boolean(selectedAllyId && !creatingAlly && !selectedAlly);
+  const showDesktopDashboard = isDesktopDashboard;
+  const showThread = Boolean(selectedAllyId) || showDesktopDashboard;
+
+  const threadBody = creatingAlly || !selectedAllyId ? (
+    <EmptyThread />
+  ) : invalidSelection ? (
+    <EmptyThread
+      title="That Ally isn't in this Workspace"
+      detail="Choose one of your Allies to keep talking."
+      action={<Link className={styles.primaryAction} href="/home">Back to Allies</Link>}
+    />
+  ) : selectedAlly ? (
+    <ConversationPane
+      key={selectedAlly.id}
+      userId={accountQuery.data.userId}
+      workspaceId={workspaceId}
+      ally={selectedAlly}
+      onActivity={() => recordAllyActivity(selectedAlly.id)}
+      stateReady={sleepClock !== null && Boolean(allyPreviews.get(selectedAlly.id)) && !allyPreviews.get(selectedAlly.id)?.isPending}
+      sleeping={isAllySleeping(selectedAlly, allyPreviews.get(selectedAlly.id)?.latestMessage ?? null, sleepClock, recentActivityByAlly[selectedAlly.id])}
+      workspaceRefreshError={hasBackgroundQueryError}
+      onRetryWorkspace={retryWorkspaceQueries}
+    />
+  ) : (
+    <EmptyThread />
+  );
+
+  const createOverlay = (
+    <OnboardingDrawer
+      open={createOverlayOpen}
+      onClose={closeCreateOverlay}
+      onClosed={handleCreateOverlayClosed}
+    >
+      <div className={styles.creationOverlay}>
+        <OnboardingStateProvider initialStep="name">
+          <AuthenticatedAllyFlowProvider workspaceId={workspaceId} onCreated={handleCreated}>
+            <Onboarding exitHref="/home" onExit={closeCreateOverlay} />
+          </AuthenticatedAllyFlowProvider>
+        </OnboardingStateProvider>
+      </div>
+    </OnboardingDrawer>
+  );
+
+  const allyRows = (exact: boolean) => allies.length ? (
+    <nav className={exact ? styles.exactAllyList : styles.allyList} aria-label="Choose an Ally">
+      {allies.map((ally) => (
+        <AllyConversationRow
+          key={ally.id}
+          ally={ally}
+          selected={ally.id === selectedAllyId}
+          preview={allyPreviews.get(ally.id)}
+          sleepClock={sleepClock}
+          recentActivityAt={recentActivityByAlly[ally.id]}
+          exact={exact}
+        />
+      ))}
+    </nav>
+  ) : (
+    <div className={styles.rosterEmpty}>
+      <p>No Allies here yet.</p>
+      <button
+        type="button"
+        className={`${styles.primaryAction} ${styles.mobileOnly} ${styles.exactUnstyledButton}`}
+        onClick={openCreateOverlay}
+      >
+        Meet your first Ally
+      </button>
+    </div>
+  );
+
+  if (showDesktopDashboard) {
+    return (
+      <main className={styles.exactHost} data-testid="dashboard-ui-push">
+        <DashboardUiPushExact
+          brand={(
+            <Link href="/home" aria-label="Allies home">
+              <Image src="/allies-icon.svg" alt="Allies" width={48} height={48} priority />
+            </Link>
+          )}
+          createControl={(
+            <button
+              type="button"
+              className={styles.exactCreate}
+              aria-label="Meet another Ally"
+              onClick={openCreateOverlay}
+            >
+              <PlusIcon />
+            </button>
+          )}
+          allies={(
+            <>
+              {hasBackgroundQueryError && !selectedAllyId ? (
+                <WorkspaceRefreshError onRetry={retryWorkspaceQueries} />
+              ) : null}
+              {allyRows(true)}
+            </>
+          )}
+          profile={(
+            <Link className={styles.exactProfile} href="/account">
+              <span className={styles.exactProfileMark} aria-hidden="true">
+                {initials(accountQuery.data.displayName)}
+              </span>
+              <span>{accountQuery.data.displayName || "Your account"}</span>
+            </Link>
+          )}
+          thread={(
+            <section className={styles.exactThread} aria-label="Selected Ally conversation">
+              {threadBody}
+            </section>
+          )}
+        />
+        {createOverlay}
+      </main>
+    );
+  }
 
   return (
-    <main className={`${styles.page} ${!selectedAllyId ? styles.rosterPage : ""}`}>
+    <main className={styles.exactMobileHost} data-testid="mobile-home-roster">
       <section
-        className={`${styles.roster} ${selectedAllyId ? styles.rosterHiddenOnMobile : ""}`}
+        className={selectedAllyId ? styles.rosterHiddenOnMobile : undefined}
         aria-label="Ally conversations"
+        style={{ width: "100%", height: "100%" }}
       >
-        <header className={styles.rosterHeader}>
-          <Link className={styles.brandButton} href="/home" aria-label="Allies home">
-            <Image src="/allies-icon.svg" alt="Allies" width={48} height={48} priority unoptimized />
-          </Link>
-          <Link
-            className={styles.newAllyButton}
-            href="/home/new"
-            aria-label="Meet another Ally"
-          >
-            <PlusIcon />
-          </Link>
-        </header>
-
-        <div className={styles.rosterSearch}>
-          <SearchIcon />
-          <span>Search</span>
-        </div>
-
-        <div className={styles.rosterTabs}>
-          <span className={`${styles.rosterTab} ${styles.rosterTabActive}`}>
-            My allies
-          </span>
-          <span className={`${styles.rosterTab} ${styles.rosterTabMuted}`}>
-            Routines
-          </span>
-        </div>
-
-        {hasBackgroundQueryError && !selectedAllyId ? (
-          <WorkspaceRefreshError onRetry={retryWorkspaceQueries} />
-        ) : null}
-
-        {allies.length ? (
-          <nav className={styles.allyList} aria-label="Choose an Ally">
-            {allies.map((ally) => (
-              <AllyConversationRow
-                key={ally.id}
-                ally={ally}
-                selected={ally.id === selectedAllyId}
-                preview={allyPreviews.get(ally.id)}
-                sleepClock={sleepClock}
-                recentActivityAt={recentActivityByAlly[ally.id]}
-              />
-            ))}
-          </nav>
-        ) : (
-          <div className={styles.rosterEmpty}>
-            <p>No Allies here yet.</p>
-            <Link
-              className={`${styles.primaryAction} ${styles.mobileOnly}`}
-              href="/home/new"
+        <MobileHomeRosterExact
+          actions={(
+            <>
+              <button
+                type="button"
+                className={`${styles.exactMobileAction} ${styles.exactMobileActionCreate}`}
+                aria-label="Meet another Ally"
+                onClick={openCreateOverlay}
+              >
+                <ChefIcon />
+              </button>
+              <div
+                className={`${styles.exactMobileAction} ${styles.exactMobileActionWash}`}
+                aria-hidden="true"
+              >
+                <SearchIcon />
+              </div>
+              <Link
+                className={`${styles.exactMobileAction} ${styles.exactMobileActionWash} ${styles.exactMobileProfile}`}
+                href="/account"
+                aria-label={accountQuery.data.displayName || "Open account"}
+              >
+                {initials(accountQuery.data.displayName)}
+              </Link>
+            </>
+          )}
+          tabs={(
+            <>
+              <span className={styles.exactMobileTab}>My allies</span>
+              <span className={styles.exactMobileTabMuted}>Events</span>
+            </>
+          )}
+          allies={(
+            <>
+              {hasBackgroundQueryError && !selectedAllyId ? (
+                <WorkspaceRefreshError onRetry={retryWorkspaceQueries} />
+              ) : null}
+              {allyRows(true)}
+            </>
+          )}
+          createControl={(
+            <button
+              type="button"
+              className={styles.exactMobileCreate}
+              aria-label="Make an Ally"
+              onClick={openCreateOverlay}
             >
-              Meet your first Ally
-            </Link>
-          </div>
-        )}
-
-        <footer className={styles.rosterFooter}>
-          <Link className={styles.accountLink} href="/account">
-            <span className={styles.accountMark} aria-hidden="true">
-              {initials(accountQuery.data.displayName)}
-            </span>
-            <span>{accountQuery.data.displayName || "Your account"}</span>
-          </Link>
-          <Link className={`${styles.primaryAction} ${styles.mobileRosterCta}`} href="/home/new">
-            Make an Ally
-          </Link>
-        </footer>
+              Make an ally
+            </button>
+          )}
+        />
       </section>
 
-      {selectedAllyId ? (
-        <section className={styles.thread} aria-label="Selected Ally conversation">
-          {creatingAlly ? (
-            <HomeAllyCreationPane workspaceId={workspaceId} onCreated={handleCreated} />
-          ) : invalidSelection ? (
-            <EmptyThread
-              title="That Ally isn't in this Workspace"
-              detail="Choose one of your Allies to keep talking."
-              action={<Link className={styles.primaryAction} href="/home">Back to Allies</Link>}
-            />
-          ) : selectedAlly ? (
-            <ConversationPane
-              key={selectedAlly.id}
-              workspaceId={workspaceId}
-              ally={selectedAlly}
-              sleepClock={sleepClock}
-              recentActivityAt={recentActivityByAlly[selectedAlly.id]}
-              onActivity={() => recordAllyActivity(selectedAlly.id)}
-              workspaceRefreshError={hasBackgroundQueryError}
-              onRetryWorkspace={retryWorkspaceQueries}
-            />
-          ) : allies.length ? (
-            <EmptyThread
-              title="Choose an Ally"
-              detail="Every Ally has one continuous conversation waiting here."
-            />
-          ) : (
-            <EmptyThread
-              title="Meet your first Ally"
-              detail="Start with someone built around what matters to you."
-              action={<Link className={styles.primaryAction} href="/home/new">Meet your first Ally</Link>}
-            />
-          )}
+      {showThread ? (
+        <section
+          className={`${styles.thread} ${!selectedAllyId ? styles.threadHiddenOnMobile : ""}`}
+          aria-label="Selected Ally conversation"
+        >
+          {threadBody}
         </section>
       ) : null}
+      {createOverlay}
     </main>
-  );
-}
-
-function HomeAllyCreationPane({
-  workspaceId,
-  onCreated,
-}: {
-  workspaceId: string;
-  onCreated: (ally: AllyViewModel) => void;
-}) {
-  return (
-    <div className={styles.creationPane}>
-      <OnboardingStateProvider initialStep="name">
-        <AuthenticatedAllyFlowProvider workspaceId={workspaceId} onCreated={onCreated}>
-          <Onboarding exitHref="/home" />
-        </AuthenticatedAllyFlowProvider>
-      </OnboardingStateProvider>
-    </div>
   );
 }
 
@@ -387,11 +518,13 @@ function AllyIdentityAvatar({
   size,
   thinking = false,
   sleeping = false,
+  stateReady = true,
 }: {
   ally: AllyViewModel;
   size: number;
   thinking?: boolean;
   sleeping?: boolean;
+  stateReady?: boolean;
 }) {
   const avatar = resolveAllyAppearance(ally);
   if (!avatar) {
@@ -409,9 +542,10 @@ function AllyIdentityAvatar({
   }
   return (
     <AllyAvatar
+      stateReady={stateReady}
       shape={avatar.shape}
       color={avatar.color}
-      state={thinking || isGettingReady(ally) ? "thinking" : "idle"}
+      state={thinking || isGettingReady(ally) ? "thinking" : sleeping ? "sleeping" : "idle"}
       size={size}
       label=""
       className={sleeping ? styles.sleepingAvatar : undefined}
@@ -450,24 +584,26 @@ function AllyConversationRow({
   preview,
   sleepClock,
   recentActivityAt,
+  exact = false,
 }: {
   ally: AllyViewModel;
   selected: boolean;
   preview?: AllyPreview;
   sleepClock: number | null;
   recentActivityAt?: number;
+  exact?: boolean;
 }) {
   const latestMessage = preview?.latestMessage ?? null;
   const sleeping = isAllySleeping(ally, latestMessage, sleepClock, recentActivityAt);
   return (
     <Link
       href={`/home/${encodeURIComponent(ally.id)}`}
-      className={`${styles.allyRow} ${selected ? styles.allyRowSelected : ""}`}
+      className={`${styles.allyRow} ${selected ? styles.allyRowSelected : ""} ${exact ? styles.exactAllyRow : ""}`}
       aria-current={selected ? "page" : undefined}
       data-ally-sleeping={sleeping ? "true" : "false"}
     >
       <span className={styles.allyAvatarWrap}>
-        <AllyIdentityAvatar ally={ally} size={48} sleeping={sleeping} />
+        <AllyIdentityAvatar ally={ally} size={48} sleeping={sleeping} stateReady={sleepClock !== null && Boolean(preview) && !preview?.isPending} />
         <span
           className={`${styles.presenceDot} ${ally.provisioningState === "bound" && !sleeping ? styles.presenceDotReady : styles.presenceDotQuiet}`}
           aria-hidden="true"
@@ -491,25 +627,25 @@ function AllyConversationRow({
 }
 
 function ConversationPane({
+  sleeping,
+  stateReady,
+  userId,
   workspaceId,
   ally,
-  sleepClock,
-  recentActivityAt,
   onActivity,
   workspaceRefreshError,
   onRetryWorkspace,
 }: {
+  userId: string;
   workspaceId: string;
   ally: AllyViewModel;
-  sleepClock: number | null;
-  recentActivityAt?: number;
   onActivity: () => void;
+  sleeping: boolean;
+  stateReady: boolean;
   workspaceRefreshError: boolean;
   onRetryWorkspace: () => void;
 }) {
   const session = useSession();
-  const cloudClient = session.client;
-  const runCloudOperation = session.runCloudOperation;
   const queryClient = useQueryClient();
   const [olderMessages, setOlderMessages] = useState<MessageViewModel[]>([]);
   const [nextCursorOverride, setNextCursorOverride] = useState<string | null | undefined>(undefined);
@@ -518,10 +654,16 @@ function ConversationPane({
   const [sentMessages, setSentMessages] = useState<MessageViewModel[]>([]);
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
+  const [assistantReplyState, setAssistantReplyState] = useState<AssistantReplyState>({
+    conversationId: null,
+    replies: [],
+  });
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
   const queuedMessagesRef = useRef<QueuedMessage[]>([]);
   const [queuedMessagesLoadedFor, setQueuedMessagesLoadedFor] = useState<string | null>(null);
   const queuedDispatchRef = useRef(false);
+  const blockedQueuedMessageIdsRef = useRef<Set<string>>(new Set());
+  const [queuePersistenceError, setQueuePersistenceError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
@@ -538,10 +680,12 @@ function ConversationPane({
   const [streamConnected, setStreamConnected] = useState(false);
   const [pollBudgetReached, setPollBudgetReached] = useState(false);
   const [projection, setProjection] = useState<ActivityProjection>(EMPTY_ACTIVITY_PROJECTION);
+  const [activityPresentation, setActivityPresentation] = useState<ActivityPresentationState>(
+    EMPTY_ACTIVITY_PRESENTATION,
+  );
   const pollingRef = useRef(false);
   const pollCountRef = useRef(0);
   const activityHistoryLoadedRef = useRef<string | null>(null);
-  const observedActiveMessageRef = useRef<string | null>(null);
   const previousProvisioningStateRef = useRef(ally.provisioningState);
   const activityReplayRef = useRef<{
     conversationId: string;
@@ -551,6 +695,12 @@ function ConversationPane({
   } | null>(null);
   const activityReplayExpiredRestartedRef = useRef(false);
   const [activityHistoryRetry, setActivityHistoryRetry] = useState(0);
+  const [showSetupToast, setShowSetupToast] = useState(false);
+  const [conversationAccessFailure, setConversationAccessFailure] = useState<ConversationAccessFailure | null>(null);
+  const conversationAccessFailureRef = useRef<ConversationAccessFailure | null>(null);
+  const queryAccessFailureRef = useRef<ConversationAccessFailure | null>(null);
+  const setupToastShownForRef = useRef<string | null>(null);
+  const setupToastTimerRef = useRef<number | null>(null);
   const activityRequestRef = useRef<AbortController | null>(null);
   const activitySnapshotRequestRef = useRef<AbortController | null>(null);
   const activityHistoryRequestRef = useRef<AbortController | null>(null);
@@ -562,20 +712,40 @@ function ConversationPane({
   const mountedRef = useRef(true);
   const messageCanvasRef = useRef<HTMLDivElement>(null);
   const followLatestRef = useRef(true);
-  const queuedMessagesStorageKey = `allies:${QUEUED_MESSAGES_STORAGE_VERSION}:queued-messages:${workspaceId}:${ally.id}`;
+  const queuedMessagesStorageKey = `allies:${QUEUED_MESSAGES_STORAGE_VERSION}:queued-messages:${encodeURIComponent(userId)}:${encodeURIComponent(workspaceId)}:${encodeURIComponent(ally.id)}`;
+  const legacyQueuedMessagesStorageKey = `allies:v1:queued-messages:${workspaceId}:${ally.id}`;
   const queuedMessagesReady = queuedMessagesLoadedFor === queuedMessagesStorageKey;
   const requestRuntimeIntent = useCallback(
     (targetAllyId: string, occurredAt: string, idempotencyKey: string, signal?: AbortSignal) =>
-      runCloudOperation(
-        (operationSignal) => cloudClient.requestRuntimeIntent(targetAllyId, occurredAt, idempotencyKey, operationSignal),
+      session.runCloudOperation(
+        (operationSignal) => session.client.requestRuntimeIntent(targetAllyId, occurredAt, idempotencyKey, operationSignal),
         { csrf: true, retryTransient: true, signal },
       ),
-    [cloudClient, runCloudOperation],
+    [session],
   );
   const { observeEdit, compositionStart, compositionEnd } = useComposingRuntimeIntent(
     ally.id,
     requestRuntimeIntent,
   );
+
+  const presentAssistantReply = useCallback((conversationId: string, reply: AssistantReplyViewModel) => {
+    setAssistantReplyState((current) => mergeAssistantReplyState(current, conversationId, [reply]));
+  }, []);
+
+  const presentActivitySnapshot = useCallback((snapshot: ActivitySnapshotViewModel) => {
+    if (snapshot.assistantReply) presentAssistantReply(snapshot.conversationId, snapshot.assistantReply);
+    setActivityPresentation((current) => mergeActivityPresentation(current, {
+      conversationId: snapshot.conversationId,
+      activities: snapshot.activities,
+    }));
+  }, [presentAssistantReply]);
+
+  const presentActivity = useCallback((conversationId: string, activity: ActivitySnapshotViewModel["activities"][number]) => {
+    setActivityPresentation((current) => mergeActivityPresentation(current, {
+      conversationId,
+      activities: [activity],
+    }));
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -586,46 +756,54 @@ function ConversationPane({
       activityHistoryRequestRef.current?.abort();
       activityStreamRef.current?.close();
       olderRequestRef.current?.abort();
+      if (setupToastTimerRef.current !== null) window.clearTimeout(setupToastTimerRef.current);
     };
   }, []);
 
   useEffect(() => {
+    if (ally.provisioningState !== "retryable" || setupToastShownForRef.current === ally.operationId) return;
+    setupToastShownForRef.current = ally.operationId;
+    setShowSetupToast(true);
+    setupToastTimerRef.current = window.setTimeout(() => setShowSetupToast(false), 4_000);
+  }, [ally.operationId, ally.provisioningState]);
+
+  useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
-      const loaded = readLiveQueuedMessages(queuedMessagesStorageKey)
-        .map((message) => message.state === "dispatching" ? { ...message, state: "blocked" as const } : message);
-      queuedMessagesRef.current = loaded;
-      persistQueuedMessages(queuedMessagesStorageKey, loaded);
-      setQueuedMessages(loaded);
+      try {
+        if (window.localStorage.getItem(legacyQueuedMessagesStorageKey)) {
+          window.localStorage.removeItem(legacyQueuedMessagesStorageKey);
+          setQueuePersistenceError("Older queued messages could not be restored safely after account isolation changed.");
+        }
+      } catch {
+        // The v2 queue remains usable when legacy storage cannot be inspected.
+      }
+      const storedMessages = readLiveQueuedMessages(queuedMessagesStorageKey);
+      queuedMessagesRef.current = storedMessages;
+      setQueuedMessages(storedMessages);
       setQueuedMessagesLoadedFor(queuedMessagesStorageKey);
     });
     return () => window.cancelAnimationFrame(frame);
-  }, [queuedMessagesStorageKey]);
+  }, [legacyQueuedMessagesStorageKey, queuedMessagesStorageKey]);
 
-  const commitQueuedMessages = useCallback((change: (messages: QueuedMessage[]) => QueuedMessage[]) => {
+  const commitQueuedMessages = useCallback((change: (messages: QueuedMessage[]) => QueuedMessage[]): boolean => {
     const removedIds = readQueuedMessageTombstones(queuedMessagesStorageKey);
     const current = mergeQueuedMessages(
       queuedMessagesRef.current,
       readQueuedMessages(queuedMessagesStorageKey),
     ).filter((message) => !removedIds.has(message.id));
     const next = change(current).filter((message) => !removedIds.has(message.id));
+    if (!persistQueuedMessages(queuedMessagesStorageKey, next)) return false;
     queuedMessagesRef.current = next;
-    persistQueuedMessages(queuedMessagesStorageKey, next);
     setQueuedMessages(next);
+    return true;
   }, [queuedMessagesStorageKey]);
-
-  const removeQueuedMessage = useCallback((messageId: string) => {
-    persistQueuedMessageTombstone(queuedMessagesStorageKey, messageId);
-    commitQueuedMessages((messages) => messages.filter((message) => message.id !== messageId));
-  }, [commitQueuedMessages, queuedMessagesStorageKey]);
 
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.storageArea !== window.localStorage) return;
       const tombstonePrefix = queuedMessageTombstonePrefix(queuedMessagesStorageKey);
       if (event.key !== queuedMessagesStorageKey && !event.key?.startsWith(tombstonePrefix)) return;
-      const incoming = event.key === queuedMessagesStorageKey
-        ? parseQueuedMessages(event.newValue)
-        : [];
+      const incoming = event.key === queuedMessagesStorageKey ? parseQueuedMessages(event.newValue) : [];
       const removedIds = readQueuedMessageTombstones(queuedMessagesStorageKey);
       const next = mergeQueuedMessages(queuedMessagesRef.current, incoming)
         .filter((message) => !removedIds.has(message.id));
@@ -650,6 +828,7 @@ function ConversationPane({
   });
   const conversation = conversationQuery.data;
   const latestConversationMessages = conversation?.messages ?? EMPTY_MESSAGES;
+  const latestConversationAssistantReplies = conversation?.assistantReplies ?? EMPTY_ASSISTANT_REPLIES;
   const nextCursor = nextCursorOverride === undefined
     ? conversation?.nextCursor ?? null
     : nextCursorOverride;
@@ -661,37 +840,93 @@ function ConversationPane({
   const turnInProgress = activeTurn || persistedTurnActive || streamConnected;
   const conversationId = conversation?.id;
 
+  const applyConversationAccessFailure = useCallback((error: unknown): boolean => {
+    const failure = classifyConversationAccessError(error);
+    if (failure === "recoverable") return false;
+    conversationAccessFailureRef.current = failure;
+    setConversationAccessFailure(failure);
+    activityRequestRef.current?.abort();
+    activitySnapshotRequestRef.current?.abort();
+    activityHistoryRequestRef.current?.abort();
+    activityStreamRef.current?.close();
+    olderRequestRef.current?.abort();
+    setOlderMessages([]);
+    setSentMessages([]);
+    setProjection(EMPTY_ACTIVITY_PROJECTION);
+    setActivityPresentation(EMPTY_ACTIVITY_PRESENTATION);
+    setOlderLoadError(null);
+    setActivityError(null);
+    setActivityHistoryError(null);
+    setActivityReplayUnavailable(false);
+    setPollBudgetReached(false);
+    setActiveTurn(false);
+    setAwaitingVisibleResponse(false);
+    setPollingSettled(true);
+    setStreamConnected(false);
+    setRetryingMessageId(null);
+    setRetryError(null);
+    if (failure === "session-expired") {
+      draftRef.current = "";
+      setDraft("");
+    }
+    return true;
+  }, []);
+
+  const queryAccessFailure = conversationQuery.isError
+    ? classifyConversationAccessError(conversationQuery.error)
+    : null;
+
+  useEffect(() => {
+    if (queryAccessFailure && queryAccessFailure !== "recoverable") {
+      const task = window.setTimeout(() => {
+        queryAccessFailureRef.current = queryAccessFailure;
+        applyConversationAccessFailure(conversationQuery.error);
+      });
+      return () => window.clearTimeout(task);
+    }
+    if (!conversationQuery.isError && queryAccessFailureRef.current) {
+      const previousFailure = queryAccessFailureRef.current;
+      const task = window.setTimeout(() => {
+        queryAccessFailureRef.current = null;
+        conversationAccessFailureRef.current = null;
+        setConversationAccessFailure((current) => current === previousFailure ? null : current);
+      });
+      return () => window.clearTimeout(task);
+    }
+  }, [applyConversationAccessFailure, conversationQuery.error, conversationQuery.isError, queryAccessFailure]);
+
   const messages = mergeMessages(olderMessages, latestConversationMessages, sentMessages);
-  const firstAssistantMessageId = messages.find((message) => message.sender === "assistant")?.id;
+  const assistantReplies = conversation
+    ? mergeAssistantReplies(
+      conversation.assistantReplies ?? [],
+      assistantReplyState.conversationId === conversation.id ? assistantReplyState.replies : [],
+    )
+    : [];
   const activeUserMessage = turnInProgress || awaitingVisibleResponse
     ? messages.filter((message) => message.sender === "user").at(-1)
     : undefined;
   const activeProjectedTurn = activeUserMessage
     ? projection.turns.find((turn) => turn.turnOrdinal === activeUserMessage.sequence)
     : undefined;
+  const activeAssistantReply = activeUserMessage
+    ? assistantReplies.find((reply) => (
+      reply.sourceMessageId === activeUserMessage.id && reply.hasFullPrefix
+    ))
+    : undefined;
   const responseStarted = Boolean(activeProjectedTurn?.assistantText.trim())
+    || Boolean(activeAssistantReply?.content.trim())
     || Boolean(activeUserMessage && messages.some(
       (message) => message.sender === "assistant" && message.sequence > activeUserMessage.sequence,
     ));
   const waitingForVisibleResponse = awaitingVisibleResponse && !responseStarted;
-  const shouldPoll = !streamConnected
-    && (activeTurn || waitingForVisibleResponse || (!pollingSettled && persistedTurnActive));
+  const shouldPoll = activeTurn || waitingForVisibleResponse || (!pollingSettled && persistedTurnActive);
+  const activityPollInterval = streamConnected
+    ? DURABLE_REPLY_SNAPSHOT_INTERVAL_MS
+    : ACTIVITY_INTERVAL_MS;
   const showThinkingState = sending
-    || (turnInProgress && !responseStarted)
+    || turnInProgress
     || waitingForVisibleResponse;
   const gettingReady = isGettingReady(ally);
-  const sleeping = !draft.trim()
-    && !showThinkingState
-    && !gettingReady
-    && isAllySleeping(ally, messages.at(-1) ?? null, sleepClock, recentActivityAt);
-
-  useEffect(() => {
-    const messageId = latestPersistedUserMessage?.id;
-    if (!persistedTurnActive || !messageId || observedActiveMessageRef.current === messageId) return;
-    observedActiveMessageRef.current = messageId;
-    setPollingSettled(false);
-    setAwaitingVisibleResponse(true);
-  }, [latestPersistedUserMessage?.id, persistedTurnActive]);
 
   useEffect(() => {
     const previousState = previousProvisioningStateRef.current;
@@ -711,21 +946,21 @@ function ConversationPane({
     void queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id) });
   }, [ally.id, ally.provisioningState, queryClient, workspaceId]);
 
-  const timelineSignature = useMemo(
-    () => [
-      messages.map((message) => `${message.id}:${message.status}`).join("|"),
-      projection.turns
-        .map((turn) => `${turn.messageId}:${turn.state}:${turn.assistantText.length}`)
-        .join("|"),
-      projection.pendingActivities
-        ?.map((activity) => `${activity.id}:${activity.text.length}`)
-        .join("|") ?? "",
-    ].join("::"),
-    [messages, projection.pendingActivities, projection.turns],
-  );
+  const timelineSignature = [
+    messages.map((message) => `${message.id}:${message.status}`).join("|"),
+    projection.turns
+      .map((turn) => `${turn.messageId}:${turn.state}:${turn.assistantText.length}`)
+      .join("|"),
+    assistantReplies
+      .map((reply) => `${reply.sourceMessageId}:${reply.status}:${reply.content.length}:${reply.hasFullPrefix}:${reply.isTruncated === true}`)
+      .join("|"),
+    projection.pendingActivities
+      ?.map((activity) => `${activity.id}:${activity.text.length}`)
+      .join("|") ?? "",
+  ].join("::");
 
   const loadOlder = async () => {
-    if (!conversationId || !nextCursor || loadingOlder || !mountedRef.current) return;
+    if (conversationAccessFailure || !conversationId || !nextCursor || loadingOlder || !mountedRef.current) return;
     olderRequestRef.current?.abort();
     const controller = new AbortController();
     olderRequestRef.current = controller;
@@ -740,10 +975,16 @@ function ConversationPane({
         }), { signal: controller.signal });
       if (controller.signal.aborted || !mountedRef.current) return;
       setOlderMessages((current) => mergeMessages(current, page.messages));
+      setAssistantReplyState((current) => mergeAssistantReplyState(
+        current,
+        conversationId,
+        page.assistantReplies ?? EMPTY_ASSISTANT_REPLIES,
+      ));
       setNextCursorOverride(page.nextCursor);
       historyRevisionRef.current += 1;
-    } catch {
+    } catch (error) {
       if (!controller.signal.aborted && mountedRef.current) {
+        if (applyConversationAccessFailure(error)) return;
         setOlderLoadError("We couldn't load earlier messages. Try again.");
       }
     } finally {
@@ -754,11 +995,19 @@ function ConversationPane({
     }
   };
 
-  const preserveLatestConversationWindow = useCallback((windowMessages: MessageViewModel[]) => {
-    if (windowMessages.length === 0) return;
-    setOlderMessages((current) => mergeMessages(windowMessages, current));
-    historyRevisionRef.current += 1;
-  }, []);
+  const preserveLatestConversationWindow = useCallback((
+    windowMessages: MessageViewModel[],
+    windowReplies: readonly AssistantReplyViewModel[] = EMPTY_ASSISTANT_REPLIES,
+  ) => {
+    if (windowMessages.length === 0 && windowReplies.length === 0) return;
+    if (windowMessages.length > 0) {
+      setOlderMessages((current) => mergeMessages(windowMessages, current));
+      historyRevisionRef.current += 1;
+    }
+    if (windowReplies.length > 0 && conversationId) {
+      setAssistantReplyState((current) => mergeAssistantReplyState(current, conversationId, windowReplies));
+    }
+  }, [conversationId]);
 
   const loadActivityReplay = useCallback(async (
     targetConversationId: string,
@@ -811,6 +1060,7 @@ function ConversationPane({
         setAwaitingVisibleResponse(false);
       }
       setProjection((current) => projectActivitySnapshot(current, snapshot));
+      presentActivitySnapshot(snapshot);
       const currentState = activityReplayRef.current;
       if (!currentState || currentState.conversationId !== targetConversationId) return null;
       const pageLastSequence = snapshot.activities.reduce(
@@ -834,7 +1084,7 @@ function ConversationPane({
       seenCursors.add(nextCursor);
       cursor = nextCursor;
     }
-  }, [session, workspaceId]);
+  }, [presentActivitySnapshot, session, workspaceId]);
 
   const loadReplayWithRecovery = useCallback(async (
     targetConversationId: string,
@@ -911,12 +1161,13 @@ function ConversationPane({
         setAwaitingVisibleResponse(false);
       }
       setProjection((current) => projectActivitySnapshot(current, snapshot));
+      presentActivitySnapshot(snapshot);
       setActivityError(null);
       setActivityHistoryError(null);
       setActivityReplayUnavailable(false);
     } catch (error) {
       if (!controller.signal.aborted && mountedRef.current) {
-        if (!handleActivityReplayFailure(error)) {
+        if (!applyConversationAccessFailure(error) && !handleActivityReplayFailure(error)) {
           setActivityError("We couldn't check the latest response status.");
         }
       }
@@ -925,14 +1176,15 @@ function ConversationPane({
         activitySnapshotRequestRef.current = null;
       }
     }
-  }, [handleActivityReplayFailure, loadReplayWithRecovery, session, workspaceId]);
+  }, [applyConversationAccessFailure, handleActivityReplayFailure, loadReplayWithRecovery, presentActivitySnapshot, session, workspaceId]);
 
   const sendMessageContent = useCallback(async (
     content: string,
     key: string,
     clearSubmittedDraft: boolean,
+    queuedMessageId?: string,
   ): Promise<boolean> => {
-    if (!conversation || !canChat(ally)) return false;
+    if (conversationAccessFailure || !conversation || !canChat(ally)) return false;
     const preservedOlderMessages = olderMessages;
     const preservedCursor = nextCursorOverride;
     turnGenerationRef.current += 1;
@@ -941,6 +1193,7 @@ function ConversationPane({
     followLatestRef.current = true;
     setSending(true);
     setSendError(null);
+    setQueuePersistenceError(null);
     try {
       const accepted = await session.runCloudOperation(
         (signal) => session.client.sendMessage(workspaceId, conversation.id, content, key, signal),
@@ -948,6 +1201,17 @@ function ConversationPane({
       );
       onActivity();
       setSentMessages((current) => mergeMessages(current, [accepted.message]));
+      if (queuedMessageId !== undefined) {
+        const removed = persistQueuedMessageTombstone(queuedMessagesStorageKey, queuedMessageId)
+          && commitQueuedMessages((messages) => messages.filter((message) => message.id !== queuedMessageId));
+        if (removed) {
+          blockedQueuedMessageIdsRef.current.delete(queuedMessageId);
+          setQueuePersistenceError(null);
+        } else {
+          blockedQueuedMessageIdsRef.current.add(queuedMessageId);
+          setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
+        }
+      }
       if (clearSubmittedDraft && draftRef.current.trim() === content) {
         draftRef.current = "";
         setDraft("");
@@ -966,7 +1230,7 @@ function ConversationPane({
       setAwaitingVisibleResponse(turnIsActive || accepted.message.status === "completed");
       if (!turnIsActive) {
         setPollingSettled(true);
-        preserveLatestConversationWindow(latestConversationMessages);
+        preserveLatestConversationWindow(latestConversationMessages, latestConversationAssistantReplies);
         const preservedHistoryRevision = historyRevisionRef.current;
         await conversationQuery.refetch().catch(() => undefined);
         if (mountedRef.current && historyRevisionRef.current === preservedHistoryRevision) {
@@ -976,29 +1240,59 @@ function ConversationPane({
         await refreshActivitySnapshot(conversation.id);
       }
       return true;
-    } catch {
+    } catch (error) {
+      if (applyConversationAccessFailure(error)) {
+        return false;
+      }
+      if (queuedMessageId !== undefined && isDefinitiveMessageRejection(error)) {
+        const removed = persistQueuedMessageTombstone(queuedMessagesStorageKey, queuedMessageId)
+          && commitQueuedMessages((messages) => messages.filter((message) => message.id !== queuedMessageId));
+        if (removed) {
+          blockedQueuedMessageIdsRef.current.delete(queuedMessageId);
+          intentRef.current = null;
+          setQueuePersistenceError(null);
+          const currentDraft = draftRef.current;
+          const restoredDraft = !currentDraft.trim() || currentDraft.trim() === content
+            ? content
+            : `${content}\n\n${currentDraft}`;
+          draftRef.current = restoredDraft;
+          setDraft(restoredDraft);
+        } else {
+          blockedQueuedMessageIdsRef.current.add(queuedMessageId);
+          setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
+        }
+      }
       setAwaitingVisibleResponse(false);
-      setSendError("Your message wasn't accepted. Try the same message again.");
+      setSendError(
+        isUnknownMessageAcceptance(error)
+          ? MESSAGE_ACCEPTANCE_UNKNOWN_ERROR
+          : "Your message wasn't accepted. Try the same message again.",
+      );
       return false;
     } finally {
       setSending(false);
     }
   }, [
     ally,
+    applyConversationAccessFailure,
+    conversationAccessFailure,
     conversation,
     conversationQuery,
+    commitQueuedMessages,
     latestConversationMessages,
+    latestConversationAssistantReplies,
     nextCursorOverride,
     onActivity,
     olderMessages,
     preserveLatestConversationWindow,
     refreshActivitySnapshot,
     session,
+    queuedMessagesStorageKey,
     workspaceId,
   ]);
 
   const submit = async () => {
-    if (!conversation || !queuedMessagesReady || sending || queuedDispatchRef.current || !canChat(ally)) return;
+    if (conversationAccessFailure || !conversation || !queuedMessagesReady || sending || queuedDispatchRef.current || !canChat(ally)) return;
     const content = draft.trim();
     if (!content) return;
     const signature = `${conversation.id}:${content}`;
@@ -1007,76 +1301,92 @@ function ConversationPane({
       ? intentRef.current.key
       : `message-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
     intentRef.current = { signature, key, draftRevision: draftRevisionRef.current };
-    if (turnInProgress || queuedMessages.length > 0) {
-      commitQueuedMessages((current) => [...current, {
-        id: `queued-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`,
-        content,
-        intentKey: key,
-        queuedAt: Math.max(Date.now(), (current.at(-1)?.queuedAt ?? 0) + 1),
-        state: "queued",
-      }]);
-      draftRef.current = "";
-      setDraft("");
-      intentRef.current = null;
+    const removedIds = readQueuedMessageTombstones(queuedMessagesStorageKey);
+    const queuedMessagesSnapshot = mergeQueuedMessages(
+      queuedMessagesRef.current,
+      readQueuedMessages(queuedMessagesStorageKey),
+    ).filter((message) => !removedIds.has(message.id));
+    const blockedHead = queuedMessagesSnapshot[0];
+    const retryingBlockedHead = blockedHead
+      && blockedQueuedMessageIdsRef.current.has(blockedHead.id)
+      && blockedHead.content === content;
+    if (retryingBlockedHead) {
+      blockedQueuedMessageIdsRef.current.delete(blockedHead.id);
+      const accepted = await sendMessageContent(content, blockedHead.intentKey, true, blockedHead.id);
+      if (!accepted) blockedQueuedMessageIdsRef.current.add(blockedHead.id);
       return;
     }
-    await sendMessageContent(content, key, true);
+    if (queuedMessagesSnapshot.length >= MAX_QUEUED_MESSAGES) {
+      setQueuePersistenceError(`You can queue up to ${MAX_QUEUED_MESSAGES} messages. Send or remove one before adding another.`);
+      return;
+    }
+    const nextMessage = {
+      id: `queued-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`,
+      content,
+      intentKey: key,
+      queuedAt: Math.max(Date.now(), (queuedMessagesSnapshot.at(-1)?.queuedAt ?? 0) + 1),
+    };
+    if (!commitQueuedMessages((messages) => [...messages, nextMessage])) {
+      setQueuePersistenceError(QUEUED_MESSAGE_PERSISTENCE_ERROR);
+      return;
+    }
+    setQueuePersistenceError(null);
+    setSendError(
+      blockedHead && blockedQueuedMessageIdsRef.current.has(blockedHead.id)
+        ? BLOCKED_QUEUE_HEAD_ERROR
+        : null,
+    );
+    draftRef.current = "";
+    setDraft("");
+    intentRef.current = null;
   };
 
   useEffect(() => {
-    const nextMessage = queuedMessages[0];
+    const removedIds = readQueuedMessageTombstones(queuedMessagesStorageKey);
+    const liveMessages = mergeQueuedMessages(
+      queuedMessagesRef.current,
+      readQueuedMessages(queuedMessagesStorageKey),
+    ).filter((message) => !removedIds.has(message.id));
+    const nextMessage = liveMessages[0];
     if (
       !nextMessage
-      || nextMessage.state !== "queued"
       || !queuedMessagesReady
       || turnInProgress
       || sending
       || queuedDispatchRef.current
+      || blockedQueuedMessageIdsRef.current.has(nextMessage.id)
+      || conversationAccessFailure
       || !conversation
       || !canChat(ally)
     ) return;
 
     queuedDispatchRef.current = true;
-    commitQueuedMessages((messages) => messages.map(
-      (message) => message.id === nextMessage.id ? { ...message, state: "dispatching" } : message,
-    ));
     intentRef.current = {
       signature: `${conversation.id}:${nextMessage.content}`,
       key: nextMessage.intentKey,
       draftRevision: draftRevisionRef.current,
     };
-    void sendMessageContent(nextMessage.content, nextMessage.intentKey, false)
+    void sendMessageContent(nextMessage.content, nextMessage.intentKey, false, nextMessage.id)
       .then((accepted) => {
-        if (accepted) {
-          persistQueuedMessageTombstone(queuedMessagesStorageKey, nextMessage.id);
-          if (mountedRef.current) {
-            commitQueuedMessages((messages) => messages.filter((message) => message.id !== nextMessage.id));
-          } else {
-            persistQueuedMessages(
-              queuedMessagesStorageKey,
-              readLiveQueuedMessages(queuedMessagesStorageKey).filter((message) => message.id !== nextMessage.id),
-            );
-          }
-          return;
-        }
-        const blockedMessages = readLiveQueuedMessages(queuedMessagesStorageKey).map(
-          (message) => message.id === nextMessage.id ? { ...message, state: "blocked" as const } : message,
-        );
-        persistQueuedMessages(queuedMessagesStorageKey, blockedMessages);
+        if (accepted || conversationAccessFailureRef.current) return;
+        if (!queuedMessagesRef.current.some((message) => message.id === nextMessage.id)) return;
+        blockedQueuedMessageIdsRef.current.add(nextMessage.id);
         if (!mountedRef.current) return;
-        commitQueuedMessages((messages) => messages.map(
-          (message) => message.id === nextMessage.id ? { ...message, state: "blocked" } : message,
-        ));
-        setSendError("We couldn't send your queued message. Try again or remove it.");
+        const currentDraft = draftRef.current;
+        if (!currentDraft.trim()) {
+          draftRef.current = nextMessage.content;
+          setDraft(nextMessage.content);
+        }
       })
       .finally(() => {
         queuedDispatchRef.current = false;
       });
   }, [
     ally,
-    commitQueuedMessages,
+    conversationAccessFailure,
     conversation,
     queuedMessages,
+    queuedMessagesLoadedFor,
     queuedMessagesReady,
     queuedMessagesStorageKey,
     sendMessageContent,
@@ -1085,7 +1395,7 @@ function ConversationPane({
   ]);
 
   const retry = async (message: MessageViewModel) => {
-    if (!conversation || retryingMessageId || !message.retryable) return;
+    if (conversationAccessFailure || !conversation || retryingMessageId || !message.retryable) return;
     const key = `message-retry-${message.id}-${message.sequence}`;
     setRetryingMessageId(message.id);
     setRetryError(null);
@@ -1107,7 +1417,8 @@ function ConversationPane({
       setActiveTurn(turnIsActive);
       setAwaitingVisibleResponse(turnIsActive || accepted.message.status === "completed");
       pollCountRef.current = 0;
-    } catch {
+    } catch (error) {
+      if (applyConversationAccessFailure(error)) return;
       setAwaitingVisibleResponse(false);
       setRetryError("We couldn't retry that message. Try again in a moment.");
     } finally {
@@ -1117,17 +1428,21 @@ function ConversationPane({
 
   const checkActivity = useCallback(async () => {
     if (
-      !shouldPoll
+      conversationAccessFailure
+      || !shouldPoll
       || !conversationId
       || pollingRef.current
       || document.visibilityState !== "visible"
       || !mountedRef.current
     ) return;
+    const companionSnapshot = streamConnected;
     if (pollCountRef.current >= ACTIVITY_POLL_LIMIT) {
-      setPollBudgetReached(true);
-      setActiveTurn(false);
-      setAwaitingVisibleResponse(false);
-      setPollingSettled(true);
+      if (!pollBudgetReached) setPollBudgetReached(true);
+      if (!companionSnapshot) {
+        setActiveTurn(false);
+        setAwaitingVisibleResponse(false);
+        setPollingSettled(true);
+      }
       return;
     }
     activityRequestRef.current?.abort();
@@ -1137,11 +1452,16 @@ function ConversationPane({
     pollCountRef.current += 1;
     try {
       const replayState = activityReplayRef.current;
-      const snapshot = replayState?.conversationId === conversationId
-        && replayState.cursor !== null
-        && replayState.blocked === null
-        ? await loadReplayWithRecovery(conversationId, controller.signal)
-        : await session.runCloudOperation(() =>
+      const snapshot = companionSnapshot
+        ? await session.runCloudOperation(() =>
+          session.client.getActivities(workspaceId, conversationId, 200, controller.signal), {
+            signal: controller.signal,
+          })
+        : replayState?.conversationId === conversationId
+          && replayState.cursor !== null
+          && replayState.blocked === null
+          ? await loadReplayWithRecovery(conversationId, controller.signal)
+          : await session.runCloudOperation(() =>
           session.client.getActivities(workspaceId, conversationId, 200, controller.signal), {
             signal: controller.signal,
           });
@@ -1152,6 +1472,7 @@ function ConversationPane({
         setAwaitingVisibleResponse(false);
       }
       setProjection((current) => projectActivitySnapshot(current, snapshot));
+      presentActivitySnapshot(snapshot);
       setActivityError(null);
       setActivityHistoryError(null);
       setActivityReplayUnavailable(false);
@@ -1162,18 +1483,24 @@ function ConversationPane({
         );
         setPollingSettled(true);
         if (controller.signal.aborted || !mountedRef.current) return;
-        preserveLatestConversationWindow(latestConversationMessages);
+        preserveLatestConversationWindow(latestConversationMessages, latestConversationAssistantReplies);
         await queryClient.invalidateQueries({
           queryKey: conversationQueryKey(workspaceId, ally.id),
         });
       }
     } catch (error) {
       if (!controller.signal.aborted && mountedRef.current) {
-        if (!handleActivityReplayFailure(error)) {
+        const accessFailure = applyConversationAccessFailure(error);
+        const replayFailure = !accessFailure && !companionSnapshot
+          ? handleActivityReplayFailure(error)
+          : false;
+        if (!accessFailure && !replayFailure) {
           setActivityError("We couldn't check the latest response status.");
-          setActiveTurn(false);
-          setAwaitingVisibleResponse(false);
-          setPollingSettled(true);
+          if (!companionSnapshot) {
+            setActiveTurn(false);
+            setAwaitingVisibleResponse(false);
+            setPollingSettled(true);
+          }
         }
       }
     } finally {
@@ -1184,19 +1511,25 @@ function ConversationPane({
     }
   }, [
     ally.id,
+    applyConversationAccessFailure,
+    conversationAccessFailure,
     conversationId,
     handleActivityReplayFailure,
     latestConversationMessages,
+    latestConversationAssistantReplies,
     loadReplayWithRecovery,
+    presentActivitySnapshot,
     preserveLatestConversationWindow,
     queryClient,
     session,
+    pollBudgetReached,
     shouldPoll,
+    streamConnected,
     workspaceId,
   ]);
 
   useEffect(() => {
-    if (!conversationId || activityHistoryLoadedRef.current === conversationId) return;
+    if (conversationAccessFailure || !conversationId || activityHistoryLoadedRef.current === conversationId) return;
     activityHistoryLoadedRef.current = conversationId;
     const generationAtStart = turnGenerationRef.current;
     const controller = new AbortController();
@@ -1223,7 +1556,7 @@ function ConversationPane({
       })
       .catch((error) => {
         if (controller.signal.aborted || !mountedRef.current) return;
-        if (handleActivityReplayFailure(error)) return;
+        if (applyConversationAccessFailure(error) || handleActivityReplayFailure(error)) return;
         if (activityHistoryLoadedRef.current === conversationId) {
           activityHistoryLoadedRef.current = null;
         }
@@ -1241,6 +1574,8 @@ function ConversationPane({
   }, [
     activityHistoryRetry,
     ally.id,
+    applyConversationAccessFailure,
+    conversationAccessFailure,
     conversationId,
     handleActivityReplayFailure,
     loadReplayWithRecovery,
@@ -1260,7 +1595,7 @@ function ConversationPane({
   };
 
   useEffect(() => {
-    if (!conversationId || !activeTurn) {
+    if (conversationAccessFailure || !conversationId || !activeTurn) {
       activityStreamRef.current?.close();
       activityStreamRef.current = null;
       return;
@@ -1271,6 +1606,14 @@ function ConversationPane({
     const targetConversationId = conversationId;
     const generationAtOpen = turnGenerationRef.current;
     let streamEndedNormally = false;
+    let fallbackStarted = false;
+    const startPollingFallback = () => {
+      if (fallbackStarted) return;
+      fallbackStarted = true;
+      pollCountRef.current = 0;
+      setPollBudgetReached(false);
+      setStreamConnected(false);
+    };
     const stream = readActivityStream({
       baseUrl,
       workspaceId,
@@ -1289,7 +1632,7 @@ function ConversationPane({
         if (!mountedRef.current) return;
         if ("conversationId" in event && event.conversationId !== targetConversationId) {
           controller.abort();
-          setStreamConnected(false);
+          startPollingFallback();
           setActivityError("Live updates paused. Checking again…");
           return;
         }
@@ -1308,6 +1651,7 @@ function ConversationPane({
             nextCursor: null,
             latestSequence: event.activity.sequence,
           }));
+          presentActivity(targetConversationId, event.activity);
           const replayState = activityReplayRef.current;
           if (replayState?.conversationId === targetConversationId) {
             activityReplayRef.current = {
@@ -1332,13 +1676,21 @@ function ConversationPane({
           );
           setPollingSettled(true);
           setActivityError(null);
-          preserveLatestConversationWindow(latestConversationMessages);
+          preserveLatestConversationWindow(latestConversationMessages, latestConversationAssistantReplies);
           void queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id) });
         }
       },
       onError: (error) => {
         if (!mountedRef.current || streamEndedNormally) return;
-        setStreamConnected(false);
+        if (error.status === 401 || error.status === 403 || error.status === 404) {
+          setStreamConnected(false);
+          applyConversationAccessFailure({
+            kind: error.status === 401 ? "unauthorized" : error.status === 403 ? "forbidden" : "not-found",
+            status: error.status,
+          });
+          return;
+        }
+        startPollingFallback();
         if (error.status === 503) return;
         setActivityError("Live updates paused. Checking again…");
       },
@@ -1352,11 +1704,15 @@ function ConversationPane({
     };
   }, [
     activeTurn,
+    applyConversationAccessFailure,
+    conversationAccessFailure,
     ally.id,
     conversationId,
     latestConversationMessages,
+    latestConversationAssistantReplies,
     preserveLatestConversationWindow,
     queryClient,
+    presentActivity,
     workspaceId,
   ]);
 
@@ -1365,12 +1721,12 @@ function ConversationPane({
       activityRequestRef.current?.abort();
       return;
     }
-    const interval = window.setInterval(() => void checkActivity(), ACTIVITY_INTERVAL_MS);
+    const interval = window.setInterval(() => void checkActivity(), activityPollInterval);
     return () => {
       window.clearInterval(interval);
       activityRequestRef.current?.abort();
     };
-  }, [checkActivity, shouldPoll]);
+  }, [activityPollInterval, checkActivity, shouldPoll]);
 
   useEffect(() => {
     if (!followLatestRef.current) return;
@@ -1383,232 +1739,99 @@ function ConversationPane({
     return () => window.cancelAnimationFrame(frame);
   }, [timelineSignature]);
 
-  const unavailable = !canChat(ally);
   const unavailableNotice = provisioningNotice(ally);
-  const allyAccent = resolveAllyAppearance(ally)?.color ?? "#ff5800";
+  const resolvedAppearanceValue = resolveAllyAppearance(ally);
+  const allyAccent = resolvedAppearanceValue?.color ?? "#ff5800";
+  const resolvedAppearance = resolvedAppearanceValue ?? { shape: "ghosty" as AllyShape, color: allyAccent };
+  const conversationLoadError = conversationQuery.isError
+    && !conversationQuery.data
+    && queryAccessFailure === "recoverable"
+    ? "We couldn't open this conversation."
+    : null;
+  const effectiveConversationAccessFailure = conversationAccessFailure
+    ?? (queryAccessFailure && queryAccessFailure !== "recoverable" ? queryAccessFailure : null);
+  const scopedActivityPresentation = activityPresentation.conversationId === (conversationId ?? null)
+    ? activityPresentation
+    : EMPTY_ACTIVITY_PRESENTATION;
+  const frameModel = buildProductionConversationFrameModel({
+    ally,
+    resolvedAppearance,
+    appearanceAvailable: Boolean(resolvedAppearanceValue),
+    messages,
+    assistantReplies,
+    projection,
+    activityPresentation: scopedActivityPresentation,
+    queuedMessages,
+    queuedMessagesReady,
+    draft,
+    conversationAvailable: Boolean(conversation),
+    isLoading: conversationQuery.isPending,
+    loadError: conversationLoadError,
+    accessFailure: effectiveConversationAccessFailure,
+    setupNotice: showSetupToast ? `${ally.name} is finishing setup. This usually takes a moment.` : null,
+    olderMessagesAvailable: Boolean(nextCursor),
+    loadingOlder,
+    olderLoadError,
+    workspaceRefreshError,
+    activityError,
+    activityHistoryError,
+    activityReplayUnavailable,
+    pollBudgetReached,
+    retryError,
+    sendError: queuePersistenceError ?? sendError,
+    unavailableNotice,
+    sending,
+    retryingMessageId,
+    showThinkingState,
+    responseStarted,
+    gettingReady,
+    streaming: shouldPoll || streamConnected,
+    retriedMessageIds,
+  });
+  const frameActions: ProductionConversationFrameActions = {
+    onDraftChange: (value) => {
+      const beganInteracting = !draftRef.current.trim() && Boolean(value.trim());
+      draftRevisionRef.current += 1;
+      draftRef.current = value;
+      setDraft(value);
+      if (beganInteracting) onActivity();
+      observeEdit(value);
+    },
+    onCompositionStart: compositionStart,
+    onCompositionEnd: compositionEnd,
+    onSubmit: () => void submit(),
+    onRetryMessage: (messageId) => {
+      const message = messages.find((candidate) => candidate.id === messageId);
+      if (message) void retry(message);
+    },
+    onLoadOlder: () => void loadOlder(),
+    onRetryConversation: () => void conversationQuery.refetch(),
+    onRetryWorkspace,
+    onRemoveQueuedMessage: (id) => {
+      if (!queuedMessages.some((item) => item.id === id)) return;
+      if (!persistQueuedMessageTombstone(queuedMessagesStorageKey, id)
+        || !commitQueuedMessages((messages) => messages.filter((item) => item.id !== id))) {
+        setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
+        return;
+      }
+      blockedQueuedMessageIdsRef.current.delete(id);
+      setQueuePersistenceError(null);
+    },
+    onCheckAgain: () => {
+      pollCountRef.current = 0;
+      setPollBudgetReached(false);
+      setActivityError(null);
+      setPollingSettled(false);
+      setActiveTurn(true);
+    },
+    onRetryActivityHistory: retryActivityHistory,
+    onScroll: (event) => {
+      const canvas = event.currentTarget;
+      followLatestRef.current = canvas.scrollHeight - canvas.scrollTop - canvas.clientHeight < 96;
+    },
+  };
 
-  return (
-    <div
-      className={styles.conversation}
-      style={{ "--ally-accent": allyAccent } as CSSProperties}
-    >
-      <header className={styles.threadHeader}>
-        <Link href="/home" className={styles.backButton} aria-label="Back to Allies">
-          <BackIcon />
-        </Link>
-        <span className={styles.threadAvatar}>
-          <AllyIdentityAvatar ally={ally} size={44} sleeping={sleeping} />
-        </span>
-        <div className={styles.threadIdentity}>
-          <h1>{ally.name}</h1>
-          <p>{allySecondaryLine(ally)}</p>
-        </div>
-        <Link href="/account" className={`${styles.settingsButton} ${styles.mobileOnly}`} aria-label="Account settings">
-          <SettingsIcon />
-        </Link>
-        <div className={styles.desktopThreadSettings} aria-label={`${ally.name} settings`}>
-          <SettingsIcon />
-          <span>{ally.name} settings</span>
-        </div>
-      </header>
-
-      <div
-        ref={messageCanvasRef}
-        className={styles.messageCanvas}
-        onScroll={(event) => {
-          const canvas = event.currentTarget;
-          followLatestRef.current = canvas.scrollHeight - canvas.scrollTop - canvas.clientHeight < 96;
-        }}
-      >
-        {conversationQuery.isPending ? <p className={styles.quietState}>Opening your conversation…</p> : null}
-        {conversationQuery.isError ? (
-          <div className={styles.inlineError} role="alert">
-            <span>We couldn&apos;t open this conversation.</span>
-            <button type="button" onClick={() => void conversationQuery.refetch()}>Try again</button>
-          </div>
-        ) : null}
-        {olderLoadError ? (
-          <div className={styles.inlineError} role="alert">
-            <span>{olderLoadError}</span>
-            <button type="button" onClick={() => void loadOlder()}>Try again</button>
-          </div>
-        ) : nextCursor ? (
-          <button className={styles.olderButton} type="button" onClick={() => void loadOlder()} disabled={loadingOlder}>
-            {loadingOlder ? "Loading…" : "Earlier messages"}
-          </button>
-        ) : null}
-        <div className={styles.messages}>
-          {workspaceRefreshError ? <WorkspaceRefreshError onRetry={onRetryWorkspace} /> : null}
-          {messages.map((message) => {
-            const turn = message.sender === "user"
-              ? projection.turns.find((candidate) => candidate.turnOrdinal === message.sequence)
-              : undefined;
-            const statusLabel = message.sender === "user" ? messageStatusLabel(message.status, turn) : null;
-            const showAllyIdentity = message.sender === "assistant" && message.id === firstAssistantMessageId;
-            return (
-              <Fragment key={message.id}>
-                <article
-                  className={message.sender === "user" ? styles.userMessage : styles.allyMessage}
-                >
-                  {showAllyIdentity ? (
-                    <div className={styles.messageIdentity}>
-                      <AllyIdentityAvatar ally={ally} size={36} sleeping={sleeping} />
-                      <strong>{ally.name}</strong>
-                    </div>
-                  ) : null}
-                  <p>{message.content}</p>
-                  {statusLabel ? <span>{statusLabel}</span> : null}
-                  {message.sender === "user" && message.retryable && !retriedMessageIds.has(message.id) ? (
-                    <button
-                      type="button"
-                      className={styles.retryButton}
-                      onClick={() => void retry(message)}
-                      disabled={retryingMessageId !== null}
-                    >
-                      {retryingMessageId === message.id ? "Retrying…" : "Retry"}
-                    </button>
-                  ) : null}
-                </article>
-                {turn ? <AssistantTurn turn={turn} streaming={shouldPoll || streamConnected} /> : null}
-              </Fragment>
-            );
-          })}
-          {gettingReady ? (
-            <div className={styles.thinkingState} role="status" aria-live="polite">
-              <AllyIdentityAvatar ally={ally} size={32} thinking />
-              <ShinyText color="var(--ally-accent)" shineColor="#ffffff">Getting ready</ShinyText>
-            </div>
-          ) : showThinkingState ? (
-            <div className={styles.thinkingState} role="status" aria-live="polite">
-              <AllyIdentityAvatar ally={ally} size={32} thinking />
-              <ShinyText color="var(--ally-accent)" shineColor="#ffffff">Thinking</ShinyText>
-            </div>
-          ) : null}
-          {!shouldPoll && projection.state === "awaiting_action" ? (
-            <p className={styles.turnState}>This Ally needs an action Home cannot complete yet.</p>
-          ) : null}
-          {!shouldPoll && (projection.state === "failed" || projection.state === "stopped") ? (
-            <p className={styles.turnState}>This response {projection.state === "failed" ? "failed" : "stopped"}.</p>
-          ) : null}
-          {!shouldPoll && isActivityTerminal(projection.state) ? (
-            projection.pendingActivities?.filter((activity) => activity.kind === "assistant_delta" && activity.text).map((activity) => (
-              <article
-                className={styles.allyMessage}
-                data-testid={`activity-pending-${activity.sequence}`}
-                key={activity.id}
-              >
-                <p>{activity.text}</p>
-              </article>
-            ))
-          ) : null}
-          {!shouldPoll && isActivityTerminal(projection.state) && projection.pendingActivities?.some(
-            (activity) => activity.kind === "assistant_delta" && activity.text,
-          ) ? (
-            <p className={styles.turnState}>Some response text arrived out of order.</p>
-          ) : null}
-          {pollBudgetReached ? (
-            <div className={styles.inlineError}>
-              <span>Status checking paused after two minutes.</span>
-              <button type="button" onClick={() => { pollCountRef.current = 0; setPollBudgetReached(false); setPollingSettled(false); setActiveTurn(true); }}>
-                Check again
-              </button>
-            </div>
-          ) : null}
-          {activityError ? (
-            <div className={styles.inlineError} role="alert">
-              <span>{activityError}</span>
-              <button type="button" onClick={() => { setActivityError(null); setPollingSettled(false); setActiveTurn(true); }}>
-                Check again
-              </button>
-            </div>
-          ) : null}
-          {activityReplayUnavailable ? (
-            <p className={styles.inlineError} role="alert">Activity history is unavailable.</p>
-          ) : null}
-          {activityHistoryError ? (
-            <div className={styles.inlineError} role="alert">
-              <span>{activityHistoryError}</span>
-              <button type="button" onClick={retryActivityHistory}>Check again</button>
-            </div>
-          ) : null}
-          {retryError ? <p className={styles.composerError} role="alert">{retryError}</p> : null}
-        </div>
-      </div>
-
-      <footer className={styles.composerArea}>
-        {unavailableNotice ? <p className={styles.composerNotice}>{unavailableNotice}</p> : null}
-        {sendError ? <p className={styles.composerError} role="alert">{sendError}</p> : null}
-        {queuedMessages.length ? (
-          <ol className={styles.queuedMessages} aria-label="Queued messages">
-            {queuedMessages.map((message) => (
-              <li key={message.id}>
-                <span title={message.content}>{message.content}</span>
-                {message.state === "blocked" ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSendError(null);
-                      commitQueuedMessages((messages) => messages.map(
-                        (item) => item.id === message.id ? { ...item, state: "queued" } : item,
-                      ));
-                    }}
-                  >
-                    Try again
-                  </button>
-                ) : null}
-                {message.state !== "dispatching" ? (
-                  <button
-                    type="button"
-                    aria-label="Remove queued message"
-                    onClick={() => removeQueuedMessage(message.id)}
-                  >
-                    <TrashIcon />
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ol>
-        ) : null}
-        <div className={styles.composer}>
-          <label className={styles.srOnly} htmlFor="ally-message">Message {ally.name}</label>
-          <span className={styles.composerPlus} aria-hidden="true">+</span>
-          <textarea
-            id="ally-message"
-            value={draft}
-            onChange={(event) => {
-              const beganInteracting = !draftRef.current.trim() && Boolean(event.target.value.trim());
-              draftRevisionRef.current += 1;
-              draftRef.current = event.target.value;
-              setDraft(event.target.value);
-              if (beganInteracting) onActivity();
-              observeEdit(event.target.value);
-            }}
-            onCompositionStart={compositionStart}
-            onCompositionEnd={(event) => compositionEnd(event.currentTarget.value)}
-            onKeyDown={(event) => {
-              if (event.nativeEvent.isComposing) return;
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                void submit();
-              }
-            }}
-            placeholder="Message"
-            rows={1}
-            maxLength={16_000}
-            disabled={unavailable || conversationQuery.isError}
-          />
-          <button
-            type="button"
-            aria-label="Send message"
-            onClick={() => void submit()}
-            disabled={unavailable || !queuedMessagesReady || sending || !draft.trim() || !conversation}
-          >
-            {draft.trim() ? <SendIcon /> : <MicIcon />}
-          </button>
-        </div>
-      </footer>
-    </div>
-  );
+  return <ConversationFrame stateReady={stateReady} sleeping={sleeping} model={frameModel} actions={frameActions} canvasRef={messageCanvasRef} />;
 }
 
 function HomeStatus({
@@ -1639,15 +1862,27 @@ function WorkspaceRefreshError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function EmptyThread({ title, detail, action }: { title: string; detail: string; action?: React.ReactNode }) {
+function EmptyThread({
+  title,
+  detail,
+  action,
+}: {
+  title?: string;
+  detail?: string;
+  action?: React.ReactNode;
+}) {
   return (
-    <div className={styles.emptyThread}>
-      <div className={styles.emptyAlly} aria-hidden="true">
-        <AllyAvatar shape="ghosty" color="#ff5800" size={92} label="" />
-      </div>
-      <h1>{title}</h1>
-      <p>{detail}</p>
-      {action ? <div className={styles.emptyAction}>{action}</div> : null}
+    <div className={styles.emptyThread} data-testid="empty-thread">
+      {title || detail || action ? (
+        <>
+          <div className={styles.emptyAlly} aria-hidden="true">
+            <AllyAvatar shape="ghosty" color="#ff5800" size={92} label="" />
+          </div>
+          {title ? <h1>{title}</h1> : null}
+          {detail ? <p>{detail}</p> : null}
+          {action ? <div className={styles.emptyAction}>{action}</div> : null}
+        </>
+      ) : null}
     </div>
   );
 }
@@ -1658,12 +1893,75 @@ function mergeMessages(...groups: MessageViewModel[][]): MessageViewModel[] {
   return [...byId.values()].sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id));
 }
 
+function mergeAssistantReplies(
+  ...groups: readonly (readonly AssistantReplyViewModel[])[]
+): AssistantReplyViewModel[] {
+  const bySourceMessageId = new Map<string, AssistantReplyViewModel>();
+  for (const group of groups) {
+    for (const reply of group) {
+      const current = bySourceMessageId.get(reply.sourceMessageId);
+      if (!current || preferAssistantReply(current, reply)) {
+        bySourceMessageId.set(reply.sourceMessageId, reply);
+      }
+    }
+  }
+  return [...bySourceMessageId.values()].sort(
+    (left, right) => left.conversationTurnOrdinal - right.conversationTurnOrdinal
+      || left.sourceMessageId.localeCompare(right.sourceMessageId),
+  );
+}
+
+function mergeAssistantReplyState(
+  current: AssistantReplyState,
+  conversationId: string,
+  incoming: readonly AssistantReplyViewModel[],
+): AssistantReplyState {
+  if (incoming.length === 0 && current.conversationId === conversationId) return current;
+  return {
+    conversationId,
+    replies: current.conversationId === conversationId
+      ? mergeAssistantReplies(current.replies, incoming)
+      : [...incoming],
+  };
+}
+
+function preferAssistantReply(
+  current: AssistantReplyViewModel,
+  incoming: AssistantReplyViewModel,
+): boolean {
+  if (current.hasFullPrefix !== incoming.hasFullPrefix) return incoming.hasFullPrefix;
+  const currentUpdatedAt = Date.parse(current.updatedAt);
+  const incomingUpdatedAt = Date.parse(incoming.updatedAt);
+  if (Number.isFinite(currentUpdatedAt) && Number.isFinite(incomingUpdatedAt)
+    && currentUpdatedAt !== incomingUpdatedAt) {
+    return incomingUpdatedAt > currentUpdatedAt;
+  }
+  if (current.content.length !== incoming.content.length) return incoming.content.length > current.content.length;
+  if (current.isTruncated !== incoming.isTruncated) return incoming.isTruncated === true;
+  return incoming.status !== current.status && isLaterReplyStatus(incoming.status, current.status);
+}
+
+function isLaterReplyStatus(
+  incoming: AssistantReplyViewModel["status"],
+  current: AssistantReplyViewModel["status"],
+): boolean {
+  const rank: Record<AssistantReplyViewModel["status"], number> = {
+    queued: 0,
+    in_progress: 1,
+    awaiting_action: 2,
+    completed: 3,
+    failed: 3,
+    stopped: 3,
+  };
+  return rank[incoming] > rank[current];
+}
+
 function canChat(ally: AllyViewModel): boolean {
   return ally.provisioningState === "bound";
 }
 
 function isGettingReady(ally: AllyViewModel): boolean {
-  return ally.provisioningState === "pending";
+  return ally.provisioningState === "pending" || ally.provisioningState === "retryable";
 }
 
 function allySecondaryLine(ally: AllyViewModel): string {
@@ -1674,7 +1972,7 @@ function allySecondaryLine(ally: AllyViewModel): string {
 function provisioningLabel(state: AllyViewModel["provisioningState"]): string {
   return {
     pending: "Getting ready",
-    retryable: "Setup needs retry",
+    retryable: "Getting ready",
     failed: "Setup failed",
     incompatible: "Needs an update",
     repair_required: "Needs repair",
@@ -1684,71 +1982,25 @@ function provisioningLabel(state: AllyViewModel["provisioningState"]): string {
 
 function provisioningNotice(ally: AllyViewModel): string | null {
   if (isGettingReady(ally) || ally.provisioningState === "bound") return null;
-  if (ally.provisioningState === "retryable") return `${ally.name}'s setup can be retried outside Home.`;
   if (ally.provisioningState === "failed") return `${ally.name}'s setup failed.`;
   if (ally.provisioningState === "repair_required") return `${ally.name} needs repair before messaging.`;
   return `${ally.name} needs an update before messaging.`;
 }
 
-function AssistantTurn({ turn, streaming }: { turn: AssistantTurnProjection; streaming: boolean }) {
-  const isStreaming = streaming && turn.state === "running";
-  if (turn.state === "reconciliation_needed") {
-    return (
-      <article className={styles.allyMessage} data-testid={`activity-reply-${turn.turnOrdinal}`}>
-        <p>This response needs review because some activity arrived out of order.</p>
-      </article>
-    );
-  }
-  if (turn.state === "failed" || turn.state === "stopped") {
-    return (
-      <article className={styles.allyMessage} data-testid={`activity-reply-${turn.turnOrdinal}`}>
-        <p>{turn.state === "stopped" ? "This response was stopped." : "This response failed. Try sending your message again."}</p>
-      </article>
-    );
-  }
-  if (!turn.assistantText) return null;
-  return (
-    <article className={styles.allyMessage} data-testid={`activity-reply-${turn.turnOrdinal}`}>
-      <Streamdown
-        className={styles.streamingMarkdown}
-        mode={isStreaming ? "streaming" : "static"}
-        parseIncompleteMarkdown
-        animated={isStreaming ? { animation: "blurIn", sep: "word", duration: 180, stagger: 24 } : false}
-        isAnimating={isStreaming}
-      >
-        {turn.assistantText}
-      </Streamdown>
-    </article>
-  );
-}
-
-function messageStatusLabel(
-  status: MessageViewModel["status"],
-  turn?: AssistantTurnProjection,
-): string | null {
-  if (turn) {
-    return {
-      queued: null,
-      running: null,
-      awaiting_action: "Needs action",
-      completed: null,
-      failed: "Failed",
-      stopped: "Stopped",
-      reconciliation_needed: "Needs review",
-    }[turn.state];
-  }
-  return {
-    queued: null,
-    in_progress: null,
-    awaiting_action: "Needs action",
-    completed: null,
-    failed: "Failed",
-    stopped: "Stopped",
-  }[status];
-}
-
 function activityStateFromMessage(status: MessageViewModel["status"]): ActivityState {
   return status === "in_progress" ? "running" : status;
+}
+
+function isUnknownMessageAcceptance(error: unknown): boolean {
+  if (!isCloudError(error)) return true;
+  return error.kind === "network"
+    || error.kind === "timeout"
+    || error.kind === "server"
+    || error.kind === "aborted";
+}
+
+function isDefinitiveMessageRejection(error: unknown): boolean {
+  return isCloudError(error) && error.kind === "validation" && error.status === 422;
 }
 
 function initials(name: string): string {
@@ -1761,24 +2013,20 @@ function PlusIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>;
 }
 
+function ChefIcon() {
+  return <Image src="/ally/icons/chef.svg" alt="" width={40} height={40} aria-hidden="true" />;
+}
+
 function SearchIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="5.8" /><path d="m15.2 15.2 4.3 4.3" /></svg>;
 }
 
-function SettingsIcon() {
-  return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m9.9 3.8.4-1.1h3.4l.4 1.1c.3.1.7.3 1 .5l1.1-.4 2.4 2.4-.4 1.1c.2.3.4.6.5 1l1.1.4v3.4l-1.1.4c-.1.3-.3.7-.5 1l.4 1.1-2.4 2.4-1.1-.4c-.3.2-.6.4-1 .5l-.4 1.1h-3.4l-.4-1.1c-.3-.1-.7-.3-1-.5l-1.1.4-2.4-2.4.4-1.1c-.2-.3-.4-.6-.5-1l-1.1-.4V8.8l1.1-.4c.1-.3.3-.7.5-1l-.4-1.1 2.4-2.4 1.1.4c.3-.2.6-.4 1-.5Z" /><circle cx="12" cy="10.5" r="2.4" /></svg>;
-}
-
-function BackIcon() {
-  return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></svg>;
-}
-
-function SendIcon() {
-  return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m6 12 6-6 6 6M12 6v12" /></svg>;
-}
-
-function MicIcon() {
-  return <svg aria-hidden="true" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3" /><path d="M6.5 11.5a5.5 5.5 0 0 0 11 0M12 17v4M9 21h6" /></svg>;
+function readQueuedMessages(storageKey: string): QueuedMessage[] {
+  try {
+    return parseQueuedMessages(window.localStorage.getItem(storageKey));
+  } catch {
+    return [];
+  }
 }
 
 function parseQueuedMessages(stored: string | null): QueuedMessage[] {
@@ -1786,6 +2034,8 @@ function parseQueuedMessages(stored: string | null): QueuedMessage[] {
     if (!stored) return [];
     const value: unknown = JSON.parse(stored);
     if (!Array.isArray(value)) return [];
+    const seenIds = new Set<string>();
+    const seenIntentKeys = new Set<string>();
     return value.flatMap((message, index): QueuedMessage[] => {
       if (!message || typeof message !== "object") return [];
       const item = message as Partial<QueuedMessage>;
@@ -1794,23 +2044,16 @@ function parseQueuedMessages(stored: string | null): QueuedMessage[] {
         && item.content.length > 0
         && item.content.length <= 16_000
         && typeof item.intentKey === "string";
-      if (!valid) return [];
+      if (!valid || seenIds.has(item.id as string) || seenIntentKeys.has(item.intentKey as string)) return [];
+      seenIds.add(item.id as string);
+      seenIntentKeys.add(item.intentKey as string);
       return [{
-        id: item.id!,
-        content: item.content!,
-        intentKey: item.intentKey!,
+        id: item.id as string,
+        content: item.content as string,
+        intentKey: item.intentKey as string,
         queuedAt: typeof item.queuedAt === "number" && Number.isFinite(item.queuedAt) ? item.queuedAt : index,
-        state: item.state === "dispatching" || item.state === "blocked" ? item.state : "queued",
       }];
-    });
-  } catch {
-    return [];
-  }
-}
-
-function readQueuedMessages(storageKey: string): QueuedMessage[] {
-  try {
-    return parseQueuedMessages(window.localStorage.getItem(storageKey));
+    }).slice(0, MAX_QUEUED_MESSAGES);
   } catch {
     return [];
   }
@@ -1824,9 +2067,9 @@ function readLiveQueuedMessages(storageKey: string): QueuedMessage[] {
 function mergeQueuedMessages(...groups: QueuedMessage[][]): QueuedMessage[] {
   const byId = new Map<string, QueuedMessage>();
   for (const group of groups) for (const message of group) byId.set(message.id, message);
-  return [...byId.values()].sort(
-    (left, right) => left.queuedAt - right.queuedAt || left.id.localeCompare(right.id),
-  );
+  return [...byId.values()]
+    .sort((left, right) => left.queuedAt - right.queuedAt || left.id.localeCompare(right.id))
+    .slice(0, MAX_QUEUED_MESSAGES);
 }
 
 function queuedMessageTombstonePrefix(storageKey: string) {
@@ -1850,14 +2093,13 @@ function listQueuedMessageTombstones(storageKey: string) {
 
 function readQueuedMessageTombstones(storageKey: string): Set<string> {
   try {
-    return new Set(listQueuedMessageTombstones(storageKey)
-      .map((tombstone) => tombstone.id));
+    return new Set(listQueuedMessageTombstones(storageKey).map((tombstone) => tombstone.id));
   } catch {
     return new Set();
   }
 }
 
-function persistQueuedMessageTombstone(storageKey: string, messageId: string) {
+function persistQueuedMessageTombstone(storageKey: string, messageId: string): boolean {
   try {
     window.localStorage.setItem(
       `${queuedMessageTombstonePrefix(storageKey)}${encodeURIComponent(messageId)}`,
@@ -1866,27 +2108,23 @@ function persistQueuedMessageTombstone(storageKey: string, messageId: string) {
     listQueuedMessageTombstones(storageKey)
       .sort((left, right) => right.removedAt - left.removedAt)
       .forEach((tombstone, index) => {
-        if (index >= QUEUED_MESSAGE_TOMBSTONE_LIMIT) {
-          window.localStorage.removeItem(tombstone.key);
-        }
+        if (index >= QUEUED_MESSAGE_TOMBSTONE_LIMIT) window.localStorage.removeItem(tombstone.key);
       });
+    return true;
   } catch {
-    // The in-memory queue still honors the removal when browser storage is unavailable.
+    return false;
   }
 }
 
-function persistQueuedMessages(storageKey: string, messages: QueuedMessage[]) {
+function persistQueuedMessages(storageKey: string, messages: QueuedMessage[]): boolean {
   try {
     if (messages.length) {
       window.localStorage.setItem(storageKey, JSON.stringify(messages));
     } else {
       window.localStorage.removeItem(storageKey);
     }
+    return true;
   } catch {
-    // The queue still works for this page session when browser storage is unavailable.
+    return false;
   }
-}
-
-function TrashIcon() {
-  return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M7 7l1 13h8l1-13M10 11v5M14 11v5" /></svg>;
 }

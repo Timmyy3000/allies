@@ -65,5 +65,5 @@ export function getWebEnvironment(): Readonly<WebEnvironment> {
 }
 
 export function getActivitySseEnabled(): boolean {
-  return process.env.NEXT_PUBLIC_ACTIVITY_SSE_ENABLED !== "false";
+  return process.env.NEXT_PUBLIC_ACTIVITY_SSE_ENABLED === "true";
 }

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 
+import { resolvePostAuthPath } from "../../(onboarding)/_store/onboarding-resume";
 import { useSession } from "../../../lib/session/session-context";
 import type { AuthReturnErrorCode } from "../../../lib/session/auth-route-query";
 
@@ -59,7 +60,7 @@ export function AuthReturnClient({
   useEffect(() => {
     if (state.status !== "signed-in" || redirectStarted.current) return;
     redirectStarted.current = true;
-    router.replace(returnTo);
+    router.replace(resolvePostAuthPath(returnTo));
   }, [returnTo, router, state.status]);
 
   if (state.status === "unknown" || state.status === "restoring") {

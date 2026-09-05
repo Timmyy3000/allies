@@ -23,8 +23,8 @@ const message = (id: string, sequence: number, content = id) => ({
 describe('conversation state', () => {
   it('deduplicates immutable messages and sorts them by sequence', () => {
     const messages = mergeConversationMessages([
-      { id: 'conversation', allyId: 'ally-1', messages: [message('ally-message', 2), message('user-message', 1)], nextCursor: 'older' },
-      { id: 'conversation', allyId: 'ally-1', messages: [message('user-message', 1)], nextCursor: null },
+      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('ally-message', 2), message('user-message', 1)], nextCursor: 'older' },
+      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('user-message', 1)], nextCursor: null },
     ]);
 
     expect(messages.map(({ id }) => id)).toEqual(['user-message', 'ally-message']);
@@ -32,8 +32,8 @@ describe('conversation state', () => {
 
   it('rejects conflicting copies of one immutable message ID', () => {
     expect(() => mergeConversationMessages([
-      { id: 'conversation', allyId: 'ally-1', messages: [message('same', 1, 'first')], nextCursor: null },
-      { id: 'conversation', allyId: 'ally-1', messages: [message('same', 1, 'different')], nextCursor: null },
+      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('same', 1, 'first')], nextCursor: null },
+      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('same', 1, 'different')], nextCursor: null },
     ])).toThrow('Conflicting message copies');
   });
 
@@ -42,15 +42,15 @@ describe('conversation state', () => {
     const older: MessageViewModel = { ...message('same', 1), status: 'queued' };
 
     expect(mergeConversationMessages([
-      { id: 'conversation', allyId: 'ally-1', messages: [newest], nextCursor: 'older' },
-      { id: 'conversation', allyId: 'ally-1', messages: [older], nextCursor: null },
+      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [newest], nextCursor: 'older' },
+      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [older], nextCursor: null },
     ])).toEqual([newest]);
   });
 
   it('updates only the newest page while preserving manually loaded history', () => {
-    const newest = { id: 'conversation', allyId: 'ally-1', messages: [message('new', 3)], nextCursor: 'older' };
-    const oldNewest = { id: 'conversation', allyId: 'ally-1', messages: [message('old-new', 2)], nextCursor: 'older' };
-    const older = { id: 'conversation', allyId: 'ally-1', messages: [message('old', 1)], nextCursor: null };
+    const newest = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('new', 3)], nextCursor: 'older' };
+    const oldNewest = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('old-new', 2)], nextCursor: 'older' };
+    const older = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('old', 1)], nextCursor: null };
 
     expect(replaceNewestConversationPage([oldNewest, older], newest)).toEqual([newest, older]);
     expect(insertAcceptedMessage([oldNewest, older], message('accepted', 3))).toEqual([
@@ -60,20 +60,20 @@ describe('conversation state', () => {
   });
 
   it('rejects a conflicting accepted-message collision', () => {
-    const page = { id: 'conversation', allyId: 'ally-1', messages: [message('same', 1, 'old')], nextCursor: null };
+    const page = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('same', 1, 'old')], nextCursor: null };
 
     expect(() => insertAcceptedMessage([page], message('same', 1, 'new'))).toThrow('Conflicting message copies');
   });
 
   it('does not duplicate a replayed acceptance already present in the newest page', () => {
-    const page = { id: 'conversation', allyId: 'ally-1', messages: [message('same', 1)], nextCursor: null };
+    const page = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('same', 1)], nextCursor: null };
 
     expect(insertAcceptedMessage([page], message('same', 1))).toEqual([page]);
   });
 
   it('moves a replayed acceptance out of an older page without dropping that page', () => {
-    const newest = { id: 'conversation', allyId: 'ally-1', messages: [message('new', 3)], nextCursor: 'older' };
-    const older = { id: 'conversation', allyId: 'ally-1', messages: [message('same', 1)], nextCursor: null };
+    const newest = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('new', 3)], nextCursor: 'older' };
+    const older = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('same', 1)], nextCursor: null };
 
     expect(insertAcceptedMessage([newest, older], message('same', 1))).toEqual([
       { ...newest, messages: [message('same', 1), message('new', 3)] },

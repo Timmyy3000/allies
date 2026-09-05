@@ -62,6 +62,7 @@
       "name": "web",
       "version": "0.1.0",
       "dependencies": {
+        "@allies/ally-motion": "workspace:*",
         "@allies/cloud-client": "workspace:*",
         "@tanstack/react-query": "^5.85.5",
         "generative-loaders": "^0.1.1",
@@ -86,6 +87,10 @@
         "typescript": "^5",
       },
     },
+    "packages/ally-motion": {
+      "name": "@allies/ally-motion",
+      "version": "0.1.0",
+    },
     "packages/cloud-client": {
       "name": "@allies/cloud-client",
       "version": "0.1.0",
@@ -104,6 +109,8 @@
   ],
   "packages": {
     "@adobe/css-tools": ["@adobe/css-tools@4.5.0", "", {}, "sha512-6OzddxPio9UiWTCemp4N8cYLV2ZN1ncRnV1cVGtve7dhPOtRkleRyx32GQCYSwDYgaHU3USMm84tNsvKzRCa1Q=="],
+
+    "@allies/ally-motion": ["@allies/ally-motion@workspace:packages/ally-motion"],
 
     "@allies/cloud-client": ["@allies/cloud-client@workspace:packages/cloud-client"],
 

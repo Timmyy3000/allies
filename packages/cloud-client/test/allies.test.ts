@@ -123,6 +123,25 @@ const activityResponse = defineApiFixture(
   },
 ).body;
 
+const largeAssistantReply = {
+  id: ids.activity,
+  source_message_id: ids.userMessage,
+  conversation_turn_ordinal: 2,
+  content: "r".repeat(300 * 1024),
+  status: "in_progress",
+  has_full_prefix: true,
+  created_at: "2026-08-20T16:01:01Z",
+  updated_at: "2026-08-20T16:01:02Z",
+} as const;
+
+const largeActivityResponse = {
+  ...activityResponse,
+  data: {
+    ...activityResponse.data,
+    assistant_reply: largeAssistantReply,
+  },
+} as const;
+
 describe("Ally and conversation Cloud client boundary", () => {
   it("maps the published Ally, onboarding, conversation, message, and activity operations", async () => {
     const requests: Request[] = [];
@@ -252,6 +271,31 @@ describe("Ally and conversation Cloud client boundary", () => {
     await expect(client.getActivities(ids.workspace, ids.conversation, 201))
       .rejects.toMatchObject({ kind: "bad-request" });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("allows a bounded large durable reply on the chat activity read", async () => {
+    const fetch = vi.fn(async () => Response.json(largeActivityResponse));
+    const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch });
+
+    await expect(client.getActivities(ids.workspace, ids.conversation)).resolves.toMatchObject({
+      assistantReply: {
+        sourceMessageId: ids.userMessage,
+        content: largeAssistantReply.content,
+        hasFullPrefix: true,
+      },
+    });
+  });
+
+  it("keeps an explicit JSON limit for chat reads", async () => {
+    const fetch = vi.fn(async () => Response.json(largeActivityResponse));
+    const client = createCloudClient({
+      baseUrl: "https://cloud.example.com",
+      fetch,
+      maxJsonBytes: 256 * 1024,
+    });
+
+    await expect(client.getActivities(ids.workspace, ids.conversation))
+      .rejects.toMatchObject({ kind: "contract" });
   });
 
   it("preserves a replayed send as an accepted prior intent", async () => {

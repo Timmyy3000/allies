@@ -6,12 +6,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const sessionMock = vi.hoisted(() => ({ useSession: vi.fn() }));
 const routerMock = vi.hoisted(() => ({ replace: vi.fn() }));
+const searchParamsMock = vi.hoisted(() => ({
+  get: vi.fn((_: string): string | null => null),
+}));
 
 vi.mock("../_components", () => ({
   default: () => <div data-testid="public-onboarding">Public waitlist</div>,
 }));
 vi.mock("../_store/onboarding-store", () => ({
   OnboardingStateProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  useOnboardingStore: (selector: (state: { hydrate: () => void; goTo: () => void }) => unknown) =>
+    selector({ hydrate: vi.fn(), goTo: vi.fn() }),
 }));
 vi.mock("../../../lib/env", () => ({
   getWebEnvironment: () => ({ waitlistEnabled: true, waitlistConsentVersion: "waitlist-v1" }),
@@ -24,6 +29,7 @@ vi.mock("../../../lib/waitlist/flow", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => routerMock,
+  useSearchParams: () => searchParamsMock,
 }));
 
 import { OnboardingPageClient } from "./onboarding-page-client";
@@ -48,6 +54,7 @@ afterEach(() => {
 beforeEach(() => {
   sessionMock.useSession.mockReset();
   routerMock.replace.mockReset();
+  searchParamsMock.get.mockReturnValue(null);
 });
 
 describe("OnboardingPageClient", () => {
@@ -59,6 +66,16 @@ describe("OnboardingPageClient", () => {
     expect(screen.getByRole("status").textContent).toContain("Opening your Ally space");
     await waitFor(() => expect(routerMock.replace).toHaveBeenCalledWith("/home/new"));
     expect(screen.queryByTestId("public-onboarding")).toBeNull();
+  });
+
+  it("keeps a signed-in visitor on onboarding after Google returns", async () => {
+    setupSession("signed-in");
+    searchParamsMock.get.mockReturnValue("welcome");
+
+    render(<OnboardingPageClient />);
+
+    expect(screen.getByTestId("public-onboarding")).toBeTruthy();
+    expect(routerMock.replace).not.toHaveBeenCalled();
   });
 
   it("keeps a signed-out visitor on the public waitlist flow", () => {

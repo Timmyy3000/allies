@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 import Onboarding from "../_components";
-import { OnboardingStateProvider } from "../_store/onboarding-store";
+import {
+  OnboardingAuthResumeContext,
+  isOnboardingResumeQuery,
+  readOnboardingResume,
+} from "../_store/onboarding-resume";
+import { OnboardingStateProvider, useOnboardingStore } from "../_store/onboarding-store";
 import { getWebEnvironment } from "../../../lib/env";
 import { useSession } from "../../../lib/session/session-context";
 import { WaitlistFlowProvider } from "../../../lib/waitlist/flow";
@@ -13,11 +18,13 @@ export function OnboardingPageClient() {
   const environment = getWebEnvironment();
   const session = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const sessionStatus = session.state.status;
   const restoreSession = session.restore;
   const restoreStarted = useRef(false);
   const redirectStarted = useRef(false);
   const [restoreFailed, setRestoreFailed] = useState(false);
+  const resumeAfterGoogle = isOnboardingResumeQuery(searchParams.get("resume"));
 
   useEffect(() => {
     if (restoreStarted.current || sessionStatus !== "unknown") return;
@@ -26,19 +33,27 @@ export function OnboardingPageClient() {
   }, [restoreSession, sessionStatus]);
 
   useEffect(() => {
-    if (sessionStatus !== "signed-in" || redirectStarted.current) return;
+    if (sessionStatus !== "signed-in" || resumeAfterGoogle || redirectStarted.current) {
+      return;
+    }
     redirectStarted.current = true;
     router.replace("/home/new");
-  }, [router, sessionStatus]);
+  }, [resumeAfterGoogle, router, sessionStatus]);
 
   const retryRestore = () => {
     setRestoreFailed(false);
     void restoreSession().catch(() => setRestoreFailed(true));
   };
 
+  const stayOnPublicFlow =
+    sessionStatus === "signed-out" ||
+    restoreFailed ||
+    (sessionStatus === "signed-in" && resumeAfterGoogle);
+  const resumeSignedIn = resumeAfterGoogle && sessionStatus === "signed-in";
+
   return (
-    <OnboardingStateProvider initialStep="name">
-      {sessionStatus === "signed-in" ? (
+    <OnboardingStateProvider initialStep={resumeSignedIn ? "preview" : "name"}>
+      {sessionStatus === "signed-in" && !resumeAfterGoogle ? (
         <OnboardingStatus message="Opening your Ally space…" />
       ) : sessionStatus === "unavailable" ? (
         <OnboardingStatus
@@ -47,16 +62,37 @@ export function OnboardingPageClient() {
         />
       ) : (sessionStatus === "unknown" || sessionStatus === "restoring") && !restoreFailed ? (
         <OnboardingStatus message="Checking your secure session…" />
-      ) : (
+      ) : stayOnPublicFlow ? (
         <WaitlistFlowProvider
           featureEnabled={environment.waitlistEnabled}
           consentVersion={environment.waitlistConsentVersion}
         >
-          <Onboarding waitlistEnabled={environment.waitlistEnabled} />
+          <OnboardingAuthResumeContext.Provider value={resumeSignedIn}>
+            {resumeSignedIn ? <OnboardingResumeHydrator /> : null}
+            <Onboarding waitlistEnabled={environment.waitlistEnabled} />
+          </OnboardingAuthResumeContext.Provider>
         </WaitlistFlowProvider>
+      ) : (
+        <OnboardingStatus message="Checking your secure session…" />
       )}
     </OnboardingStateProvider>
   );
+}
+
+function OnboardingResumeHydrator() {
+  const hydrate = useOnboardingStore((state) => state.hydrate);
+  const goTo = useOnboardingStore((state) => state.goTo);
+  const applied = useRef(false);
+
+  useLayoutEffect(() => {
+    if (applied.current) return;
+    applied.current = true;
+    const snapshot = readOnboardingResume();
+    if (snapshot) hydrate(snapshot);
+    goTo("preview");
+  }, [goTo, hydrate]);
+
+  return null;
 }
 
 function OnboardingStatus({
