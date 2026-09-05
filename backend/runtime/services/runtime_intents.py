@@ -22,6 +22,7 @@ from runtime.models import (
     RuntimeOperationState,
     RuntimeOperationTrigger,
     Workspace,
+    WorkspaceProvisioningPhase,
 )
 
 from .retry import run_with_sqlite_lock_retry
@@ -312,6 +313,137 @@ def request_execution_wake_locked(
     )
 
 
+def request_activation_recovery_wake(
+    workspace_id: UUID | str,
+    activation_claim_token: str,
+    *,
+    observed_app_ref: str,
+    observed_machine_ref: str,
+    observed_volume_ref: str | None,
+    observed_owner_workspace_id: UUID | str | None,
+    observed_owner_operation_id: UUID | str | None,
+    observed_owner_generation: int | None,
+    observed_generation: int,
+    now: datetime | None = None,
+) -> UUID | None:
+    """Queue a wake after an activation provider observation.
+
+    Provider inspection happens before this transaction.  Re-read every
+    durable identity here so a replacement or another activation cannot turn
+    that observation into a start for a different Machine.
+    """
+
+    workspace_uuid = _uuid(workspace_id, "workspace_id")
+    if not isinstance(activation_claim_token, str) or not activation_claim_token:
+        raise RuntimeValidationError("activation_claim_token is required")
+    if any(
+        not isinstance(value, str) or not value
+        for value in (observed_app_ref, observed_machine_ref)
+    ):
+        raise RuntimeValidationError("observed provider references are required")
+    if (
+        observed_volume_ref is not None
+        and (not isinstance(observed_volume_ref, str) or not observed_volume_ref)
+    ):
+        raise RuntimeValidationError("observed_volume_ref must be non-empty")
+    if (
+        isinstance(observed_generation, bool)
+        or not isinstance(observed_generation, int)
+        or observed_generation <= 0
+        or isinstance(observed_owner_generation, bool)
+        or (
+            observed_owner_generation is not None
+            and (
+                not isinstance(observed_owner_generation, int)
+                or observed_owner_generation <= 0
+            )
+        )
+    ):
+        raise RuntimeValidationError("observed generation must be positive")
+    if now is not None and timezone.is_naive(now):
+        raise RuntimeValidationError("now must include a timezone")
+    return run_with_sqlite_lock_retry(
+        lambda: _request_activation_recovery_wake_once(
+            workspace_uuid,
+            activation_claim_token,
+            observed_app_ref=observed_app_ref,
+            observed_machine_ref=observed_machine_ref,
+            observed_volume_ref=observed_volume_ref,
+            observed_owner_workspace_id=observed_owner_workspace_id,
+            observed_owner_operation_id=observed_owner_operation_id,
+            observed_owner_generation=observed_owner_generation,
+            observed_generation=observed_generation,
+            observed_at=now,
+        )
+    )
+
+
+@transaction.atomic
+def _request_activation_recovery_wake_once(
+    workspace_id: UUID,
+    activation_claim_token: str,
+    *,
+    observed_app_ref: str,
+    observed_machine_ref: str,
+    observed_volume_ref: str | None,
+    observed_owner_workspace_id: UUID | str | None,
+    observed_owner_operation_id: UUID | str | None,
+    observed_owner_generation: int | None,
+    observed_generation: int,
+    observed_at: datetime | None,
+) -> UUID | None:
+    workspace = Workspace.objects.select_for_update().filter(pk=workspace_id).first()
+    if workspace is None:
+        raise RuntimeNotFoundError("workspace is unavailable")
+    observed_at = observed_at or timezone.now()
+    if (
+        workspace.activation_claim_token != activation_claim_token
+        or workspace.activation_claim_expires_at is None
+        or workspace.activation_claim_expires_at <= observed_at
+    ):
+        raise RuntimeConflictError("workspace activation claim is stale")
+    if workspace.provisioning_phase != WorkspaceProvisioningPhase.IDLE:
+        raise RuntimeConflictError("workspace provisioning state changed")
+    if workspace.runtime_operation_state in {
+        RuntimeOperationState.STARTING,
+        RuntimeOperationState.AWAITING_READINESS,
+    }:
+        raise RuntimeConflictError("runtime wake is already in progress")
+    if (
+        workspace.machine_generation != observed_generation
+        or workspace.fly_app_ref != observed_app_ref
+        or workspace.machine_ref != observed_machine_ref
+        or workspace.volume_ref != observed_volume_ref
+        or workspace.provisioning_id is None
+        or observed_volume_ref is None
+        or observed_owner_workspace_id is None
+        or str(observed_owner_workspace_id) != str(workspace.id)
+        or observed_owner_operation_id is None
+        or str(observed_owner_operation_id) != str(workspace.provisioning_id)
+        or observed_owner_generation != workspace.machine_generation
+        or observed_owner_generation != observed_generation
+    ):
+        raise RuntimeConflictError("workspace provider binding changed")
+
+    workspace.ready_generation = None
+    workspace.ready_start_epoch = None
+    workspace.ready_boot_id = None
+    workspace.ready_at = None
+    workspace.runtime_last_seen_at = None
+    request_execution_wake_locked(workspace, now=observed_at)
+    workspace.save(
+        update_fields=[
+            "ready_generation",
+            "ready_start_epoch",
+            "ready_boot_id",
+            "ready_at",
+            "runtime_last_seen_at",
+            "updated_at",
+        ]
+    )
+    return workspace.runtime_operation_id
+
+
 def cleanup_runtime_intents(*, now: datetime | None = None, limit: int = 500) -> int:
     observed_at = now or timezone.now()
     ids = list(
@@ -377,6 +509,7 @@ def _uuid(value: UUID | str, name: str) -> UUID:
 __all__ = [
     "RuntimeIntentReceipt",
     "cleanup_runtime_intents",
+    "request_activation_recovery_wake",
     "request_execution_wake_locked",
     "request_runtime_intent",
 ]

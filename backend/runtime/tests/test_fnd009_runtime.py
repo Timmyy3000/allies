@@ -8,7 +8,11 @@ from django.db import transaction
 from django.test import override_settings
 from django.utils import timezone
 
-from runtime.exceptions import RuntimeFencedError, RuntimeNotReadyError
+from runtime.exceptions import (
+    RuntimeConflictError,
+    RuntimeFencedError,
+    RuntimeNotReadyError,
+)
 from runtime.models import (
     Execution,
     ExecutionStatus,
@@ -36,6 +40,7 @@ from runtime.services.runtime_auth import (
     issue_runtime_credential,
 )
 from runtime.services.runtime_intents import (
+    request_activation_recovery_wake,
     request_execution_wake_locked,
     request_runtime_intent,
 )
@@ -215,6 +220,172 @@ def test_ready_intent_persists_keep_warm_extension(workspace):
     assert workspace.speculative_keep_warm_until == now + timedelta(minutes=10)
 
 
+def _activation_observation(workspace, provider):
+    machine = provider.machine
+    return {
+        "observed_app_ref": machine.app_name,
+        "observed_machine_ref": machine.id,
+        "observed_volume_ref": machine.volume_id,
+        "observed_owner_workspace_id": machine.ownership.workspace_id,
+        "observed_owner_operation_id": machine.ownership.operation_id,
+        "observed_owner_generation": machine.ownership.generation,
+        "observed_generation": workspace.machine_generation,
+    }
+
+
+def test_activation_recovery_clears_stale_ready_receipt_and_replays_one_wake(
+    workspace,
+):
+    now = timezone.now()
+    provider = FakePowerProvider(workspace)
+    workspace.activation_claim_token = "activation-claim"
+    workspace.activation_claim_expires_at = now + timedelta(minutes=5)
+    workspace.ready_generation = workspace.machine_generation
+    workspace.ready_start_epoch = workspace.runtime_start_epoch
+    workspace.ready_boot_id = uuid4()
+    workspace.ready_at = now
+    workspace.runtime_last_seen_at = now
+    workspace.save(
+        update_fields=[
+            "activation_claim_token",
+            "activation_claim_expires_at",
+            "ready_generation",
+            "ready_start_epoch",
+            "ready_boot_id",
+            "ready_at",
+            "runtime_last_seen_at",
+            "updated_at",
+        ]
+    )
+
+    observation = _activation_observation(workspace, provider)
+    operation_id = request_activation_recovery_wake(
+        workspace.id,
+        "activation-claim",
+        **observation,
+        now=now,
+    )
+    replayed_operation_id = request_activation_recovery_wake(
+        workspace.id,
+        "activation-claim",
+        **observation,
+        now=now + timedelta(seconds=1),
+    )
+
+    workspace.refresh_from_db()
+    assert operation_id is not None
+    assert replayed_operation_id == operation_id
+    assert workspace.runtime_operation_state == RuntimeOperationState.REQUESTED
+    assert workspace.runtime_operation_trigger == RuntimeOperationTrigger.EXECUTION
+    assert workspace.runtime_start_epoch == 0
+    assert workspace.ready_generation is None
+    assert workspace.ready_start_epoch is None
+    assert workspace.ready_boot_id is None
+    assert workspace.ready_at is None
+    assert workspace.runtime_last_seen_at is None
+
+    report = process_runtime_wakes(provider=provider, now=now + timedelta(seconds=2))
+
+    assert report.started == 1
+    assert provider.start_calls == 1
+    workspace.refresh_from_db()
+    assert workspace.runtime_start_epoch == 1
+    assert workspace.runtime_operation_state == RuntimeOperationState.AWAITING_READINESS
+
+
+@pytest.mark.parametrize("claim_state", ["expired", "replaced"])
+def test_activation_recovery_rejects_stale_claim_without_mutation(
+    workspace, claim_state
+):
+    now = timezone.now()
+    provider = FakePowerProvider(workspace)
+    workspace.activation_claim_token = (
+        "activation-claim" if claim_state == "expired" else "replacement-claim"
+    )
+    workspace.activation_claim_expires_at = (
+        now - timedelta(seconds=1)
+        if claim_state == "expired"
+        else now + timedelta(minutes=5)
+    )
+    workspace.ready_generation = workspace.machine_generation
+    workspace.ready_start_epoch = workspace.runtime_start_epoch
+    workspace.ready_boot_id = uuid4()
+    workspace.ready_at = now
+    workspace.runtime_last_seen_at = now
+    workspace.save(
+        update_fields=[
+            "activation_claim_token",
+            "activation_claim_expires_at",
+            "ready_generation",
+            "ready_start_epoch",
+            "ready_boot_id",
+            "ready_at",
+            "runtime_last_seen_at",
+            "updated_at",
+        ]
+    )
+
+    with pytest.raises(RuntimeConflictError, match="activation claim"):
+        request_activation_recovery_wake(
+            workspace.id,
+            "activation-claim",
+            **_activation_observation(workspace, provider),
+            now=now,
+        )
+
+    workspace.refresh_from_db()
+    assert workspace.runtime_operation_state == RuntimeOperationState.IDLE
+    assert workspace.runtime_operation_id is None
+    assert workspace.runtime_start_epoch == 0
+    assert workspace.ready_generation == 1
+    assert workspace.ready_boot_id is not None
+
+
+def test_activation_recovery_rejects_binding_generation_toctou_without_mutation(
+    workspace,
+):
+    now = timezone.now()
+    provider = FakePowerProvider(workspace)
+    workspace.activation_claim_token = "activation-claim"
+    workspace.activation_claim_expires_at = now + timedelta(minutes=5)
+    workspace.ready_generation = workspace.machine_generation
+    workspace.ready_start_epoch = workspace.runtime_start_epoch
+    workspace.ready_boot_id = uuid4()
+    workspace.ready_at = now
+    workspace.runtime_last_seen_at = now
+    workspace.save(
+        update_fields=[
+            "activation_claim_token",
+            "activation_claim_expires_at",
+            "ready_generation",
+            "ready_start_epoch",
+            "ready_boot_id",
+            "ready_at",
+            "runtime_last_seen_at",
+            "updated_at",
+        ]
+    )
+    observation = _activation_observation(workspace, provider)
+    workspace.machine_generation = 2
+    workspace.volume_ref = "replacement-volume"
+    workspace.save(update_fields=["machine_generation", "volume_ref", "updated_at"])
+
+    with pytest.raises(RuntimeConflictError, match="provider binding"):
+        request_activation_recovery_wake(
+            workspace.id,
+            "activation-claim",
+            **observation,
+            now=now,
+        )
+
+    workspace.refresh_from_db()
+    assert workspace.runtime_operation_state == RuntimeOperationState.IDLE
+    assert workspace.runtime_operation_id is None
+    assert workspace.runtime_start_epoch == 0
+    assert workspace.ready_generation == 1
+    assert workspace.ready_boot_id is not None
+
+
 @override_settings(ALLIES_RUNTIME_KEEP_WARM_SECONDS=600)
 def test_coalesced_waking_intent_persists_keep_warm_extension(workspace):
     now = timezone.now()
@@ -391,6 +562,47 @@ def test_expired_execution_wake_retries_transitional_machine_state(
     assert workspace.runtime_operation_state == RuntimeOperationState.REQUESTED
     assert workspace.runtime_operation_retry_count == 1
     assert workspace.runtime_operation_requested_at == now + timedelta(seconds=5)
+
+
+@pytest.mark.parametrize(
+    ("operation_state", "machine_state", "expected_state"),
+    [
+        (
+            RuntimeOperationState.STARTING,
+            MachineState.STARTED,
+            RuntimeOperationState.AWAITING_READINESS,
+        ),
+        (RuntimeOperationState.STOPPING, MachineState.STARTED, RuntimeOperationState.IDLE),
+    ],
+)
+def test_publisher_recovers_expired_power_claim(
+    workspace, operation_state, machine_state, expected_state
+):
+    now = timezone.now()
+    workspace.runtime_operation_id = uuid4()
+    workspace.runtime_operation_state = operation_state
+    workspace.activation_claim_token = "expired-power-claim"
+    workspace.activation_claim_expires_at = now
+    workspace.save(
+        update_fields=[
+            "runtime_operation_id",
+            "runtime_operation_state",
+            "activation_claim_token",
+            "activation_claim_expires_at",
+            "updated_at",
+        ]
+    )
+
+    report = process_runtime_wakes(
+        provider=FakePowerProvider(workspace, state=machine_state),
+        now=now,
+    )
+
+    workspace.refresh_from_db()
+    assert report.examined == 1
+    assert workspace.runtime_operation_state == expected_state
+    assert workspace.activation_claim_token is None
+    assert workspace.activation_claim_expires_at is None
 
 
 def test_execution_wake_parks_destroyed_machine(workspace):

@@ -129,11 +129,17 @@ Machine for this workspace. A transient failure may leave a resumable phase;
 fix the prerequisite (often the tunnel or image), then rerun the same command.
 The command retains credentials when a Machine may already exist.
 
+If the recorded, owned Machine is stopped, activation queues its existing
+execution-wake operation and reports pending. Keep the publisher running so it
+can start the Machine and receive a readiness receipt, then retry activation.
+This path preserves the Machine and volume; it does not provision replacements.
+
 ## Verify readiness and origin
 
-The command only reports an already-active generation after it inspects the
-recorded Machine and confirms it is started with both `hermes` and
-`allies-runtime` containers started. Verify the durable record and provider
+Activation succeeds only after it inspects the recorded Machine and confirms
+it is started with both `hermes` and
+`allies-runtime` containers started, with a readiness receipt matching the current
+generation, start epoch, and boot. Verify the durable record and provider
 state as well:
 
 ```powershell

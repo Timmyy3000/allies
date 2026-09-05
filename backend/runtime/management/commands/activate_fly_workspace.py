@@ -9,8 +9,20 @@ from django.db import OperationalError, transaction
 from django.utils import timezone
 
 from runtime.exceptions import RuntimeConflictError
-from runtime.models import RuntimeCredential, Workspace, WorkspaceProvisioningPhase
-from runtime.providers import FlyProvider, ProviderError, deterministic_resource_names
+from runtime.models import (
+    RuntimeCredential,
+    RuntimeOperationState,
+    Workspace,
+    WorkspaceProvisioningPhase,
+)
+from runtime.providers import (
+    FlyProvider,
+    MachineState,
+    ProviderError,
+    ProviderNotFoundError,
+    ProviderOwnershipError,
+    deterministic_resource_names,
+)
 from runtime.services.continuity_proof import (
     FlyCliSecretStore,
     ProofCredentialBootstrap,
@@ -21,6 +33,8 @@ from runtime.services.continuity_proof import (
     proof_workspace_spec,
 )
 from runtime.services.retry import run_with_sqlite_lock_retry
+from runtime.services.runtime_intents import request_activation_recovery_wake
+from runtime.services.runtime_readiness import is_runtime_ready
 from runtime.services.workspaces import WorkspaceLifecycle, WorkspaceSpec
 
 _REQUIRED_SETTINGS = (
@@ -153,9 +167,55 @@ class Command(BaseCommand):
                 workspace.machine_generation > 0
                 and workspace.provisioning_phase == WorkspaceProvisioningPhase.IDLE
             ):
+                observed_machine = self._inspect_bound_machine(
+                    provider, app_name, workspace
+                )
+                if (
+                    observed_machine is not None
+                    and observed_machine.state is MachineState.STOPPED
+                ):
+                    self._validate_observed_machine_binding(
+                        workspace, observed_machine
+                    )
+                    try:
+                        request_activation_recovery_wake(
+                            workspace.id,
+                            activation_claim,
+                            observed_app_ref=observed_machine.app_name,
+                            observed_machine_ref=observed_machine.id,
+                            observed_volume_ref=observed_machine.volume_id,
+                            observed_owner_workspace_id=(
+                                observed_machine.ownership.workspace_id
+                                if observed_machine.ownership is not None
+                                else None
+                            ),
+                            observed_owner_operation_id=(
+                                observed_machine.ownership.operation_id
+                                if observed_machine.ownership is not None
+                                else None
+                            ),
+                            observed_owner_generation=(
+                                observed_machine.ownership.generation
+                                if observed_machine.ownership is not None
+                                else None
+                            ),
+                            observed_generation=workspace.machine_generation,
+                        )
+                    except RuntimeConflictError as exc:
+                        raise ActivationCommandError(
+                            "Workspace activation evidence changed", retryable=True
+                        ) from exc
+                    raise ActivationCommandError(
+                        "Workspace activation is pending", retryable=True
+                    )
                 binding = WorkspaceLifecycle(
                     provider, jitter=False
                 ).verify_workspace_ready(workspace_id, base_spec)
+                workspace.refresh_from_db()
+                if not is_runtime_ready(workspace):
+                    raise ActivationCommandError(
+                        "Workspace readiness receipt is pending", retryable=True
+                    )
                 self.stdout.write(
                     self.style.SUCCESS(
                         f"Workspace {workspace_id} is already active at generation "
@@ -226,6 +286,13 @@ class Command(BaseCommand):
                 workspace_id,
                 spec,
             )
+            workspace.refresh_from_db()
+            if not is_runtime_ready(workspace):
+                raise ActivationCommandError(
+                    "Workspace readiness receipt is pending", retryable=True
+                )
+        except ActivationCommandError:
+            raise
         except Exception as exc:
             machine_may_exist = self._machine_may_exist(
                 provider,
@@ -296,6 +363,11 @@ class Command(BaseCommand):
                 raise ActivationCommandError(
                     "Workspace activation failed", terminal=True
                 )
+            if workspace.runtime_operation_state in {
+                RuntimeOperationState.STARTING,
+                RuntimeOperationState.STOPPING,
+            }:
+                return None
             if (
                 workspace.activation_claim_token
                 and workspace.activation_claim_expires_at
@@ -331,6 +403,34 @@ class Command(BaseCommand):
             )
 
         run_with_sqlite_lock_retry(release_once)
+
+    @staticmethod
+    def _inspect_bound_machine(provider, app_name: str, workspace: Workspace):
+        inspect = getattr(provider, "inspect_machine_by_id", None)
+        try:
+            if callable(inspect):
+                return inspect(app_name, workspace.machine_ref)
+            return provider.inspect_machine(app_name, workspace.machine_ref)
+        except ProviderNotFoundError:
+            return None
+
+    @staticmethod
+    def _validate_observed_machine_binding(workspace: Workspace, machine) -> None:
+        ownership = machine.ownership
+        if (
+            machine.id != workspace.machine_ref
+            or machine.app_name != workspace.fly_app_ref
+            or machine.volume_id != workspace.volume_ref
+            or ownership is None
+            or workspace.provisioning_id is None
+            or str(ownership.workspace_id) != str(workspace.id)
+            or str(ownership.operation_id) != str(workspace.provisioning_id)
+            or ownership.generation != workspace.machine_generation
+        ):
+            raise ProviderOwnershipError(
+                "recorded workspace Machine ownership does not match",
+                operation="activation_recovery",
+            )
 
     @staticmethod
     def _active_credential(
