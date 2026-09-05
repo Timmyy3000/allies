@@ -1,5 +1,14 @@
 # <Feature Name> Plan
 
+## Using this template
+
+Follow the planning route in `AGENTS.md`: tiny work stays inline, fast work uses
+only relevant sections, and full work uses this complete template. HTML is
+conditional on the recorded visual-review need or explicit user request.
+Example rows demonstrate notation, not requirements or verified repository
+symbols. Replace or remove them when drafting; never add a mechanism solely
+because it appears here. Keep committed artifacts portable and free of secrets.
+
 ## Feature Overview
 
 - Problem:
