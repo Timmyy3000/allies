@@ -12,10 +12,10 @@ from allies.models import Ally
 from allies.services.runtime_intents import request_runtime_intent
 from auths.config import cookie_name
 from auths.exceptions import WorkspaceAccessDenied
-from auths.models import User
+from auths.models import SessionClientKind, User
 from auths.providers.base import VerifiedIdentity
 from auths.services.accounts import resolve_or_create_user
-from auths.services.sessions import issue_session
+from auths.services.sessions import issue_session, revoke_family
 from auths.throttle import ThrottleExceeded
 from workspaces.models import Membership, RuntimeIntentMode, Workspace
 
@@ -258,3 +258,108 @@ def test_controller_maps_user_limit_and_hides_foreign_ally(account, monkeypatch)
     assert foreign.json()["data"] == {"code": "ally_unavailable"}
     assert bad_key.status_code == 422
     assert bad_key.json()["data"] == {"code": "validation_error"}
+
+
+@pytest.mark.django_db
+@override_settings(ALLIES_RUNTIME_INTENT_ENABLED=True, ALLOWED_HOSTS=["testserver"])
+def test_native_bearer_wakes_without_browser_credentials(account, monkeypatch):
+    user, workspace, ally = account
+    workspace.runtime_intent_mode = RuntimeIntentMode.COMPOSING
+    workspace.save(update_fields=("runtime_intent_mode", "updated_at"))
+    issued = issue_session(user, client_kind=SessionClientKind.NATIVE)
+    forwarded = []
+
+    def forward(**kwargs):
+        forwarded.append(kwargs)
+        return RuntimeIntentReceipt(status="waking")
+
+    monkeypatch.setattr(
+        "allies.services.runtime_intents.forward_runtime_intent", forward
+    )
+    client = Client(enforce_csrf_checks=True)
+    payload = {"intent": "composing_started", "occurred_at": "2026-09-05T12:00:00Z"}
+    headers = {
+        "HTTP_AUTHORIZATION": f"Bearer {issued.access_token}",
+        "HTTP_IDEMPOTENCY_KEY": str(KEY),
+    }
+    response = client.post(
+        f"/api/v1/allies/{ally.id}/runtime-intents",
+        json.dumps(payload),
+        content_type="application/json",
+        **headers,
+    )
+    extra = client.post(
+        f"/api/v1/allies/{ally.id}/runtime-intents",
+        json.dumps({**payload, "draft": "private draft"}),
+        content_type="application/json",
+        **headers,
+    )
+    foreign_workspace = Workspace.objects.create(owner=User.objects.create_user())
+    foreign_ally = _ally(workspace=foreign_workspace, ally_id=uuid4())
+    foreign = client.post(
+        f"/api/v1/allies/{foreign_ally.id}/runtime-intents",
+        json.dumps(payload),
+        content_type="application/json",
+        **headers,
+    )
+
+    assert response.status_code == 202
+    assert response.json()["data"] == {"status": "waking"}
+    assert extra.status_code == 422
+    assert foreign.status_code == 404
+    assert foreign.json()["data"] == {"code": "ally_unavailable"}
+    assert len(forwarded) == 1
+    assert set(forwarded[0]) == {
+        "workspace_id",
+        "intent",
+        "received_at",
+        "idempotency_key",
+    }
+    assert forwarded[0]["workspace_id"] == workspace.id
+    assert forwarded[0]["idempotency_key"] == KEY
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "credential", ["invalid", "revoked", "browser", "mixed", "missing"]
+)
+@override_settings(
+    ALLIES_RUNTIME_INTENT_ENABLED=True,
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
+)
+def test_native_runtime_intent_rejects_invalid_transports(
+    account, monkeypatch, credential
+):
+    user, _workspace, ally = account
+    monkeypatch.setattr(
+        "allies.services.runtime_intents.forward_runtime_intent",
+        lambda **_kwargs: pytest.fail("rejected credentials reached Foundry"),
+    )
+    issued = issue_session(
+        user,
+        client_kind=SessionClientKind.BROWSER
+        if credential == "browser"
+        else SessionClientKind.NATIVE,
+    )
+    if credential == "revoked":
+        revoke_family(issued.family)
+    client = Client(enforce_csrf_checks=True)
+    headers = {"HTTP_IDEMPOTENCY_KEY": str(KEY)}
+    if credential != "missing":
+        token = "invalid" if credential == "invalid" else issued.access_token
+        headers["HTTP_AUTHORIZATION"] = f"Bearer {token}"
+    if credential == "mixed":
+        client.cookies[cookie_name("access")] = issue_session(user).access_token
+        headers["HTTP_X_CSRFTOKEN"] = client.get("/api/v1/auths/csrf")["X-CSRFToken"]
+        headers["HTTP_ORIGIN"] = "http://localhost:3000"
+    response = client.post(
+        f"/api/v1/allies/{ally.id}/runtime-intents",
+        json.dumps(
+            {"intent": "composing_started", "occurred_at": "2026-09-05T12:00:00Z"}
+        ),
+        content_type="application/json",
+        **headers,
+    )
+
+    assert response.status_code == (403 if credential == "missing" else 401)

@@ -94,21 +94,21 @@ def _manual_callback_response(result: NativeCallbackResult) -> HttpResponse:
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Allies sign-in code</title>
-  <style>body{{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:38rem}}input{{font:inherit;padding:.65rem;width:100%;box-sizing:border-box}}button{{background:#ff5800;border:0;border-radius:.5rem;color:#fff;cursor:pointer;font:inherit;margin-top:.75rem;padding:.65rem 1rem}}</style>
+  <style>body{{font-family:system-ui,sans-serif;line-height:1.5;margin:2rem;max-width:38rem}}code{{display:block;font:inherit;padding:.65rem;overflow-wrap:anywhere}}button{{background:#ff5800;border:0;border-radius:.5rem;color:#fff;cursor:pointer;font:inherit;margin-top:.75rem;padding:.65rem 1rem}}</style>
 </head>
 <body>
   <main>
     <h1>Copy your Allies sign-in code</h1>
     <p>Return to the Allies app and enter this code.</p>
-    <label for="sign-in-code">Sign-in code</label>
-    <input id="sign-in-code" value="{code}" readonly aria-describedby="code-expiry">
+    <p id="sign-in-code-label">Sign-in code</p>
+    <code id="sign-in-code" tabindex="0" aria-labelledby="sign-in-code-label" aria-describedby="code-expiry">{code}</code>
     <button id="copy-sign-in-code" type="button">Copy sign-in code</button>
     <p id="copy-status" aria-live="polite">If copying is unavailable, select the code above and copy it.</p>
     <p id="code-expiry">Expires in {remaining_seconds} seconds. If it expires, start sign-in again in Allies.</p>
   </main>
   <script nonce="{escaped_nonce}">
     (() => {{
-      const input = document.getElementById("sign-in-code");
+      const code = document.getElementById("sign-in-code");
       const button = document.getElementById("copy-sign-in-code");
       const status = document.getElementById("copy-status");
       const expiry = document.getElementById("code-expiry");
@@ -116,8 +116,7 @@ def _manual_callback_response(result: NativeCallbackResult) -> HttpResponse:
       const updateExpiry = () => {{
         const remaining = Math.max(0, Math.ceil((deadline - Date.now()) / 1000));
         if (remaining === 0) {{
-          input.value = "";
-          input.disabled = true;
+          code.textContent = "";
           button.disabled = true;
           status.textContent = "This code has expired. Start sign-in again in Allies.";
           expiry.textContent = "This code has expired. Start sign-in again in Allies.";
@@ -128,8 +127,14 @@ def _manual_callback_response(result: NativeCallbackResult) -> HttpResponse:
       }};
       const selectCode = () => {{
         if (!updateExpiry()) return;
-        input.focus();
-        input.select();
+        code.focus();
+        const selection = window.getSelection();
+        if (selection) {{
+          const range = document.createRange();
+          range.selectNodeContents(code);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }}
         status.textContent = "Copy is unavailable. Select the code and copy it.";
       }};
       updateExpiry();
@@ -143,7 +148,7 @@ def _manual_callback_response(result: NativeCallbackResult) -> HttpResponse:
           return;
         }}
         try {{
-          navigator.clipboard.writeText(input.value).then(
+          navigator.clipboard.writeText(code.textContent).then(
             () => {{ status.textContent = "Copied. Return to the Allies app."; }},
             selectCode,
           );
