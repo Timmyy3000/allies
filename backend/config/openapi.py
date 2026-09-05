@@ -553,6 +553,44 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
                 "are non-cacheable; native logout accepts an optional bearer only "
                 "when it matches the refresh-token family."
             ).strip()
+            if method == "get" and path.endswith("/callback/{provider}"):
+                callback_200 = _response(operation, 200)
+                if callback_200 is not None:
+                    callback_200["description"] = (
+                        "Manual-code completion returns a short-lived, single-use "
+                        "exchange code in an HTML page."
+                    )
+                    callback_200["content"] = {
+                        "text/html": {
+                            "schema": {"type": "string"},
+                            "example": "<!doctype html>...",
+                        }
+                    }
+                    _add_no_store_header(operation, 200)
+                    callback_200["headers"].update(
+                        {
+                            name: {"schema": {"type": "string"}, "example": example}
+                            for name, example in {
+                                "Pragma": "no-cache",
+                                "Referrer-Policy": "no-referrer",
+                                "X-Content-Type-Options": "nosniff",
+                                "Content-Security-Policy": (
+                                    "default-src 'none'; style-src 'unsafe-inline'; "
+                                    "script-src 'nonce-<per-response-nonce>'; "
+                                    "base-uri 'none'; form-action 'none'; "
+                                    "frame-ancestors 'none'"
+                                ),
+                            }.items()
+                        }
+                    )
+                callback_303 = _response(operation, 303)
+                if callback_303 is not None:
+                    callback_303.setdefault("headers", {})["Location"] = {
+                        "schema": {"type": "string"},
+                        "description": (
+                            "The exact app redirect URI stored on the transaction."
+                        ),
+                    }
             if method in {"post"} and path.endswith(("/token", "/token/refresh")):
                 for response in operation.get("responses", {}).values():
                     if isinstance(response, dict) and "content" in response:

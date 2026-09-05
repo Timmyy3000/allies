@@ -68,6 +68,7 @@ class NativeSignInRequest(Schema):
     code_challenge: str
     code_challenge_method: str = Field(json_schema_extra={"enum": ["S256"]})
     state: str
+    completion_mode: Literal["redirect", "manual_code"] = "redirect"
 
 
 class NativeAuthorizationStartResponse(Schema):
