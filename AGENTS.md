@@ -16,28 +16,52 @@ before changing files in its subtree; nested guidance is additive.
 - If Nabu, local documents, and code disagree, identify the mismatch and do not
   silently rewrite one to match another.
 
+## Scope and authorization
+
+- The user's explicit scope and applicable prior authorization take precedence
+  over workflow defaults. Do authorized preparation and reversible work before
+  asking for a material unresolved decision; do not ask again for permission
+  already given. This does not waive engineering safeguards or access controls.
+- A read-only or no-change request includes plans, memory, configuration, and
+  knowledge records: report in chat unless the user authorizes writing artifacts.
+- Use existing conventions and saved choices for routine mechanics. Treat new
+  user input as a correction to the active task unless it clearly replaces it.
+- If a skill blocks progress, cite its exact instruction, explain the concrete
+  conflict, and continue independent authorized work. Do not invent approval gates.
+
 ## Plans and specifications
 
-- For implementation plans, read and use
-  `docs/templates/PLAN_TEMPLATE.md`. Do not use a generic planning template.
-- Keep plans under `docs/plans/` as matching files:
-  `docs/plans/<slug>.md` and `docs/plans/<slug>.html`.
-- Treat Markdown and HTML as two complete presentations of the same plan.
+- Select the smallest route supported by scope and demonstrated risk. These
+  route rules also govern the template, skill handoffs, and older local memory:
+  - `tiny`: objective, 1–3 steps, acceptance checks, and rollback inline in the
+    brief or response; no separate plan, HTML, or editorial pipeline.
+  - `fast`: concise Markdown in `docs/plans/<slug>.md`; include scope, approach,
+    affected surfaces, acceptance, validation, risks, and unresolved decisions.
+  - `full`: use `docs/templates/PLAN_TEMPLATE.md` for the Markdown plan. Add
+    `docs/plans/<slug>.html` when visual review helps resolve the work or the
+    user requests it. Record whether HTML is needed once and pass that choice
+    to workers; full planning alone does not require HTML. Markdown alone is the
+    accepted plan when HTML is not required.
+- Template examples illustrate format; they do not require new architecture.
+  Include only relevant sections for fast work. Full plans retain the template
+  headings and mark genuinely unchanged categories not applicable with a reason.
+- When HTML is produced, treat Markdown and HTML as two complete presentations
+  of the same plan.
   Markdown is optimized for agents; HTML is optimized for human review. The
   HTML may reorganize or visualize material, but it must preserve every claim,
   requirement, qualifier, contract, phase, acceptance criterion, test, risk,
   and open decision from the final Markdown. A concise opening summary is
   welcome, but it does not replace the complete plan below it.
-- Keep both files synchronized after planning-worker, adversarial, simplicity,
-  and user revisions. Build the HTML from the final edited Markdown, not an
+- When HTML is produced, keep both files synchronized after planning-worker,
+  adversarial, simplicity, and user revisions. Build the HTML from the final edited Markdown, not an
   earlier draft. Move misplaced plans into `docs/plans/` rather than creating
   competing copies elsewhere; `.lavish/<slug>.html` is only the editable review
   artifact before the accepted HTML is exported to `docs/plans/<slug>.html`.
 - Keep product/engineering specifications separate from implementation plans.
   Use Nabu's canonical `projects/allies/engineering/specs/spec-template.md`.
-- Before asking for approval, edit the complete Markdown with `better-docs`,
-  preserve a reviewable comparison and clean copy, then run the clean copy
-  through `humanizer` without changing requirements or technical contracts.
+- For full plans, before the required review or approval, edit the complete
+  Markdown with `better-docs`, preserve a reviewable comparison and clean copy,
+  then run the clean copy through `humanizer` without changing requirements or technical contracts.
 - For plan HTML and other visual review artifacts, read
   `https://vercel.com/design.md` first. Use it for composition, hierarchy,
   typography, responsive behavior, evidence, and accessibility only. Never use
@@ -54,9 +78,9 @@ before changing files in its subtree; nested guidance is additive.
   `plan`, `diagram`, and `table`, with `comparison` or `code` when applicable.
   Dense mappings must be real semantic tables, and flows/lifecycles must be
   diagrams rather than literal Markdown syntax inside paragraphs.
-- Before handoff, compare the final Markdown and HTML section by section, search
-  the HTML for forbidden external branding, and run the Lavish browser layout
-  audit. Layout success does not replace the content-parity or identity check.
+- When HTML is produced, before handoff compare it with the final Markdown
+  section by section, search the HTML for forbidden external branding, and run
+  the Lavish browser layout audit. Layout success does not replace the content-parity or identity check.
 - Before implementation, inspect this repo's README, Makefile, CI, and test
   configuration. Record the exact checks used in the plan.
 
@@ -70,8 +94,13 @@ before changing files in its subtree; nested guidance is additive.
 
 ## Validation
 
-- Run the smallest relevant check after each meaningful phase and the complete
-  relevant validation before handoff. Do not claim a check passed unless it ran.
+- Run checks appropriate to changed behavior and complete required validation.
+  Reuse results while the relevant content and environment are unchanged; rerun
+  affected checks after fixes or integration. Do not claim a check passed unless
+  it ran. Do not add tests that merely mirror implementation or wording.
+- Tiny low-risk changes may use one focused review covering correctness and
+  simplicity. Other changes keep separate simplicity and correctness passes.
+  Preserve all required engineering-policy and security checks.
 - Foundry quick checks: `make check`, `make validate`, `make lint`, and
   `make test APP=<path>`.
 - Use `make format` for formatting when the change requires it.
