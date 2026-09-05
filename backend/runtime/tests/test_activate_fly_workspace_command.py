@@ -1,19 +1,29 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import ClassVar
 from uuid import uuid4
 
 import pytest
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from django.utils import timezone
 
-from runtime.models import RuntimeCredential, Workspace, WorkspaceProvisioningPhase
+from runtime.management.commands.activate_fly_workspace import ActivationCommandError
+from runtime.models import (
+    RuntimeCredential,
+    RuntimeOperationState,
+    RuntimeOperationTrigger,
+    Workspace,
+    WorkspaceProvisioningPhase,
+)
 from runtime.providers import (
     AppRecord,
     ContainerState,
     MachineHealth,
     MachineRecord,
     MachineState,
+    OwnershipMetadata,
     ProviderRetryableError,
     ProviderTerminalError,
     ProviderUnsupportedTopologyError,
@@ -24,6 +34,8 @@ from runtime.services.continuity_proof import (
     ProofCredentialHandle,
     ProofDependencyCredentialHandle,
 )
+from runtime.services.runtime_power import process_runtime_wakes
+from runtime.services.workspaces import WorkspaceLifecycle
 from runtime.tests.test_workspace_lifecycle import FakeProvider
 
 
@@ -187,6 +199,31 @@ def test_activation_claim_serializes_credential_bootstrap():
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "operation_state",
+    [RuntimeOperationState.STARTING, RuntimeOperationState.STOPPING],
+)
+def test_activation_claim_does_not_replace_expired_power_claim(operation_state):
+    from runtime.management.commands.activate_fly_workspace import Command
+
+    expired_at = timezone.now() - timedelta(seconds=1)
+    workspace = Workspace.objects.create(
+        tenant_ref=str(uuid4()),
+        runtime_operation_id=uuid4(),
+        runtime_operation_state=operation_state,
+        activation_claim_token="power-claim",
+        activation_claim_expires_at=expired_at,
+    )
+
+    assert Command._claim_activation(workspace.id) is None
+
+    workspace.refresh_from_db()
+    assert workspace.runtime_operation_state == operation_state
+    assert workspace.activation_claim_token == "power-claim"
+    assert workspace.activation_claim_expires_at == expired_at
+
+
+@pytest.mark.django_db
 def test_activation_claim_uses_sqlite_lock_retry(monkeypatch):
     import runtime.management.commands.activate_fly_workspace as activation
 
@@ -255,6 +292,78 @@ def test_active_generation_must_have_a_ready_recorded_machine(monkeypatch):
     monkeypatch.setattr(activation, "FlyProvider", lambda **_kwargs: provider)
     with pytest.raises(CommandError, match="activation failed"):
         call_command("activate_fly_workspace", str(tenant_ref))
+
+
+@pytest.mark.django_db
+def test_fresh_activation_stays_pending_until_runtime_readiness_receipt(monkeypatch):
+    configure_activation(monkeypatch)
+    tenant_ref = uuid4()
+    workspace = Workspace.objects.create(tenant_ref=str(tenant_ref))
+    provider = CommandProvider()
+    patch_command_dependencies(
+        monkeypatch,
+        provider,
+        WorkspaceLifecycle(provider, jitter=False),
+    )
+
+    with pytest.raises(ActivationCommandError, match="readiness receipt is pending"):
+        call_command("activate_fly_workspace", str(tenant_ref))
+
+    workspace.refresh_from_db()
+    assert workspace.provisioning_phase == WorkspaceProvisioningPhase.IDLE
+    assert workspace.machine_generation == 1
+    assert workspace.runtime_operation_state == RuntimeOperationState.AWAITING_READINESS
+    assert workspace.ready_generation is None
+    assert workspace.ready_start_epoch is None
+    assert workspace.ready_boot_id is None
+    assert "start_machine" in provider.calls
+
+
+@pytest.mark.django_db
+def test_stopped_bound_activation_queues_one_execution_wake(monkeypatch):
+    configure_activation(monkeypatch)
+    tenant_ref = uuid4()
+    workspace = Workspace.objects.create(
+        tenant_ref=str(tenant_ref),
+        fly_app_ref=deterministic_resource_names(tenant_ref).app,
+        volume_ref="volume-id",
+        machine_ref="machine-owned",
+        machine_generation=1,
+        provisioning_id=uuid4(),
+        provisioning_phase=WorkspaceProvisioningPhase.IDLE,
+    )
+    provider = CommandProvider()
+    provider.machines[workspace.machine_ref] = MachineRecord(
+        workspace.machine_ref,
+        deterministic_resource_names(workspace.id).machine(1),
+        workspace.fly_app_ref,
+        "ams",
+        MachineState.STOPPED,
+        workspace.volume_ref,
+        OwnershipMetadata(
+            workspace.id,
+            workspace.provisioning_id,
+            workspace.machine_generation,
+        ),
+    )
+    patch_command_dependencies(monkeypatch, provider, object())
+
+    with pytest.raises(CommandError) as error:
+        call_command("activate_fly_workspace", str(tenant_ref))
+
+    assert isinstance(error.value, ActivationCommandError)
+    assert error.value.retryable is True
+    workspace.refresh_from_db()
+    assert workspace.runtime_operation_state == RuntimeOperationState.REQUESTED
+    assert workspace.runtime_operation_trigger == RuntimeOperationTrigger.EXECUTION
+    assert workspace.runtime_start_epoch == 0
+    assert workspace.ready_generation is None
+    assert "start_machine" not in provider.calls
+
+    report = process_runtime_wakes(provider=provider, now=timezone.now())
+
+    assert report.started == 1
+    assert provider.calls.count("start_machine") == 1
 
 
 @pytest.mark.django_db

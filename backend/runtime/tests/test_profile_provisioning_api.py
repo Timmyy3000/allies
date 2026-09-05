@@ -159,6 +159,29 @@ def test_activation_endpoint_reports_only_retryable_failure_as_pending(
     }
 
 
+def test_fresh_activation_readiness_pending_is_returned_by_api(
+    db, service_token, monkeypatch
+):
+    workspace = Workspace.objects.create(tenant_ref=str(uuid4()))
+    monkeypatch.setattr(
+        "runtime.api.register.ActivateFlyWorkspaceCommand.handle",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ActivationCommandError(
+                "Workspace readiness receipt is pending", retryable=True
+            )
+        ),
+    )
+
+    response = post_activation(workspace.tenant_ref)
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "version": 1,
+        "workspace_id": workspace.tenant_ref,
+        "status": "pending",
+    }
+
+
 def test_activation_endpoint_reports_terminal_failure_as_unrecoverable(
     workspace, service_token, monkeypatch
 ):
