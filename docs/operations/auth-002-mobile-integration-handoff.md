@@ -16,15 +16,20 @@ The mobile app does not need to know which hosting or proxy product is used.
 1. Generate a cryptographically random `state` and PKCE verifier in memory.
 2. Derive the S256 `code_challenge`; keep the verifier and state associated with
    this one attempt only.
-3. Call `POST /api/v1/auths/native/sign-in/google`.
+3. Call `POST /api/v1/auths/native/sign-in/google`. Omit `completion_mode` (or
+   send `redirect`) for the claimed-link flow. Temporary Expo Go environments
+   may send `manual_code`.
 4. Open the returned `authorization_url` in the system browser using Expo
-   AuthSession. Do not use an embedded WebView.
+   AuthSession or `Linking.openURL` for manual mode. Do not use an embedded
+   WebView.
 5. Google returns to Cloud's registered HTTPS callback. Cloud validates the
-   provider response and redirects to the exact app `redirect_uri` supplied in
-   step 3 with a short-lived, single-use Cloud `code` and the original app
-   `state`.
-6. Verify the returned state locally, then call the Cloud token exchange with
-   the in-memory PKCE verifier. Never persist the exchange code.
+   provider response, then either redirects to the exact app `redirect_uri`
+   with a short-lived, single-use Cloud `code` and the original app `state`, or
+   (for `manual_code`) shows that same code in a short-lived HTML page for
+   copy/paste into the initiating app.
+6. Verify the returned state locally in redirect mode, or submit the copied
+   code in manual mode, then call the Cloud token exchange with the in-memory
+   PKCE verifier. Never persist the exchange code.
 7. Keep the access token in memory. Store only the opaque refresh token in
    Expo SecureStore.
 8. Send the access token as `Authorization: Bearer <access_token>` to the
@@ -46,7 +51,8 @@ callback, exchange, or refresh requests. Successful token responses include
   "redirect_uri": "<exact registered app return URI>",
   "code_challenge": "<base64url SHA-256 of verifier>",
   "code_challenge_method": "S256",
-  "state": "<random app state>"
+  "state": "<random app state>",
+  "completion_mode": "redirect"
 }
 ```
 
@@ -65,13 +71,15 @@ Success (`200`):
 
 The app return URI must exactly match a configured allowlist entry. No
 wildcards, query strings, fragments, or Expo proxy callbacks are allowed.
+`completion_mode` is the closed choice `redirect` or `manual_code`; omission
+preserves `redirect`.
 
 ### Cloud callback
 
 `GET /api/v1/auths/native/callback/google`
 
 This route is used by Google, not called by the app as an API request. On
-success Cloud responds `303` to the stored app URI:
+success in `redirect` mode Cloud responds `303` to the stored app URI:
 
 `<redirect_uri>?code=<one-time-cloud-code>&state=<original-app-state>`
 
@@ -79,6 +87,15 @@ The app must verify `state` and then exchange `code` immediately. The code is
 short-lived and single-use; it is not an access or refresh token. Safe callback
 errors use the app redirect only when the native transaction is known and
 trusted. Unknown or unsafe state is not redirected.
+
+In `manual_code` mode Cloud responds `200 text/html` with the same exchange code
+and its configured expiry in a selectable field plus a Copy button. Clipboard
+failure leaves the field selectable for a normal copy action. The page carries
+`Cache-Control: no-store`, `Pragma: no-cache`, `Referrer-Policy: no-referrer`,
+`X-Content-Type-Options: nosniff`, and a per-response nonce CSP; it has no
+`Location` header, external assets, cookies, tokens, or user data. Callback
+retries reuse the still-valid code and original expiry. Consumed or expired
+attempts show restart guidance without revealing a code.
 
 ### Exchange the one-time code
 
