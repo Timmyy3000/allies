@@ -7,6 +7,7 @@ from typing import ClassVar
 from django.db import models, transaction
 from django.db.models import Q
 
+from runtime.contracts import MAX_TERMINAL_SEQUENCE
 from runtime.exceptions import RuntimeConflictError, RuntimeValidationError
 from runtime.profile_keys import (
     PROFILE_KEY_REGEX,
@@ -731,7 +732,7 @@ class ExecutionEvent(models.Model):
                 name="runtime_event_attempt_sequence_unique",
             ),
             models.CheckConstraint(
-                condition=Q(sequence__gt=0) & Q(sequence__lte=100001),
+                condition=Q(sequence__gt=0) & Q(sequence__lte=MAX_TERMINAL_SEQUENCE),
                 name="runtime_event_sequence_positive",
             ),
         ]
@@ -754,6 +755,9 @@ class ExecutionEventDelivery(models.Model):
         choices=EventDeliveryState,
         default=EventDeliveryState.PENDING,
     )
+    # Repair cycles fence callbacks from an older exhausted delivery while
+    # reusing the existing PENDING/DELIVERING state machine.
+    repair_cycle = models.PositiveIntegerField(default=0)
     delivery_attempts = models.PositiveSmallIntegerField(default=0)
     lease_expires_at = models.DateTimeField(null=True, blank=True)
     next_attempt_at = models.DateTimeField()
@@ -775,6 +779,10 @@ class ExecutionEventDelivery(models.Model):
             models.CheckConstraint(
                 condition=Q(delivery_attempts__gte=0) & Q(delivery_attempts__lte=8),
                 name="runtime_delivery_attempts_bounded",
+            ),
+            models.CheckConstraint(
+                condition=Q(repair_cycle__gte=0),
+                name="runtime_delivery_repair_cycle_nonnegative",
             ),
             models.CheckConstraint(
                 condition=Q(
@@ -806,7 +814,8 @@ class ExecutionEventDelivery(models.Model):
             previous = (
                 type(self)
                 .objects.only(
-                    "event_id", "envelope_bytes", "byte_length", "fingerprint"
+                    "event_id", "envelope_bytes", "byte_length", "fingerprint",
+                    "state", "repair_cycle"
                 )
                 .get(pk=self.pk)
             )
@@ -824,7 +833,16 @@ class ExecutionEventDelivery(models.Model):
                 and self.envelope_bytes == b""
                 and self.byte_length == 0
             )
-            if identity_changed or payload_changed and not terminal_erasure:
+            repair_rehydration = (
+                previous.state == EventDeliveryState.EXHAUSTED
+                and self.state == EventDeliveryState.PENDING
+                and previous.byte_length == 0
+                and self.byte_length > 0
+                and self.repair_cycle > previous.repair_cycle
+            )
+            if identity_changed or payload_changed and not (
+                terminal_erasure or repair_rehydration
+            ):
                 raise RuntimeConflictError("event delivery envelope is immutable")
         if not isinstance(self.envelope_bytes, bytes):
             raise RuntimeValidationError("delivery envelope must be UTF-8 bytes")
@@ -840,6 +858,8 @@ class ExecutionEventDelivery(models.Model):
             raise RuntimeValidationError("delivery fingerprint is invalid")
         if not 0 <= self.delivery_attempts <= 8:
             raise RuntimeValidationError("delivery attempts exceed the bounded budget")
+        if self.repair_cycle < 0:
+            raise RuntimeValidationError("delivery repair cycle is invalid")
         if self.safe_error_code and not re.fullmatch(
             r"[a-z][a-z0-9_-]{0,63}", self.safe_error_code
         ):

@@ -68,6 +68,23 @@ and suppresses later event/terminal writes. The client maps `401`, `409`,
 `422`, `429`, and `503` responses to typed errors; a lost claim response keeps
 the same `claim_id` reserved until the replay succeeds.
 
+Runtime-authored events use sequences through 100000. Sequence 100001 is
+reserved for the nonretryable `event_budget_exhausted` terminal event; the
+worker closes Hermes before sending it and never starts a replacement
+execution.
+If both identical failure requests lose their responses, the worker leaves
+the lease unresolved. A committed failure is already terminal; otherwise
+claim-time lease expiry publishes one nonretryable `lease_expired` terminal
+at the reserved sequence, without replaying the execution.
+
+Foundry delivery retains the canonical event source for repair. After eight
+retryable attempts it rebuilds and verifies the envelope, reuses
+`PENDING` after a 300-second delay, and fences callbacks with the repair cycle
+and attempt. Three automatic repair cycles are bounded. The
+`redrive_event_deliveries` management command validates selected delivery or
+event IDs without changing state; `--confirm` is required to redrive an
+exhausted row.
+
 Idle claim polling starts at one second and grows exponentially through 2, 4,
 8, and 10 seconds with bounded jitter. A claimed execution or a recovered
 retryable claim response resets the delay; active slots refill immediately when

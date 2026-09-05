@@ -25,6 +25,10 @@ MAX_EVENT_TEXT_BYTES = 16 * 1024
 MAX_EVENT_ENVELOPE_BYTES = 64 * 1024
 MAX_EVENT_DEDUPE_KEY_LENGTH = 255
 MAX_CONTRACT_LIFETIME_SECONDS = 60
+# Sequence 100001 is reserved for the single terminal event emitted when the
+# runtime exhausts its ordinary event budget.
+MAX_RUNTIME_EVENT_SEQUENCE = 100000
+MAX_TERMINAL_SEQUENCE = 100001
 
 _FINGERPRINT_RE = f"^{FINGERPRINT_PREFIX}[0-9a-f]{{64}}$"
 
@@ -61,7 +65,7 @@ class FoundryCorrelation(ContractModel):
     execution_id: UUID
     attempt_id: UUID
     generation: StrictInt = Field(..., ge=0, le=2_147_483_647)
-    attempt_sequence: StrictInt = Field(..., ge=1, le=513)
+    attempt_sequence: StrictInt = Field(..., ge=1, le=MAX_TERMINAL_SEQUENCE)
 
 
 class ExecutionCommand(ContractModel):
@@ -216,6 +220,10 @@ def validate_fingerprint(value: str) -> str:
 
 
 def validate_event(event: FoundryEventEnvelope) -> FoundryEventEnvelope:
+    if event.foundry.attempt_sequence > _event_sequence_limit(event.event_type):
+        raise RuntimeValidationError(
+            "event exceeds the bounded Cloud projection budget"
+        )
     expected = event_fingerprint(event)
     if event.fingerprint != expected:
         raise RuntimeValidationError("event fingerprint does not match its envelope")
@@ -260,12 +268,8 @@ def build_event_envelope(execution, attempt, event) -> FoundryEventEnvelope | No
     )
     if any(value in (None, "") for value in required):
         return None
-    terminal = event_type in {
-        "execution.completed",
-        "execution.stopped",
-        "execution.failed",
-    }
-    if event.sequence > (513 if terminal else 512):
+    maximum_sequence = _event_sequence_limit(event_type)
+    if event.sequence > maximum_sequence:
         raise RuntimeValidationError(
             "event exceeds the bounded Cloud projection budget"
         )
@@ -311,6 +315,15 @@ def _validate_times(issued_at: datetime, deadline_at: datetime) -> None:
     lifetime = (deadline_at - issued_at).total_seconds()
     if lifetime <= 0 or lifetime > MAX_CONTRACT_LIFETIME_SECONDS:
         raise RuntimeValidationError("command deadline is outside the bounded window")
+
+
+def _event_sequence_limit(event_type: str) -> int:
+    return (
+        MAX_TERMINAL_SEQUENCE
+        if event_type
+        in {"execution.completed", "execution.stopped", "execution.failed"}
+        else MAX_RUNTIME_EVENT_SEQUENCE
+    )
 
 
 def _validate_utf8_size(value: str, limit: int, name: str) -> None:
@@ -418,6 +431,8 @@ __all__ = [
     "COMMAND_KIND",
     "CONTRACT_VERSION",
     "EVENT_KIND",
+    "MAX_RUNTIME_EVENT_SEQUENCE",
+    "MAX_TERMINAL_SEQUENCE",
     "CloudCorrelation",
     "EventDeliveryReceipt",
     "ExecutionCommand",

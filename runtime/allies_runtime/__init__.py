@@ -18,6 +18,8 @@ from .coordinator import ProfileProofCoordinator, ProfileProofResult
 from .evidence import EvidenceReport, VolumeVisibility, sanitize_value
 from .fake import FakeFoundryTransport
 from .foundry import (
+    MAX_RUNTIME_EVENT_SEQUENCE,
+    MAX_TERMINAL_SEQUENCE,
     EventReceipt,
     FoundryClaim,
     FoundryClient,
@@ -62,6 +64,8 @@ from .smoke import SmokeResult, run_smoke, run_smoke_sync
 
 __all__ = [
     "DEFAULT_CREDENTIAL_SOCKET",
+    "MAX_RUNTIME_EVENT_SEQUENCE",
+    "MAX_TERMINAL_SEQUENCE",
     "TEST_CREDENTIAL_PREFIX",
     "CancellableHermesStream",
     "CleanupResult",

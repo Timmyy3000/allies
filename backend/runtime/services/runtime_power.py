@@ -10,8 +10,8 @@ from django.conf import settings
 from django.db import transaction
 from django.db.models import Case, Exists, IntegerField, OuterRef, Value, When
 from django.utils import timezone
-from observability.events import build_event, emit_event
 
+from observability.events import build_event, emit_event
 from runtime.exceptions import RuntimeConflictError
 from runtime.models import (
     IN_FLIGHT_PROVISIONING_PHASES,

@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from django.db import transaction
 from django.utils import timezone
 
+from runtime.contracts import MAX_TERMINAL_SEQUENCE
 from runtime.exceptions import (
     RuntimeFencedError,
     RuntimeIdempotencyConflictError,
@@ -193,6 +194,7 @@ def _finish_attempt(
                 token_digest=lease_digest,
                 machine_generation=context.machine_generation,
                 stream_id=terminal_event["stream_id"],
+                allow_reserved_terminal_sequence=True,
             )
         receipt_id = uuid4()
         status = terminal_status
@@ -252,10 +254,10 @@ def _terminal_event(value: dict | None, event_type: str) -> dict | None:
     if (
         isinstance(sequence, bool)
         or not isinstance(sequence, int)
-        or not 1 <= sequence <= 513
+        or not 1 <= sequence <= MAX_TERMINAL_SEQUENCE
     ):
         raise RuntimeValidationError(
-            "terminal sequence must be an integer from 1 to 513"
+            f"terminal sequence must be an integer from 1 to {MAX_TERMINAL_SEQUENCE}"
         )
     payload = validate_object_payload(
         value.get("payload"), max_bytes=MAX_EVENT_PAYLOAD_BYTES

@@ -101,6 +101,16 @@ Runtime-authored events remain capped at sequence 100000. Sequence 100001 is
 reserved for this server-owned terminal recovery event, so even an attempt at
 the durable event ceiling can be retired safely.
 
+Foundry event delivery keeps the canonical envelope in a bounded outbox until
+the Cloud receipt is accepted. Eight attempts form one delivery cycle. If the
+eighth retryable attempt or its lease expires, the retained `ExecutionEvent`
+is rebuilt and fingerprint-checked, the existing row returns to `PENDING`, and
+the next cycle is delayed by 300 seconds. Three automatic repair cycles are
+allowed; a stale completion callback is ignored when either its attempt or
+repair-cycle fence no longer matches. An operator can inspect selected
+delivery or event IDs with the redrive command (dry-run by default) and must
+pass `--confirm` to advance an exhausted row to a new fenced cycle.
+
 If no runtime is polling, the safe durable state remains in PostgreSQL until a
 runtime restarts and makes its next claim; no separate reaper is required.
 

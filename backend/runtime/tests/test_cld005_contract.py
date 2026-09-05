@@ -12,6 +12,9 @@ from django.test import Client
 from django.utils import timezone
 
 from runtime.contracts import (
+    FINGERPRINT_PREFIX,
+    MAX_RUNTIME_EVENT_SEQUENCE,
+    MAX_TERMINAL_SEQUENCE,
     ExecutionCommand,
     FoundryEventEnvelope,
     build_event_envelope,
@@ -40,6 +43,7 @@ from runtime.services.event_delivery import (
     claim_event_deliveries,
     mark_event_delivery,
     publish_pending_event_deliveries,
+    redrive_event_deliveries,
 )
 from runtime.services.events import append_runtime_event
 from runtime.services.executions import create_execution_intent
@@ -167,9 +171,7 @@ def test_optional_bootstrap_is_fingerprinted_and_legacy_shape_stays_compatible(
         validate_command(invalid)
 
 
-def test_bootstrap_is_persisted_and_claimed_as_an_immutable_payload(
-    binding, contract
-):
+def test_bootstrap_is_persisted_and_claimed_as_an_immutable_payload(binding, contract):
     workspace, profile = binding
     ConversationBinding.objects.filter(profile=profile).update(hermes_session_id=None)
     data = json.loads(json.dumps(contract["command"]))
@@ -180,9 +182,7 @@ def test_bootstrap_is_persisted_and_claimed_as_an_immutable_payload(
         "text": "Hi, I'm Nova.",
     }
     command = ExecutionCommand.model_validate(data)
-    command = command.model_copy(
-        update={"fingerprint": command_fingerprint(command)}
-    )
+    command = command.model_copy(update={"fingerprint": command_fingerprint(command)})
 
     receipt = create_execution_intent(command)
     assert receipt.status == "accepted"
@@ -190,7 +190,9 @@ def test_bootstrap_is_persisted_and_claimed_as_an_immutable_payload(
     assert execution.input_payload["bootstrap"]["text"] == "Hi, I'm Nova."
 
     issued = issue_runtime_credential(workspace.id, "runtime-contract-token")
-    claim = claim_next_execution(authenticate_runtime_token(issued.raw_token), uuid4(), 1)
+    claim = claim_next_execution(
+        authenticate_runtime_token(issued.raw_token), uuid4(), 1
+    )
     assert claim is not None
     assert claim.payload["bootstrap"]["message_id"] == (
         "8ef84387-581e-4e6f-a31d-6fbca75d95f4"
@@ -200,10 +202,16 @@ def test_bootstrap_is_persisted_and_claimed_as_an_immutable_payload(
     assert execution.input_payload["bootstrap"]["text"] == "Hi, I'm Nova."
 
 
-def test_cloud_projection_budget_allows_only_terminal_sequence_513(delivery):
+def test_cloud_projection_budget_reserves_only_terminal_sequence_100001(delivery):
     event = delivery.event
-    event.sequence = 513
+    event.sequence = MAX_RUNTIME_EVENT_SEQUENCE
     event.event_type = "message.delta"
+    event.payload = {"text": "last ordinary event"}
+    envelope = build_event_envelope(event.attempt.execution, event.attempt, event)
+    assert envelope is not None
+    assert envelope.foundry.attempt_sequence == MAX_RUNTIME_EVENT_SEQUENCE
+
+    event.sequence = MAX_RUNTIME_EVENT_SEQUENCE + 1
     event.payload = {"text": "beyond the non-terminal budget"}
     with pytest.raises(RuntimeValidationError, match="projection budget"):
         build_event_envelope(event.attempt.execution, event.attempt, event)
@@ -212,9 +220,9 @@ def test_cloud_projection_budget_allows_only_terminal_sequence_513(delivery):
     event.payload = {"run_id": "run-1", "status": "completed"}
     envelope = build_event_envelope(event.attempt.execution, event.attempt, event)
     assert envelope is not None
-    assert envelope.foundry.attempt_sequence == 513
+    assert envelope.foundry.attempt_sequence == MAX_TERMINAL_SEQUENCE
 
-    event.sequence = 514
+    event.sequence = MAX_TERMINAL_SEQUENCE + 1
     with pytest.raises(RuntimeValidationError, match="projection budget"):
         build_event_envelope(event.attempt.execution, event.attempt, event)
 
@@ -597,6 +605,7 @@ def test_event_delivery_fences_a_late_lease_result(delivery):
         mark_event_delivery(
             delivery.id,
             attempt=first.attempt,
+            repair_cycle=first.repair_cycle,
             success=True,
             now=first_now + timedelta(seconds=1),
         )
@@ -609,6 +618,7 @@ def test_event_delivery_fences_a_late_lease_result(delivery):
     marked = mark_event_delivery(
         delivery.id,
         attempt=second.attempt,
+        repair_cycle=second.repair_cycle,
         success=True,
         now=first_now + timedelta(seconds=1),
     )
@@ -616,6 +626,255 @@ def test_event_delivery_fences_a_late_lease_result(delivery):
     assert marked.state == "delivered"
     assert marked.envelope_bytes == b""
     assert marked.byte_length == 0
+
+
+def test_event_delivery_repairs_after_eighth_retry_with_cycle_and_delay(
+    delivery, settings, monkeypatch
+):
+    first_now = timezone.now()
+    original_envelope = bytes(delivery.envelope_bytes)
+    original_event_id = delivery.event.event_id
+    original_execution_id = delivery.event.attempt.execution_id
+    execution_count = Execution.objects.count()
+    event_count = ExecutionEvent.objects.count()
+    current_now = first_now
+    claim = None
+    for _ in range(event_delivery.MAX_DELIVERY_ATTEMPTS):
+        claims = claim_event_deliveries(now=current_now)
+        assert len(claims) == 1
+        claim = claims[0]
+        marked = mark_event_delivery(
+            claim.delivery_id,
+            attempt=claim.attempt,
+            repair_cycle=claim.repair_cycle,
+            success=False,
+            safe_error_code="delivery_unavailable",
+            now=current_now,
+        )
+        assert marked is not None
+        current_now += timedelta(seconds=event_delivery.MAX_DELIVERY_BACKOFF_SECONDS)
+
+    assert claim is not None
+    delivery.refresh_from_db()
+    assert delivery.state == "pending"
+    assert delivery.repair_cycle == 1
+    assert delivery.delivery_attempts == 0
+    assert delivery.next_attempt_at == current_now - timedelta(
+        seconds=event_delivery.MAX_DELIVERY_BACKOFF_SECONDS
+    ) + timedelta(seconds=event_delivery.REPAIR_DELAY_SECONDS)
+    assert delivery.envelope_bytes
+
+    assert claim_event_deliveries(now=first_now + timedelta(seconds=1)) == ()
+
+    settings.ALLIES_CLOUD_EVENT_DELIVERY_ENABLED = True
+    sent = []
+    monkeypatch.setattr(
+        event_delivery,
+        "_post_to_cloud",
+        lambda body: sent.append(bytes(body)) or (202, ""),
+    )
+    delivery.next_attempt_at = timezone.now() - timedelta(seconds=1)
+    delivery.save(update_fields=["next_attempt_at", "updated_at"])
+    report = publish_pending_event_deliveries()
+
+    delivery.refresh_from_db()
+    assert report.claimed == 1
+    assert report.delivered == 1
+    assert report.recovered == 1
+    assert delivery.state == "delivered"
+    assert sent == [original_envelope]
+    assert delivery.event.event_id == original_event_id
+    assert delivery.event.attempt.execution_id == original_execution_id
+    assert Execution.objects.count() == execution_count
+    assert ExecutionEvent.objects.count() == event_count
+
+
+def test_event_delivery_repair_evidence_is_scoped_to_claimed_rows(
+    delivery, settings, monkeypatch
+):
+    _configure_delivery(settings)
+    delivery.state = event_delivery.EventDeliveryState.DELIVERED
+    delivery.repair_cycle = 1
+    delivery.delivered_at = timezone.now()
+    delivery.envelope_bytes = b""
+    delivery.byte_length = 0
+    delivery.save(
+        update_fields=[
+            "state",
+            "repair_cycle",
+            "delivered_at",
+            "envelope_bytes",
+            "byte_length",
+            "updated_at",
+        ]
+    )
+
+    monkeypatch.setattr(
+        event_delivery,
+        "_post_to_cloud",
+        lambda _body: (503, "delivery_unavailable"),
+    )
+
+    report = publish_pending_event_deliveries()
+
+    assert report.claimed == 0
+    assert report.recovered == 0
+    assert report.repair_pending == 0
+
+
+def test_event_delivery_parks_after_three_automatic_repair_cycles(delivery):
+    current_now = timezone.now()
+    for cycle in range(event_delivery.MAX_AUTOMATIC_REPAIR_CYCLES + 1):
+        delivery.refresh_from_db()
+        if delivery.state == "pending":
+            delivery.next_attempt_at = current_now
+            delivery.save(update_fields=["next_attempt_at", "updated_at"])
+        for _ in range(event_delivery.MAX_DELIVERY_ATTEMPTS):
+            claim = claim_event_deliveries(now=current_now)[0]
+            marked = mark_event_delivery(
+                claim.delivery_id,
+                attempt=claim.attempt,
+                repair_cycle=claim.repair_cycle,
+                success=False,
+                safe_error_code="delivery_unavailable",
+                now=current_now,
+            )
+            assert marked is not None
+            current_now += timedelta(seconds=event_delivery.REPAIR_DELAY_SECONDS)
+            if marked.state == "exhausted":
+                break
+        delivery.refresh_from_db()
+        if delivery.state == "exhausted":
+            break
+
+    delivery.refresh_from_db()
+    assert delivery.state == "exhausted"
+    assert delivery.repair_cycle == event_delivery.MAX_AUTOMATIC_REPAIR_CYCLES
+    assert delivery.envelope_bytes == b""
+
+
+def test_event_delivery_manual_redrive_is_dry_run_then_fences_old_claim(
+    delivery, settings, monkeypatch
+):
+    first_now = timezone.now()
+    original_envelope = bytes(delivery.envelope_bytes)
+    execution_count = Execution.objects.count()
+    event_count = ExecutionEvent.objects.count()
+    old_claim = claim_event_deliveries(now=first_now)[0]
+    mark_event_delivery(
+        delivery.id,
+        attempt=old_claim.attempt,
+        repair_cycle=old_claim.repair_cycle,
+        success=False,
+        terminal=True,
+        safe_error_code="conflict",
+        now=first_now,
+    )
+
+    dry_run = redrive_event_deliveries(event_ids=(delivery.event.event_id,))
+    assert dry_run.validated == 1
+    assert dry_run.redriven == 0
+    output = StringIO()
+    call_command(
+        "redrive_event_deliveries",
+        "--event-id",
+        str(delivery.event.event_id),
+        stdout=output,
+    )
+    assert "dry-run: validated 1" in output.getvalue()
+    delivery.refresh_from_db()
+    assert delivery.state == "exhausted"
+    assert delivery.envelope_bytes == b""
+
+    output = StringIO()
+    call_command(
+        "redrive_event_deliveries", str(delivery.id), "--confirm", stdout=output
+    )
+    assert "redriven 1" in output.getvalue()
+    delivery.refresh_from_db()
+    assert delivery.state == "pending"
+    assert delivery.repair_cycle == 1
+    assert delivery.delivery_attempts == 0
+    assert delivery.envelope_bytes
+    assert (
+        mark_event_delivery(
+            delivery.id,
+            attempt=old_claim.attempt,
+            repair_cycle=old_claim.repair_cycle,
+            success=True,
+            now=first_now,
+        )
+        is None
+    )
+    settings.ALLIES_CLOUD_EVENT_DELIVERY_ENABLED = True
+    sent = []
+    monkeypatch.setattr(
+        event_delivery,
+        "_post_to_cloud",
+        lambda body: sent.append(bytes(body)) or (202, ""),
+    )
+    report = publish_pending_event_deliveries()
+    delivery.refresh_from_db()
+    assert report.delivered == 1
+    assert report.recovered == 1
+    assert delivery.state == "delivered"
+    assert sent == [original_envelope]
+    repeated = redrive_event_deliveries(delivery_ids=(delivery.id,), confirm=True)
+    assert repeated.redriven == 0
+    assert repeated.skipped == 1
+    assert Execution.objects.count() == execution_count
+    assert ExecutionEvent.objects.count() == event_count
+
+
+def test_event_delivery_expired_eighth_claim_enters_delayed_repair(delivery):
+    first_now = timezone.now()
+    first_claim = claim_event_deliveries(now=first_now)[0]
+    delivery.delivery_attempts = event_delivery.MAX_DELIVERY_ATTEMPTS
+    delivery.state = "delivering"
+    delivery.lease_expires_at = first_now - timedelta(seconds=1)
+    delivery.next_attempt_at = first_now
+    delivery.save(
+        update_fields=[
+            "delivery_attempts",
+            "state",
+            "lease_expires_at",
+            "next_attempt_at",
+            "updated_at",
+        ]
+    )
+
+    assert claim_event_deliveries(now=first_now) == ()
+    delivery.refresh_from_db()
+    assert delivery.state == "pending"
+    assert delivery.repair_cycle == 1
+    assert delivery.delivery_attempts == 0
+    assert delivery.next_attempt_at == first_now + timedelta(
+        seconds=event_delivery.REPAIR_DELAY_SECONDS
+    )
+    assert (
+        mark_event_delivery(
+            delivery.id,
+            attempt=first_claim.attempt,
+            repair_cycle=first_claim.repair_cycle,
+            success=True,
+            now=first_now,
+        )
+        is None
+    )
+
+
+def test_event_delivery_redrive_rejects_source_fingerprint_mismatch(delivery):
+    bad_fingerprint = FINGERPRINT_PREFIX + "f" * 64
+    ExecutionEventDelivery.objects.filter(pk=delivery.id).update(
+        fingerprint=bad_fingerprint
+    )
+
+    with pytest.raises(RuntimeConflictError, match="fingerprint"):
+        redrive_event_deliveries(delivery_ids=(delivery.id,))
+
+    delivery.refresh_from_db()
+    assert delivery.state == "pending"
+    assert delivery.delivery_attempts == 0
 
 
 @pytest.mark.parametrize("cloud_status", ["sequence_gap", "conflict"])
@@ -704,13 +963,17 @@ def test_event_delivery_command_bounds_power_work_around_delivery(monkeypatch):
     command_path = "runtime.management.commands.publish_event_deliveries"
     monkeypatch.setattr(
         f"{command_path}.process_runtime_wakes",
-        lambda *, limit: calls.append(("wake", limit))
-        or type("Wake", (), {"started": 0, "failed": 0, "unavailable": 1})(),
+        lambda *, limit: (
+            calls.append(("wake", limit))
+            or type("Wake", (), {"started": 0, "failed": 0, "unavailable": 1})()
+        ),
     )
     monkeypatch.setattr(
         f"{command_path}.publish_pending_event_deliveries",
-        lambda *, limit: calls.append(("delivery", limit))
-        or event_delivery.DeliveryReport(delivered=0),
+        lambda *, limit: (
+            calls.append(("delivery", limit))
+            or event_delivery.DeliveryReport(delivered=0)
+        ),
     )
     monkeypatch.setattr(
         f"{command_path}.cleanup_runtime_intents",
@@ -718,8 +981,10 @@ def test_event_delivery_command_bounds_power_work_around_delivery(monkeypatch):
     )
     monkeypatch.setattr(
         f"{command_path}.stop_idle_workspaces",
-        lambda *, limit: calls.append(("idle", limit))
-        or type("Idle", (), {"stopped": 0, "unavailable": 2})(),
+        lambda *, limit: (
+            calls.append(("idle", limit))
+            or type("Idle", (), {"stopped": 0, "unavailable": 2})()
+        ),
     )
 
     output = StringIO()

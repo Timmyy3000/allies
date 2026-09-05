@@ -6,6 +6,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from runtime.contracts import MAX_RUNTIME_EVENT_SEQUENCE, MAX_TERMINAL_SEQUENCE
 from runtime.exceptions import (
     RuntimeAuthorizationError,
     RuntimeConflictError,
@@ -27,6 +28,9 @@ _EVENT_WRITABLE_ATTEMPT_STATUSES = frozenset(
 )
 _SERVER_EVENT_NAMESPACE = uuid5(NAMESPACE_URL, "allies-foundry:server-owned-events:v1")
 _LEASE_EXPIRY_FAILURE_CODE = "lease_expired"
+_TERMINAL_EVENT_TYPES = frozenset(
+    {"execution.completed", "execution.failed", "execution.stopped"}
+)
 
 
 def _append_lease_expired_failure(attempt: Attempt, lease: Lease) -> ExecutionEvent:
@@ -80,6 +84,8 @@ def _append_lease_expired_failure(attempt: Attempt, lease: Lease) -> ExecutionEv
         .first()
     )
     sequence = (latest.sequence if latest is not None else 0) + 1
+    if sequence > MAX_TERMINAL_SEQUENCE:
+        raise RuntimeConflictError("terminal event sequence budget is exhausted")
     payload_digest = digest_payload(payload)
     event = ExecutionEvent.objects.create(
         attempt_id=attempt.id,
@@ -243,6 +249,7 @@ def _append_event_once(
     token_digest: str | None = None,
     machine_generation: int | None = None,
     stream_id: str = "",
+    allow_reserved_terminal_sequence: bool = False,
 ) -> ExecutionEvent:
     """Append an ordered event after lease/generation authorization.
 
@@ -256,13 +263,20 @@ def _append_event_once(
         event_uuid = UUID(str(event_id))
     except (TypeError, ValueError) as exc:
         raise RuntimeValidationError("event_id must be a UUID") from exc
+    maximum_sequence = (
+        MAX_TERMINAL_SEQUENCE
+        if allow_reserved_terminal_sequence and event_type in _TERMINAL_EVENT_TYPES
+        else MAX_RUNTIME_EVENT_SEQUENCE
+    )
     if (
         isinstance(sequence, bool)
         or not isinstance(sequence, int)
         or sequence <= 0
-        or sequence > 100000
+        or sequence > maximum_sequence
     ):
-        raise RuntimeValidationError("sequence must be an integer from 1 to 100000")
+        raise RuntimeValidationError(
+            f"sequence must be an integer from 1 to {maximum_sequence}"
+        )
     validate_nonempty(event_type, "event_type", max_length=64)
     if stream_id:
         validate_nonempty(stream_id, "stream_id", max_length=255)
