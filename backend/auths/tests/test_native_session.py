@@ -437,7 +437,8 @@ def test_manual_callback_http_page_is_private_and_escapes_code(fixture_provider)
     assert "default-src 'none'" in csp
     assert "script-src 'nonce-" in csp
     assert "Copy sign-in code" in body
-    assert "readonly" in body
+    assert '<code id="sign-in-code"' in body
+    assert "<input" not in body
     exchange = NativeExchangeCode.objects.get()
     raw_code = native_authorization._unseal(
         exchange.code_sealed,
@@ -459,8 +460,10 @@ def test_manual_callback_http_page_is_private_and_escapes_code(fixture_provider)
     assert "&lt;/textarea&gt;&lt;script&gt;" in escaped_body
     assert "const deadline = Date.now() + " in escaped_body
     assert "window.setInterval" in escaped_body
-    assert 'input.value = "";' in escaped_body
-    assert "input.disabled = true;" in escaped_body
+    assert 'code.textContent = "";' in escaped_body
+    assert "navigator.clipboard.writeText(code.textContent)" in escaped_body
+    assert "range.selectNodeContents(code)" in escaped_body
+    assert "if (selection) {" in escaped_body
     assert "button.disabled = true;" in escaped_body
 
     expired_page = native_api._manual_callback_response(
@@ -471,7 +474,7 @@ def test_manual_callback_http_page_is_private_and_escapes_code(fixture_provider)
         )
     )
     expired_body = expired_page.content.decode()
-    assert '<input id="sign-in-code"' not in expired_body
+    assert 'id="sign-in-code"' not in expired_body
     assert "expired-code" not in expired_body
     assert "expired or was already used" in expired_body
 
@@ -483,7 +486,7 @@ def test_manual_callback_http_page_is_private_and_escapes_code(fixture_provider)
     )
     failure_body = failure.content.decode()
     assert failure.status_code == 200
-    assert '<input id="sign-in-code"' not in failure_body
+    assert 'id="sign-in-code"' not in failure_body
     assert "expired or was already used" in failure_body
     assert "Location" not in failure
 
