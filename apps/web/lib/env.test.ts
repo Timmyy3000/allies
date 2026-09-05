@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { parseWebEnvironment } from "./env";
+import { getActivitySseEnabled, parseWebEnvironment } from "./env";
 
 describe("web environment", () => {
   it("defaults waitlist enablement off and consent empty", () => {
@@ -46,5 +46,15 @@ describe("web environment", () => {
         waitlistConsentVersion: "waitlist-v1",
       }),
     ).toThrow();
+  });
+
+  it("keeps activity SSE opt-in", () => {
+    vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "");
+    expect(getActivitySseEnabled()).toBe(false);
+    vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");
+    expect(getActivitySseEnabled()).toBe(true);
+    vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "false");
+    expect(getActivitySseEnabled()).toBe(false);
+    vi.unstubAllEnvs();
   });
 });

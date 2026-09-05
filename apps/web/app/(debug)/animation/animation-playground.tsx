@@ -15,7 +15,6 @@ import {
   AllyAvatar,
   DEFAULT_ALLY_COLOR,
   getAllyAsset,
-  normalizeAllyAnimationState,
   normalizeAllyColor,
   type AllyAnimationState,
   type AllyMotionMode,
@@ -48,8 +47,8 @@ const COLOR_SWATCHES = [
 
 const HEX_COLOR = /^#(?:[\da-f]{3}|[\da-f]{4}|[\da-f]{6}|[\da-f]{8})$/i;
 
-function formatState(state: AllyAnimationState) {
-  return state === "thinking" ? "Thinking" : "Idle";
+function formatState(state: string) {
+  return ({ idle: "Idle", thinking: "Thinking", sleeping: "Sleeping", waking: "Waking", "falling-asleep": "Falling asleep" } as Record<string, string>)[state] ?? "Idle";
 }
 
 function formatMotion(mode: AllyMotionMode) {
@@ -65,12 +64,12 @@ export default function AnimationPlayground() {
   const [motionMode, setMotionMode] = useState<AllyMotionMode>("full");
   const [colorDraft, setColorDraft] = useState(DEFAULT_ALLY_COLOR);
   const [activeState, setActiveState] =
-    useState<AllyAnimationState>(requestedState);
+    useState<string>(requestedState);
   const [events, setEvents] = useState([
     "Ready — waiting for a state request",
   ]);
   const stageRef = useRef<HTMLDivElement>(null);
-  const activeStateRef = useRef<AllyAnimationState>(requestedState);
+  const activeStateRef = useRef<string>(requestedState);
 
   const activeColor = normalizeAllyColor(colorDraft);
   const colorIsValid = HEX_COLOR.test(colorDraft.trim());
@@ -97,9 +96,7 @@ export default function AnimationPlayground() {
     if (!avatar) return;
 
     const syncFromAvatar = () => {
-      const nextState = normalizeAllyAnimationState(
-        avatar.dataset.allyState,
-      );
+      const nextState = avatar.dataset.allyState ?? "idle";
       if (nextState === activeStateRef.current) return;
       activeStateRef.current = nextState;
       setActiveState(nextState);
@@ -292,7 +289,7 @@ export default function AnimationPlayground() {
                     }}
                   >
                     {formatState(option)}
-                    <span>{option === "idle" ? "4.000s" : "4.502s"}</span>
+                    <span>{(ALLY_ANIMATION_CYCLE_MS[option] / 1000).toFixed(3)}s</span>
                   </button>
                 ))}
               </div>

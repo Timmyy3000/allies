@@ -34,6 +34,22 @@ import { csrfTokenSchema, externalHttpsUrlSchema, type CloudCsrfToken } from "./
 import { createControlledFetch } from "./transport";
 
 const CloudRequest = globalThis.Request;
+const CHAT_READ_MAX_JSON_BYTES = 48 * 1024 * 1024;
+
+function isChatReadRequest(request: Request): boolean {
+  if (request.method !== "GET") return false;
+  let pathname: string;
+  try {
+    pathname = new URL(request.url).pathname;
+  } catch {
+    return false;
+  }
+  return [
+    /\/api\/v1\/workspaces\/[^/]+\/allies\/[^/]+\/conversation$/u,
+    /\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+$/u,
+    /\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/activities$/u,
+  ].some((pattern) => pattern.test(pathname));
+}
 
 const successEnvelope = <T extends z.ZodType>(data: T) =>
   z.object({ status: z.literal("success"), message: z.string(), data }).loose();
@@ -324,6 +340,9 @@ export function createCloudClient(options: CloudClientOptions) {
     prepareRequest: options.prepareRequest,
     timeoutMs: options.timeoutMs,
     maxJsonBytes: options.maxJsonBytes,
+    maxJsonBytesForRequest: options.maxJsonBytes === undefined
+      ? (request) => isChatReadRequest(request) ? CHAT_READ_MAX_JSON_BYTES : undefined
+      : undefined,
   });
   const api = createOpenApiClient<paths>({ baseUrl, fetch: controlledFetch, Request: CloudRequest });
 

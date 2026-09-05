@@ -173,9 +173,8 @@ export function OnboardingStateProvider({
     initialStep,
     (step): OnboardingState => ({ ...INITIAL_STATE, step }),
   );
-  const store = useMemo<OnboardingStore>(
+  const actions = useMemo<OnboardingActions>(
     () => ({
-      ...state,
       setName: (name) => dispatch({ type: "setName", name }),
       setShape: (shape) => dispatch({ type: "setShape", shape }),
       markSwiped: () => dispatch({ type: "markSwiped" }),
@@ -187,7 +186,11 @@ export function OnboardingStateProvider({
       goTo: (step) => dispatch({ type: "goTo", step }),
       back: () => dispatch({ type: "back" }),
     }),
-    [state],
+    [],
+  );
+  const store = useMemo<OnboardingStore>(
+    () => ({ ...state, ...actions }),
+    [actions, state],
   );
 
   return createElement(OnboardingStoreContext.Provider, { value: store }, children);

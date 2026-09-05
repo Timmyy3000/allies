@@ -83,11 +83,26 @@ const messageResponseSchema = z
   })
   .loose();
 
+export const assistantReplyResponseSchema = z
+  .object({
+    id: uuidSchema,
+    source_message_id: uuidSchema,
+    conversation_turn_ordinal: z.number().int().positive(),
+    content: z.string(),
+    status: messageStatusSchema,
+    has_full_prefix: z.boolean(),
+    is_truncated: z.boolean().default(false),
+    created_at: timestampSchema,
+    updated_at: timestampSchema,
+  })
+  .loose();
+
 export const conversationResponseSchema = z
   .object({
     id: uuidSchema,
     ally_id: uuidSchema,
     messages: z.array(messageResponseSchema),
+    assistant_replies: z.array(assistantReplyResponseSchema).default([]),
     next_cursor: z.string().min(1).max(512).nullable().optional(),
   })
   .loose();
@@ -126,6 +141,7 @@ export const activitySnapshotResponseSchema = z
     oldest_sequence: z.number().int().nonnegative().nullable().optional(),
     latest_sequence: z.number().int().nonnegative().nullable().optional(),
     retention_gap: z.boolean().optional(),
+    assistant_reply: assistantReplyResponseSchema.nullable().optional(),
   })
   .loose();
 
@@ -192,10 +208,23 @@ export interface MessageViewModel {
   retryable?: boolean;
 }
 
+export interface AssistantReplyViewModel {
+  id: string;
+  sourceMessageId: string;
+  conversationTurnOrdinal: number;
+  content: string;
+  status: MessageStatus;
+  hasFullPrefix: boolean;
+  isTruncated?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ConversationViewModel {
   id: string;
   allyId: string;
   messages: MessageViewModel[];
+  assistantReplies: AssistantReplyViewModel[];
   nextCursor: string | null;
 }
 
@@ -228,6 +257,7 @@ export interface ActivitySnapshotViewModel {
   oldestSequence?: number | null;
   latestSequence?: number | null;
   retentionGap?: boolean;
+  assistantReply?: AssistantReplyViewModel | null;
 }
 
 export function toAllyViewModel(input: unknown): AllyViewModel {
@@ -270,12 +300,28 @@ function toMessageViewModel(input: unknown): MessageViewModel {
   };
 }
 
+function toAssistantReplyViewModel(input: unknown): AssistantReplyViewModel {
+  const reply = assistantReplyResponseSchema.parse(input);
+  return {
+    id: reply.id,
+    sourceMessageId: reply.source_message_id,
+    conversationTurnOrdinal: reply.conversation_turn_ordinal,
+    content: reply.content,
+    status: reply.status,
+    hasFullPrefix: reply.has_full_prefix,
+    isTruncated: reply.is_truncated,
+    createdAt: reply.created_at,
+    updatedAt: reply.updated_at,
+  };
+}
+
 export function toConversationViewModel(input: unknown): ConversationViewModel {
   const conversation = conversationResponseSchema.parse(input);
   return {
     id: conversation.id,
     allyId: conversation.ally_id,
     messages: conversation.messages.map(toMessageViewModel),
+    assistantReplies: conversation.assistant_replies.map(toAssistantReplyViewModel),
     nextCursor: conversation.next_cursor ?? null,
   };
 }
@@ -318,6 +364,9 @@ export function toActivitySnapshotViewModel(input: unknown): ActivitySnapshotVie
     oldestSequence: snapshot.oldest_sequence ?? null,
     latestSequence: snapshot.latest_sequence ?? null,
     retentionGap: snapshot.retention_gap ?? false,
+    assistantReply: snapshot.assistant_reply
+      ? toAssistantReplyViewModel(snapshot.assistant_reply)
+      : null,
   };
 }
 

@@ -7,7 +7,13 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:chat-frames": "bun tests/chat-frames/verify-chat-frame-runtime.ts && bun tests/chat-frames/verify-chat-frame-manifest.ts --mode=prebaseline && bun tests/chat-frames/verify-production-bundle-boundary.ts",
+    "verify:chat-frames:prebaseline": "bun tests/chat-frames/verify-chat-frame-runtime.ts && bun tests/chat-frames/verify-chat-frame-manifest.ts --mode=prebaseline",
+    "verify:chat-frames:signoff": "bun tests/chat-frames/verify-chat-frame-runtime.ts && bun tests/chat-frames/verify-chat-frame-manifest.ts --mode=signoff && bun tests/chat-frames/verify-production-bundle-boundary.ts",
+    "test:chat-frames": "bun run verify:chat-frames && playwright test --config playwright.chat-frames.config.ts",
+    "test:chat-frames:update": "bun run verify:chat-frames:prebaseline && playwright test --config playwright.chat-frames.config.ts --project=chat-chromium --update-snapshots",
+    "test:ally-motion": "playwright test --config playwright.ally-motion.config.ts"
   },
   "dependencies": {
     "@allies/cloud-client": "workspace:*",
@@ -20,7 +26,8 @@
     "react-dom": "19.2.4",
     "streamdown": "^2.6.0",
     "zod": "^4.1.5",
-    "zustand": "^5.0.15"
+    "zustand": "^5.0.15",
+    "@allies/ally-motion": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

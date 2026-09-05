@@ -21,6 +21,7 @@ import { AuthReturnClient } from "./auth-return-client";
 afterEach(cleanup);
 beforeEach(() => {
   vi.clearAllMocks();
+  window.sessionStorage.clear();
   sessionMock.useSession.mockReset();
   navigationMock.useRouter.mockReturnValue({ replace: vi.fn() });
 });
@@ -40,6 +41,19 @@ describe("AuthReturnClient", () => {
     rerender(<AuthReturnClient returnTo="/account" />);
     expect(screen.getByRole("link", { name: "Sign in again" }).getAttribute("href"))
       .toBe("/sign-in?returnTo=%2Faccount");
+  });
+
+  it("sends a pending onboarding Google return to the base route", async () => {
+    const replace = vi.fn();
+    const restore = vi.fn(async () => undefined);
+    window.sessionStorage.setItem("allies.onboarding.resume.pending", "welcome");
+    navigationMock.useRouter.mockReturnValue({ replace });
+    sessionMock.useSession.mockReturnValue({ state: { status: "signed-in" }, restore });
+
+    render(<AuthReturnClient returnTo="/home" />);
+
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+    window.sessionStorage.clear();
   });
 
   it("replaces only with the server-selected safe return path", async () => {

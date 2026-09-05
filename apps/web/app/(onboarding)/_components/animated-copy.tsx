@@ -454,6 +454,7 @@ export function AnimatedCopy({
   renderActor,
   onComplete,
   skipRequest = 0,
+  startComplete = false,
 }: {
   paragraphs: CopyParagraph[];
   paragraphGap: number;
@@ -469,12 +470,13 @@ export function AnimatedCopy({
   ) => ReactNode;
   onComplete?: (done: boolean) => void;
   skipRequest?: number;
+  startComplete?: boolean;
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const lineRefs = useRef<Array<HTMLDivElement | null>>([]);
   const targetsRef = useRef<Position[]>([]);
   const sparkIdRef = useRef(0);
-  const [phase, setPhase] = useState<Phase>({ name: "intro" });
+  const [phase, setPhase] = useState<Phase>(startComplete ? { name: "done" } : { name: "intro" });
   const [revealChars, setRevealChars] = useState(0);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [targets, setTargets] = useState<Position[]>([]);
@@ -676,6 +678,11 @@ export function AnimatedCopy({
       window.removeEventListener("resize", getTargets);
     };
   }, [getTargets]);
+
+  useLayoutEffect(() => {
+    if (!startComplete) return;
+    parkAllActors();
+  }, [parkAllActors, startComplete]);
 
   useEffect(() => {
     if (!reducedMotion) return;

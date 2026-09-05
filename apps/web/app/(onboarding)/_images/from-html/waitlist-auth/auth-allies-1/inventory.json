@@ -1,0 +1,139 @@
+{
+  "source": "apps/web/waitlist-auth/_html/auth-allies-1.html",
+  "frame_style_snip": "background-color: #fff;overflow: hidden;width: 375px;min-width: 375px;max-width: 375px;min-height: 812px;max-height: 812px;position: relative;margin: 0px auto;",
+  "image_count": 4,
+  "images": [
+    {
+      "index": 0,
+      "alt": "Group",
+      "filename": "01-group.png",
+      "bytes": 490,
+      "path": "apps/web/app/(onboarding)/_images/from-html/waitlist-auth/auth-allies-1/01-group.png"
+    },
+    {
+      "index": 1,
+      "alt": "Vector",
+      "filename": "02-vector.png",
+      "bytes": 380,
+      "path": "apps/web/app/(onboarding)/_images/from-html/waitlist-auth/auth-allies-1/02-vector.png"
+    },
+    {
+      "index": 2,
+      "alt": "xmark (7) 1",
+      "filename": "03-xmark-7-1.png",
+      "bytes": 324,
+      "path": "apps/web/app/(onboarding)/_images/from-html/waitlist-auth/auth-allies-1/03-xmark-7-1.png"
+    },
+    {
+      "index": 3,
+      "alt": "Vector",
+      "filename": "04-vector.png",
+      "bytes": 372,
+      "path": "apps/web/app/(onboarding)/_images/from-html/waitlist-auth/auth-allies-1/04-vector.png"
+    }
+  ],
+  "top_level_children": [
+    {
+      "top": 649.0,
+      "left": 20.0,
+      "width": 335.0,
+      "height": 105.0,
+      "opacity": null,
+      "texts": [],
+      "img_count": 1,
+      "svg_count": 0,
+      "bytes": 1251
+    },
+    {
+      "top": 68.0,
+      "left": 20.0,
+      "width": 335.0,
+      "height": null,
+      "opacity": null,
+      "texts": [
+        "Sally Morano",
+        "\ud83c\udf1f What We Can Do Together",
+        "Chat Freely: Ask me questions about history, science, pop culture, or everyday facts.",
+        "Brainstorm Ideas: Outline your next big business project, travel itinerary, or workout plan."
+      ],
+      "img_count": 1,
+      "svg_count": 4,
+      "bytes": 7804
+    },
+    {
+      "top": 0.0,
+      "left": 0.0,
+      "width": 375.0,
+      "height": 812.0,
+      "opacity": 0.4,
+      "texts": [],
+      "img_count": 0,
+      "svg_count": 0,
+      "bytes": 221
+    },
+    {
+      "top": null,
+      "left": 0.0,
+      "width": null,
+      "height": 34.0,
+      "opacity": null,
+      "texts": [],
+      "img_count": 0,
+      "svg_count": 0,
+      "bytes": 262
+    },
+    {
+      "top": 0.0,
+      "left": 0.0,
+      "width": null,
+      "height": 44.0,
+      "opacity": null,
+      "texts": [
+        "9:41"
+      ],
+      "img_count": 0,
+      "svg_count": 3,
+      "bytes": 3901
+    },
+    {
+      "top": 352.0,
+      "left": 12.0,
+      "width": 351.0,
+      "height": 402.0,
+      "opacity": null,
+      "texts": [
+        "Your ally has been saved but you need to set up an account to use it.",
+        "By continuing, you agree to our",
+        "Terms of Service",
+        "and have read our",
+        "Privacy Policy",
+        "Sign up with Google",
+        "Create your",
+        "account"
+      ],
+      "img_count": 2,
+      "svg_count": 5,
+      "bytes": 12501
+    }
+  ],
+  "texts": [
+    "9:41",
+    "Brainstorm Ideas: Outline your next big business project, travel itinerary, or workout plan.",
+    "By continuing, you agree to our",
+    "Chat Freely: Ask me questions about history, science, pop culture, or everyday facts.",
+    "Create your",
+    "Privacy Policy",
+    "Sally Morano",
+    "Sign up with Google",
+    "Terms of Service",
+    "Your ally has been saved but you need to set up an account to use it.",
+    "account",
+    "and have read our",
+    "\ud83c\udf1f What We Can Do Together"
+  ],
+  "bans": [
+    "Do not use dangerouslySetInnerHTML for this design",
+    "Do not invent padding or substitute images",
+    "Convert every visible node to JSX"
+  ]
+}

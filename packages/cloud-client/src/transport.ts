@@ -8,6 +8,7 @@ export interface TransportOptions {
   prepareRequest?: (request: Request) => Request | Promise<Request>;
   timeoutMs?: number;
   maxJsonBytes?: number;
+  maxJsonBytesForRequest?: (request: Request) => number | undefined;
 }
 
 function transportError(kind: CloudError["kind"]): CloudError {
@@ -117,7 +118,10 @@ export function createControlledFetch(options: TransportOptions): typeof globalT
       if (callerSignal.aborted) throw transportError("aborted");
       if (timedOut) throw transportError("timeout");
       const response = await options.fetch(fetchRequest);
-      return await boundResponse(response, maxJsonBytes, controller.signal);
+      const responseMaxJsonBytes = options.maxJsonBytes === undefined
+        ? options.maxJsonBytesForRequest?.(fetchRequest) ?? maxJsonBytes
+        : maxJsonBytes;
+      return await boundResponse(response, responseMaxJsonBytes, controller.signal);
     } catch (error) {
       if (typeof error === "object" && error !== null && "kind" in error) throw error;
       if (callerSignal.aborted) throw transportError("aborted");

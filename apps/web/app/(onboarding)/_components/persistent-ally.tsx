@@ -18,6 +18,7 @@ const LAYOUT_TRANSITION: Transition = {
 };
 
 export const ONBOARDING_ALLY_LAYOUT_ID = "onboarding-ally";
+export const AUTH_SIGNUP_ALLY_LAYOUT_ID = "auth-signup-ally";
 
 export function PersistentAllyAvatar({
   shape,

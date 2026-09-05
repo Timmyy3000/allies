@@ -28,6 +28,7 @@ export type {
   ActivitySnapshotViewModel,
   ActivityState,
   ActivityViewModel,
+  AssistantReplyViewModel,
   AllyAppearanceViewModel,
   AllySeedInput,
   AllyViewModel,
@@ -43,6 +44,7 @@ export type {
 export { createCloudClient } from "./client";
 export { parseSafeReturnPath } from "./client";
 export {
+  assistantReplyResponseSchema,
   activitySnapshotResponseSchema,
   activityKindSchema,
   activityStateSchema,
