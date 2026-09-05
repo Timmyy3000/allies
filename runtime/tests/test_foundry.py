@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
+
 from allies_runtime import foundry as foundry_module
 from allies_runtime.errors import HermesError
 from allies_runtime.fake import FakeFoundryTransport, FakeHermesClient, FakeProfilePlan
@@ -311,6 +312,194 @@ async def test_worker_overlaps_profiles_and_completes_incremental_events():
         for call in transport.calls
         if "/events" in call[1] or "/complete" in call[1]
     )
+
+
+@pytest.mark.asyncio
+async def test_worker_forwards_a_long_stream_beyond_legacy_513_event_limit():
+    class LongHermes:
+        async def stream_profile_incremental(
+            self, profile_id, session_id, _message, *, session_key
+        ):
+            for sequence in range(762):
+                yield HermesEvent(
+                    name="message.delta",
+                    profile_id=profile_id,
+                    session_id=session_id,
+                    run_id="run-long",
+                    sequence=sequence + 1,
+                    payload={"text": "x"},
+                )
+            yield HermesEvent(
+                name="execution.completed",
+                profile_id=profile_id,
+                session_id=session_id,
+                run_id="run-long",
+                sequence=763,
+                payload={"run_id": "run-long", "status": "completed"},
+            )
+
+    responses = [CLAIM]
+    responses.extend(
+        [{"status": 202, "body": {"event_id": "event", "sequence": 1}}] * (1 + 762)
+    )
+    responses.extend(
+        [
+            {"session_id": "session-1"},
+            {
+                "attempt_id": "attempt-1",
+                "status": "succeeded",
+                "receipt_id": "receipt-1",
+            },
+        ]
+    )
+    foundry, transport = client(*responses)
+    worker = FoundryWorker(foundry, LongHermes(), renew_interval=0.1)
+
+    result = await worker.run(max_turns=1)
+
+    assert result[0].status == "succeeded"
+    event_calls = [call for call in transport.calls if "/events" in call[1]]
+    assert len(event_calls) == 763
+    assert transport.calls[-1][1].endswith("/complete")
+    assert transport.calls[-1][3]["sequence"] == 764
+
+
+@pytest.mark.asyncio
+async def test_client_rejects_reserved_terminal_slot_for_ordinary_event():
+    foundry, transport = client()
+    with pytest.raises(ValueError, match="sequence"):
+        await foundry.event(
+            "attempt-1",
+            "lease-token",
+            stream_id="stream-1",
+            sequence=100001,
+            event_type="message.delta",
+            payload={"text": "x"},
+        )
+    assert transport.calls == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response_losses", [0, 1, 2])
+async def test_worker_closes_stream_and_emits_reserved_budget_failure(
+    monkeypatch, response_losses
+):
+    monkeypatch.setattr(foundry_module, "MAX_RUNTIME_EVENT_SEQUENCE", 2)
+    monkeypatch.setattr(foundry_module, "MAX_TERMINAL_SEQUENCE", 3)
+
+    class BudgetHermes:
+        def __init__(self):
+            self.closed = False
+
+        async def stream_profile_incremental(
+            self, profile_id, session_id, _message, *, session_key
+        ):
+            async def events():
+                for sequence in (1, 2):
+                    yield HermesEvent(
+                        name="message.delta",
+                        profile_id=profile_id,
+                        session_id=session_id,
+                        run_id="run-budget",
+                        sequence=sequence,
+                        payload={"text": "x"},
+                    )
+
+            stream = CancellableHermesStream(events())
+            original_close = stream.aclose
+
+            async def close():
+                self.closed = True
+                await original_close()
+
+            stream.aclose = close
+            return stream
+
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "delta", "sequence": 2}},
+        *[ResponseLossError("terminal response lost") for _ in range(response_losses)],
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-budget",
+        }
+        if response_losses < 2
+        else {"attempt_id": "attempt-1", "state": "released", "requeued": False},
+    )
+    hermes = BudgetHermes()
+    worker = FoundryWorker(foundry, hermes, renew_interval=0.1)
+
+    result = await worker.run(max_turns=1)
+
+    if response_losses < 2:
+        assert result[0].status == "failed"
+    else:
+        assert result == (None,)
+    assert hermes.closed
+    event_calls = [call for call in transport.calls if "/events" in call[1]]
+    assert len(event_calls) == 2
+    fail_calls = [call for call in transport.calls if "/fail" in call[1]]
+    assert len(fail_calls) == min(response_losses + 1, 2)
+    assert all(call[3] == fail_calls[0][3] for call in fail_calls)
+    assert fail_calls[0][3]["sequence"] == 3
+    assert fail_calls[0][3]["code"] == "event_budget_exhausted"
+    assert fail_calls[0][3]["retryable"] is False
+    assert not any("/complete" in call[1] for call in transport.calls)
+    assert not any("/stopped" in call[1] for call in transport.calls)
+
+
+@pytest.mark.asyncio
+async def test_worker_clamps_failure_after_boundary_completion_rejection(monkeypatch):
+    monkeypatch.setattr(foundry_module, "MAX_RUNTIME_EVENT_SEQUENCE", 2)
+    monkeypatch.setattr(foundry_module, "MAX_TERMINAL_SEQUENCE", 3)
+
+    class BoundaryHermes:
+        async def stream_profile_incremental(
+            self, profile_id, session_id, _message, *, session_key
+        ):
+            yield HermesEvent(
+                name="message.delta",
+                profile_id=profile_id,
+                session_id=session_id,
+                run_id="run-boundary",
+                sequence=1,
+                payload={"text": "x"},
+            )
+            yield HermesEvent(
+                name="execution.completed",
+                profile_id=profile_id,
+                session_id=session_id,
+                run_id="run-boundary",
+                sequence=2,
+                payload={"run_id": "run-boundary", "status": "completed"},
+            )
+
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "delta", "sequence": 2}},
+        {"session_id": "session-1"},
+        ServiceUnavailableError("completion unavailable"),
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-failure",
+        },
+    )
+    worker = FoundryWorker(foundry, BoundaryHermes(), renew_interval=0.1)
+
+    result = await worker.run(max_turns=1)
+
+    assert result[0].status == "failed"
+    complete_calls = [call for call in transport.calls if "/complete" in call[1]]
+    fail_calls = [call for call in transport.calls if "/fail" in call[1]]
+    assert len(complete_calls) == 1
+    assert len(fail_calls) == 1
+    assert fail_calls[0][3]["sequence"] == 3
+    assert fail_calls[0][3]["code"] == ServiceUnavailableError.code
+    assert not any("/stopped" in call[1] for call in transport.calls)
 
 
 @pytest.mark.asyncio
@@ -1242,9 +1431,7 @@ async def test_worker_does_not_report_readiness_until_hermes_is_ready():
         (object(), True),
         (SimpleNamespace(health=lambda: SimpleNamespace(status="healthy")), True),
         (
-            SimpleNamespace(
-                health_detailed=lambda: SimpleNamespace(status="degraded")
-            ),
+            SimpleNamespace(health_detailed=lambda: SimpleNamespace(status="degraded")),
             False,
         ),
         (
@@ -1252,9 +1439,7 @@ async def test_worker_does_not_report_readiness_until_hermes_is_ready():
                 health_detailed=lambda: SimpleNamespace(
                     status="degraded",
                     readiness={
-                        "checks": {
-                            "gateway": {"status": "ok", "state": "running"}
-                        }
+                        "checks": {"gateway": {"status": "ok", "state": "running"}}
                     },
                 )
             ),
@@ -1264,6 +1449,8 @@ async def test_worker_does_not_report_readiness_until_hermes_is_ready():
     ],
     ids=["no-health-api", "legacy-health", "degraded", "gateway-ready", "unknown"],
 )
-async def test_worker_hermes_health_compatibility_and_degraded_gateway(hermes, expected):
+async def test_worker_hermes_health_compatibility_and_degraded_gateway(
+    hermes, expected
+):
     worker = FoundryWorker(object(), hermes)
     assert await worker._hermes_ready() is expected

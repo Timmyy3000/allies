@@ -6,6 +6,7 @@ from uuid import uuid4
 import pytest
 from django.utils import timezone
 
+from runtime.contracts import MAX_RUNTIME_EVENT_SEQUENCE, MAX_TERMINAL_SEQUENCE
 from runtime.exceptions import (
     RuntimeIdempotencyConflictError,
     RuntimeLeaseConflictError,
@@ -274,12 +275,33 @@ def test_runtime_event_append_rejects_unknown_or_unsafe_payload(claimed_executio
         )
 
 
-def test_projection_event_budget_reserves_sequence_513_for_terminal_truth(
+def test_runtime_events_cannot_occupy_reserved_terminal_sequence(claimed_execution):
+    context, _execution, claim = claimed_execution
+
+    with pytest.raises(
+        RuntimeValidationError,
+        match=f"1 to {MAX_RUNTIME_EVENT_SEQUENCE}",
+    ):
+        append_runtime_event(
+            context,
+            claim.attempt_id,
+            claim.lease_token,
+            uuid4(),
+            claim.stream_id,
+            MAX_TERMINAL_SEQUENCE,
+            "execution.stopped",
+            {"reason": "operator_requested"},
+        )
+
+    assert not ExecutionEvent.objects.filter(attempt_id=claim.attempt_id).exists()
+
+
+def test_projection_event_budget_reserves_sequence_100001_for_terminal_truth(
     claimed_execution,
 ):
     context, _execution, claim = claimed_execution
 
-    with pytest.raises(RuntimeValidationError, match="1 to 513"):
+    with pytest.raises(RuntimeValidationError, match=f"1 to {MAX_TERMINAL_SEQUENCE}"):
         complete_attempt(
             context,
             claim.attempt_id,
@@ -288,7 +310,7 @@ def test_projection_event_budget_reserves_sequence_513_for_terminal_truth(
             terminal_event={
                 "event_id": uuid4(),
                 "stream_id": claim.stream_id,
-                "sequence": 514,
+                "sequence": MAX_TERMINAL_SEQUENCE + 1,
                 "payload": {"run_id": "run-1", "status": "completed"},
             },
         )
@@ -303,14 +325,16 @@ def test_projection_event_budget_reserves_sequence_513_for_terminal_truth(
         terminal_event={
             "event_id": uuid4(),
             "stream_id": claim.stream_id,
-            "sequence": 513,
+            "sequence": MAX_TERMINAL_SEQUENCE,
             "payload": {"run_id": "run-1", "status": "completed"},
         },
     )
 
     assert receipt.status == AttemptStatus.SUCCEEDED
     assert (
-        ExecutionEvent.objects.get(attempt_id=claim.attempt_id, sequence=513).event_type
+        ExecutionEvent.objects.get(
+            attempt_id=claim.attempt_id, sequence=MAX_TERMINAL_SEQUENCE
+        ).event_type
         == "execution.completed"
     )
 
@@ -376,6 +400,7 @@ def test_expired_lease_recovers_after_high_nonterminal_sequence(
     claimed_execution, prior_sequence
 ):
     context, execution, claim = claimed_execution
+    make_cloud_visible(execution)
     dispatch(context, claim)
     append_runtime_event(
         context,
@@ -399,6 +424,16 @@ def test_expired_lease_recovers_after_high_nonterminal_sequence(
     )
     assert failure.sequence == prior_sequence + 1
     assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.FAILED
+    assert failure.payload == {"code": "lease_expired", "retryable": False}
+    assert claim_next_execution(context, uuid4(), 1) is None
+    assert Attempt.objects.filter(execution_id=execution.id).count() == 1
+    assert (
+        ExecutionEvent.objects.filter(
+            attempt_id=claim.attempt_id, event_type="execution.failed"
+        ).count()
+        == 1
+    )
+    assert ExecutionEventDelivery.objects.filter(event=failure).count() == 1
 
 
 @pytest.mark.parametrize(

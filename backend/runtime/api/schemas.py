@@ -9,6 +9,8 @@ from ninja import Schema
 from pydantic import ConfigDict, Field, StrictInt, StrictStr, field_validator
 
 from runtime.contracts import (
+    MAX_RUNTIME_EVENT_SEQUENCE,
+    MAX_TERMINAL_SEQUENCE,
     ExecutionCommand,
     ExecutionReceipt,
     FoundryEventEnvelope,
@@ -83,7 +85,7 @@ class RuntimeReadinessReceipt(Schema):
 class EventRequest(Schema):
     event_id: UUID
     stream_id: str
-    sequence: int
+    sequence: StrictInt = Field(..., ge=1, le=MAX_RUNTIME_EVENT_SEQUENCE)
     type: str
     payload: dict[str, Any]
 
@@ -101,7 +103,7 @@ class StoppedRequest(Schema):
 class TerminalEventRequest(Schema):
     event_id: UUID
     stream_id: str
-    sequence: int
+    sequence: StrictInt = Field(..., ge=1, le=MAX_TERMINAL_SEQUENCE)
     payload: dict[str, Any]
 
 

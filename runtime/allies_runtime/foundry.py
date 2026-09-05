@@ -38,6 +38,10 @@ from .hermes import (
 from .observability import build_event, emit_runtime_event
 
 MAX_CLAIM_SLOTS = 8
+# Sequence 100001 is reserved for the single terminal event emitted when the
+# runtime exhausts its ordinary event budget.
+MAX_RUNTIME_EVENT_SEQUENCE = 100000
+MAX_TERMINAL_SEQUENCE = 100001
 LEASE_SECONDS = 60.0
 DEFAULT_RENEW_INTERVAL = 20.0
 DEFAULT_STOP_SAFETY_MARGIN = 5.0
@@ -289,8 +293,14 @@ def deterministic_event_id(
 ) -> str:
     """Return the stable UUID used for an Attempt stream event."""
 
-    if isinstance(sequence, bool) or not isinstance(sequence, int) or sequence <= 0:
-        raise ValueError("event sequence must be a positive integer")
+    if (
+        isinstance(sequence, bool)
+        or not isinstance(sequence, int)
+        or not 1 <= sequence <= MAX_TERMINAL_SEQUENCE
+    ):
+        raise ValueError(
+            f"event sequence must be an integer from 1 to {MAX_TERMINAL_SEQUENCE}"
+        )
     if not isinstance(stream_id, str) or not stream_id or len(stream_id) > 255:
         raise ValueError("stream_id must be a bounded non-empty string")
     return str(
@@ -832,6 +842,7 @@ class FoundryClient:
         payload: Mapping[str, Any],
         event_id: str | UUID | None = None,
     ) -> EventReceipt:
+        _validate_sequence(sequence, MAX_RUNTIME_EVENT_SEQUENCE, "event")
         event_id = str(
             event_id or deterministic_event_id(attempt_id, stream_id, sequence)
         )
@@ -923,6 +934,7 @@ class FoundryClient:
         payload: Mapping[str, Any],
         receipt: Mapping[str, Any],
     ) -> TerminalReceipt:
+        _validate_sequence(sequence, MAX_TERMINAL_SEQUENCE, "terminal event")
         event_id = deterministic_event_id(attempt_id, stream_id, sequence)
         result = await self._request(
             "POST",
@@ -952,6 +964,7 @@ class FoundryClient:
         retryable: bool,
         receipt: Mapping[str, Any] | None = None,
     ) -> TerminalReceipt:
+        _validate_sequence(sequence, MAX_TERMINAL_SEQUENCE, "terminal event")
         body = {
             "event_id": deterministic_event_id(attempt_id, stream_id, sequence),
             "stream_id": stream_id,
@@ -999,6 +1012,15 @@ async def _close_stream(stream: Any) -> None:
             if inspect.isawaitable(result):
                 await result
             return
+
+
+def _validate_sequence(sequence: int, maximum: int, label: str) -> None:
+    if (
+        isinstance(sequence, bool)
+        or not isinstance(sequence, int)
+        or not 1 <= sequence <= maximum
+    ):
+        raise ValueError(f"{label} sequence must be an integer from 1 to {maximum}")
 
 
 async def _retry_response_loss(operation: Callable[[], Any]) -> Any:
@@ -1332,6 +1354,34 @@ class FoundryWorker:
                     raise HermesError("Hermes event identity did not match claim")
                 if lost.is_set():
                     break
+                if sequence >= MAX_RUNTIME_EVENT_SEQUENCE:
+                    # Close the producer before publishing the one reserved
+                    # terminal event.  The deterministic terminal identity
+                    # makes the bounded response-loss replay safe.
+                    await _close_stream(stream)
+                    stream = None
+                    failure_payload = {
+                        "code": "event_budget_exhausted",
+                        "retryable": False,
+                    }
+                    try:
+                        return await _retry_response_loss(
+                            lambda payload=failure_payload: self.foundry.fail(
+                                claim.attempt_id,
+                                claim.lease_token,
+                                stream_id=claim.stream_id,
+                                sequence=MAX_TERMINAL_SEQUENCE,
+                                payload=payload,
+                                code="event_budget_exhausted",
+                                retryable=False,
+                                receipt={"code": "event_budget_exhausted"},
+                            )
+                        )
+                    except ResponseLossError:
+                        # Leave terminal reconciliation to the durable lease expiry path.
+                        return None
+                    except FoundryError:
+                        return None
                 sequence += 1
                 try:
                     await _retry_response_loss(
@@ -1454,7 +1504,10 @@ class FoundryWorker:
             if stream is not None:
                 await _close_stream(stream)
                 stream = None
-            sequence = max(sequence + 1, 1)
+            # Keep fallback failure inside the reserved terminal slot.  A
+            # failed completion at the boundary must not manufacture an
+            # invalid sequence or bypass lease-expiry reconciliation.
+            sequence = min(max(sequence + 1, 1), MAX_TERMINAL_SEQUENCE)
             failure_payload = {
                 "code": failure_code,
                 "retryable": False,
@@ -1772,6 +1825,8 @@ FoundrySupervisor = FoundryWorker
 
 __all__ = [
     "MAX_CLAIM_SLOTS",
+    "MAX_RUNTIME_EVENT_SEQUENCE",
+    "MAX_TERMINAL_SEQUENCE",
     "EventReceipt",
     "FencedError",
     "FoundryClaim",

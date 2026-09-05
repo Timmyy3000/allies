@@ -86,6 +86,8 @@ class Command(BaseCommand):
         delivered = report.delivered if report is not None else 0
         deferred = report.deferred if report is not None else 0
         exhausted = report.exhausted if report is not None else 0
+        repair_pending = report.repair_pending if report is not None else 0
+        recovered = report.recovered if report is not None else 0
         wake_started = wake.started if wake is not None else 0
         wake_failed = wake.failed if wake is not None else 0
         wake_unavailable = wake.unavailable if wake is not None else 0
@@ -95,7 +97,8 @@ class Command(BaseCommand):
             f"Wake started {wake_started}; wake failed {wake_failed}; "
             f"wake unavailable {wake_unavailable}; "
             f"Delivered {delivered} event(s); deferred {deferred}; "
-            f"exhausted {exhausted}; expired {expired} intent(s); "
+            f"exhausted {exhausted}; repair pending {repair_pending}; "
+            f"recovered {recovered}; expired {expired} intent(s); "
             f"idle stopped {idle_stopped}; idle unavailable {idle_unavailable}."
         )
 

@@ -3,6 +3,7 @@ from .event_delivery import (
     enqueue_event_delivery,
     mark_event_delivery,
     publish_pending_event_deliveries,
+    redrive_event_deliveries,
 )
 from .events import append_event
 from .executions import (
@@ -69,6 +70,7 @@ __all__ = [
     "process_runtime_wakes",
     "publish_pending_event_deliveries",
     "reconcile_execution_intent",
+    "redrive_event_deliveries",
     "replace_machine",
     "request_execution_wake_locked",
     "request_runtime_intent",

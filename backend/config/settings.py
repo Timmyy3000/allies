@@ -19,6 +19,7 @@ from urllib.parse import urlsplit
 
 import dj_database_url
 from django.core.exceptions import ImproperlyConfigured
+
 from observability.settings import FoundryObservabilitySettings
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
