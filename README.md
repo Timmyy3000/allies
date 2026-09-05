@@ -38,3 +38,9 @@ Cloud runs one codebase as web, Celery worker, and Celery beat processes. See
 [`docs/operations/railway-staging.md`](docs/operations/railway-staging.md) for
 the process commands, deployment order, health checks, and rollback boundary.
 Railway IaC is local operator material and must never be committed or pushed.
+
+The content-free Ally runtime-intent endpoint accepts a validated native bearer
+session or a browser session with trusted origin and CSRF. Native clients send
+the same `composing_started` intent and stable idempotency key as web. Workspace
+policy and the runtime-intent feature gate still control whether the hint wakes
+compute; sending a message does not depend on hint success.

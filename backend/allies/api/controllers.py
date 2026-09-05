@@ -297,7 +297,7 @@ class RuntimeIntentController(ControllerBase):
             ),
         ],
     ):
-        if rejected := _require_origin(request):
+        if rejected := _require_origin(request, allow_native_bearer=True):
             return rejected
         try:
             session = _session(request)
