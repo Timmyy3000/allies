@@ -1,5 +1,14 @@
 # <Feature Name> Plan
 
+## Using this template
+
+Follow the planning route in `AGENTS.md`: tiny work stays inline, fast work uses
+only relevant sections, and full work uses this complete template. HTML is
+conditional on the recorded visual-review need or explicit user request.
+Example rows demonstrate notation, not requirements or verified repository
+symbols. Replace or remove them when drafting; never add a mechanism solely
+because it appears here. Keep committed artifacts portable and free of secrets.
+
 ## Feature Overview
 
 - Problem:
@@ -85,17 +94,12 @@ or service primitive as a database row.
 | Type / category | Shape | Location | Fields and types | Lifetime / visibility | Validation, security, and invariants | Compatibility / rotation notes |
 | --- | --- | --- | --- | --- | --- | --- |
 | Temporary/internal shape | `CursorPayload` | `app/services.py` | Signed cursor fields | Temporary; opaque to clients and never persisted as a model row | Signature, scope, expiry, and key-rotation overlap are checked | Active/previous key window and retirement behavior are explicit |
-| Temporary/internal shape | `RateLimitReservation` | `app/services.py` | Opaque reservation token and decision | Cache/transaction lifetime; never serialized or logged | Idempotent reservation and rollback reconciliation | Reuses the existing limiter contract; no new queue/worker unless justified |
-| Optional future projection | `ExecutionProjection` | `app/schemas.py` | Product-only execution version/state/reference | Optional and nullable; populated by a later owner | Must not expose private provider/runtime identifiers; null behavior is specified for this plan | Additive seam; population and compatibility are owned by the downstream plan |
 
 #### Service Primitives
 
 | Type / category | Primitive | Location | Signature | Inputs and validation | Return value | Lock/transaction ownership, side effects, and errors |
 | --- | --- | --- | --- | --- | --- | --- |
-| Service primitive | `ensure_default_conversation` | `app/services/conversations.py` | `ensure_default_conversation(...) -> Conversation` | Authorized persisted owner and bounded handoff data | Persisted model instance | Owns its transaction/lock and idempotent race recovery; no external call |
-| Service primitive | `accept_message` | `app/services/messages.py` | `accept_message(...) -> MessageAcceptance` | Authorized scope, normalized bounded content, caller idempotency key | Persisted acceptance DTO/result | Owns duplicate-before-admission, transaction, and commit-before-success behavior |
-| Service primitive | `claim_next_turn` | `app/services/messages.py` | `claim_next_turn(...) -> Message \| None` | Conversation with queued work | Claimed persisted message or none | Sole owner of the short transaction and conversation lock for queued → active; no provider call |
-| Service primitive | `complete_turn` | `app/services/messages.py` | `complete_turn(...) -> Message` | Active message plus allowed terminal state | Terminal persisted message | Sole owner of the short transaction and conversation lock for active → terminal; same-status retry is idempotent and conflicting status is a stable error |
+| Service operation | `<operation>` | `<path>` | `<signature>` | Relevant validated inputs | Actual result shape | Concrete state ownership, side effects, and failure behavior |
 
 ### Plain-language glossary
 
