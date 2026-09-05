@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Implementation plan for approved Ally sleep and wake transitions on web and mobile.">
+  <title>Allies | Sleep transitions plan</title>
+  <style>
+    :root{color-scheme:light dark;--vbg-surface-primary:#fff;--vbg-surface-secondary:#f4f2ed;--vbg-surface-contrast:#1c1b18;--vbg-text-primary:#1c1b18;--vbg-text-secondary:#68655e;--vbg-text-on-contrast:#fff;--vbg-text-on-contrast-secondary:#d8d4cc;--vbg-border-subtle:#e3dfd7;--vbg-border-default:#c9c3b9;--vbg-border-strong:#777167;--vbg-focus:#165bd8;--vbg-color-info:#165bd8;--vbg-color-success:#247a49;--vbg-color-warning:#986500;--vbg-color-error:#b52b33;--vbg-chart-1:#ff5800;--vbg-chart-2:#165bd8;--vbg-chart-3:#247a49;--vbg-space-1:4px;--vbg-space-2:8px;--vbg-space-3:12px;--vbg-space-4:16px;--vbg-space-5:20px;--vbg-space-6:24px;--vbg-space-8:32px;--vbg-space-10:40px;--vbg-space-12:48px;--vbg-space-16:64px;--vbg-radius-small:8px;--vbg-radius:16px;--vbg-weight-regular:400;--vbg-weight-heading:620;--vbg-weight-medium:520;--vbg-weight-semibold:650;--vbg-leading-body:1.6;--vbg-leading-compact:1.4;--vbg-type-display:clamp(2.8rem,8vw,6.8rem);--vbg-type-page-title:clamp(2.2rem,5vw,4.2rem);--vbg-type-title:2rem;--vbg-type-section:1.5rem;--vbg-type-subsection:1.1rem;--vbg-type-body:1rem;--vbg-type-compact:.875rem;--vbg-type-label:.78rem;--vbg-type-metadata:.78rem}
+    @media(prefers-color-scheme:dark){:root{--vbg-surface-primary:#181714;--vbg-surface-secondary:#23211d;--vbg-surface-contrast:#f3f0e9;--vbg-text-primary:#f3f0e9;--vbg-text-secondary:#b9b4aa;--vbg-text-on-contrast:#181714;--vbg-text-on-contrast-secondary:#4c4942;--vbg-border-subtle:#35322c;--vbg-border-default:#565149;--vbg-border-strong:#aca69a}}
+    *,:before,:after{box-sizing:border-box}
+    html{scroll-behavior:smooth;background:var(--vbg-surface-secondary)}
+    body{margin:0;color:var(--vbg-text-primary);font-family:"Segoe UI",Arial,sans-serif;font-size:var(--vbg-type-body);line-height:var(--vbg-leading-body)}
+    code,pre{font-family:"SFMono-Regular",Consolas,monospace}
+    a{color:inherit}
+    a:focus-visible,summary:focus-visible{outline:3px solid var(--vbg-focus);outline-offset:3px}
+    .vbg-skip-link{position:fixed;left:12px;top:12px;z-index:20;padding:10px 14px;background:var(--vbg-surface-primary);transform:translateY(-160%)}
+    .vbg-skip-link:focus{transform:none}
+    .vbg-report{min-height:100vh}
+    .vbg-shell{width:min(1180px,calc(100% - 32px));margin:auto;padding:24px 0 64px}
+    .vbg-header{display:flex;justify-content:space-between;gap:24px;padding:8px 0 20px;border-bottom:1px solid var(--vbg-border-default);font-size:var(--vbg-type-metadata)}
+    .vbg-identity{font-weight:var(--vbg-weight-semibold)}
+    .vbg-identity span{color:#ff5800}
+    .vbg-opening{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(260px,.7fr);gap:48px;padding:clamp(44px,9vw,100px) 0 64px}
+    .vbg-title{max-width:12ch;margin:0;font-size:var(--vbg-type-page-title);font-weight:var(--vbg-weight-heading);line-height:.98;letter-spacing:-.05em}
+    .vbg-lede{max-width:62ch;margin:24px 0 0;color:var(--vbg-text-secondary);font-size:1.15rem}
+    .vbg-stat-strip{align-self:end;border-top:4px solid #ff5800}
+    .vbg-stat{display:grid;grid-template-columns:86px 1fr;gap:16px;padding:16px 0;border-bottom:1px solid var(--vbg-border-default)}
+    .vbg-stat-value{margin:0;font-size:1.9rem;font-weight:var(--vbg-weight-heading);line-height:1}
+    .vbg-stat-label,.vbg-stat-detail{margin:0;color:var(--vbg-text-secondary);font-size:var(--vbg-type-compact)}
+    .vbg-section{padding:56px 0;border-top:1px solid var(--vbg-border-default)}
+    .vbg-section h2{max-width:25ch;margin:0 0 24px;font-size:var(--vbg-type-title);font-weight:var(--vbg-weight-heading);line-height:1.12;letter-spacing:-.03em}
+    .vbg-section h3{margin:32px 0 12px;font-size:var(--vbg-type-section);line-height:1.2}
+    .vbg-section h4{margin:24px 0 8px;font-size:var(--vbg-type-subsection)}
+    .vbg-section p,.vbg-section li{max-width:78ch}
+    .vbg-section ul,.vbg-section ol{padding-left:22px}
+    .vbg-section li+li{margin-top:8px}
+    .vbg-grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:24px}
+    .vbg-span-4{grid-column:span 4}.vbg-span-6{grid-column:span 6}.vbg-span-8{grid-column:span 8}.vbg-span-12{grid-column:span 12}
+    .vbg-custom-panel{padding:24px;border:1px solid var(--vbg-border-default);border-radius:var(--vbg-radius);background:var(--vbg-surface-primary)}
+    .vbg-custom-panel h3{margin-top:0}
+    .vbg-context{margin:0 0 8px;color:#d94c00;font-size:var(--vbg-type-label);font-weight:var(--vbg-weight-semibold)}
+    .vbg-note{max-width:78ch;padding:18px 20px;border-left:4px solid #ff5800;background:var(--vbg-surface-primary)}
+    .vbg-table-wrap{width:100%;overflow:auto;margin:24px 0;border:1px solid var(--vbg-border-default);background:var(--vbg-surface-primary)}
+    .vbg-table{width:100%;min-width:760px;border-collapse:collapse;font-size:var(--vbg-type-compact);line-height:var(--vbg-leading-compact)}
+    .vbg-table caption{padding:14px;text-align:left;color:var(--vbg-text-secondary)}
+    .vbg-table th{padding:13px 14px;border-bottom:2px solid var(--vbg-border-strong);text-align:left;vertical-align:bottom}
+    .vbg-table td{padding:14px;border-bottom:1px solid var(--vbg-border-subtle);vertical-align:baseline}
+    .vbg-table tbody tr:last-child td{border-bottom:0}
+    .vbg-table code{overflow-wrap:anywhere}
+    .vbg-comparison{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--vbg-border-default);background:var(--vbg-surface-primary)}
+    .vbg-comparison>div{padding:24px}.vbg-comparison>div+div{border-left:1px solid var(--vbg-border-default)}
+    .vbg-comparison h3{margin-top:0}.vbg-comparison strong{color:#d94c00}
+    .vbg-chart{margin:28px 0}.vbg-chart-viewport{padding:18px;border:1px solid var(--vbg-border-default);background:var(--vbg-surface-primary)}
+    .vbg-chart svg{display:block;width:100%;height:auto;color:var(--vbg-text-primary)}
+    .vbg-chart figcaption{margin-top:10px;color:var(--vbg-text-secondary);font-size:var(--vbg-type-compact)}
+    .vbg-custom-phase{display:grid;grid-template-columns:72px 1fr;gap:20px;padding:24px 0;border-bottom:1px solid var(--vbg-border-subtle)}
+    .vbg-custom-phase:last-child{border-bottom:0}.vbg-custom-phase-index{font-size:2.4rem;color:#ff5800;line-height:1}
+    .vbg-custom-phase h3{margin:0 0 8px}
+    pre{max-width:100%;overflow:auto;padding:18px;background:var(--vbg-surface-contrast);color:var(--vbg-text-on-contrast);line-height:1.55}
+    details{margin-top:20px;border-top:1px solid var(--vbg-border-default)}
+    summary{padding:16px 0;cursor:pointer;font-weight:var(--vbg-weight-semibold)}
+    .vbg-footer{display:flex;justify-content:space-between;gap:24px;padding:28px 0;border-top:4px solid #ff5800;color:var(--vbg-text-secondary);font-size:var(--vbg-type-compact)}
+    @media(max-width:800px){.vbg-opening{grid-template-columns:1fr;gap:32px}.vbg-grid{display:block}.vbg-grid>*+*{margin-top:18px}.vbg-comparison{grid-template-columns:1fr}.vbg-comparison>div+div{border-left:0;border-top:1px solid var(--vbg-border-default)}}
+    @media(max-width:560px){.vbg-shell{width:min(100% - 20px,1180px)}.vbg-header{display:block}.vbg-header>*+*{margin-top:6px}.vbg-section{padding:42px 0}.vbg-custom-phase{grid-template-columns:48px 1fr}.vbg-custom-phase-index{font-size:1.8rem}.vbg-footer{display:block}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    @media print{html{background:#fff}.vbg-shell{width:100%;padding:0}.vbg-section{break-inside:avoid}.vbg-table-wrap{overflow:visible}.vbg-table{min-width:0;font-size:8pt}}
+  </style>
+</head>
+<body>
+<a class="vbg-skip-link" href="#plan">Skip to plan</a>
+<div class="vbg-report">
+  <div class="vbg-shell">
+    <header class="vbg-header">
+      <div class="vbg-identity">allies<span>.</span> interface</div>
+      <div>Fast implementation plan | Web PR 22 + mobile screen expansion | 5 September 2026</div>
+    </header>
+    <main id="plan">
+      <section class="vbg-opening" aria-labelledby="title">
+        <div>
+          <p class="vbg-context">Approved motion integration</p>
+          <h1 id="title" class="vbg-title">One motion clock for awake, asleep, and back again.</h1>
+          <p class="vbg-lede">Deliver refined thinking and true sleep transitions to web PR 22 and the mobile worktree with one deterministic, offline SVG player. Public callers request only idle, thinking, or sleeping; the player owns every coherent transition between them.</p>
+        </div>
+        <div class="vbg-stat-strip" aria-label="Plan facts">
+          <div class="vbg-stat"><p class="vbg-stat-value">20</p><div><p class="vbg-stat-label">approved SVGs</p><p class="vbg-stat-detail">five states across four shapes</p></div></div>
+          <div class="vbg-stat"><p class="vbg-stat-value">3</p><div><p class="vbg-stat-label">public states</p><p class="vbg-stat-detail">idle, thinking, sleeping</p></div></div>
+          <div class="vbg-stat"><p class="vbg-stat-value">0</p><div><p class="vbg-stat-label">runtime asset requests</p><p class="vbg-stat-detail">art and player remain bundled</p></div></div>
+        </div>
+      </section>
+
+      <section class="vbg-section" aria-labelledby="outcome">
+        <p class="vbg-context">Reader decision</p>
+        <h2 id="outcome">Adopt one shared HTML playback runtime and keep inactivity in each conversation surface.</h2>
+        <p>The web branch is <code>web/feat/chat-frames</code>, updating PR 22. Mobile remains in <code>mobile/dev/screen-expansion</code>. Both target <code>dev</code>; the mobile branch's existing commit stays intact. This plan does not merge or deploy either branch.</p>
+        <div class="vbg-note"><strong>Artwork decision.</strong> Approved <code>considering_&lt;shape&gt;.svg</code> files become production thinking. Idle, sleeping, waking, and falling-asleep retain their authored CSS timing and <code>0 0 470 470</code> view box. Inspection found no scripts or external asset references.</div>
+        <h3>Problem and success condition</h3>
+        <p>Web currently swaps independent SVG image documents at loop boundaries and represents sleep through roster desaturation. Mobile renders idle/thinking through <code>expo-image</code>, has no controlled CSS animation clock, and has no ten-minute sleep treatment. Success means all four shapes follow the same sequencing on web and mobile; sleep remains a per-conversation presentation state; reduced motion is static; hidden and backgrounded players do not advance.</p>
+      </section>
+
+      <section class="vbg-section" aria-labelledby="comparison">
+        <p class="vbg-context">Before and after</p>
+        <h2 id="comparison">The product state stays local; only the motion engine becomes shared.</h2>
+        <div class="vbg-table-wrap"><table class="vbg-table">
+          <caption>Current behavior and the approved target</caption>
+          <thead><tr><th scope="col">Surface</th><th scope="col">Current</th><th scope="col">Target</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Artwork</th><td>Idle/thinking are duplicated between web public files and mobile assets.</td><td><code>packages/ally-motion</code> checks in 20 approved SVGs and generates one bundled payload for both clients.</td></tr>
+            <tr><th scope="row">Web</th><td>External <code>&lt;img&gt;</code> documents plus a React timeout defer idle/thinking.</td><td>A <code>srcDoc</code> iframe runs the shared player with sandbox <code>allow-scripts</code> only and CSP blocking every asset/network load.</td></tr>
+            <tr><th scope="row">Web sleep</th><td>Bound Ally desaturates and gets a neutral dot after ten minutes without a newer message or recent local activity.</td><td>Keep that predicate and dot treatment, and request sleeping in both the roster and selected conversation header.</td></tr>
+            <tr><th scope="row">Mobile</th><td><code>expo-image</code> renders idle/thinking without a controlled clock.</td><td>A local <code>react-native-webview</code> document runs the same player; Expo SDK 57 includes the recommended 13.16.1 package in Expo Go.</td></tr>
+            <tr><th scope="row">Mobile sleep</th><td>No treatment.</td><td>A bound Ally sleeps in the roster and selected conversation ten minutes after its latest message or meaningful draft activity, independent of Machine state; reusable preview callers retain requested idle/thinking behavior.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="vbg-comparison">
+          <div><h3>In scope</h3><ul><li>Public idle, thinking, and sleeping for four shapes.</li><li>Private waking and falling-asleep phases.</li><li>Self-contained HTML, web iframe, mobile WebView, visibility pause, tests, and device proof.</li><li>Mobile roster, selected conversation, and reusable preview/onboarding callers.</li><li>Update web PR 22 without merging or deploying.</li></ul></div>
+          <div><h3>Outside this plan</h3><ul><li>Cloud, Foundry, Hermes, Fly, Machine power, leases, API schemas, persistence, or analytics.</li><li>Public transition props, speed controls, a sleep setting, working/error/retry/approval visuals, or new artwork.</li><li>Onboarding entrance changes or conversion to GIF, Lottie, canvas, or native path animation.</li><li>Merge, deployment, or branch cleanup.</li></ul></div>
+        </div>
+      </section>
+
+      <section class="vbg-section" aria-labelledby="architecture">
+        <p class="vbg-context">Ownership</p>
+        <h2 id="architecture">One player owns time. Hosts own presentation inputs and lifecycle.</h2>
+        <figure class="vbg-chart">
+          <div class="vbg-chart-viewport" tabindex="0" role="img" aria-label="Shared package feeds sandboxed web iframe and local mobile WebView. Web and mobile conversation surfaces independently compute sleep and send only public playback state.">
+            <svg viewBox="0 0 1040 410" aria-hidden="true">
+              <title>Ally motion ownership</title>
+              <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10Z" fill="currentColor"/></marker></defs>
+              <g id="shared-package"><title>Shared package</title><rect x="350" y="35" width="340" height="110" rx="10" fill="none" stroke="#ff5800" stroke-width="4"/><text x="520" y="76" text-anchor="middle" fill="currentColor" font-size="22" font-weight="650">@allies/ally-motion</text><text x="520" y="108" text-anchor="middle" fill="currentColor" font-size="15">20 SVGs · SMIL/WAAPI player · document</text></g>
+              <g id="web-host"><title>Web host</title><rect x="60" y="235" width="390" height="120" rx="10" fill="none" stroke="currentColor"/><text x="255" y="276" text-anchor="middle" fill="currentColor" font-size="20" font-weight="650">Web Home</text><text x="255" y="307" text-anchor="middle" fill="currentColor" font-size="15">inactivity + reduced motion + intersection</text><text x="255" y="332" text-anchor="middle" fill="currentColor" font-size="15">sandboxed srcDoc iframe</text></g>
+              <g id="mobile-host"><title>Mobile host</title><rect x="590" y="235" width="390" height="120" rx="10" fill="none" stroke="currentColor"/><text x="785" y="276" text-anchor="middle" fill="currentColor" font-size="20" font-weight="650">Mobile surfaces</text><text x="785" y="307" text-anchor="middle" fill="currentColor" font-size="15">inactivity + viewability + focus/AppState</text><text x="785" y="332" text-anchor="middle" fill="currentColor" font-size="15">local WebView or static SVG</text></g>
+              <path id="web-package-edge" d="M445 146L302 232" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrow)"><title>Shared document to web</title></path>
+              <path id="mobile-package-edge" d="M595 146L738 232" stroke="currentColor" stroke-width="2" fill="none" marker-end="url(#arrow)"><title>Shared document to mobile</title></path>
+            </svg>
+          </div>
+          <figcaption>Hosts never request or persist waking and falling-asleep. The player chooses those private phases from the latest public request.</figcaption>
+        </figure>
+        <div class="vbg-grid">
+          <div class="vbg-span-4 vbg-custom-panel"><h3>Player</h3><p>Owns elapsed time, active/private phase, latest request, sampled sleep pose, WAAPI and SVG SMIL seeking, and coherent endpoints. It owns no product data and makes no network request.</p></div>
+          <div class="vbg-span-4 vbg-custom-panel"><h3>Web adapter</h3><p>Creates <code>srcDoc</code> once per shape, posts state/reduced/pause changes, and observes intersection. The opaque sandbox accepts messages only from its parent window.</p></div>
+          <div class="vbg-span-4 vbg-custom-panel"><h3>Mobile adapter</h3><p>Keeps current sizing, color shell, and label contracts. It pauses from list viewability, conversation scroll position, route focus, and <code>AppState</code>. Reduced motion uses a generated same-state static SVG; a terminated content process reloads once, then uses that static fallback.</p></div>
+        </div>
+      </section>
+
+      <section class="vbg-section" aria-labelledby="transition">
+        <p class="vbg-context">Motion contract</p>
+        <h2 id="transition">Latest request wins after a coherent endpoint.</h2>
+        <div class="vbg-table-wrap"><table class="vbg-table">
+          <caption>Durations: idle 4000 ms, thinking 4502.083 ms, sleeping 9600 ms, waking and falling-asleep 1400 ms. Waking follows a 420 ms pose bridge, about 1820 ms total.</caption>
+          <thead><tr><th scope="col">Current condition</th><th scope="col">Latest request</th><th scope="col">Required sequence</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Idle or thinking</th><td>Other awake state</td><td>Finish the current loop at its neutral frame, then start the latest awake loop.</td></tr>
+            <tr><th scope="row">Idle or thinking</th><td>Sleeping</td><td>Finish the awake loop, play falling-asleep for 1.4 seconds, then loop sleeping.</td></tr>
+            <tr><th scope="row">Sleeping</th><td>Idle or thinking</td><td>Sample the sleep pose, bridge head, eyes, eyelids, and departing Zs for about 420 ms, then play the full 1.4 s authored waking beat before entering the latest awake request: about 1.82 s total.</td></tr>
+            <tr><th scope="row">Private phase</th><td>Any public state</td><td>Complete the current private phase. If direction reversed, traverse the opposite phase instead of cutting between unrelated poses.</td></tr>
+            <tr><th scope="row">Reduced motion</th><td>Any public state</td><td>Switch immediately to a static pose: idle/sleeping at their stable start and thinking at the approved midpoint. Schedule no RAF or bridge.</td></tr>
+            <tr><th scope="row">Paused/hidden/backgrounded</th><td>Any state</td><td>Retain state and elapsed time but schedule no RAF. Resume with zero first-frame delta, without replaying wall time.</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section class="vbg-section" aria-labelledby="contracts">
+        <p class="vbg-context">Interfaces and safeguards</p>
+        <h2 id="contracts">Narrow public types keep transition machinery private.</h2>
+        <div class="vbg-table-wrap"><table class="vbg-table">
+          <caption>Shared package contracts</caption>
+          <thead><tr><th scope="col">Location</th><th scope="col">Symbol</th><th scope="col">Contract</th></tr></thead>
+          <tbody>
+            <tr><td><code>packages/ally-motion/src/index.ts</code></td><th scope="row"><code>AllyMotionState</code></th><td><code>idle | thinking | sleeping</code>; unknown input resolves to idle.</td></tr>
+            <tr><td>same</td><th scope="row"><code>AllyMotionShape</code></th><td><code>boxy | ghosty | rocky | rolly</code>; the existing host validates appearance.</td></tr>
+            <tr><td>same</td><th scope="row"><code>AllyPlayback</code></th><td><code>{ state, reduced, paused? }</code>; re-requesting the active state does not restart it.</td></tr>
+            <tr><td>same</td><th scope="row"><code>createAllyDocument</code></th><td>Returns self-contained HTML with approved SVGs, inline player, CSP <code>default-src 'none'</code>, and escaped serialized configuration.</td></tr>
+            <tr><td>same</td><th scope="row"><code>allyPlaybackScript</code></th><td>Builds the native update call and ends with the truthy expression WebView injection requires.</td></tr>
+            <tr><td><code>packages/ally-motion/scripts/generate.mjs</code></td><th scope="row">generator</th><td>Validates five assets per shape, converts approved CSS eye-path keyframes to SVG-native SMIL, and emits the deterministic payload.</td></tr>
+            <tr><td><code>apps/web/scripts/export-ally-artwork.mjs</code></td><th scope="row">static export</th><td>Emits same-shape/same-state static and reduced files; package and native assets are carried byte-for-byte between worktrees.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="vbg-grid">
+          <div class="vbg-span-6">
+            <h3>Inactivity owner</h3>
+            <p>Web retains <code>isAllySleeping(ally, latestMessage, now, recentActivityAt)</code>, its ten-minute threshold, and 30-second clock. Mobile adds the same pure predicate beside conversation-state helpers. Sleep requires a bound Ally, a finite latest-message timestamp, and no newer activity. Non-whitespace draft edits refresh recent activity; whitespace-only changes do not. A newly accepted message provides a persisted timestamp. No message means no sleep.</p>
+          </div>
+          <div class="vbg-span-6">
+            <h3>Failure and accessibility</h3>
+            <p>Invalid appearance retains the visible <code>?</code> placeholder. Reduced motion uses an exported static SVG for the same shape/state. A terminated native content process reloads once, then uses that static image after another failure. Shell, name, and controls remain usable. Unknown states use idle; no shape substitutes for another.</p>
+          </div>
+        </div>
+        <h3>Security boundary</h3>
+        <p>Only inspected, checked-in SVGs enter the generated document. Serialized configuration escapes <code>&lt;</code>. Web grants sandbox scripts without same-origin capability. Mobile loads HTML locally, accepts updates only through its adapter, blocks navigation away from the initial local document, and disables scrolling and interaction. Neither adapter loads a remote script, image, stylesheet, or font.</p>
+      </section>
+
+      <section class="vbg-section" aria-labelledby="phases">
+        <p class="vbg-context">Execution</p>
+        <h2 id="phases">Four phases, each ending in evidence.</h2>
+        <div class="vbg-custom-phase"><div class="vbg-custom-phase-index">1</div><div><h3>Shared runtime</h3><p>Add the 20 assets, CSS-path-to-SMIL normalizer, generator, payload, document helpers, and one player under <code>packages/ally-motion</code>. Rename considering to thinking. The player seeks SVG SMIL and WAAPI from one clock. Fake-time tests cover neutral switches, sleep entry, the 420 ms bridge plus full 1.4 s waking beat, rapid reversal, reduced motion, and paused time. Source tests cover CSP, escaping, assets, references, and deterministic generation.</p><p><strong>Exit:</strong> shared tests pass, generation is clean, browser geometry proves eye motion, and package contents match byte-for-byte.</p></div></div>
+        <div class="vbg-custom-phase"><div class="vbg-custom-phase-index">2</div><div><h3>Web Home</h3><p>Add the web workspace dependency and <code>apps/web/components/ally-artwork.tsx</code>. Let the shared player replace the React timeout/preload owner while <code>AllyAvatar</code> retains validation, color, shell, size, labels, and motion preference. Extend Home primitives and conversation frame to sleeping; both roster and header use the existing predicate, while thinking/getting-ready wins. Remove unused public-file lookup after the debug playground uses the shared contract.</p><p>Keep the neutral dot and desaturation unless inspection shows the filter obscures the approved art; meaning cannot depend on color alone. <strong>Exit:</strong> ten-minute and wake-on-draft tests stay green, chat-frame tests pass, and browser inspection shows no runtime requests.</p></div></div>
+        <div class="vbg-custom-phase"><div class="vbg-custom-phase-index">3</div><div><h3>Mobile roster and conversation</h3><p>Install WebView through Expo and replace artwork in <code>OnboardingAllyPreview</code> across roster, selected conversation, mock conversation, and preview/onboarding callers. Derive roster sleep from each bound Ally's latest preview message and selected-conversation sleep from merged history and draft activity. Pause via list viewability, latest-message scroll geometry, navigation focus, and <code>AppState</code>; pause inline thinking when scrolled away. Reduced motion uses generated static SVGs; retry a terminated process once, then use the same-state static image.</p><p><strong>Exit:</strong> inactivity, pause, and failure tests pass; mounts remain bounded; reusable defaults still work.</p></div></div>
+        <div class="vbg-custom-phase"><div class="vbg-custom-phase-index">4</div><div><h3>Cross-platform proof</h3><p>Exercise every shape and path, run Chromium/WebKit coverage, compare generated package content, inspect build/export size, and remove duplicate clocks or network asset paths. Verify actual iOS and Android WebViews when devices are available; if CSS <code>d</code> interpolation fails, record the limitation without substituting an eye fade or silently changing approved art. Device proof may remain a named handoff item when no device is available. Then revise the existing Nabu avatar note.</p><p><strong>Exit:</strong> automated checks pass, native evidence or its outstanding limitation is recorded, Nabu agrees, and neither branch is merged or deployed.</p></div></div>
+      </section>
+
+      <section class="vbg-section" aria-labelledby="acceptance">
+        <p class="vbg-context">Acceptance</p>
+        <h2 id="acceptance">Behavior is complete only when continuity, inactivity, and accessibility all hold.</h2>
+        <ol>
+          <li>Each shape renders approved idle, refined thinking, and sleeping loops locally on web and mobile.</li>
+          <li>Idle/thinking waits for the neutral boundary without restart or stutter.</li>
+          <li>Sleep entry completes awake, plays falling-asleep for 1.4 seconds, then loops sleep.</li>
+          <li>Wake promptly samples sleep, bridges about 420 ms, plays the full 1.4 s authored waking beat, and enters the latest awake request after about 1.82 s total.</li>
+          <li>Rapid requests retain one latest public state and reverse only through coherent endpoints.</li>
+          <li>Reduced motion switches immediately to a distinct static requested pose with no continuous animation or bridge.</li>
+          <li>Web sleep still requires a bound Ally, latest message, and ten inactive minutes; Machine state is irrelevant.</li>
+          <li>Mobile matches that predicate and wakes on meaningful draft activity or active conversation work.</li>
+          <li>Web sandbox/CSP and mobile local WebView make no asset/script request and allow no remote navigation.</li>
+          <li>Hidden/offscreen web and offscreen, scrolled-away, unfocused, or backgrounded mobile freeze; inline thinking pauses away from latest and list mounts stay bounded.</li>
+          <li>Reduced motion and a repeat native process failure after one reload use a same-shape/same-state exported static SVG.</li>
+          <li>Appearance validation, shell color/size, labels, onboarding defaults, chat controls, and conversation behavior remain intact.</li>
+        </ol>
+      </section>
+
+      <section class="vbg-section" aria-labelledby="validation">
+        <p class="vbg-context">Validation</p>
+        <h2 id="validation">Test exact boundaries, then prove real native WebViews.</h2>
+        <h3>Shared package</h3>
+        <pre><code>bun run --cwd packages/ally-motion generate
+git diff --exit-code -- packages/ally-motion/src/generated.ts
+bun run test:run -- packages/ally-motion/src/player.test.ts
+bun --filter web test:ally-motion
+bun apps/web/scripts/export-ally-artwork.mjs</code></pre>
+        <h3>Web branch</h3>
+        <pre><code>bun run test:run -- apps/web/components/ally-avatar.test.ts apps/web/app/home/home-workspace.test.tsx apps/web/app/home/conversation-frame.test.tsx
+bun run lint:web
+bun --filter web typecheck
+bun run build:web</code></pre>
+        <h3>Mobile branch</h3>
+        <pre><code>bun run test:run -- apps/mobile/src/features/allies/ally-sleep.test.ts packages/ally-motion/src/player.test.ts
+bun run lint:mobile
+bun --filter mobile typecheck
+bun run bundle:mobile</code></pre>
+        <p>From <code>apps/mobile</code>, also run <code>bunx expo export --platform android --output-dir dist/android</code> so Android resolves the shared package and WebView; <code>bun run bundle:mobile</code> covers the iOS export.</p>
+        <details open><summary>Behavioral proof checklist</summary><ul><li>Fake time checks around 4000, 4502.083, 1400, 420, 1820, and 9600 ms, including SMIL and WAAPI seeking.</li><li>Web playground: all shapes, reversals, iframe focusability, zero requests, and Chromium/WebKit eye geometry change.</li><li>Reduced motion: three same-shape static poses with no WebView mount.</li><li>Offscreen/tab hide, list viewability, scrolled-away inline thinking, navigation, and background: elapsed time freezes.</li><li>Terminate the native content process twice: one reload, then matching static SVG.</li><li>Expo Go on iOS and Android when devices are available: inspect motion, clipping, white flash, scroll, touch capture, and navigation.</li></ul></details>
+      </section>
+
+      <section class="vbg-section" aria-labelledby="risk">
+        <p class="vbg-context">Risks and rollback</p>
+        <h2 id="risk">Native SMIL/WAAPI timing and bundle weight are the two material limits.</h2>
+        <div class="vbg-table-wrap"><table class="vbg-table">
+          <caption>No product decision remains open. Native timing support is a validation result that may remain a named device-proof handoff item.</caption>
+          <thead><tr><th scope="col">Risk</th><th scope="col">Mitigation</th><th scope="col">Rollback or fallback</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Native WAAPI or SVG SMIL differs</th><td>Keep Chromium/WebKit geometry passing, then device-test iOS and Android when available.</td><td>Report the limitation and hold that platform treatment for follow-up; do not replace approved eye motion with opacity fading.</td></tr>
+            <tr><th scope="row">Generated payload adds about 0.78 MB before compression</th><td>Measure web build and both native exports; generate once and avoid client copies.</td><td>Use per-state static assets only if measured cost is unacceptable, preserving public states.</td></tr>
+            <tr><th scope="row">Many roster renderers consume resources</th><td>Pause by intersection/document visibility on web; preserve native list virtualization, bound WebView mounts to its viewability window, and pause by viewability/focus/AppState.</td><td>Use static requested poses for non-primary avatars, retaining full selected-conversation playback.</td></tr>
+            <tr><th scope="row">Two transition owners remain</th><td>Remove web timeout/preload and keep private phases out of props.</td><td>Revert adapters and package together; never leave two clocks active.</td></tr>
+            <tr><th scope="row">Branches diverge</th><td>Carry one exact package change before platform adapters; require clean generation in both.</td><td>Reapply the accepted package byte-for-byte and rerun both suites.</td></tr>
+            <tr><th scope="row">Nabu stays stale</th><td>Revision-aware update to the existing note after implementation proof.</td><td>Record the mismatch; do not create a competing canonical note.</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section class="vbg-section" aria-labelledby="evidence">
+        <p class="vbg-context">Evidence and assumptions</p>
+        <h2 id="evidence">The plan follows inspected repository, product, artwork, and platform evidence.</h2>
+        <ul>
+          <li><code>AGENTS.md</code>, <code>ENGINEERING_STYLE.md</code>, web/mobile app instructions, plan template, package scripts, Vitest projects, and CI.</li>
+          <li>Web avatar, Home workspace, conversation frame/primitives, and their focused tests.</li>
+          <li>Mobile Ally roster, selected conversation, onboarding/reusable preview, artwork adapters, <code>features/allies/ally-sleep.ts</code> and its focused test.</li>
+          <li>Shared player/test, generation and SMIL normalization scripts, static exporter, and Chromium/WebKit geometry suite.</li>
+          <li>Four each of approved refined thinking, idle, sleeping, waking, and falling-asleep SVGs plus the local motion-room prototype.</li>
+          <li>Nabu index, Ally avatar specification, and DSN-003. Nabu currently says desaturation/no sleeping asset and public idle/thinking; the user's newer accepted direction controls this delivery and requires later reconciliation.</li>
+          <li>Expo SDK 57 WebView documentation inspected 5 September 2026: Expo Go support, recommended 13.16.1, install via Expo resolver.</li>
+        </ul>
+        <h3>Assumptions carried into implementation</h3>
+        <ul><li>The 0.78 MB offline payload is acceptable subject to measured build/export evidence.</li><li>The web branch supplies the first shared package change, then mobile receives the exact same package.</li><li>The generator converts CSS path keyframes to SMIL; Chromium/WebKit geometry proves eye motion, while unavailable native device proof is recorded for handoff without blocking code review.</li><li>No eye-fade fallback is approved.</li><li>Existing shell desaturation may remain only if it does not hide approved sleep artwork.</li></ul>
+      </section>
+    </main>
+    <footer class="vbg-footer"><div><strong>Allies sleep transitions</strong><br>Markdown and HTML preserve the same scope, contracts, phases, tests, risks, and fallback.</div><a href="#plan">Back to top</a></footer>
+  </div>
+</div>
+<section><h2>Approved follow-up</h2><p>Follow-up approved on 5 September: coloured web avatars use the full SVG canvas at 86% of the shell, matching mobile. Defer player mounting until initial conversation state is resolved; already-asleep Allies start in the sleep loop. Enlarge sleep Zs and move their travel inward. Give each initial idle/sleep loop an independent random phase while preserving authored transition endpoints. Validate loading-to-sleep initialization, unchanged player identity on later requests, mobile sizing parity, phase offsets, and existing browser geometry tests.</p></section></body>
+</html>

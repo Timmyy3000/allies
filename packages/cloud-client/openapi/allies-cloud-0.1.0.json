@@ -61,6 +61,16 @@
             "title": "Activities",
             "type": "array"
           },
+          "assistant_reply": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssistantReplyResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "conversation_id": {
             "format": "uuid",
             "title": "Conversation Id",
@@ -232,6 +242,63 @@
         "title": "AppearanceInput",
         "type": "object"
       },
+      "AssistantReplyResponse": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "conversation_turn_ordinal": {
+            "title": "Conversation Turn Ordinal",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "has_full_prefix": {
+            "title": "Has Full Prefix",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "is_truncated": {
+            "title": "Is Truncated",
+            "type": "boolean"
+          },
+          "source_message_id": {
+            "format": "uuid",
+            "title": "Source Message Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "source_message_id",
+          "conversation_turn_ordinal",
+          "content",
+          "status",
+          "has_full_prefix",
+          "is_truncated",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AssistantReplyResponse",
+        "type": "object"
+      },
       "AuthorizationStartResponse": {
         "examples": [
           {
@@ -349,6 +416,13 @@
             "format": "uuid",
             "title": "Ally Id",
             "type": "string"
+          },
+          "assistant_replies": {
+            "items": {
+              "$ref": "#/components/schemas/AssistantReplyResponse"
+            },
+            "title": "Assistant Replies",
+            "type": "array"
           },
           "id": {
             "format": "uuid",
@@ -611,7 +685,7 @@
             "type": "string"
           },
           "attempt_sequence": {
-            "maximum": 513,
+            "maximum": 100001,
             "minimum": 1,
             "title": "Attempt Sequence",
             "type": "integer"
@@ -2012,6 +2086,12 @@
         "description": "Native sessions only. The bearer is accepted only on the reviewed account, profile, avatar, and Workspace methods.",
         "scheme": "bearer",
         "type": "http"
+      },
+      "BrowserSession": {
+        "description": "Browser session cookie. Mutating requests also require a trusted Origin or Referer and a matching CSRF cookie/header.",
+        "in": "cookie",
+        "name": "allies_access",
+        "type": "apiKey"
       }
     }
   },
@@ -2024,7 +2104,7 @@
   "paths": {
     "/api/v1/allies/{ally_id}/runtime-intents": {
       "post": {
-        "operationId": "runtimeintent_request_dda78c85",
+        "operationId": "runtimeintent_request_cfc2953d",
         "parameters": [
           {
             "in": "path",
@@ -2180,7 +2260,7 @@
     },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_090cafbd",
+        "operationId": "authentication_callback_294cabb1",
         "parameters": [
           {
             "in": "path",
@@ -2285,7 +2365,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_f454ecdf",
+        "operationId": "authentication_csrf_5385e3e4",
         "parameters": [],
         "responses": {
           "204": {
@@ -2315,7 +2395,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_afbc7521",
+        "operationId": "identity_link_43fc06e0",
         "parameters": [
           {
             "in": "path",
@@ -2492,7 +2572,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_9053a320",
+        "operationId": "session_logout_c80ccf2f",
         "parameters": [],
         "responses": {
           "204": {
@@ -2537,7 +2617,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_e05e620b",
+        "operationId": "profile_me_6eb6d721",
         "parameters": [],
         "responses": {
           "200": {
@@ -2594,7 +2674,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_476a3276",
+        "operationId": "avatar_delete_6a9c4f41",
         "parameters": [],
         "responses": {
           "204": {
@@ -2704,7 +2784,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_f3b65f1b",
+        "operationId": "avatar_complete_2077fd5e",
         "parameters": [
           {
             "in": "path",
@@ -2862,7 +2942,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_9ab583e3",
+        "operationId": "avatar_read_e4862ec4",
         "parameters": [],
         "responses": {
           "200": {
@@ -2949,7 +3029,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_907901c5",
+        "operationId": "avatar_prepare_3d7d8165",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3091,7 +3171,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_36bfadbc",
+        "operationId": "profile_profile_7d158015",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3204,7 +3284,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_2033152e",
+        "operationId": "nativeauthentication_callback_476b779e",
         "parameters": [
           {
             "in": "path",
@@ -3336,7 +3416,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_dd7ee4a5",
+        "operationId": "nativeauthentication_logout_031cdce6",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3428,7 +3508,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_cc736a9c",
+        "operationId": "nativeauthentication_sign_in_ae073947",
         "parameters": [
           {
             "in": "path",
@@ -3532,7 +3612,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_49e0a301",
+        "operationId": "nativeauthentication_token_6bec2daa",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3696,7 +3776,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_1e78cec4",
+        "operationId": "nativeauthentication_refresh_43388d66",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3859,7 +3939,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_762f59c3",
+        "operationId": "session_refresh_fc4a1f11",
         "parameters": [],
         "responses": {
           "204": {
@@ -3949,7 +4029,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_2dadcfca",
+        "operationId": "authentication_sign_in_3efff569",
         "parameters": [
           {
             "in": "path",
@@ -4096,7 +4176,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_47d9d79e",
+        "operationId": "health_health_b935aefb",
         "parameters": [],
         "responses": {
           "200": {
@@ -4170,8 +4250,37 @@
     },
     "/api/v1/onboarding/attempts": {
       "post": {
-        "operationId": "onboarding_begin_3d6965c9",
-        "parameters": [],
+        "description": "This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.",
+        "operationId": "onboarding_begin_127058f5",
+        "parameters": [
+          {
+            "description": "Browser-only signal; if present it must be a configured trusted origin.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Browser-only signal; if present its origin must be trusted.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Browser-only double-submit header; never send it from native clients.",
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -4191,15 +4300,41 @@
                 }
               }
             },
-            "description": "OK"
+            "description": "OK",
+            "headers": {
+              "Cache-Control": {
+                "description": "The response must not be cached.",
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "403": {
             "content": {
               "application/json": {
-                "example": {
-                  "data": null,
-                  "message": "Request failed",
-                  "status": "error"
+                "examples": {
+                  "csrf_rejected": {
+                    "summary": "csrf rejected",
+                    "value": {
+                      "data": {
+                        "code": "csrf_rejected"
+                      },
+                      "message": "csrf rejected",
+                      "status": "error"
+                    }
+                  },
+                  "origin_rejected": {
+                    "summary": "origin rejected",
+                    "value": {
+                      "data": {
+                        "code": "origin_rejected"
+                      },
+                      "message": "origin rejected",
+                      "status": "error"
+                    }
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
@@ -4211,10 +4346,25 @@
           "422": {
             "content": {
               "application/json": {
-                "example": {
-                  "data": null,
-                  "message": "Request failed",
-                  "status": "error"
+                "examples": {
+                  "validation_error": {
+                    "summary": "validation error",
+                    "value": {
+                      "data": {
+                        "code": "validation_error",
+                        "details": {
+                          "errors": [
+                            {
+                              "code": "string_type",
+                              "field": "body.payload.name"
+                            }
+                          ]
+                        }
+                      },
+                      "message": "request validation failed",
+                      "status": "error"
+                    }
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
@@ -4226,10 +4376,17 @@
           "429": {
             "content": {
               "application/json": {
-                "example": {
-                  "data": null,
-                  "message": "Request failed",
-                  "status": "error"
+                "examples": {
+                  "throttled": {
+                    "summary": "throttled",
+                    "value": {
+                      "data": {
+                        "code": "throttled"
+                      },
+                      "message": "try again later",
+                      "status": "error"
+                    }
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
@@ -4241,10 +4398,17 @@
           "503": {
             "content": {
               "application/json": {
-                "example": {
-                  "data": null,
-                  "message": "Request failed",
-                  "status": "error"
+                "examples": {
+                  "onboarding_unavailable": {
+                    "summary": "onboarding unavailable",
+                    "value": {
+                      "data": {
+                        "code": "onboarding_unavailable"
+                      },
+                      "message": "onboarding unavailable",
+                      "status": "error"
+                    }
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
@@ -4254,6 +4418,7 @@
             "description": "Service Unavailable"
           }
         },
+        "security": [],
         "summary": "Begin",
         "tags": [
           "Onboarding"
@@ -4263,7 +4428,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_6dff0bb6",
+        "operationId": "waitlist_create_0df2673a",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -4444,7 +4609,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_769d3be3",
+        "operationId": "waitlist_complete_947d947a",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -4614,7 +4779,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_dc1ec8a4",
+        "operationId": "workspace_context_992c0040",
         "parameters": [
           {
             "in": "path",
@@ -4697,7 +4862,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_4f185bdc",
+        "operationId": "ally_list_9cce0cb7",
         "parameters": [
           {
             "in": "path",
@@ -4773,7 +4938,8 @@
         ]
       },
       "post": {
-        "operationId": "ally_create_4680f335",
+        "description": "Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.",
+        "operationId": "ally_create_17785507",
         "parameters": [
           {
             "in": "path",
@@ -4795,6 +4961,33 @@
               "maxLength": 128,
               "minLength": 16,
               "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for browser transport and must be trusted; omit for native.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Browser alternative to Origin; omit for native.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required with the browser CSRF cookie; omit for native.",
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": false,
+            "schema": {
               "type": "string"
             }
           }
@@ -4833,10 +5026,17 @@
           "401": {
             "content": {
               "application/json": {
-                "example": {
-                  "data": null,
-                  "message": "Request failed",
-                  "status": "error"
+                "examples": {
+                  "session_invalid": {
+                    "summary": "session invalid",
+                    "value": {
+                      "data": {
+                        "code": "session_invalid"
+                      },
+                      "message": "session invalid",
+                      "status": "error"
+                    }
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
@@ -4848,10 +5048,27 @@
           "403": {
             "content": {
               "application/json": {
-                "example": {
-                  "data": null,
-                  "message": "Request failed",
-                  "status": "error"
+                "examples": {
+                  "csrf_rejected": {
+                    "summary": "csrf rejected",
+                    "value": {
+                      "data": {
+                        "code": "csrf_rejected"
+                      },
+                      "message": "csrf rejected",
+                      "status": "error"
+                    }
+                  },
+                  "origin_rejected": {
+                    "summary": "origin rejected",
+                    "value": {
+                      "data": {
+                        "code": "origin_rejected"
+                      },
+                      "message": "origin rejected",
+                      "status": "error"
+                    }
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
@@ -4863,10 +5080,17 @@
           "404": {
             "content": {
               "application/json": {
-                "example": {
-                  "data": null,
-                  "message": "Request failed",
-                  "status": "error"
+                "examples": {
+                  "ally_unavailable": {
+                    "summary": "ally unavailable",
+                    "value": {
+                      "data": {
+                        "code": "ally_unavailable"
+                      },
+                      "message": "Ally unavailable",
+                      "status": "error"
+                    }
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
@@ -4878,10 +5102,17 @@
           "409": {
             "content": {
               "application/json": {
-                "example": {
-                  "data": null,
-                  "message": "Request failed",
-                  "status": "error"
+                "examples": {
+                  "idempotency_conflict": {
+                    "summary": "idempotency conflict",
+                    "value": {
+                      "data": {
+                        "code": "idempotency_conflict"
+                      },
+                      "message": "request conflicts",
+                      "status": "error"
+                    }
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
@@ -4893,10 +5124,17 @@
           "422": {
             "content": {
               "application/json": {
-                "example": {
-                  "data": null,
-                  "message": "Request failed",
-                  "status": "error"
+                "examples": {
+                  "onboarding_invalid": {
+                    "summary": "onboarding invalid",
+                    "value": {
+                      "data": {
+                        "code": "onboarding_invalid"
+                      },
+                      "message": "onboarding attempt invalid",
+                      "status": "error"
+                    }
+                  }
                 },
                 "schema": {
                   "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
@@ -4921,6 +5159,14 @@
             "description": "Internal Server Error"
           }
         },
+        "security": [
+          {
+            "BrowserSession": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Create",
         "tags": [
           "Allies"
@@ -4929,7 +5175,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_eff28f63",
+        "operationId": "ally_retrieve_83dc9e7c",
         "parameters": [
           {
             "in": "path",
@@ -5017,7 +5263,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_641f236a",
+        "operationId": "conversation_by_ally_328ccd80",
         "parameters": [
           {
             "in": "path",
@@ -5148,7 +5394,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_c5fbb8dd",
+        "operationId": "conversation_by_conversation_4d88b087",
         "parameters": [
           {
             "in": "path",
@@ -5279,7 +5525,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_d0077afd",
+        "operationId": "activity_snapshot_3ffd3d76",
         "parameters": [
           {
             "in": "path",
@@ -5451,7 +5697,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
       "get": {
-        "operationId": "activity_stream_f78cf6c4",
+        "operationId": "activity_stream_b6ce0c4e",
         "parameters": [
           {
             "in": "path",
@@ -5504,7 +5750,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
-        "operationId": "conversation_send_4ffd5997",
+        "operationId": "conversation_send_e19f66cb",
         "parameters": [
           {
             "in": "path",
@@ -5670,7 +5916,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
       "post": {
-        "operationId": "conversation_retry_1da5631f",
+        "operationId": "conversation_retry_8d589b51",
         "parameters": [
           {
             "in": "path",

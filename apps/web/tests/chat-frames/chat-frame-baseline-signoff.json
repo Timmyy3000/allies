@@ -1,0 +1,152 @@
+{
+  "schemaVersion": 1,
+  "manifestSha256": "f8c999ca2f46af5c5df9ce4cc7ef776f3efb023ff9da6855aab118ed55b84540",
+  "sourceImportId": "df3eb62c0b54964800ee8dbc6ae2927bdb6b22c86c0f0b5a2364d5d9779f491b",
+  "implementationCommit": "10afda963b7ca81e0f875ed6c224ed60cca0cbfd",
+  "runtime": {
+    "playwright": "1.62.1",
+    "chromium": {
+      "browserVersion": "151.0.7922.34",
+      "revision": "1234"
+    }
+  },
+  "baselineApprover": "TBD_ALLIES_PRODUCT_DESIGN_OWNER",
+  "approvedAt": null,
+  "approvalReference": null,
+  "ciRunUrl": null,
+  "provisionalException": {
+    "status": "accepted",
+    "scope": "PR #26 and PR #27 regression baselines at 10afda9, limited to the recorded capture hashes",
+    "owner": "repository maintainer",
+    "reason": "User explicitly approved the reviewed provisional captures on 2026-09-05 and deferred one-by-one design review until after CI repair. This is regression approval, not pixel-perfect design sign-off.",
+    "revisit": "Complete provenance before the first production release or any intentional baseline update, whichever comes first.",
+    "reference": "docs/plans/restore-live-home.md#provisional-chat-baseline-approval"
+  },
+  "captures": [
+    {
+      "frameId": "315:1612",
+      "path": "__screenshots__/chat-chromium/chat-frame-315-1612.png",
+      "sha256": "00225b77c7ff096b7df5d7a554dcc9de2b95bbb299b327233c98df18d75a1594"
+    },
+    {
+      "frameId": "315:2050",
+      "path": "__screenshots__/chat-chromium/chat-frame-315-2050.png",
+      "sha256": "76862340e61be2ae3c7bc9681e422fc6c186412382dca33e8f99fa3b3047d932"
+    },
+    {
+      "frameId": "346:5812",
+      "path": "__screenshots__/chat-chromium/chat-frame-346-5812.png",
+      "sha256": "76862340e61be2ae3c7bc9681e422fc6c186412382dca33e8f99fa3b3047d932"
+    },
+    {
+      "frameId": "315:2837",
+      "path": "__screenshots__/chat-chromium/chat-frame-315-2837.png",
+      "sha256": "701587b60495721f7b23012fc3802516105b80b7d20d5304ff6bd89e8bb4d172"
+    },
+    {
+      "frameId": "315:2927",
+      "path": "__screenshots__/chat-chromium/chat-frame-315-2927.png",
+      "sha256": "e3bd4b90b85b357ab57aab0da2263338284dce6bfcf99b0f360b981dd8d32cb3"
+    },
+    {
+      "frameId": "315:3009",
+      "path": "__screenshots__/chat-chromium/chat-frame-315-3009.png",
+      "sha256": "790c4315fc0b97b683f923f2d5545af19bdfe0c4da05d70dfaed17a323693daa"
+    },
+    {
+      "frameId": "370:6544",
+      "path": "__screenshots__/chat-chromium/chat-frame-370-6544.png",
+      "sha256": "f8cdc223bd2a8c2fe30ed59a64a2445181c58be42b6bcb58a14f237db2b231f1"
+    },
+    {
+      "frameId": "370:6622",
+      "path": "__screenshots__/chat-chromium/chat-frame-370-6622.png",
+      "sha256": "5f1f74975f390c24c6ce618a7421ee9e4e6cee0b092fa75a01f09907b2abbe60"
+    },
+    {
+      "frameId": "346:5714",
+      "path": "__screenshots__/chat-chromium/chat-frame-346-5714.png",
+      "sha256": "9be200f63fcb32c610fdc5a26dd48782a479b38d53c9ba757aea46db13674831"
+    },
+    {
+      "frameId": "346:5880",
+      "path": "__screenshots__/chat-chromium/chat-frame-346-5880.png",
+      "sha256": "5863386ea6a48bb3ee09df448eea16fdd5c23b5551ea3c622a2c86e7313bd658"
+    },
+    {
+      "frameId": "315:3256",
+      "path": "__screenshots__/chat-chromium/chat-frame-315-3256.png",
+      "sha256": "c9d6f69d089afd633cc5717c91f6d7c8b0b10f75d35cbf3d61e4aec80736fbc3"
+    },
+    {
+      "frameId": "347:5953",
+      "path": "__screenshots__/chat-chromium/chat-frame-347-5953.png",
+      "sha256": "b45648ffa00748baa33fae33f2718c5c26a09d1f781eebb5f257d631739be3e8"
+    },
+    {
+      "frameId": "362:6356",
+      "path": "__screenshots__/chat-chromium/chat-frame-362-6356.png",
+      "sha256": "44dbb1f23b876fcd7c45cb49eb0bb6dbd9b3a1d794403d79f2dd98d2f5a93643"
+    },
+    {
+      "frameId": "365:6452",
+      "path": "__screenshots__/chat-chromium/chat-frame-365-6452.png",
+      "sha256": "5196942578f0f991ca4bffa52175e610a89f7132a4113a549d8c36f07c552f15"
+    },
+    {
+      "frameId": "355:6222",
+      "path": "__screenshots__/chat-chromium/chat-frame-355-6222.png",
+      "sha256": "d06187df203326fca1465e9bfafe90eb7e8885e6e9d47427c5f7500c037c0ec3"
+    },
+    {
+      "frameId": "355:6112",
+      "path": "__screenshots__/chat-chromium/chat-frame-355-6112.png",
+      "sha256": "ca1fcff4286c1426a9d9a86025c9bafe8b7d67129e17273531ece58ba19f3ca7"
+    },
+    {
+      "frameId": "331:4419",
+      "path": "__screenshots__/chat-chromium/chat-frame-331-4419.png",
+      "sha256": "20d9868020cf62cc580cfea8956cdf905b8e4ecb06ebe8307bcba2a5ae4da3fc"
+    },
+    {
+      "frameId": "332:4537",
+      "path": "__screenshots__/chat-chromium/chat-frame-332-4537.png",
+      "sha256": "990608b04ff1d3ac0d19bd91006e005862f65e0b88d36fd8c5739b3e2945b561"
+    },
+    {
+      "frameId": "332:5289",
+      "path": "__screenshots__/chat-chromium/chat-frame-332-5289.png",
+      "sha256": "cf55003cb0d14a75bc23644f46e73a34a2908f24dc202981f46312e94892d524"
+    },
+    {
+      "frameId": "332:5604",
+      "path": "__screenshots__/chat-chromium/chat-frame-332-5604.png",
+      "sha256": "8448562f523e61302787b13f47ab0fd7011f2d3ec9589df4128bb2dd991de85b"
+    },
+    {
+      "frameId": "332:4983",
+      "path": "__screenshots__/chat-chromium/chat-frame-332-4983.png",
+      "sha256": "4a15d7a362ada78e1941ab89b39b26754fcc67f7bde687c459769b0cf3ea86c9"
+    },
+    {
+      "frameId": "372:6829",
+      "path": "__screenshots__/chat-chromium/chat-frame-372-6829.png",
+      "sha256": "752cb5f1b9b550d9721af48a0480bfb75ced4d4c09e70ea94fa69a4e323aa444"
+    },
+    {
+      "frameId": "376:7026",
+      "path": "__screenshots__/chat-chromium/chat-frame-376-7026.png",
+      "sha256": "22719f2f5aebfc0bd8cbd43c2e3b6295b2be402f0ab5bfad426ff2763bafa1d7"
+    },
+    {
+      "frameId": "332:4740",
+      "path": "__screenshots__/chat-chromium/chat-frame-332-4740.png",
+      "sha256": "cd8d8444711d4f0fe4cd66df98d951828a2644f01ba870e73b7bc1068b8189d7"
+    },
+    {
+      "frameId": "315:3141",
+      "path": "__screenshots__/chat-chromium/chat-frame-315-3141.png",
+      "sha256": "5e30b7a3d35320d639ee9b848c05019b42a378d8b55c66c219e6226c6cfe13c5"
+    }
+  ]
+}

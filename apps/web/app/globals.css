@@ -815,6 +815,314 @@ textarea::placeholder {
   line-height: 1;
 }
 
+.waitlist-auth-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  box-sizing: border-box;
+  padding: 12px 12px calc(24px + env(safe-area-inset-bottom, 0px));
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.waitlist-auth-card {
+  position: relative;
+  width: 351px;
+  max-width: 100%;
+  height: 462px;
+  max-height: calc(100% - 36px);
+  overflow: hidden;
+  box-sizing: border-box;
+  border-radius: 30px;
+  background: #fff;
+}
+
+.waitlist-auth-heading-block {
+  display: flex;
+  flex-direction: column;
+  row-gap: 12px;
+  align-items: flex-start;
+  left: 20px;
+  top: 36px;
+  width: 252px;
+  position: absolute;
+}
+
+.waitlist-auth-title {
+  margin: 0;
+  width: 100%;
+  color: #121212;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.88px;
+  line-height: 120%;
+}
+
+.waitlist-auth-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  top: 24px;
+  right: 20px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 18px;
+  background: #121212;
+  position: absolute;
+  cursor: pointer;
+}
+
+.waitlist-auth-body {
+  margin: 0;
+  left: 20px;
+  top: 184px;
+  width: 311px;
+  position: absolute;
+  color: #121212;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.49px;
+  line-height: 20px;
+}
+
+.waitlist-auth-actions {
+  display: flex;
+  flex-direction: column;
+  row-gap: 12px;
+  left: 20px;
+  top: 260px;
+  width: 311px;
+  position: absolute;
+}
+
+.waitlist-auth-provider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  column-gap: 12px;
+  width: 100%;
+  height: 48px;
+  padding: 0;
+  border: 0;
+  border-radius: 100px;
+  background: #f3f3f3;
+  color: #121212;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.66px;
+  line-height: 120%;
+  cursor: pointer;
+}
+
+.waitlist-auth-provider img {
+  display: block;
+  width: 24px;
+  height: 24px;
+}
+
+.waitlist-auth-error {
+  margin: 0;
+  left: 20px;
+  top: 372px;
+  width: 311px;
+  position: absolute;
+  color: #b8203d;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  line-height: 120%;
+  text-align: center;
+}
+
+.waitlist-auth-legal {
+  margin: 0;
+  left: 20px;
+  top: 404px;
+  width: 311px;
+  position: absolute;
+  color: #a0a0a0;
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: -0.47px;
+  line-height: 120%;
+  text-align: center;
+}
+
+.waitlist-auth-legal span {
+  text-decoration: underline;
+}
+
+.waitlist-auth-welcome {
+  align-items: center;
+  justify-content: center;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+.waitlist-auth-welcome-stack {
+  display: flex;
+  flex-direction: column;
+  row-gap: 18px;
+  align-items: center;
+  width: min(309px, 100%);
+}
+
+.waitlist-auth-welcome-copy {
+  display: flex;
+  flex-direction: column;
+  row-gap: 12px;
+  align-items: center;
+  width: 100%;
+}
+
+.waitlist-auth-welcome-copy h1 {
+  margin: 0;
+  color: #121212;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.95px;
+  line-height: 120%;
+  text-align: center;
+}
+
+.waitlist-auth-welcome-copy p {
+  margin: 0;
+  color: #757575;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.49px;
+  line-height: 120%;
+  text-align: center;
+}
+
+.waitlist-auth-notifications {
+  justify-content: space-between;
+  padding: calc(24px + env(safe-area-inset-top, 0px)) 20px calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+.waitlist-auth-notifications-main {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  row-gap: 36px;
+  align-items: center;
+  justify-content: center;
+  width: min(311px, 100%);
+  margin: 0 auto;
+}
+
+.waitlist-auth-notifications-preview {
+  display: flex;
+  flex-direction: row;
+  column-gap: 12px;
+  align-items: center;
+  width: 100%;
+  height: 64px;
+  padding: 0 14px;
+  border-radius: 16px;
+  background: #f3f3f3;
+  box-sizing: border-box;
+}
+
+.waitlist-auth-notifications-mark {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 41.1px;
+  height: 40px;
+  overflow: hidden;
+  border-radius: 10px;
+}
+
+.waitlist-auth-notifications-skeleton {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  row-gap: 8px;
+  min-width: 0;
+}
+
+.waitlist-auth-notifications-skeleton span:first-child {
+  width: 60px;
+  height: 18px;
+  border-radius: 4px;
+  background: #d9d9d9;
+}
+
+.waitlist-auth-notifications-skeleton span:last-child {
+  width: 100%;
+  height: 14px;
+  border-radius: 4px;
+  background: #d9d9d9;
+}
+
+.waitlist-auth-notifications-copy {
+  display: flex;
+  flex-direction: column;
+  row-gap: 12px;
+  align-items: center;
+  width: 100%;
+}
+
+.waitlist-auth-notifications-copy h1 {
+  margin: 0;
+  color: #121212;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.96px;
+  line-height: 120%;
+  text-align: center;
+}
+
+.waitlist-auth-notifications-copy p {
+  margin: 0;
+  width: 100%;
+  color: #757575;
+  font-size: 16px;
+  font-weight: 500;
+  letter-spacing: -0.49px;
+  line-height: 120%;
+  text-align: center;
+}
+
+.waitlist-auth-notifications-actions {
+  display: flex;
+  flex-direction: column;
+  row-gap: 18px;
+  width: min(335px, 100%);
+  margin: 0 auto;
+}
+
+.waitlist-auth-notifications-later,
+.waitlist-auth-notifications-allow {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 48px;
+  padding: 10px;
+  border: 0;
+  border-radius: 60px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.66px;
+  line-height: 120%;
+  cursor: pointer;
+}
+
+.waitlist-auth-notifications-later {
+  background: #f3f3f3;
+  color: #121212;
+}
+
+.waitlist-auth-notifications-allow {
+  color: #fff;
+}
+
 .waitlist-save-modal-overlay {
   position: absolute;
   inset: 0;
@@ -1198,16 +1506,21 @@ textarea::placeholder {
   --onboarding-artboard-min-height: 0px;
 }
 
-@media (max-width: 639px) {
-  .onboarding-drawer-layer {
-    align-items: stretch;
-    padding: 0;
-  }
+.onboarding-drawer-layer-page {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+  pointer-events: auto;
+}
 
-  .onboarding-drawer-panel {
-    width: 100%;
-    border-radius: 30px 30px 0 0;
-  }
+.onboarding-drawer-panel-page {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+}
+
+.onboarding-drawer-panel-page .onboarding-drawer-content {
+  --onboarding-artboard-min-height: 100dvh;
 }
 
 .onboarding-step .step-title {

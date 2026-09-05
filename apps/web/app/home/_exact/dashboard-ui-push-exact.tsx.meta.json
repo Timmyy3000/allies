@@ -1,0 +1,20 @@
+{
+  "sourceHtml": "apps/web/app/home/_exact/dashboard-ui-push-artboard.html",
+  "component": "DashboardUiPushExact",
+  "out": "apps/web/app/home/_exact/dashboard-ui-push-exact.tsx",
+  "converter": "htmltojsx",
+  "imageCount": 14,
+  "chromeStripped": true,
+  "chromeRemoved": 0,
+  "artboard": {
+    "width": 375,
+    "height": 812
+  },
+  "warnings": [],
+  "next": [
+    "Wire onClose / CTAs / drawers — do not redraw layout",
+    "Apply faniq-fonts if any fontFamily remained",
+    "Horizontal flex rows → overflow-x-auto + 20px in-scroll padding",
+    "QA against screenshot"
+  ]
+}

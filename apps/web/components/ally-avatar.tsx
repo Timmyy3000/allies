@@ -1,18 +1,18 @@
 "use client";
 
 import {
-  useEffect,
   useMemo,
-  useRef,
   useState,
   useSyncExternalStore,
   type CSSProperties,
 } from "react";
 
+import { AllyArtwork } from "./ally-artwork";
+
 export const ALLY_SHAPES = ["boxy", "ghosty", "rocky", "rolly"] as const;
 export type AllyShape = (typeof ALLY_SHAPES)[number];
 
-export const ALLY_ANIMATION_STATES = ["idle", "thinking"] as const;
+export const ALLY_ANIMATION_STATES = ["idle", "thinking", "sleeping"] as const;
 export type AllyAnimationState = (typeof ALLY_ANIMATION_STATES)[number];
 
 export const ALLY_MOTION_MODES = ["system", "full", "reduced"] as const;
@@ -23,6 +23,7 @@ export const ALLY_AVATAR_CYCLE_MS = 4_000;
 export const ALLY_ANIMATION_CYCLE_MS: Record<AllyAnimationState, number> = {
   idle: 4_000,
   thinking: 4_502.083,
+  sleeping: 9_600,
 };
 
 /**
@@ -44,6 +45,7 @@ type AllyAssetTable = Record<
 
 const ASSETS: AllyAssetTable = {
   boxy: {
+    sleeping: { animated: "/ally/sleeping/sleeping_boxy.svg", reduced: "/ally/sleeping/sleeping_boxy.reduced.svg" },
     idle: {
       animated: "/ally/idle/idle_boxy.svg",
       reduced: "/ally/idle/idle_boxy.reduced.svg",
@@ -54,6 +56,7 @@ const ASSETS: AllyAssetTable = {
     },
   },
   ghosty: {
+    sleeping: { animated: "/ally/sleeping/sleeping_ghosty.svg", reduced: "/ally/sleeping/sleeping_ghosty.reduced.svg" },
     idle: {
       animated: "/ally/idle/idle_ghosty.svg",
       reduced: "/ally/idle/idle_ghosty.reduced.svg",
@@ -64,6 +67,7 @@ const ASSETS: AllyAssetTable = {
     },
   },
   rocky: {
+    sleeping: { animated: "/ally/sleeping/sleeping_rocky.svg", reduced: "/ally/sleeping/sleeping_rocky.reduced.svg" },
     idle: {
       animated: "/ally/idle/idle_rocky.svg",
       reduced: "/ally/idle/idle_rocky.reduced.svg",
@@ -74,6 +78,7 @@ const ASSETS: AllyAssetTable = {
     },
   },
   rolly: {
+    sleeping: { animated: "/ally/sleeping/sleeping_rolly.svg", reduced: "/ally/sleeping/sleeping_rolly.reduced.svg" },
     idle: {
       animated: "/ally/idle/idle_rolly.svg",
       reduced: "/ally/idle/idle_rolly.reduced.svg",
@@ -187,67 +192,6 @@ function usePrefersReducedMotion(mode: AllyMotionMode) {
   return mode === "reduced" || (mode === "system" && systemReducedMotion);
 }
 
-function useDeferredAnimationState(
-  requestedState: AllyAnimationState,
-  shape: AllyShape | null,
-  reducedMotion: boolean,
-) {
-  const [activeState, setActiveState] = useState(requestedState);
-  const activeStateRef = useRef(activeState);
-  const cycleStartedAt = useRef<number | null>(null);
-  const deadlineRef = useRef<number | null>(null);
-
-  const clearDeadline = () => {
-    if (deadlineRef.current !== null) {
-      window.clearTimeout(deadlineRef.current);
-      deadlineRef.current = null;
-    }
-  };
-
-  useEffect(() => {
-    cycleStartedAt.current = performance.now();
-  }, [shape, reducedMotion]);
-
-  useEffect(() => {
-    clearDeadline();
-
-    if (reducedMotion) {
-      activeStateRef.current = requestedState;
-      cycleStartedAt.current = performance.now();
-      return;
-    }
-
-    if (requestedState === activeStateRef.current || shape === null) return;
-
-    const startedAt = cycleStartedAt.current ?? performance.now();
-    const delay = getAllyCycleDelay(
-      startedAt,
-      performance.now(),
-      ALLY_ANIMATION_CYCLE_MS[activeStateRef.current],
-    );
-    deadlineRef.current = window.setTimeout(() => {
-      activeStateRef.current = requestedState;
-      setActiveState(requestedState);
-      cycleStartedAt.current = performance.now();
-      deadlineRef.current = null;
-    }, delay);
-
-    return clearDeadline;
-  }, [requestedState, shape, reducedMotion]);
-
-  useEffect(() => {
-    if (reducedMotion) return;
-    const frame = window.requestAnimationFrame(() => {
-      setActiveState(activeStateRef.current);
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [reducedMotion]);
-
-  useEffect(() => clearDeadline, []);
-
-  return reducedMotion ? requestedState : activeState;
-}
-
 function normalizeSize(size: number | string | undefined): number | string {
   if (typeof size === "number" && Number.isFinite(size) && size > 0) return size;
   if (typeof size === "string" && size.trim().length > 0) return size;
@@ -257,6 +201,7 @@ function normalizeSize(size: number | string | undefined): number | string {
 export type AllyAvatarProps = {
   shape: AllyShape;
   state?: AllyAnimationState;
+  stateReady?: boolean;
   motion?: AllyMotionMode;
   color?: string;
   size?: number | string;
@@ -276,6 +221,7 @@ export type AllyAvatarProps = {
 export function AllyAvatar({
   shape: shapeInput,
   state: stateInput = "idle",
+  stateReady = true,
   motion = "system",
   color,
   size,
@@ -290,44 +236,9 @@ export function AllyAvatar({
   const shape = normalizeAllyShape(shapeInput);
   const requestedState = normalizeAllyAnimationState(stateInput);
   const reducedMotion = usePrefersReducedMotion(motion);
-  const activeState = useDeferredAnimationState(
-    requestedState,
-    shape,
-    reducedMotion,
-  );
-  const [assetFallback, setAssetFallback] = useState<{
-    key: string;
-    state: AllyAnimationState;
-  } | null>(null);
-
-  useEffect(() => {
-    if (shape === null) return;
-
-    const sources = ALLY_ANIMATION_STATES.map((state) =>
-      getAllyAsset(shape, state, reducedMotion),
-    );
-    const preloads = sources.map((source) => {
-      const image = new window.Image();
-      image.src = source;
-      return image;
-    });
-
-    return () => {
-      preloads.forEach((image) => {
-        image.onload = null;
-        image.onerror = null;
-      });
-    };
-  }, [shape, reducedMotion]);
-
+  const [displayedState, setDisplayedState] = useState<string>(requestedState);
   const shellColor = normalizeAllyColor(color);
   const accessibleLabel = label?.trim() || undefined;
-  const assetKey = `${shape ?? "invalid"}:${activeState}:${reducedMotion ? "reduced" : "full"}`;
-  const renderedState =
-    assetFallback?.key === assetKey ? assetFallback.state : activeState;
-  const assetSource = shape
-    ? getAllyAsset(shape, renderedState, reducedMotion)
-    : null;
   const artworkLayout = shape ? ARTWORK_LAYOUT[shape] : null;
   const hasShell = !transparent && !neutral;
   const hasColorShell = !neutral && Boolean(color?.trim());
@@ -355,20 +266,20 @@ export function AllyAvatar({
       className={className}
       data-ally-avatar
       data-ally-shape={shape ?? "invalid"}
-      data-ally-state={activeState}
+      data-ally-state={displayedState}
       data-ally-motion={reducedMotion ? "reduced" : "full"}
       role={accessibleLabel ? "img" : undefined}
       aria-label={accessibleLabel}
       aria-hidden={accessibleLabel ? undefined : true}
       style={rootStyle}
     >
-      {assetSource && artworkLayout ? (
+      {artworkLayout ? (
         <div
           data-ally-artwork
-          data-ally-artwork-state={renderedState}
+          data-ally-artwork-state={displayedState}
           style={{
-            width: artworkSize === "full" ? "100%" : artworkLayout.width,
-            height: artworkSize === "full" ? "100%" : artworkLayout.height,
+            width: hasColorShell || artworkSize === "full" ? "100%" : artworkLayout.width,
+            height: hasColorShell || artworkSize === "full" ? "100%" : artworkLayout.height,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -379,28 +290,9 @@ export function AllyAvatar({
             transformOrigin: "center",
           }}
         >
-          {/* External SVGs keep their authored CSS/SMIL animation only when rendered as an image document. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src={assetSource}
-            alt=""
-            aria-hidden="true"
-            draggable={false}
-            onError={() => {
-              if (renderedState !== "idle") {
-                setAssetFallback({ key: assetKey, state: "idle" });
-              }
-            }}
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "block",
-              objectFit: "contain",
-              userSelect: "none",
-              pointerEvents: "none",
-              filter: neutral ? "grayscale(1) opacity(0.38)" : undefined,
-            }}
-          />
+          <div style={{ width: "100%", height: "100%", filter: neutral ? "grayscale(1) opacity(0.38)" : undefined }}>
+            {shape && stateReady && <AllyArtwork key={shape} shape={shape} state={requestedState} reduced={reducedMotion} onStateChange={setDisplayedState} />}
+          </div>
         </div>
       ) : null}
     </div>

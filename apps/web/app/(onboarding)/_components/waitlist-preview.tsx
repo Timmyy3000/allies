@@ -9,6 +9,7 @@ import {
 } from "motion/react";
 import Image from "next/image";
 import {
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -16,11 +17,18 @@ import {
   type CSSProperties,
 } from "react";
 
+import { useRouter } from "next/navigation";
+
 import { Artboard } from "@/components/artboard";
 import { AllyAvatar, type AllyShape } from "@/components/ally-avatar";
 import { getAccentPalette } from "@/components/next-button";
 import { ShinyText } from "@/components/text-animations/shiny-text";
 import { captureWaitlistEvent } from "@/lib/analytics/waitlist";
+import {
+  OnboardingAuthResumeContext,
+  clearOnboardingResume,
+  writeOnboardingResume,
+} from "../_store/onboarding-resume";
 import { useOnboardingStore } from "../_store/onboarding-store";
 import { WaitlistMappingError } from "../../../lib/waitlist/catalog";
 import {
@@ -28,10 +36,24 @@ import {
   useAllyPreviewFlow,
   waitlistGreetingFingerprint,
 } from "../../../lib/waitlist/flow";
+import { AllowNotifications } from "./allow-notifications";
+import { AuthOverlay } from "./auth-overlay";
+import { AuthWelcome } from "./auth-welcome";
 import {
   ONBOARDING_ALLY_LAYOUT_ID,
   PersistentAllyAvatar,
 } from "./persistent-ally";
+
+const AUTH_WELCOME_HOLD_MS = 3_000;
+type AuthGate = "closed" | "overlay" | "welcome" | "notifications" | "done";
+
+function localPreviewGreeting(allyName: string) {
+  const who = allyName.trim() || "your ally";
+  return [
+    `Welcome! I am ${who}, and I am thrilled to help you make your day easier, more productive, and fun. Think of me as your always-available partner for brainstorming, writing, learning, and organising.`,
+    "No task is too big or too small, and I am constantly learning new ways to assist you better. Let us collaborate and build something great together.",
+  ].join("\n\n");
+}
 
 const HERO_SHELL_SIZE = 164.2;
 const PREVIEW_SHELL_SIZE = 24;
@@ -173,38 +195,6 @@ function getCompletionPathPoint(
 
 type PreviewPhase = "coming-alive" | "thinking" | "ready";
 
-function MailboxIcon({ color }: { color: string }) {
-  return (
-    <svg
-      aria-hidden="true"
-      width="24"
-      height="24"
-      viewBox="0 0 22 23"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M7.33309 6.33337C7.33309 5.78109 5.11415 5.33337 5.66643 5.33337H15.6664C18.796 5.33337 21.3331 7.87043 21.3331 11V17.6667C21.3331 18.955 20.288 20 18.9998 20H5.66643C5.11415 20 7.33309 19.5523 7.33309 19V6.33337Z"
-        fill={color}
-        fillOpacity="0.4"
-      />
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M13.6665 0C13.1142 0 12.6665 0.447715 12.6665 1V2.66667V3V8.33333C12.6665 8.88561 13.1142 9.33333 13.6665 9.33333C14.2188 9.33333 14.6665 8.88561 14.6665 8.33333V4H17.6665C18.2188 4 18.6665 3.55228 18.6665 3V1C18.6665 0.447715 18.2188 0 17.6665 0H13.6665Z"
-        fill={color}
-      />
-      <path
-        fillRule="evenodd"
-        clipRule="evenodd"
-        d="M5.66667 5.33337C2.53839 5.33337 0 7.87176 0 11V17.6667C0 18.955 1.04505 20 2.33333 20H9C9.11317 20 9.22447 19.992 9.33333 19.9764V21.6667C9.33333 22.219 9.78105 22.6667 10.3333 22.6667C10.8856 22.6667 11.3333 22.219 11.3333 21.6667V17.6667V17.3334V11C11.3333 7.87176 8.79495 5.33337 5.66667 5.33337ZM6.66667 11C6.66667 10.4478 6.21895 10 5.66667 10C5.11439 10 4.66667 10.4478 4.66667 11V13C4.66667 13.5523 5.11439 14 5.66667 14C6.21895 14 6.66667 13.5523 6.66667 13V11Z"
-        fill={color}
-      />
-    </svg>
-  );
-}
 
 function CompletionCursor({ fill }: { fill: string }) {
   return (
@@ -358,6 +348,17 @@ function WavyText({ text }: { text: string }) {
   );
 }
 
+async function requestBrowserNotifications() {
+  if (typeof Notification === "undefined" || Notification.permission !== "default") {
+    return;
+  }
+  try {
+    await Notification.requestPermission();
+  } catch {
+    return;
+  }
+}
+
 export function WaitlistPreviewScreen() {
   const name = useOnboardingStore((state) => state.name);
   const shape = useOnboardingStore((state) => state.shape);
@@ -366,14 +367,20 @@ export function WaitlistPreviewScreen() {
   const personalities = useOnboardingStore((state) => state.personalities);
   const personalityNote = useOnboardingStore((state) => state.personalityNote);
   const personalityRaw = useOnboardingStore((state) => state.personalityRaw);
-  const [phase, setPhase] = useState<PreviewPhase>("coming-alive");
+  const router = useRouter();
+  const resumeAfterGoogle = useContext(OnboardingAuthResumeContext);
+  const [phase, setPhase] = useState<PreviewPhase>(resumeAfterGoogle ? "ready" : "coming-alive");
   const [thinkingStartedAt, setThinkingStartedAt] = useState<number | null>(null);
   const [canRevealGreeting, setCanRevealGreeting] = useState(false);
   const [visibleGreeting, setVisibleGreeting] = useState({ source: "", text: "" });
   const [replyDraft, setReplyDraft] = useState<string | null>(null);
-  const [email, setEmail] = useState("");
-  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [authGate, setAuthGate] = useState<AuthGate>(resumeAfterGoogle ? "welcome" : "closed");
   const prefersReducedMotion = useReducedMotion() ?? false;
+
+  if (resumeAfterGoogle && (phase !== "ready" || authGate !== "welcome")) {
+    setPhase("ready");
+    setAuthGate("welcome");
+  }
   const savedConfigurationRef = useRef<string | null>(null);
   const failedConfigurationRef = useRef<string | null>(null);
   const {
@@ -384,8 +391,6 @@ export function WaitlistPreviewScreen() {
     lastAction,
     saveConfiguration,
     recordReply,
-    join,
-    consentVersion,
     retry,
     completionMode,
   } = useAllyPreviewFlow();
@@ -511,9 +516,12 @@ export function WaitlistPreviewScreen() {
   const message =
     errorMessage(error) ?? configuration.mappingError?.message ?? null;
   const displayPhase =
-    phase === "thinking" && canRevealGreeting && greetingIsCurrent ? "ready" : phase;
-  const shouldShowGreeting = displayPhase === "ready" && greetingIsCurrent;
-  const greetingText = snapshot?.greeting?.text ?? "";
+    phase === "thinking" && canRevealGreeting ? "ready" : phase;
+  const cloudGreeting = greetingIsCurrent ? snapshot?.greeting?.text ?? "" : "";
+  const greetingText =
+    cloudGreeting ||
+    (displayPhase === "ready" ? localPreviewGreeting(name) : "");
+  const shouldShowGreeting = displayPhase === "ready" && Boolean(greetingText);
   const renderedGreeting =
     visibleGreeting.source === greetingText ? visibleGreeting.text : "";
   const joinedEmail = completionMode === "waitlist" ? snapshot?.join?.email ?? null : null;
@@ -542,6 +550,43 @@ export function WaitlistPreviewScreen() {
 
     return () => window.clearInterval(timer);
   }, [greetingText, prefersReducedMotion, shouldShowGreeting]);
+
+  useEffect(() => {
+    if (authGate !== "welcome") return;
+    const hold = prefersReducedMotion ? 0 : AUTH_WELCOME_HOLD_MS;
+    const timer = window.setTimeout(() => setAuthGate("notifications"), hold);
+    return () => window.clearTimeout(timer);
+  }, [authGate, prefersReducedMotion]);
+
+  const openAuthGate = () => {
+    if (
+      completionMode === "authenticated" ||
+      phase === "coming-alive" ||
+      authGate === "welcome" ||
+      authGate === "notifications" ||
+      authGate === "done"
+    ) {
+      return;
+    }
+    setAuthGate("overlay");
+  };
+
+  const persistOnboardingResume = () => {
+    writeOnboardingResume({
+      name,
+      shape,
+      color,
+      job,
+      personalities,
+      personalityNote,
+      personalityRaw,
+    });
+  };
+
+  const goToHome = () => {
+    clearOnboardingResume();
+    router.replace("/home");
+  };
 
   if (phase === "coming-alive") {
     return (
@@ -572,7 +617,25 @@ export function WaitlistPreviewScreen() {
     );
   }
 
-  if (joinedEmail) {
+  if (authGate === "welcome") {
+    return <AuthWelcome name={name} shape={shape} color={accent} />;
+  }
+
+  if (authGate === "notifications") {
+    return (
+      <AllowNotifications
+        shape={shape}
+        color={accent}
+        onLater={goToHome}
+        onAllow={async () => {
+          await requestBrowserNotifications();
+          goToHome();
+        }}
+      />
+    );
+  }
+
+  if (joinedEmail || authGate === "done") {
     return (
       <Artboard>
         <motion.main
@@ -765,19 +828,12 @@ export function WaitlistPreviewScreen() {
             className="waitlist-preview-composer"
             onSubmit={(event) => {
               event.preventDefault();
-              if (
-                !isBusy &&
-                status === "ready" &&
-                configurationMatches &&
-                replyText.trim() &&
-                !snapshot?.reply
-              ) {
-                const reply = replyText.trim();
-                void recordReply(reply)
-                  .then(() => {
-                    if (completionMode === "waitlist") setShowSaveModal(true);
-                  })
-                  .catch(() => undefined);
+              if (completionMode === "authenticated") {
+                if (!isBusy && replyText.trim() && greetingIsCurrent && cloudGreeting) {
+                  void recordReply(replyText.trim()).catch(() => undefined);
+                }
+              } else {
+                openAuthGate();
               }
             }}
           >
@@ -785,23 +841,19 @@ export function WaitlistPreviewScreen() {
             aria-label="Reply to your Ally"
             data-testid="waitlist-reply"
             value={replyText}
-            onChange={(event) => setReplyDraft(event.target.value)}
+            onFocus={openAuthGate}
+            onChange={(event) => {
+              setReplyDraft(event.target.value);
+              openAuthGate();
+            }}
             placeholder={`Reply ${name || "your Ally"}`}
             maxLength={4000}
-            disabled={isBusy || Boolean(snapshot?.reply)}
             className="waitlist-preview-composer-input"
           />
           <button
             type="submit"
             aria-label="Send reply"
-            disabled={
-              isBusy ||
-              status !== "ready" ||
-              !configurationMatches ||
-              !replyText.trim() ||
-              !snapshot ||
-              Boolean(snapshot.reply)
-            }
+            disabled={completionMode === "authenticated" && (isBusy || !replyText.trim() || !greetingIsCurrent || !cloudGreeting)}
             className="waitlist-preview-send"
             style={{
               background: replyText.trim() ? accent : "#a8a8a8",
@@ -814,103 +866,16 @@ export function WaitlistPreviewScreen() {
         </div>
 
         <AnimatePresence initial={false}>
-          {completionMode === "waitlist" && showSaveModal ? (
-            <motion.div
-              key="save-modal"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Save your ally"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="waitlist-save-modal-overlay"
-            >
-              <motion.div
-                initial={{ y: 36, opacity: 0 }}
-                animate={{ y: 0, opacity: 1 }}
-                exit={{ y: 24, opacity: 0 }}
-                transition={{ type: "spring", stiffness: 260, damping: 26 }}
-                className="waitlist-save-modal-card"
-              >
-                <div className="waitlist-save-modal-top-row">
-                  <div
-                    aria-hidden="true"
-                    className="waitlist-save-modal-mailbox"
-                    style={{ background: `${accent}40` }}
-                  >
-                    <MailboxIcon color={accent} />
-                  </div>
-                  <button
-                    type="button"
-                    aria-label="Close save Ally dialog"
-                    onClick={() => setShowSaveModal(false)}
-                    className="waitlist-save-modal-close"
-                  >
-                    <Image src="/ally/icons/x.svg" alt="" width={24} height={24} />
-                  </button>
-                </div>
-
-                <form
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (
-                      !isBusy &&
-                      status === "ready" &&
-                      configurationMatches &&
-                      email.trim() &&
-                      consentVersion
-                    ) {
-                      if (!join) return;
-                      void join(email.trim())
-                        .then(() => {
-                          setReplyDraft(null);
-                        })
-                        .catch(() => undefined);
-                    }
-                  }}
-                  className="waitlist-save-modal-form"
-                >
-                  <h2 className="waitlist-save-modal-title">
-                    Save
-                    <br />
-                    your ally
-                  </h2>
-                  <p className="waitlist-save-modal-description">
-                    allies isn&apos;t live yet. Enter your email to save the ally you&apos;ve shaped and its first message.
-                  </p>
-                  <input
-                    data-testid="waitlist-email"
-                    aria-label="Email address"
-                    type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="Email address"
-                    className="waitlist-save-modal-email"
-                  />
-                  <button
-                    type="submit"
-                    data-testid="waitlist-submit"
-                    disabled={
-                      isBusy ||
-                      status !== "ready" ||
-                      !configurationMatches ||
-                      !email.trim() ||
-                      !consentVersion
-                    }
-                    className="waitlist-save-modal-submit"
-                    style={{
-                      background: email.trim() && consentVersion ? accent : "#d9d9d9",
-                      cursor: email.trim() && consentVersion ? "pointer" : "default",
-                    }}
-                  >
-                    {pendingAction === "join" ? "Saving…" : "Submit"}
-                  </button>
-                  <p className="waitlist-save-modal-consent">
-                    By joining the waitlist, you consent to us contacting you about our release and availability.
-                  </p>
-                </form>
-              </motion.div>
-            </motion.div>
+          {authGate === "overlay" ? (
+            <AuthOverlay
+              shape={shape}
+              color={accent}
+              onClose={() => setAuthGate("closed")}
+              onPrepareGoogleSignIn={persistOnboardingResume}
+              onSignUp={(provider) => {
+                if (provider === "chatgpt") setAuthGate("welcome");
+              }}
+            />
           ) : null}
         </AnimatePresence>
       </div>

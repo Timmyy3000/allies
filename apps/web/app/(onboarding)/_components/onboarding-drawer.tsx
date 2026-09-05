@@ -9,22 +9,22 @@ import {
 } from "react";
 import { AnimatePresence, motion } from "motion/react";
 
-const PHONE_QUERY = "(max-width: 639px)";
+const PAGE_QUERY = "(max-width: 1023px)";
 
-function subscribeToPhoneQuery(callback: () => void) {
+function subscribeToPageQuery(callback: () => void) {
   if (typeof window === "undefined") return () => undefined;
 
-  const mediaQuery = window.matchMedia(PHONE_QUERY);
+  const mediaQuery = window.matchMedia(PAGE_QUERY);
   mediaQuery.addEventListener("change", callback);
   return () => mediaQuery.removeEventListener("change", callback);
 }
 
-function getPhoneQuerySnapshot() {
-  return typeof window !== "undefined" && window.matchMedia(PHONE_QUERY).matches;
+function getPageQuerySnapshot() {
+  return typeof window !== "undefined" && window.matchMedia(PAGE_QUERY).matches;
 }
 
-function useIsPhone() {
-  return useSyncExternalStore(subscribeToPhoneQuery, getPhoneQuerySnapshot, () => false);
+function useIsPageOverlay() {
+  return useSyncExternalStore(subscribeToPageQuery, getPageQuerySnapshot, () => false);
 }
 
 export default function OnboardingDrawer({
@@ -38,8 +38,20 @@ export default function OnboardingDrawer({
   onClosed?: () => void;
   children: ReactNode;
 }) {
-  const isPhone = useIsPhone();
+  const isPageOverlay = useIsPageOverlay();
   const panelRef = useRef<HTMLDivElement>(null);
+  const pageOverlayWasOpen = useRef(false);
+
+  useEffect(() => {
+    if (!isPageOverlay) return;
+    if (open) {
+      pageOverlayWasOpen.current = true;
+      return;
+    }
+    if (!pageOverlayWasOpen.current) return;
+    pageOverlayWasOpen.current = false;
+    onClosed?.();
+  }, [isPageOverlay, onClosed, open]);
 
   useEffect(() => {
     if (!open) return;
@@ -102,8 +114,34 @@ export default function OnboardingDrawer({
     if (event.target === event.currentTarget) onClose();
   };
 
-  const panelInitial = isPhone ? { y: "100%" } : { x: "100%" };
-  const panelExit = isPhone ? { y: "100%" } : { x: "100%" };
+  const panel = (
+    <div
+      ref={panelRef}
+      tabIndex={-1}
+      data-testid="onboarding-drawer"
+      data-page-overlay={isPageOverlay ? "true" : "false"}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Make your Ally"
+      onClick={(event) => event.stopPropagation()}
+      className={
+        isPageOverlay
+          ? "onboarding-drawer-panel onboarding-drawer-panel-page"
+          : "onboarding-drawer-panel"
+      }
+    >
+      <div className="onboarding-drawer-content">{children}</div>
+    </div>
+  );
+
+  if (isPageOverlay) {
+    if (!open) return null;
+    return (
+      <div className="onboarding-drawer-layer onboarding-drawer-layer-page">
+        {panel}
+      </div>
+    );
+  }
 
   return (
     <AnimatePresence initial={false} onExitComplete={onClosed}>
@@ -122,9 +160,9 @@ export default function OnboardingDrawer({
           <motion.div
             key="onboarding-drawer-layer"
             className="onboarding-drawer-layer"
-            initial={panelInitial}
-            animate={{ x: 0, y: 0 }}
-            exit={panelExit}
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
             transition={{
               type: "spring",
               stiffness: 360,
@@ -132,20 +170,7 @@ export default function OnboardingDrawer({
               mass: 0.85,
             }}
           >
-            <div
-              ref={panelRef}
-              tabIndex={-1}
-              data-testid="onboarding-drawer"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Make your Ally"
-              onClick={(event) => event.stopPropagation()}
-              className="onboarding-drawer-panel"
-            >
-              <div className="onboarding-drawer-content">
-                {children}
-              </div>
-            </div>
+            {panel}
           </motion.div>
         </>
       ) : null}

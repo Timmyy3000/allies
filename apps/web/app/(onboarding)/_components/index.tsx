@@ -5,6 +5,7 @@ import {
   useContext,
   useEffect,
   useId,
+  useLayoutEffect,
   useRef,
   useState,
   useCallback,
@@ -27,6 +28,7 @@ import {
 } from "./animated-copy";
 import OnboardingFlow from "./make-ally";
 import OnboardingDrawer from "./onboarding-drawer";
+import { readOnboardingResume } from "../_store/onboarding-resume";
 import { useOnboardingStore } from "../_store/onboarding-store";
 
 const DESKTOP_ART_W = 1512;
@@ -106,28 +108,41 @@ function useArtboardScale(
 }
 
 export default function Onboarding({
-  waitlistEnabled = false,
+  waitlistEnabled: _waitlistEnabled = false,
   ctaHref,
   presentation = "route",
   exitHref = "/",
   onExit,
+  resumeAfterAuth = false,
 }: {
   waitlistEnabled?: boolean;
   ctaHref?: string;
   presentation?: "route" | "drawer";
   exitHref?: string;
   onExit?: () => void;
+  resumeAfterAuth?: boolean;
 }) {
   const step = useOnboardingStore((state) => state.step);
   const goTo = useOnboardingStore((state) => state.goTo);
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const hydrate = useOnboardingStore((state) => state.hydrate);
+  const [drawerOpen, setDrawerOpen] = useState(resumeAfterAuth);
   const isDrawerPresentation = presentation === "drawer";
   const router = useRouter();
+  const resumeApplied = useRef(false);
 
   const openDrawer = useCallback(() => {
     setDrawerOpen(true);
     goTo("name");
   }, [goTo]);
+
+  useLayoutEffect(() => {
+    if (!resumeAfterAuth || resumeApplied.current) return;
+    resumeApplied.current = true;
+    const snapshot = readOnboardingResume();
+    if (snapshot) hydrate(snapshot);
+    goTo("preview");
+    setDrawerOpen(true);
+  }, [goTo, hydrate, resumeAfterAuth]);
 
   const closeDrawer = useCallback(() => {
     setDrawerOpen(false);
@@ -158,16 +173,16 @@ export default function Onboarding({
     <>
       <div className="hidden min-[1024px]:block">
         <DesktopOnboarding
-          waitlistEnabled={waitlistEnabled}
           ctaHref={ctaHref}
           onOpenOnboarding={isDrawerPresentation ? openDrawer : undefined}
+          startStoryComplete={resumeAfterAuth}
         />
       </div>
       <div className="min-[1024px]:hidden">
         <MobileOnboarding
-          waitlistEnabled={waitlistEnabled}
           ctaHref={ctaHref}
-          onboardingHref={isDrawerPresentation ? "/onboarding" : undefined}
+          onOpenOnboarding={openDrawer}
+          startStoryComplete={resumeAfterAuth}
         />
       </div>
       <nav
@@ -307,13 +322,13 @@ function FollowAlly({
 }
 
 function DesktopOnboarding({
-  waitlistEnabled,
   ctaHref,
   onOpenOnboarding,
+  startStoryComplete = false,
 }: {
-  waitlistEnabled: boolean;
   ctaHref?: string;
   onOpenOnboarding?: () => void;
+  startStoryComplete?: boolean;
 }) {
   const { hostRef, scale, hostWidth } = useArtboardScale(
     DESKTOP_ART_W,
@@ -332,9 +347,9 @@ function DesktopOnboarding({
     offsetLeft: logicalArtboardGutter + DESKTOP_COPY_OFFSET.left,
     offsetTop: DESKTOP_COPY_OFFSET.top,
   };
-  const [storyDone, setStoryDone] = useState(false);
+  const [storyDone, setStoryDone] = useState(startStoryComplete);
   const [skipRequest, setSkipRequest] = useState(0);
-  const [skipVisible, setSkipVisible] = useState(true);
+  const [skipVisible, setSkipVisible] = useState(!startStoryComplete);
 
   return (
     <div
@@ -381,6 +396,7 @@ function DesktopOnboarding({
             roamOffsets={DESKTOP_ROAM_OFFSETS}
             onComplete={setStoryDone}
             skipRequest={skipRequest}
+            startComplete={startStoryComplete}
             renderActor={(ally, state, options) => (
               <FollowAlly
                 ally={ally}
@@ -391,7 +407,6 @@ function DesktopOnboarding({
           />
           {storyDone ? (
             <MeetAllyButton
-              enabled={waitlistEnabled}
               href={ctaHref}
               onOpen={onOpenOnboarding}
               fontSize={18}
@@ -416,21 +431,21 @@ function DesktopOnboarding({
 }
 
 function MobileOnboarding({
-  waitlistEnabled,
   ctaHref,
-  onboardingHref,
+  onOpenOnboarding,
+  startStoryComplete = false,
 }: {
-  waitlistEnabled: boolean;
   ctaHref?: string;
-  onboardingHref?: string;
+  onOpenOnboarding?: () => void;
+  startStoryComplete?: boolean;
 }) {
   const { hostRef, hostWidth, hostHeight } = useArtboardScale(
     MOBILE_ART_W,
     MOBILE_ART_H,
   );
-  const [storyDone, setStoryDone] = useState(false);
+  const [storyDone, setStoryDone] = useState(startStoryComplete);
   const [skipRequest, setSkipRequest] = useState(0);
-  const [skipVisible, setSkipVisible] = useState(true);
+  const [skipVisible, setSkipVisible] = useState(!startStoryComplete);
 
   return (
     <IconSizeContext.Provider value={16}>
@@ -481,6 +496,7 @@ function MobileOnboarding({
               roamOffsets={MOBILE_ROAM_OFFSETS}
               onComplete={setStoryDone}
               skipRequest={skipRequest}
+              startComplete={startStoryComplete}
               renderActor={(ally, state, options) => (
                 <FollowAlly
                   ally={ally}
@@ -491,9 +507,8 @@ function MobileOnboarding({
             />
             {storyDone ? (
               <MeetAllyButton
-                enabled={waitlistEnabled}
                 href={ctaHref}
-                onboardingHref={onboardingHref}
+                onOpen={onOpenOnboarding}
                 fontSize={16}
                 marginTop={24}
               />

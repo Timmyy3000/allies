@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="470" height="470" viewBox="0 0 470 470" fill="none" role="img" aria-label="Sleeping rocky">
+<title>Sleeping rocky</title>
+<style>
+@keyframes sleep-breathe {
+  0%,100% { transform: translateY(0px) scale(1,1); }
+  16% { transform: translateY(9px) scale(1.018,.975); }
+  30% { transform: translateY(-8px) scale(.977,1.035); }
+  58% { transform: translateY(4px) scale(1.008,.99); }
+}
+.sleeper { transform-origin: 235px 330px; animation: sleep-breathe 4.8s cubic-bezier(.37,0,.63,1) infinite; }
+@keyframes sleep-eyes {
+  0%,100% { transform: translateY(0px); }
+  16% { transform: translateY(8px); }
+  30% { transform: translateY(-21px); }
+  58% { transform: translateY(3px); }
+}
+.sleep-eyelids { animation: sleep-eyes 4.8s cubic-bezier(.37,0,.63,1) infinite; }
+@keyframes eyelid-curve {
+  0%,100% { d:path('M 2 48 Q 27 69 53 48'); }
+  16% { d:path('M 2 48 Q 27 65 53 48'); }
+  30% { d:path('M 2 48 Q 27 39 53 48'); }
+  58% { d:path('M 2 48 Q 27 67 53 48'); }
+}
+.lid { fill:black; stroke:none; }
+.rocker { transform-origin:235px 320px; animation:sleep-rock 9.6s linear infinite; }
+.sleep-z { animation: sleep-z-travel 3.6s linear infinite, sleep-z-fade 3.6s linear infinite; }
+.z-two { animation-delay:-1.2s; }
+.z-three { animation-delay:-2.4s; }
+@keyframes sleep-z-travel {
+  from { transform:translate(300px,135px) rotate(-8deg) scale(.55); }
+  to { transform:translate(375px,48px) rotate(5deg) scale(1.15); }
+}
+@keyframes sleep-z-fade {
+  0%,100% { opacity:0; }
+  18%,65% { opacity:1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sleeper,.sleep-eyelids,.rocker,.lid { animation:none; }
+  .sleep-z { animation:none; opacity:1; transform:translate(302px,103px) scale(.58); }
+  .z-two { transform:translate(341px,70px) scale(.86); }
+  .z-three { transform:translate(386px,96px) scale(1.13); }
+}
+@keyframes sleep-rock {0.00000% { transform:rotate(-1.00000deg); }0.83333% { transform:rotate(-0.81682deg); }1.66667% { transform:rotate(-0.63415deg); }2.50000% { transform:rotate(-0.45248deg); }3.33333% { transform:rotate(-0.27231deg); }4.16667% { transform:rotate(-0.09413deg); }5.00000% { transform:rotate(0.08156deg); }5.83333% { transform:rotate(0.25429deg); }6.66667% { transform:rotate(0.42358deg); }7.50000% { transform:rotate(0.58897deg); }8.33333% { transform:rotate(0.75000deg); }9.16667% { transform:rotate(0.90624deg); }10.00000% { transform:rotate(1.05725deg); }10.83333% { transform:rotate(1.20262deg); }11.66667% { transform:rotate(1.34196deg); }12.50000% { transform:rotate(1.47487deg); }13.33333% { transform:rotate(1.60101deg); }14.16667% { transform:rotate(1.72001deg); }15.00000% { transform:rotate(1.83156deg); }15.83333% { transform:rotate(1.93535deg); }16.66667% { transform:rotate(2.03109deg); }17.50000% { transform:rotate(2.11852deg); }18.33333% { transform:rotate(2.19741deg); }19.16667% { transform:rotate(2.26753deg); }20.00000% { transform:rotate(2.32870deg); }20.83333% { transform:rotate(2.38074deg); }21.66667% { transform:rotate(2.42352deg); }22.50000% { transform:rotate(2.45691deg); }23.33333% { transform:rotate(2.48083deg); }24.16667% { transform:rotate(2.49520deg); }25.00000% { transform:rotate(2.50000deg); }25.83333% { transform:rotate(2.49520deg); }26.66667% { transform:rotate(2.48083deg); }27.50000% { transform:rotate(2.45691deg); }28.33333% { transform:rotate(2.42352deg); }29.16667% { transform:rotate(2.38074deg); }30.00000% { transform:rotate(2.32870deg); }30.83333% { transform:rotate(2.26753deg); }31.66667% { transform:rotate(2.19741deg); }32.50000% { transform:rotate(2.11852deg); }33.33333% { transform:rotate(2.03109deg); }34.16667% { transform:rotate(1.93535deg); }35.00000% { transform:rotate(1.83156deg); }35.83333% { transform:rotate(1.72001deg); }36.66667% { transform:rotate(1.60101deg); }37.50000% { transform:rotate(1.47487deg); }38.33333% { transform:rotate(1.34196deg); }39.16667% { transform:rotate(1.20262deg); }40.00000% { transform:rotate(1.05725deg); }40.83333% { transform:rotate(0.90624deg); }41.66667% { transform:rotate(0.75000deg); }42.50000% { transform:rotate(0.58897deg); }43.33333% { transform:rotate(0.42358deg); }44.16667% { transform:rotate(0.25429deg); }45.00000% { transform:rotate(0.08156deg); }45.83333% { transform:rotate(-0.09413deg); }46.66667% { transform:rotate(-0.27231deg); }47.50000% { transform:rotate(-0.45248deg); }48.33333% { transform:rotate(-0.63415deg); }49.16667% { transform:rotate(-0.81682deg); }50.00000% { transform:rotate(-1.00000deg); }50.83333% { transform:rotate(-1.18318deg); }51.66667% { transform:rotate(-1.36585deg); }52.50000% { transform:rotate(-1.54752deg); }53.33333% { transform:rotate(-1.72769deg); }54.16667% { transform:rotate(-1.90587deg); }55.00000% { transform:rotate(-2.08156deg); }55.83333% { transform:rotate(-2.25429deg); }56.66667% { transform:rotate(-2.42358deg); }57.50000% { transform:rotate(-2.58897deg); }58.33333% { transform:rotate(-2.75000deg); }59.16667% { transform:rotate(-2.90624deg); }60.00000% { transform:rotate(-3.05725deg); }60.83333% { transform:rotate(-3.20262deg); }61.66667% { transform:rotate(-3.34196deg); }62.50000% { transform:rotate(-3.47487deg); }63.33333% { transform:rotate(-3.60101deg); }64.16667% { transform:rotate(-3.72001deg); }65.00000% { transform:rotate(-3.83156deg); }65.83333% { transform:rotate(-3.93535deg); }66.66667% { transform:rotate(-4.03109deg); }67.50000% { transform:rotate(-4.11852deg); }68.33333% { transform:rotate(-4.19741deg); }69.16667% { transform:rotate(-4.26753deg); }70.00000% { transform:rotate(-4.32870deg); }70.83333% { transform:rotate(-4.38074deg); }71.66667% { transform:rotate(-4.42352deg); }72.50000% { transform:rotate(-4.45691deg); }73.33333% { transform:rotate(-4.48083deg); }74.16667% { transform:rotate(-4.49520deg); }75.00000% { transform:rotate(-4.50000deg); }75.83333% { transform:rotate(-4.49520deg); }76.66667% { transform:rotate(-4.48083deg); }77.50000% { transform:rotate(-4.45691deg); }78.33333% { transform:rotate(-4.42352deg); }79.16667% { transform:rotate(-4.38074deg); }80.00000% { transform:rotate(-4.32870deg); }80.83333% { transform:rotate(-4.26753deg); }81.66667% { transform:rotate(-4.19741deg); }82.50000% { transform:rotate(-4.11852deg); }83.33333% { transform:rotate(-4.03109deg); }84.16667% { transform:rotate(-3.93535deg); }85.00000% { transform:rotate(-3.83156deg); }85.83333% { transform:rotate(-3.72001deg); }86.66667% { transform:rotate(-3.60101deg); }87.50000% { transform:rotate(-3.47487deg); }88.33333% { transform:rotate(-3.34196deg); }89.16667% { transform:rotate(-3.20262deg); }90.00000% { transform:rotate(-3.05725deg); }90.83333% { transform:rotate(-2.90624deg); }91.66667% { transform:rotate(-2.75000deg); }92.50000% { transform:rotate(-2.58897deg); }93.33333% { transform:rotate(-2.42358deg); }94.16667% { transform:rotate(-2.25429deg); }95.00000% { transform:rotate(-2.08156deg); }95.83333% { transform:rotate(-1.90587deg); }96.66667% { transform:rotate(-1.72769deg); }97.50000% { transform:rotate(-1.54752deg); }98.33333% { transform:rotate(-1.36585deg); }99.16667% { transform:rotate(-1.18318deg); }100.00000% { transform:rotate(-1.00000deg); }}
+</style>
+<g class="rocker"><g class="sleeper"><g id="head" xmlns="http://www.w3.org/2000/svg" transform="translate(35 45)">
+<path d="M236.388 0.001174C333.629 -0.634247 432.685 256.846 389.661 338.447C362.362 390.223 269.235 380.672 188.155 376.502C107.076 372.331 10.291 377.443 1.01721 299.823C-13.9246 174.762 139.148 0.636595 236.388 0.001174Z" fill="white" stroke="black" stroke-width="27.3251" />
+<g id="eyes" transform="translate(117 118.022)"><g class="sleep-eyelids"><g id="eye_l"><path class="lid" d="M27.463 52 C38 52 48 43 54 44 C60 53 41 65 27.463 65 C13 65 -6 53 0 44 C6 43 16 52 27.463 52 Z"/></g><g id="eye_r" transform="translate(110.962 0)"><path class="lid" d="M27.463 52 C38 52 48 43 54 44 C60 53 41 65 27.463 65 C13 65 -6 53 0 44 C6 43 16 52 27.463 52 Z"/></g></g></g></g></g></g>
+<g stroke="black" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"><g class="sleep-z "><path d="M0 0 H40 L0 42 H40" stroke="white" stroke-width="17"/><path d="M0 0 H40 L0 42 H40"/></g><g class="sleep-z z-two"><path d="M0 0 H40 L0 42 H40" stroke="white" stroke-width="17"/><path d="M0 0 H40 L0 42 H40"/></g><g class="sleep-z z-three"><path d="M0 0 H40 L0 42 H40" stroke="white" stroke-width="17"/><path d="M0 0 H40 L0 42 H40"/></g></g>
+</svg>

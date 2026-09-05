@@ -22,7 +22,7 @@ export default defineConfig({
     projects: [
       {
         resolve: {
-          alias: reactAliases(sharedNodeModules),
+          alias: [...reactAliases(sharedNodeModules), { find: "@", replacement: path.resolve(workspaceRoot, "apps/web") }],
           dedupe: ["react", "react-dom"],
         },
         ssr: {
