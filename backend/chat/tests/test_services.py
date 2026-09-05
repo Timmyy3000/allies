@@ -196,7 +196,7 @@ def test_lifecycle_primitives_are_idempotent(account):
 
 
 @pytest.mark.django_db
-def test_retry_message_requeues_a_stale_send_and_replays_by_retry_key(account):
+def test_retry_message_requeues_an_explicitly_safe_failure_and_replays_by_key(account):
     user, workspace, ally = account
     conversation = ensure_default_conversation(
         ally=ally, greeting="Hello", reply="Reply"
@@ -209,7 +209,7 @@ def test_retry_message_requeues_a_stale_send_and_replays_by_retry_key(account):
         idempotency_key="chat-send-key-retry-01",
     ).message
     Message.objects.filter(pk=original.pk).update(
-        updated_at=timezone.now() - timedelta(minutes=3)
+        status=MessageLifecycle.FAILED, retry_allowed=True
     )
     DispatchOutbox.objects.create(message=original, status=DispatchState.ACCEPTED)
 

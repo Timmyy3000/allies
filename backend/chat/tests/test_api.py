@@ -75,7 +75,9 @@ def test_conversation_read_send_and_replay_contract():
         == created.json()["data"]["message"]["id"]
     )
     created_message_id = created.json()["data"]["message"]["id"]
-    Message.objects.filter(pk=created_message_id).update(status=MessageLifecycle.FAILED)
+    Message.objects.filter(pk=created_message_id).update(
+        status=MessageLifecycle.FAILED, retry_allowed=True
+    )
     retried = client.post(
         f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/messages/"
         f"{created_message_id}/retry",

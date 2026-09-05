@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Q
 from django.utils import timezone
@@ -12,6 +13,7 @@ from django.utils import timezone
 # ruff: noqa: RUF012
 
 MESSAGE_CONTENT_MAX_LENGTH = 16_000
+ASSISTANT_REPLY_MAX_BYTES = 4 * 1024 * 1024
 DIGEST_LENGTH = 64
 
 
@@ -84,6 +86,7 @@ class Message(models.Model):
         blank=True,
         related_name="retries",
     )
+    retry_allowed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -93,6 +96,15 @@ class Message(models.Model):
             models.UniqueConstraint(
                 fields=("conversation", "sequence"),
                 name="chat_message_sequence_uniq",
+            ),
+            models.CheckConstraint(
+                condition=Q(retry_allowed=False)
+                | Q(
+                    sender=MessageSender.USER,
+                    origin=MessageOrigin.SEND,
+                    status=MessageLifecycle.FAILED,
+                ),
+                name="chat_message_retry_safe_chk",
             ),
             models.CheckConstraint(
                 condition=Q(sequence__gt=0),
@@ -174,6 +186,27 @@ class Message(models.Model):
 
     def __str__(self) -> str:
         return str(self.id)
+
+
+class AssistantReply(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.OneToOneField(
+        Message, on_delete=models.CASCADE, related_name="assistant_reply"
+    )
+    content = models.TextField(blank=True, default="")
+    has_full_prefix = models.BooleanField(default=False)
+    is_truncated = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        if (
+            self.message.sender != MessageSender.USER
+            or self.message.origin != MessageOrigin.SEND
+        ):
+            raise ValidationError("assistant reply requires a sent user message")
+        if len(self.content.encode("utf-8")) > ASSISTANT_REPLY_MAX_BYTES:
+            raise ValidationError("assistant reply text limit reached")
 
 
 class DispatchState(models.TextChoices):

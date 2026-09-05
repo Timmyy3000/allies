@@ -5,7 +5,7 @@ import hmac
 import json
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 from uuid import UUID
 
@@ -37,8 +37,8 @@ from chat.exceptions import (
 )
 from chat.models import (
     MESSAGE_CONTENT_MAX_LENGTH,
+    AssistantReply,
     Conversation,
-    DispatchState,
     Message,
     MessageLifecycle,
     MessageOrigin,
@@ -48,8 +48,6 @@ from common.cursors import b64decode, b64encode, cursor_keys
 from common.uuids import canonical_uuid
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
-
-MESSAGE_RETRY_STALE_SECONDS = 120
 
 
 @dataclass(frozen=True, slots=True)
@@ -259,7 +257,7 @@ def retry_message(
     message_id: UUID | str,
     idempotency_key: object,
 ) -> MessageAcceptance:
-    """Create a new send turn for a terminal or demonstrably stale message."""
+    """Create a new send turn only after an explicitly retryable failure."""
     context = require_workspace_capability(
         user=user,
         workspace_id=workspace_id,
@@ -473,37 +471,26 @@ def message_response(message: Message) -> dict[str, Any]:
     }
 
 
+def assistant_reply_response(reply: AssistantReply) -> dict[str, Any]:
+    return {
+        "id": str(reply.id),
+        "source_message_id": str(reply.message_id),
+        "conversation_turn_ordinal": reply.message.sequence,
+        "content": reply.content,
+        "status": reply.message.status,
+        "has_full_prefix": reply.has_full_prefix,
+        "is_truncated": reply.is_truncated,
+        "created_at": reply.created_at,
+        "updated_at": reply.updated_at,
+    }
+
+
 def is_message_retryable(message: Message) -> bool:
-    if (
-        message.sender != MessageSender.USER
-        or message.origin != MessageOrigin.SEND
-        or message.retry_of_id is not None
-        or message.retries.exists()
-    ):
-        return False
-    if message.status in {MessageLifecycle.FAILED, MessageLifecycle.STOPPED}:
-        return True
-    outbox = getattr(message, "dispatch_outbox", None)
-    if (
-        message.status == MessageLifecycle.QUEUED
-        and outbox is not None
-        and outbox.status
-        in {
-            DispatchState.FAILED,
-            DispatchState.RECONCILIATION_NEEDED,
-        }
-    ):
-        return True
     return (
-        message.status == MessageLifecycle.QUEUED
-        and outbox is not None
-        and outbox.status
-        in {
-            DispatchState.ACCEPTED,
-            DispatchState.FAILED,
-            DispatchState.RECONCILIATION_NEEDED,
-        }
-        and message.updated_at
-        <= timezone.now() - timedelta(seconds=MESSAGE_RETRY_STALE_SECONDS)
-        and not message.activities.exists()
+        message.sender == MessageSender.USER
+        and message.origin == MessageOrigin.SEND
+        and message.status == MessageLifecycle.FAILED
+        and message.retry_allowed
+        and message.retry_of_id is None
+        and not message.retries.exists()
     )

@@ -20,6 +20,8 @@ MAX_COMMAND_TEXT_BYTES = 16 * 1024
 MAX_EVENT_TEXT_BYTES = 16 * 1024
 MAX_EVENT_PAYLOAD_BYTES = 64 * 1024
 MAX_EVENT_DEDUPE_KEY_LENGTH = 255
+MAX_RUNTIME_EVENT_SEQUENCE = 100_000
+MAX_TERMINAL_SEQUENCE = 100_001
 MAX_CONTRACT_LIFETIME_SECONDS = 60
 
 
@@ -156,7 +158,7 @@ class FoundryIdentity(ContractModel):
     execution_id: UUID
     attempt_id: UUID
     generation: StrictInt = Field(ge=0, le=2_147_483_647)
-    attempt_sequence: StrictInt = Field(ge=1, le=513)
+    attempt_sequence: StrictInt = Field(ge=1, le=MAX_TERMINAL_SEQUENCE)
 
 
 class FoundryEventEnvelope(ContractModel):
@@ -183,6 +185,12 @@ class FoundryEventEnvelope(ContractModel):
     def validate_event(self) -> FoundryEventEnvelope:
         if self.event_type not in _EVENT_KINDS:
             raise ValueError("event type is not supported")
+        if (
+            self.foundry.attempt_sequence > MAX_RUNTIME_EVENT_SEQUENCE
+            and self.event_type
+            not in {"execution.completed", "execution.failed", "execution.stopped"}
+        ):
+            raise ValueError("event sequence is reserved for terminal state")
         self._validate_payload()
         if (
             len(canonical_json_bytes(self.model_dump(mode="json")))

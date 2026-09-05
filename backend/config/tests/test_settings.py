@@ -76,14 +76,14 @@ def _settings_subprocess(
     )
 
 
-def test_activity_sse_is_enabled_by_default():
+def test_activity_sse_is_disabled_by_default():
     result = _settings_subprocess(
         {},
         "import config.settings as s; print(s.ALLIES_ACTIVITY_SSE_ENABLED)",
     )
 
     assert result.returncode == 0
-    assert result.stdout.strip() == "True"
+    assert result.stdout.strip() == "False"
 
 
 def test_production_settings_reject_missing_security_configuration():

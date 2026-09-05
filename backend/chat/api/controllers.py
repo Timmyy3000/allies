@@ -15,6 +15,7 @@ from auths.api.common import (
 from auths.api.schemas import SuccessResponse
 from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
 from chat.api.schemas import (
+    AssistantReplyResponse,
     ConversationResponse,
     MessageAcceptanceResponse,
     MessageResponse,
@@ -33,7 +34,12 @@ from chat.exceptions import (
     TurnConflict,
 )
 from chat.services.conversations import retrieve_conversation
-from chat.services.messages import accept_message, message_response, retry_message
+from chat.services.messages import (
+    accept_message,
+    assistant_reply_response,
+    message_response,
+    retry_message,
+)
 from common.uuids import CanonicalUUID
 
 
@@ -46,6 +52,11 @@ def _conversation_response(result) -> ConversationResponse:
         id=str(result.conversation.id),
         ally_id=str(result.conversation.ally.id),
         messages=[_message_response(message) for message in result.messages],
+        assistant_replies=[
+            AssistantReplyResponse.model_validate(assistant_reply_response(reply))
+            for message in result.messages
+            if (reply := getattr(message, "assistant_reply", None)) is not None
+        ],
         next_cursor=result.next_cursor,
     )
 
