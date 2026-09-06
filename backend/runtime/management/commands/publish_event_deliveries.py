@@ -24,7 +24,7 @@ class Command(BaseCommand):
             type=int,
             default=None,
             metavar="SECONDS",
-            help="Seconds between watch runs (1-3600; default: 60).",
+            help="Seconds between idle or unsuccessful watch runs (1-3600; default: 60).",
         )
         parser.add_argument(
             "--max-runs",
@@ -51,9 +51,9 @@ class Command(BaseCommand):
 
         run_number = 0
         while max_runs is None or run_number < max_runs:
-            self._run_once()
+            delivered = self._run_once()
             run_number += 1
-            if max_runs is None or run_number < max_runs:
+            if not delivered and (max_runs is None or run_number < max_runs):
                 sleep(interval)
 
     def _run_once(self):
@@ -101,6 +101,7 @@ class Command(BaseCommand):
             f"recovered {recovered}; expired {expired} intent(s); "
             f"idle stopped {idle_stopped}; idle unavailable {idle_unavailable}."
         )
+        return delivered
 
 
 def _publish_one_delivery():
