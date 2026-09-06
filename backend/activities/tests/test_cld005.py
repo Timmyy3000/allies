@@ -38,11 +38,15 @@ from auths.models import User
 from auths.services.sessions import issue_session
 from chat.models import (
     Conversation,
+    DispatchOutbox,
+    DispatchState,
     Message,
     MessageLifecycle,
     MessageOrigin,
     MessageSender,
 )
+from chat.services.dispatch import dispatch_accepted_message
+from chat.services.messages import delete_queued_message
 from workspaces.models import Membership, Workspace
 
 FIXTURE_PATH = (
@@ -54,6 +58,105 @@ FIXTURE_PATH = (
 EVENT_NAMESPACE = UUID("e8c3ac9d-7d5b-4f6a-9f64-c4fbd1c5be2d")
 DEFAULT_ATTEMPT_ID = UUID("f50e8400-e29b-41d4-a716-446655440000")
 DEFAULT_EXECUTION_ID = UUID("e50e8400-e29b-41d4-a716-446655440000")
+
+
+def test_terminal_projection_claims_only_next_turn_and_duplicate_does_not_advance(
+    conversation_records,
+):
+    user, workspace, _ally, binding, conversation, head = conversation_records
+    conversation.is_default = False
+    conversation.save(update_fields=("is_default", "updated_at"))
+    dispatch_accepted_message(head)
+    tails = [
+        Message.objects.create(
+            conversation=conversation,
+            sequence=sequence,
+            sender=MessageSender.USER,
+            origin=MessageOrigin.SEND,
+            status=MessageLifecycle.QUEUED,
+            content=f"Tail {sequence}",
+            send_key_digest=str(sequence) * 64,
+            content_fingerprint=str(sequence) * 64,
+        )
+        for sequence in (2, 3)
+    ]
+    for tail in tails:
+        dispatch_accepted_message(tail)
+        tail.refresh_from_db()
+    DispatchOutbox.objects.filter(message=head).update(status=DispatchState.ACCEPTED)
+    snapshot = read_activity_snapshot(
+        user=user, workspace_id=workspace.id, conversation_id=conversation.id
+    )
+    assert snapshot.active_message_id == head.id
+    assert all(tail.execution_claimed_at is None for tail in tails)
+    project_foundry_event(event_for(head, binding, attempt_sequence=1))
+    terminal = event_for(
+        head,
+        binding,
+        event_type="execution.completed",
+        attempt_sequence=2,
+        payload={"status": "completed"},
+    )
+    assert project_foundry_event(terminal).status == "applied"
+    tails[0].refresh_from_db()
+    tails[1].refresh_from_db()
+    claimed_at = tails[0].execution_claimed_at
+    assert claimed_at is not None and tails[1].execution_claimed_at is None
+    assert project_foundry_event(terminal).status == "duplicate"
+    tails[0].refresh_from_db()
+    tails[1].refresh_from_db()
+    assert tails[0].execution_claimed_at == claimed_at
+    assert tails[1].execution_claimed_at is None
+    assert (
+        read_activity_snapshot(
+            user=user, workspace_id=workspace.id, conversation_id=conversation.id
+        ).active_message_id
+        == tails[0].id
+    )
+
+
+def test_deleted_tail_does_not_replace_completed_snapshot_reply(conversation_records):
+    user, workspace, _ally, binding, conversation, head = conversation_records
+    conversation.is_default = False
+    conversation.save(update_fields=("is_default", "updated_at"))
+    dispatch_accepted_message(head)
+    tail = Message.objects.create(
+        conversation=conversation,
+        sequence=2,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        status=MessageLifecycle.QUEUED,
+        content="Delete this tail",
+        send_key_digest="d" * 64,
+        content_fingerprint="e" * 64,
+    )
+    dispatch_accepted_message(tail)
+    delete_queued_message(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        message_id=tail.id,
+    )
+    project_foundry_event(event_for(head, binding, attempt_sequence=1))
+    project_foundry_event(
+        event_for(
+            head,
+            binding,
+            event_type="execution.completed",
+            attempt_sequence=2,
+            payload={"status": "completed"},
+        )
+    )
+    snapshot = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+    )
+    assert snapshot.active_message_id is None
+    assert snapshot.state == ProjectionState.COMPLETED
+    assert snapshot.assistant_reply.message_id == head.id
+    assert snapshot.assistant_reply.content == "safe bounded fragment"
+    assert snapshot.last_contiguous_sequence == 2
 
 
 @pytest.fixture

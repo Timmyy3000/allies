@@ -32,12 +32,13 @@ from chat.models import (
     MessageOrigin,
     MessageSender,
 )
+from chat.services.conversations import activate_onboarding_reply
 from chat.services.dispatch import (
     dispatch_accepted_message,
     dispatch_pending_messages,
     ensure_dispatch_after_accept,
 )
-from chat.services.messages import accept_message
+from chat.services.messages import accept_message, complete_turn
 from workspaces.models import Membership, Workspace
 
 
@@ -369,8 +370,159 @@ def test_sequence_two_onboarding_reply_is_dispatched_before_later_send(
     )
     second = dispatch_pending_messages(now=now)
 
-    assert second.accepted == 2
+    assert second.accepted == 1
+    assert calls == [2]
+    promoted.refresh_from_db()
+    assert promoted.execution_claimed_at is not None
+    assert later.execution_claimed_at is None
+
+    complete_turn(message_id=promoted.id, status=MessageLifecycle.COMPLETED)
+    DispatchOutbox.objects.filter(message=later).update(next_attempt_at=now)
+    third = dispatch_pending_messages(now=now)
+
+    assert third.accepted == 1
     assert calls == [2, 3]
+
+
+@pytest.mark.django_db
+@override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=True)
+def test_activation_transfers_pristine_later_claim_behind_promoted_reply(
+    dispatch_records, monkeypatch
+):
+    workspace, binding, conversation, existing = dispatch_records
+    existing.delete()
+    Message.objects.create(
+        conversation=conversation,
+        sequence=1,
+        sender=MessageSender.ASSISTANT,
+        origin=MessageOrigin.ONBOARDING,
+        content="Hello",
+        status=MessageLifecycle.COMPLETED,
+    )
+    Message.objects.create(
+        conversation=conversation,
+        sequence=2,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.ONBOARDING,
+        content="normalized user text",
+        status=MessageLifecycle.COMPLETED,
+    )
+    binding.status = BindingStatus.PENDING
+    binding.save(update_fields=("status", "updated_at"))
+
+    later = accept_message(
+        user=workspace.owner,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        content="Later send",
+        idempotency_key="chat-activation-queue-0001",
+    ).message
+    later_outbox = DispatchOutbox.objects.get(message=later)
+    assert later.execution_claimed_at is not None
+    assert later_outbox.status == DispatchState.PENDING
+    assert later_outbox.attempt_count == 0
+    assert later_outbox.last_attempt_at is None
+
+    assert dispatch_pending_messages(now=timezone.now()).deferred == 1
+    later_outbox.refresh_from_db()
+    assert later_outbox.status == DispatchState.PENDING
+    assert later_outbox.attempt_count == 0
+    assert later_outbox.safe_error_code == "binding_pending"
+    assert later_outbox.last_attempt_at is not None
+
+    binding.status = BindingStatus.BOUND
+    binding.receipt_digest = "d" * 64
+    binding.save(update_fields=("status", "receipt_digest", "updated_at"))
+    promoted = activate_onboarding_reply(ally=conversation.ally)
+
+    promoted.refresh_from_db()
+    later.refresh_from_db()
+    assert promoted.origin == MessageOrigin.SEND
+    assert promoted.status == MessageLifecycle.QUEUED
+    assert promoted.execution_claimed_at is not None
+    assert later.execution_claimed_at is None
+    assert DispatchOutbox.objects.filter(message=promoted).count() == 1
+
+    calls: list[int] = []
+
+    def create(command, **_kwargs):
+        calls.append(command.conversation_turn_ordinal)
+        return receipt_for(command)
+
+    monkeypatch.setattr("chat.services.dispatch.create_execution_intent", create)
+    now = timezone.now()
+    first = dispatch_pending_messages(now=now)
+    assert first.accepted == 1
+    assert calls == [2]
+
+    complete_turn(message_id=promoted.id, status=MessageLifecycle.COMPLETED)
+    later.refresh_from_db()
+    assert later.execution_claimed_at is not None
+    DispatchOutbox.objects.filter(message=later).update(next_attempt_at=now)
+    second = dispatch_pending_messages(now=now)
+    assert second.accepted == 1
+    assert calls == [2, 3]
+
+
+@pytest.mark.django_db
+def test_activation_retains_later_claim_after_ambiguous_dispatch_attempt(
+    dispatch_records,
+):
+    workspace, binding, conversation, existing = dispatch_records
+    existing.delete()
+    Message.objects.create(
+        conversation=conversation,
+        sequence=1,
+        sender=MessageSender.ASSISTANT,
+        origin=MessageOrigin.ONBOARDING,
+        content="Hello",
+        status=MessageLifecycle.COMPLETED,
+    )
+    Message.objects.create(
+        conversation=conversation,
+        sequence=2,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.ONBOARDING,
+        content="normalized user text",
+        status=MessageLifecycle.COMPLETED,
+    )
+    binding.status = BindingStatus.PENDING
+    binding.save(update_fields=("status", "updated_at"))
+    later = accept_message(
+        user=workspace.owner,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        content="Later send",
+        idempotency_key="chat-activation-queue-0002",
+    ).message
+    later_outbox = DispatchOutbox.objects.get(message=later)
+    later_outbox.status = DispatchState.RECONCILIATION_NEEDED
+    later_outbox.attempt_count = 1
+    later_outbox.last_attempt_at = timezone.now()
+    later_outbox.safe_error_code = "reconciliation_unavailable"
+    later_outbox.save(
+        update_fields=(
+            "status",
+            "attempt_count",
+            "last_attempt_at",
+            "safe_error_code",
+            "updated_at",
+        )
+    )
+
+    binding.status = BindingStatus.BOUND
+    binding.receipt_digest = "d" * 64
+    binding.save(update_fields=("status", "receipt_digest", "updated_at"))
+    promoted = activate_onboarding_reply(ally=conversation.ally)
+
+    promoted.refresh_from_db()
+    later.refresh_from_db()
+    later_outbox.refresh_from_db()
+    assert promoted.origin == MessageOrigin.SEND
+    assert promoted.execution_claimed_at is None
+    assert later.execution_claimed_at is not None
+    assert later_outbox.status == DispatchState.RECONCILIATION_NEEDED
+    assert later_outbox.attempt_count == 1
 
 
 @pytest.mark.django_db
@@ -756,6 +908,64 @@ def test_unknown_outcome_requires_reconciliation_before_later_post(
 
     assert second.deferred == 1
     assert calls == ["post", "reconcile", "reconcile", "post", "reconcile"]
+
+
+@pytest.mark.django_db
+@override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=True)
+def test_post_call_binding_failure_keeps_claim_and_blocks_later_turn(
+    dispatch_records, monkeypatch
+):
+    _workspace, binding, conversation, message = dispatch_records
+    conversation.is_default = False
+    conversation.save(update_fields=("is_default", "updated_at"))
+    dispatch_accepted_message(message)
+    later = Message.objects.create(
+        conversation=conversation,
+        sequence=message.sequence + 1,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        content="Later work",
+        status=MessageLifecycle.QUEUED,
+        send_key_digest="d" * 64,
+        content_fingerprint="e" * 64,
+    )
+    dispatch_accepted_message(later)
+    command = ExecutionCommand.model_validate_json(
+        bytes(DispatchOutbox.objects.get(message=message).command_bytes)
+    )
+
+    monkeypatch.setattr(
+        "chat.services.dispatch.create_execution_intent",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            FoundryGatewayUnknownOutcome("timeout")
+        ),
+    )
+    monkeypatch.setattr(
+        "chat.services.dispatch.reconcile_execution_intent",
+        lambda *_args, **_kwargs: ReconciliationReceipt(
+            schema_version="v1",
+            kind="execution.reconciliation",
+            status="not_found",
+            idempotency_key=command.idempotency_key,
+            fingerprint=command.fingerprint,
+            command_id=None,
+        ),
+    )
+    now = timezone.now()
+    assert dispatch_pending_messages(now=now).deferred == 1
+
+    binding.status = BindingStatus.INCOMPATIBLE
+    binding.save(update_fields=("status", "updated_at"))
+    DispatchOutbox.objects.filter(message=message).update(next_attempt_at=now)
+    assert dispatch_pending_messages(now=now).deferred == 1
+
+    message.refresh_from_db()
+    later.refresh_from_db()
+    head_outbox = DispatchOutbox.objects.get(message=message)
+    assert message.execution_claimed_at is not None
+    assert message.status == MessageLifecycle.QUEUED
+    assert later.execution_claimed_at is None
+    assert head_outbox.status == DispatchState.RECONCILIATION_NEEDED
 
 
 @pytest.mark.django_db

@@ -6,6 +6,7 @@ from uuid import UUID
 from django.db import IntegrityError, transaction
 from django.db.models import QuerySet
 from django.db.models.functions import Coalesce, Length
+from django.utils import timezone
 
 from allies.models import Ally, AllyBinding, BindingStatus, OnboardingAttempt
 from auths.models import User
@@ -16,7 +17,10 @@ from chat.exceptions import (
     OnboardingHandoffUnavailable,
 )
 from chat.models import (
+    NONTERMINAL_MESSAGE_STATUSES,
     Conversation,
+    DispatchOutbox,
+    DispatchState,
     Message,
     MessageLifecycle,
     MessageOrigin,
@@ -39,6 +43,7 @@ from .messages import (
 class ConversationRead:
     conversation: Conversation
     messages: tuple[Message, ...]
+    queue: tuple[Message, ...]
     next_cursor: str | None
 
 
@@ -96,6 +101,58 @@ def _validate_imported_history(
     ):
         raise OnboardingHandoffRepairRequired("onboarding handoff needs repair")
     return conversation
+
+
+def _transfer_pristine_later_claim(
+    *, conversation: Conversation, promoted: Message
+) -> None:
+    """Move an unstarted later claim behind the newly promoted first turn."""
+
+    if (
+        promoted.sender != MessageSender.USER
+        or promoted.origin != MessageOrigin.SEND
+        or promoted.status not in NONTERMINAL_MESSAGE_STATUSES
+        or promoted.deleted_at is not None
+        or promoted.execution_claimed_at is not None
+    ):
+        return
+    claimed = list(
+        Message.objects.select_for_update()
+        .filter(
+            conversation=conversation,
+            sender=MessageSender.USER,
+            origin=MessageOrigin.SEND,
+            status__in=NONTERMINAL_MESSAGE_STATUSES,
+            deleted_at__isnull=True,
+            execution_claimed_at__isnull=False,
+        )
+        .order_by("sequence", "id")
+    )
+    if len(claimed) != 1:
+        return
+    later = claimed[0]
+    if later.sequence <= promoted.sequence:
+        return
+    outbox = DispatchOutbox.objects.select_for_update().filter(message=later).first()
+    if outbox is None or (
+        outbox.status != DispatchState.PENDING
+        or outbox.attempt_count != 0
+        or outbox.lease_expires_at is not None
+        or outbox.completed_at is not None
+        or outbox.receipt_digest
+        or (
+            outbox.last_attempt_at is not None
+            and outbox.safe_error_code not in {"binding_pending", "prior_turn_pending"}
+        )
+    ):
+        return
+    from .dispatch import _ensure_outbox_locked
+
+    _ensure_outbox_locked(promoted)
+    later.execution_claimed_at = None
+    later.save(update_fields=("execution_claimed_at", "updated_at"))
+    promoted.execution_claimed_at = timezone.now()
+    promoted.save(update_fields=("execution_claimed_at", "updated_at"))
 
 
 def ensure_default_conversation(
@@ -210,6 +267,11 @@ def activate_onboarding_reply(*, ally: Ally) -> Message:
             )
         elif message.origin != MessageOrigin.SEND:
             raise OnboardingHandoffRepairRequired("onboarding handoff needs repair")
+
+        _transfer_pristine_later_claim(
+            conversation=conversation,
+            promoted=message,
+        )
 
         from .dispatch import ensure_dispatch_after_accept
 
@@ -329,6 +391,20 @@ def _messages_page(
     return tuple(rows), next_cursor
 
 
+def _queue_messages(*, conversation: Conversation) -> tuple[Message, ...]:
+    return tuple(
+        Message.objects.filter(
+            conversation=conversation,
+            sender=MessageSender.USER,
+            origin=MessageOrigin.SEND,
+            status__in=NONTERMINAL_MESSAGE_STATUSES,
+            deleted_at__isnull=True,
+        )
+        .prefetch_related("retries")
+        .order_by("sequence", "id")[:101]
+    )
+
+
 def retrieve_conversation(
     *,
     user: User,
@@ -390,4 +466,5 @@ def retrieve_conversation(
     messages, next_cursor = _messages_page(
         conversation=conversation, limit=limit, cursor=cursor
     )
-    return ConversationRead(conversation, messages, next_cursor)
+    queue = _queue_messages(conversation=conversation)
+    return ConversationRead(conversation, messages, queue, next_cursor)

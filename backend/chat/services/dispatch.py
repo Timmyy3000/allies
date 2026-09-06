@@ -38,6 +38,8 @@ from chat.exceptions import (
     OnboardingHandoffUnavailable,
 )
 from chat.models import (
+    NONTERMINAL_MESSAGE_STATUSES,
+    Conversation,
     DispatchOutbox,
     DispatchState,
     Message,
@@ -185,39 +187,92 @@ def _command_for_message(message: Message) -> tuple[ExecutionCommand, bytes, str
     return command, body, hashlib.sha256(body).hexdigest()
 
 
+def _ensure_outbox_locked(message: Message) -> DispatchReceipt:
+    existing = (
+        DispatchOutbox.objects.select_for_update().filter(message=message).first()
+    )
+    if existing is not None:
+        return DispatchReceipt(
+            message_id=message.id,
+            status=existing.status,
+            attempt_count=existing.attempt_count,
+            command_fingerprint=existing.command_fingerprint,
+        )
+    if message.deleted_at is not None:
+        return DispatchReceipt(
+            message_id=message.id,
+            status=DispatchState.FAILED,
+            attempt_count=0,
+            command_fingerprint="",
+        )
+    command, body, body_digest = _command_for_message(message)
+    outbox = DispatchOutbox.objects.create(
+        message=message,
+        command_bytes=body,
+        command_byte_length=len(body),
+        command_sha256=body_digest,
+        command_fingerprint=command.fingerprint,
+    )
+    return DispatchReceipt(
+        message_id=message.id,
+        status=outbox.status,
+        attempt_count=outbox.attempt_count,
+        command_fingerprint=outbox.command_fingerprint,
+    )
+
+
+def _validate_outbox_command(message: Message) -> None:
+    """Validate a missing command before taking any lower-level row locks."""
+
+    if (
+        message.deleted_at is None
+        and not DispatchOutbox.objects.filter(message=message).exists()
+    ):
+        _command_for_message(message)
+
+
+def _dispatch_accepted_locked(
+    *, conversation: Conversation, message: Message
+) -> DispatchReceipt:
+    _validate_outbox_command(message)
+    from .messages import _claim_next_turn_locked
+
+    claimed = _claim_next_turn_locked(conversation=conversation)
+    receipt = _ensure_outbox_locked(message)
+    if claimed is not None and claimed.pk != message.pk:
+        claimed = (
+            Message.objects.select_for_update()
+            .select_related("conversation__ally__workspace")
+            .get(pk=claimed.pk, conversation=conversation)
+        )
+        try:
+            _ensure_outbox_locked(claimed)
+        except DispatchUnavailable:
+            _mark_pre_call_failure_for_message(
+                claimed, "binding_unavailable", now=timezone.now()
+            )
+        except (OnboardingHandoffUnavailable, OnboardingHandoffRepairRequired) as exc:
+            _mark_pre_call_failure_for_message(claimed, exc.code, now=timezone.now())
+        except (DispatchConflict, ValueError):
+            _mark_pre_call_failure_for_message(
+                claimed, "command_invalid", now=timezone.now()
+            )
+    return receipt
+
+
 def dispatch_accepted_message(message: Message) -> DispatchReceipt:
     """Persist exactly one command for an accepted message."""
 
     with transaction.atomic():
+        conversation = Conversation.objects.select_for_update().get(
+            pk=message.conversation_id
+        )
         locked = (
             Message.objects.select_for_update()
             .select_related("conversation__ally__workspace")
-            .get(pk=message.pk)
+            .get(pk=message.pk, conversation=conversation)
         )
-        existing = (
-            DispatchOutbox.objects.select_for_update().filter(message=locked).first()
-        )
-        if existing is not None:
-            return DispatchReceipt(
-                message_id=locked.id,
-                status=existing.status,
-                attempt_count=existing.attempt_count,
-                command_fingerprint=existing.command_fingerprint,
-            )
-        command, body, body_digest = _command_for_message(locked)
-        outbox = DispatchOutbox.objects.create(
-            message=locked,
-            command_bytes=body,
-            command_byte_length=len(body),
-            command_sha256=body_digest,
-            command_fingerprint=command.fingerprint,
-        )
-        return DispatchReceipt(
-            message_id=locked.id,
-            status=outbox.status,
-            attempt_count=outbox.attempt_count,
-            command_fingerprint=outbox.command_fingerprint,
-        )
+        return _dispatch_accepted_locked(conversation=conversation, message=locked)
 
 
 def _schedule_dispatch() -> None:
@@ -230,44 +285,112 @@ def _schedule_dispatch() -> None:
 
 
 def ensure_dispatch_after_accept(message: Message) -> None:
-    try:
-        dispatch_accepted_message(message)
-    except DispatchUnavailable:
-        return
-    except (DispatchConflict, ValueError):
-        DispatchOutbox.objects.get_or_create(
-            message=message,
-            defaults={
-                "status": DispatchState.FAILED,
-                "safe_error_code": "command_invalid",
-                "next_attempt_at": None,
-                "completed_at": timezone.now(),
-            },
+    with transaction.atomic():
+        conversation = Conversation.objects.select_for_update().get(
+            pk=message.conversation_id
         )
-        return
-    if _enabled():
-        transaction.on_commit(_schedule_dispatch)
+        locked = (
+            Message.objects.select_for_update()
+            .select_related("conversation__ally__workspace")
+            .get(pk=message.pk, conversation=conversation)
+        )
+        try:
+            _dispatch_accepted_locked(conversation=conversation, message=locked)
+        except DispatchUnavailable:
+            return
+        except (DispatchConflict, ValueError):
+            DispatchOutbox.objects.get_or_create(
+                message=locked,
+                defaults={
+                    "status": DispatchState.FAILED,
+                    "safe_error_code": "command_invalid",
+                    "next_attempt_at": None,
+                    "completed_at": timezone.now(),
+                },
+            )
+            return
+        locked.refresh_from_db(fields=("execution_claimed_at", "deleted_at", "status"))
+        if locked.execution_claimed_at is not None and _enabled():
+            transaction.on_commit(_schedule_dispatch)
+        message.execution_claimed_at = locked.execution_claimed_at
+        message.deleted_at = locked.deleted_at
+        message.status = locked.status
 
 
 def _claim_due(*, now, limit: int) -> list[tuple[UUID, int, bool]]:
     lease_until = now + timedelta(seconds=DISPATCH_LEASE_SECONDS)
-    lease_available = Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now)
     due = (
         Q(
             status__in=[DispatchState.PENDING, DispatchState.RECONCILIATION_NEEDED],
             next_attempt_at__lte=now,
         )
-        & lease_available
+        & (Q(lease_expires_at__isnull=True) | Q(lease_expires_at__lte=now))
     ) | Q(status=DispatchState.IN_PROGRESS, lease_expires_at__lte=now)
-    with transaction.atomic():
-        query = DispatchOutbox.objects.filter(due).order_by(
+    bound = max(1, min(limit, 100))
+    candidate_ids = list(
+        DispatchOutbox.objects.filter(
+            due,
+            message__execution_claimed_at__isnull=False,
+            message__deleted_at__isnull=True,
+            message__sender=MessageSender.USER,
+            message__origin=MessageOrigin.SEND,
+            message__status__in=NONTERMINAL_MESSAGE_STATUSES,
+        )
+        .order_by(
             "message__conversation_id", "message__sequence", "next_attempt_at", "id"
         )
-        query = query.select_for_update(
-            skip_locked=connection.features.has_select_for_update_skip_locked
-        )
+        .values_list("pk", flat=True)[:bound]
+    )
+    with transaction.atomic():
         claimed: list[tuple[UUID, int, bool]] = []
-        for row in query[: max(1, min(limit, 100))]:
+        for pk in candidate_ids:
+            identity = (
+                DispatchOutbox.objects.filter(pk=pk)
+                .values("message_id", "message__conversation_id")
+                .first()
+            )
+            if identity is None:
+                continue
+            try:
+                conversation = Conversation.objects.select_for_update(
+                    skip_locked=connection.features.has_select_for_update_skip_locked
+                ).get(pk=identity["message__conversation_id"])
+            except Conversation.DoesNotExist:
+                continue
+            message = (
+                Message.objects.select_for_update()
+                .filter(
+                    pk=identity["message_id"],
+                    conversation=conversation,
+                    execution_claimed_at__isnull=False,
+                    deleted_at__isnull=True,
+                    sender=MessageSender.USER,
+                    origin=MessageOrigin.SEND,
+                    status__in=NONTERMINAL_MESSAGE_STATUSES,
+                )
+                .first()
+            )
+            if message is None or not _prior_turn_ready(message):
+                continue
+            try:
+                row = DispatchOutbox.objects.select_for_update().get(
+                    pk=pk, message=message
+                )
+            except DispatchOutbox.DoesNotExist:
+                continue
+            if row.status in {
+                DispatchState.PENDING,
+                DispatchState.RECONCILIATION_NEEDED,
+            }:
+                if row.next_attempt_at is None or row.next_attempt_at > now:
+                    continue
+                if row.lease_expires_at is not None and row.lease_expires_at > now:
+                    continue
+            elif row.status == DispatchState.IN_PROGRESS:
+                if row.lease_expires_at is None or row.lease_expires_at > now:
+                    continue
+            else:
+                continue
             reconcile_first = row.status in {
                 DispatchState.RECONCILIATION_NEEDED,
                 DispatchState.IN_PROGRESS,
@@ -356,6 +479,179 @@ def _mark_prior_turn_pending(pk: UUID, fence: int, *, now) -> bool:
     )
 
 
+def _release_next_locked(conversation: Conversation, *, now) -> Message | None:
+    from .messages import _claim_next_turn_locked
+
+    next_message = _claim_next_turn_locked(conversation=conversation, now=now)
+    if next_message is None:
+        return None
+    try:
+        _ensure_outbox_locked(next_message)
+    except DispatchUnavailable:
+        code = "binding_unavailable"
+    except (OnboardingHandoffUnavailable, OnboardingHandoffRepairRequired) as exc:
+        code = exc.code
+    except (DispatchConflict, ValueError):
+        code = "command_invalid"
+    else:
+        if _enabled():
+            transaction.on_commit(_schedule_dispatch)
+        return next_message
+    next_message.status = MessageLifecycle.FAILED
+    next_message.retry_allowed = False
+    next_message.save(update_fields=("status", "retry_allowed", "updated_at"))
+    DispatchOutbox.objects.create(
+        message=next_message,
+        status=DispatchState.FAILED,
+        safe_error_code=code,
+        next_attempt_at=None,
+        completed_at=now,
+    )
+    return _release_next_locked(conversation, now=now)
+
+
+def _finish_pre_call_failure_locked(
+    *,
+    conversation: Conversation,
+    message: Message,
+    outbox: DispatchOutbox,
+    code: str,
+    now,
+    fence: int | None = None,
+) -> bool:
+    if fence is not None and (
+        outbox.attempt_count != fence or outbox.status != DispatchState.IN_PROGRESS
+    ):
+        return False
+    if fence is None and (
+        outbox.status != DispatchState.PENDING
+        or outbox.attempt_count
+        or outbox.last_attempt_at is not None
+    ):
+        return False
+    if message.deleted_at is None and message.status in NONTERMINAL_MESSAGE_STATUSES:
+        message.status = MessageLifecycle.FAILED
+        message.retry_allowed = False
+        message.save(update_fields=("status", "retry_allowed", "updated_at"))
+    outbox.status = DispatchState.FAILED
+    outbox.safe_error_code = code
+    outbox.command_bytes = b""
+    outbox.command_byte_length = 0
+    outbox.next_attempt_at = None
+    outbox.lease_expires_at = None
+    outbox.completed_at = now
+    outbox.save(
+        update_fields=(
+            "status",
+            "safe_error_code",
+            "command_bytes",
+            "command_byte_length",
+            "next_attempt_at",
+            "lease_expires_at",
+            "completed_at",
+            "updated_at",
+        )
+    )
+    # The conversation lock serializes this with claim/delete. Keep the
+    # terminal head and its successor in one durable transaction.
+    _release_next_locked(conversation, now=now)
+    return True
+
+
+def _mark_pre_call_failure(pk: UUID, fence: int, code: str, *, now) -> bool:
+    identity = (
+        DispatchOutbox.objects.filter(pk=pk)
+        .values("message_id", "message__conversation_id")
+        .first()
+    )
+    if identity is None:
+        return False
+    with transaction.atomic():
+        try:
+            conversation = Conversation.objects.select_for_update().get(
+                pk=identity["message__conversation_id"]
+            )
+            message = Message.objects.select_for_update().get(
+                pk=identity["message_id"], conversation=conversation
+            )
+            outbox = DispatchOutbox.objects.select_for_update().get(
+                pk=pk, message=message
+            )
+        except (
+            Conversation.DoesNotExist,
+            Message.DoesNotExist,
+            DispatchOutbox.DoesNotExist,
+        ):
+            return False
+        if outbox.attempt_count != fence or outbox.status != DispatchState.IN_PROGRESS:
+            return False
+        return _finish_pre_call_failure_locked(
+            conversation=conversation,
+            message=message,
+            outbox=outbox,
+            code=code,
+            now=now,
+            fence=fence,
+        )
+
+
+def _mark_pre_call_failure_for_message(message: Message, code: str, *, now) -> bool:
+    with transaction.atomic():
+        conversation = Conversation.objects.select_for_update().get(
+            pk=message.conversation_id
+        )
+        locked_message = Message.objects.select_for_update().get(
+            pk=message.pk, conversation=conversation
+        )
+        outbox = (
+            DispatchOutbox.objects.select_for_update()
+            .filter(message=locked_message)
+            .first()
+        )
+        if outbox is None:
+            if locked_message.status in NONTERMINAL_MESSAGE_STATUSES:
+                locked_message.status = MessageLifecycle.FAILED
+                locked_message.retry_allowed = False
+                locked_message.save(
+                    update_fields=("status", "retry_allowed", "updated_at")
+                )
+            DispatchOutbox.objects.create(
+                message=locked_message,
+                status=DispatchState.FAILED,
+                safe_error_code=code,
+                next_attempt_at=None,
+                completed_at=now,
+            )
+            _release_next_locked(conversation, now=now)
+            return True
+        return _finish_pre_call_failure_locked(
+            conversation=conversation,
+            message=locked_message,
+            outbox=outbox,
+            code=code,
+            now=now,
+        )
+
+
+def _pre_call_failure_or_retain(
+    pk: UUID,
+    fence: int,
+    code: str,
+    *,
+    now,
+    reconcile_first: bool,
+) -> str:
+    if fence == 1 and not reconcile_first:
+        _mark_pre_call_failure(pk, fence, code, now=now)
+        return "failed"
+    elif fence >= DISPATCH_MAX_ATTEMPTS:
+        _mark_reconciliation_exhausted(pk, fence, now=now)
+        return "exhausted"
+    else:
+        _mark_deferred(pk, fence, code, now=now, reconciliation=True)
+        return "deferred"
+
+
 def _prior_turn_ready(message: Message) -> bool:
     prior = (
         Message.objects.filter(
@@ -367,6 +663,12 @@ def _prior_turn_ready(message: Message) -> bool:
         .first()
     )
     if prior is None:
+        return True
+    if prior.deleted_at is not None or prior.status in {
+        MessageLifecycle.COMPLETED,
+        MessageLifecycle.FAILED,
+        MessageLifecycle.STOPPED,
+    }:
         return True
     if prior.origin == MessageOrigin.ONBOARDING:
         return False
@@ -381,34 +683,14 @@ def _prior_turn_ready(message: Message) -> bool:
         try:
             dispatch_accepted_message(prior)
         except DispatchUnavailable:
-            DispatchOutbox.objects.get_or_create(
-                message=prior,
-                defaults={
-                    "status": DispatchState.FAILED,
-                    "safe_error_code": "binding_unavailable",
-                    "next_attempt_at": None,
-                    "completed_at": timezone.now(),
-                },
+            _mark_pre_call_failure_for_message(
+                prior, "binding_unavailable", now=timezone.now()
             )
         except (OnboardingHandoffUnavailable, OnboardingHandoffRepairRequired) as exc:
-            DispatchOutbox.objects.get_or_create(
-                message=prior,
-                defaults={
-                    "status": DispatchState.FAILED,
-                    "safe_error_code": exc.code,
-                    "next_attempt_at": None,
-                    "completed_at": timezone.now(),
-                },
-            )
+            _mark_pre_call_failure_for_message(prior, exc.code, now=timezone.now())
         except (DispatchConflict, ValueError):
-            DispatchOutbox.objects.get_or_create(
-                message=prior,
-                defaults={
-                    "status": DispatchState.FAILED,
-                    "safe_error_code": "command_invalid",
-                    "next_attempt_at": None,
-                    "completed_at": timezone.now(),
-                },
+            _mark_pre_call_failure_for_message(
+                prior, "command_invalid", now=timezone.now()
             )
         prior_outbox = (
             DispatchOutbox.objects.filter(message_id=prior.id)
@@ -417,21 +699,28 @@ def _prior_turn_ready(message: Message) -> bool:
         )
     if prior_outbox is None:
         return False
-    if (
-        prior_outbox.status == DispatchState.RECONCILIATION_NEEDED
-        and prior_outbox.next_attempt_at is None
-    ):
-        return True
-    return prior_outbox.status in {
-        DispatchState.ACCEPTED,
-        DispatchState.FAILED,
+    prior.refresh_from_db(fields=("status", "deleted_at"))
+    return prior.deleted_at is not None or prior.status in {
+        MessageLifecycle.COMPLETED,
+        MessageLifecycle.FAILED,
+        MessageLifecycle.STOPPED,
     }
 
 
-def _reconcile_onboarding_before_dispatch(message: Message) -> None:
+def _reconcile_onboarding_before_dispatch(message: Message) -> Message | None:
     from .conversations import reconcile_onboarding_reply
 
-    reconcile_onboarding_reply(ally=message.conversation.ally)
+    reply = (
+        Message.objects.filter(
+            conversation_id=message.conversation_id,
+            sequence=2,
+            sender=MessageSender.USER,
+        )
+        .only("id", "origin")
+        .first()
+    )
+    was_onboarding = reply is not None and reply.origin == MessageOrigin.ONBOARDING
+    promoted = reconcile_onboarding_reply(ally=message.conversation.ally)
     if (
         message.conversation.is_default
         and message.sequence > 2
@@ -442,6 +731,66 @@ def _reconcile_onboarding_before_dispatch(message: Message) -> None:
         ).exists()
     ):
         raise OnboardingHandoffUnavailable("onboarding handoff unavailable")
+    if (
+        was_onboarding
+        and promoted is not None
+        and promoted.origin == MessageOrigin.SEND
+    ):
+        return promoted
+    return None
+
+
+def _transfer_claim_to_promoted(*, pk: UUID, fence: int, message_id: UUID, now) -> bool:
+    """Move this worker's pre-call claim behind a newly promoted turn."""
+
+    with transaction.atomic():
+        outbox_identity = (
+            DispatchOutbox.objects.filter(pk=pk)
+            .values("message_id", "message__conversation_id")
+            .first()
+        )
+        if outbox_identity is None:
+            return False
+        conversation = Conversation.objects.select_for_update().get(
+            pk=outbox_identity["message__conversation_id"]
+        )
+        current = Message.objects.select_for_update().get(
+            pk=outbox_identity["message_id"], conversation=conversation
+        )
+        promoted = Message.objects.select_for_update().get(
+            pk=message_id, conversation=conversation
+        )
+        outbox = DispatchOutbox.objects.select_for_update().get(pk=pk, message=current)
+        if (
+            outbox.status != DispatchState.IN_PROGRESS
+            or outbox.attempt_count != fence
+            or current.execution_claimed_at is None
+            or promoted.execution_claimed_at is not None
+            or promoted.deleted_at is not None
+            or promoted.status not in NONTERMINAL_MESSAGE_STATUSES
+            or promoted.sender != MessageSender.USER
+            or promoted.origin != MessageOrigin.SEND
+        ):
+            return False
+        if (
+            Message.objects.filter(
+                conversation=conversation,
+                sender=MessageSender.USER,
+                origin=MessageOrigin.SEND,
+                status__in=NONTERMINAL_MESSAGE_STATUSES,
+                deleted_at__isnull=True,
+                execution_claimed_at__isnull=False,
+            )
+            .exclude(pk=current.pk)
+            .exists()
+        ):
+            return False
+        _ensure_outbox_locked(promoted)
+        current.execution_claimed_at = None
+        current.save(update_fields=("execution_claimed_at", "updated_at"))
+        promoted.execution_claimed_at = now
+        promoted.save(update_fields=("execution_claimed_at", "updated_at"))
+        return True
 
 
 def _mark_terminal(
@@ -555,19 +904,44 @@ def _dispatch_one(pk: UUID, fence: int, reconcile_first: bool, *, now) -> str:
     try:
         binding_status = outbox.message.conversation.ally.binding.status
     except AllyBinding.DoesNotExist:
-        _mark_terminal(pk, fence, DispatchState.FAILED, "binding_unavailable", now=now)
-        return "failed"
+        return _pre_call_failure_or_retain(
+            pk,
+            fence,
+            "binding_unavailable",
+            now=now,
+            reconcile_first=reconcile_first,
+        )
     if binding_status == BindingStatus.INCOMPATIBLE:
-        _mark_terminal(pk, fence, DispatchState.FAILED, "binding_incompatible", now=now)
-        return "failed"
+        return _pre_call_failure_or_retain(
+            pk,
+            fence,
+            "binding_incompatible",
+            now=now,
+            reconcile_first=reconcile_first,
+        )
     if binding_status != BindingStatus.BOUND:
+        if reconcile_first or fence > 1:
+            return _pre_call_failure_or_retain(
+                pk,
+                fence,
+                "binding_pending",
+                now=now,
+                reconcile_first=True,
+            )
         _mark_binding_pending(pk, fence, now=now)
         return "deferred"
     try:
-        _reconcile_onboarding_before_dispatch(outbox.message)
+        promoted = _reconcile_onboarding_before_dispatch(outbox.message)
     except (OnboardingHandoffUnavailable, OnboardingHandoffRepairRequired) as exc:
-        _mark_terminal(pk, fence, DispatchState.FAILED, exc.code, now=now)
-        return "failed"
+        return _pre_call_failure_or_retain(
+            pk,
+            fence,
+            exc.code,
+            now=now,
+            reconcile_first=reconcile_first,
+        )
+    if promoted is not None and fence == 1 and not reconcile_first:
+        _transfer_claim_to_promoted(pk=pk, fence=fence, message_id=promoted.id, now=now)
     if not _prior_turn_ready(outbox.message):
         _mark_prior_turn_pending(pk, fence, now=now)
         return "deferred"
@@ -580,6 +954,15 @@ def _dispatch_one(pk: UUID, fence: int, reconcile_first: bool, *, now) -> str:
         return "deferred"
     try:
         command = ExecutionCommand.model_validate_json(bytes(outbox.command_bytes))
+    except ValueError:
+        return _pre_call_failure_or_retain(
+            pk,
+            fence,
+            "command_invalid",
+            now=now,
+            reconcile_first=reconcile_first,
+        )
+    try:
         receipt = create_execution_intent(command, raw_body=bytes(outbox.command_bytes))
     except FoundryGatewayUnknownOutcome:
         return (

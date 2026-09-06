@@ -31,3 +31,4 @@ class ActivitySnapshotResponse(Schema):
     latest_sequence: int | None = None
     retention_gap: bool = False
     assistant_reply: AssistantReplyResponse | None = None
+    active_message_id: UUID | None = None
