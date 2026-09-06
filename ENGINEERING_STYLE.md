@@ -100,6 +100,26 @@ Keep commits and diffs focused. Include relevant tests and contract changes in
 the same change. Record a concrete owner, impact, mitigation, and revisit
 condition for an exception rather than hiding it in a TODO.
 
+#### PR size and delivery
+
+Strongly prefer one coherent change per PR that can be reviewed carefully in
+about 20-30 minutes. Smaller PRs help us ship sooner by keeping Enkii reviews
+shorter and more accurate; size is a strong planning consideration, not a hard
+limit or an automatic review failure.
+
+- Aim for roughly 200-500 changed lines (additions plus deletions); smaller
+  focused fixes are welcome. Exclude generated files, lockfiles, and purely
+  mechanical formatting from this sizing signal, but still review their risks.
+- Above 500 lines, actively consider splitting independent behavior, refactors,
+  and cleanup. Above 1,000 lines, normally split or explain in the PR description
+  why keeping the change together is safer and easier to review.
+- Keep implementation, relevant tests, and required contract or migration
+  changes together. Each PR must remain coherent and testable; do not create
+  broken intermediate states, omit tests, or compress code to meet a number.
+- For dependent PRs, state the dependencies and merge/rollout order. Reassess
+  scope before opening or substantially expanding a PR, rather than waiting
+  until review to separate unrelated work.
+
 ## Foundry runtime profile
 
 ### FND-01 — Keep runtime truth in Foundry
