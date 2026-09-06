@@ -796,7 +796,7 @@ class WorkspaceLifecycle:
                 # failed authenticated bootstrap cannot leave a usable-looking
                 # Workspace row behind.
                 before_bind(workspace_id, spec, claim, deadline)
-            return self._bind_idle(workspace_id, claim, workspace.machine_ref)
+            return self._bind_idle(workspace_id, claim, workspace.machine_ref, spec)
         raise ProviderTerminalError(f"unsupported ensure phase: {claim.phase}")
 
     def _run_replace_phase(
@@ -927,7 +927,16 @@ class WorkspaceLifecycle:
             if not workspace.machine_ref:
                 raise ProviderTerminalError("replacement Machine is missing")
             self._wait_healthy(app_name, workspace.machine_ref, spec, deadline)
-            return self._bind_idle(workspace_id, claim, workspace.machine_ref)
+            if workspace.release_target:
+                machine = self._inspect_machine_by_id(app_name, workspace.machine_ref)
+                if (
+                    machine is None
+                    or dict(machine.images) != workspace.release_target["images"]
+                ):
+                    raise ProviderTerminalError(
+                        "replacement images do not match the pinned release"
+                    )
+            return self._bind_idle(workspace_id, claim, workspace.machine_ref, spec)
         raise ProviderTerminalError(f"unsupported replace phase: {claim.phase}")
 
     def _ensure_app(self, spec: AppSpec) -> AppRecord:
@@ -1193,7 +1202,7 @@ class WorkspaceLifecycle:
         run_with_sqlite_lock_retry(transaction_once)
 
     def _bind_idle(
-        self, workspace_id: UUID, claim: _Claim, machine_ref: str
+        self, workspace_id: UUID, claim: _Claim, machine_ref: str, spec: WorkspaceSpec
     ) -> WorkspaceBinding:
         @transaction.atomic
         def transaction_once():
@@ -1204,13 +1213,28 @@ class WorkspaceLifecycle:
             ):
                 raise RuntimeConflictError("workspace provisioning claim is stale")
             workspace.machine_ref = machine_ref
+            workspace.applied_images = {
+                container.name: container.image
+                for container in spec.machine_spec(
+                    workspace_id,
+                    workspace.volume_ref,
+                    claim.target_generation,
+                    claim.operation_id,
+                ).containers
+            }
+            if workspace.release_target:
+                workspace.release_target = {}
+                workspace.activation_claim_token = None
+                workspace.activation_claim_expires_at = None
             workspace.provisioning_phase = WorkspaceProvisioningPhase.IDLE
             workspace.provisioning_claim_token = None
             workspace.provisioning_claim_expires_at = None
             # Activation has proven the recorded Machine is live, but the
             # runtime still must authenticate, reconcile profiles, and post a
             # current-epoch receipt before claims resume.
-            workspace.runtime_operation_id = uuid.uuid4()
+            workspace.runtime_operation_id = (
+                workspace.runtime_operation_id or uuid.uuid4()
+            )
             workspace.runtime_operation_state = RuntimeOperationState.AWAITING_READINESS
             workspace.runtime_operation_trigger = None
             workspace.runtime_operation_requested_at = timezone.now()
@@ -1219,6 +1243,10 @@ class WorkspaceLifecycle:
             workspace.save(
                 update_fields=[
                     "machine_ref",
+                    "applied_images",
+                    "release_target",
+                    "activation_claim_token",
+                    "activation_claim_expires_at",
                     "provisioning_phase",
                     "provisioning_claim_token",
                     "provisioning_claim_expires_at",

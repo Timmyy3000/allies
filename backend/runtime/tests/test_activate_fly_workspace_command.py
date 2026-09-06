@@ -53,8 +53,8 @@ def configure_activation(monkeypatch):
         "FLY_ORG": "allies",
         "FLY_REGION": "ams",
         "FOUNDRY_ORIGIN": "https://foundry.example.com",
-        "RUNTIME_IMAGE": "runtime@sha256:test",
-        "HERMES_IMAGE": "hermes@sha256:test",
+        "RUNTIME_IMAGE": "runtime@sha256:" + "a" * 64,
+        "HERMES_IMAGE": "hermes@sha256:" + "b" * 64,
         "PROFILE_PROVISIONING_API_KEY": "provider-key",
     }
     for name, value in settings.items():
@@ -345,6 +345,10 @@ def test_stopped_bound_activation_queues_one_execution_wake(monkeypatch):
             workspace.provisioning_id,
             workspace.machine_generation,
         ),
+        images={
+            "allies-runtime": "runtime@sha256:" + "a" * 64,
+            "hermes": "hermes@sha256:" + "b" * 64,
+        },
     )
     patch_command_dependencies(monkeypatch, provider, object())
 

@@ -363,6 +363,7 @@ class MachineRecord:
     volume_id: str | None = None
     ownership: OwnershipMetadata | None = None
     health: MachineHealth | None = None
+    images: Mapping[str, str] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         _identifier(self.id, "machine id")
@@ -376,6 +377,12 @@ class MachineRecord:
                 raise ValueError("invalid machine state") from exc
         if self.volume_id is not None:
             _identifier(self.volume_id, "machine volume id")
+        if not isinstance(self.images, Mapping) or any(
+            not isinstance(name, str) or not isinstance(image, str)
+            for name, image in self.images.items()
+        ):
+            raise ValueError("invalid machine images")
+        object.__setattr__(self, "images", MappingProxyType(dict(self.images)))
 
 
 # Short names keep lifecycle code provider-neutral while the explicit Record

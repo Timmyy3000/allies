@@ -103,6 +103,12 @@ def process_runtime_wakes(
     remaining = max(0, limit - report.examined)
     if remaining == 0:
         return report
+    from .runtime_releases import resume_runtime_releases
+
+    report = _merge(report, resume_runtime_releases(provider, limit=remaining))
+    remaining = max(0, limit - report.examined)
+    if remaining == 0:
+        return report
     report = _merge(
         report,
         _recover_expired_operations(provider, observed_at, remaining),
@@ -295,6 +301,10 @@ def _process_wake_claim(
         workspace = Workspace.objects.get(pk=claim.workspace_id)
         machine = _inspect_machine(provider, workspace)
         _verify_machine_binding(workspace, machine)
+        from .runtime_releases import release_on_wake
+
+        if release_on_wake(workspace, machine, claim, provider):
+            return RuntimePowerReport(started=1, awaiting_readiness=1)
         _prepare_start(claim, now)
         if machine.state is MachineState.STARTED:
             _mark_awaiting_readiness(claim)
@@ -459,6 +469,7 @@ def _expired_operation_ids(now: datetime, limit: int) -> list[UUID]:
             ),
             activation_claim_expires_at__isnull=False,
             activation_claim_expires_at__lte=now,
+            release_target={},
         )
         .order_by("activation_claim_expires_at", "id")
         .values_list("id", flat=True)[:limit]
@@ -840,8 +851,7 @@ def _requested_workspace_ids(
     if trigger is not None:
         query = query.filter(runtime_operation_trigger=trigger)
     return list(
-        query
-        .annotate(
+        query.annotate(
             trigger_priority=Case(
                 When(
                     runtime_operation_trigger=RuntimeOperationTrigger.EXECUTION,

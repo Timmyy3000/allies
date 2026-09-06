@@ -906,8 +906,21 @@ def _machine_record(
     ownership = _ownership(raw.get("metadata")) or _ownership(config.get("metadata"))
     ownership = ownership or fallback_ownership
     health = _machine_health(raw, state)
+    containers = config.get("containers", [])
+    images = {}
+    if isinstance(containers, list):
+        for container in containers:
+            if not isinstance(container, Mapping):
+                continue
+            container_name, image = container.get("name"), container.get("image")
+            if isinstance(container_name, str) and isinstance(image, str):
+                if container_name in images:
+                    raise ProviderProtocolError(
+                        "duplicate container name", operation="map_machine"
+                    )
+                images[container_name] = image
     return MachineRecord(
-        machine_id, name, app_name, region, state, volume_id, ownership, health
+        machine_id, name, app_name, region, state, volume_id, ownership, health, images
     )
 
 
