@@ -1,4 +1,4 @@
-name: Hermes Mnemosyne image
+name: Publish Allies Hermes Image
 
 on:
   pull_request:
