@@ -29,6 +29,7 @@ from chat.exceptions import (
     ConversationUnavailable,
     CursorInvalid,
     IdempotencyConflict,
+    MessageNotDeletable,
     MessageValidation,
     OnboardingHandoffRepairRequired,
     QueueFull,
@@ -37,8 +38,12 @@ from chat.exceptions import (
 )
 from chat.models import (
     MESSAGE_CONTENT_MAX_LENGTH,
+    NONTERMINAL_MESSAGE_STATUSES,
+    TERMINAL_MESSAGE_STATUSES,
     AssistantReply,
     Conversation,
+    DispatchOutbox,
+    DispatchState,
     Message,
     MessageLifecycle,
     MessageOrigin,
@@ -146,6 +151,40 @@ def _conversation_for_send(*, workspace, conversation_id: UUID | str) -> Convers
         raise ConversationUnavailable("conversation unavailable") from exc
 
 
+def _claim_next_turn_locked(
+    *, conversation: Conversation, now: datetime | None = None
+) -> Message | None:
+    """Claim the earliest live send while the caller holds Conversation."""
+
+    if Message.objects.filter(
+        conversation=conversation,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        status__in=NONTERMINAL_MESSAGE_STATUSES,
+        deleted_at__isnull=True,
+        execution_claimed_at__isnull=False,
+    ).exists():
+        return None
+    message = (
+        Message.objects.select_for_update()
+        .filter(
+            conversation=conversation,
+            sender=MessageSender.USER,
+            origin=MessageOrigin.SEND,
+            status__in=NONTERMINAL_MESSAGE_STATUSES,
+            deleted_at__isnull=True,
+            execution_claimed_at__isnull=True,
+        )
+        .order_by("sequence", "id")
+        .first()
+    )
+    if message is None:
+        return None
+    message.execution_claimed_at = now or timezone.now()
+    message.save(update_fields=("execution_claimed_at", "updated_at"))
+    return message
+
+
 def accept_message(
     *,
     user: User,
@@ -208,16 +247,22 @@ def accept_message(
             if len(normalized.encode("utf-8")) > MESSAGE_CONTENT_MAX_LENGTH:
                 raise MessageValidation("request validation failed")
 
-            pending = Message.objects.filter(
+            live_count = Message.objects.filter(
                 conversation=conversation,
                 sender=MessageSender.USER,
                 origin=MessageOrigin.SEND,
-                status=MessageLifecycle.QUEUED,
+                status__in=NONTERMINAL_MESSAGE_STATUSES,
+                deleted_at__isnull=True,
             ).count()
             max_pending = _bounded_setting(
                 "ALLIES_CHAT_MAX_PENDING_MESSAGES", 20, 1, 100
             )
-            if pending >= max_pending:
+            queue_admission_enabled = bool(
+                getattr(settings, "ALLIES_CHAT_QUEUE_ADMISSION_ENABLED", True)
+            )
+            if (not queue_admission_enabled and live_count) or (
+                queue_admission_enabled and live_count >= max_pending + 1
+            ):
                 raise QueueFull("conversation queue full")
 
             reservation = enforce_send_rate_limit(
@@ -331,37 +376,91 @@ def claim_next_turn(*, conversation_id: UUID | str) -> Message | None:
             )
         except Conversation.DoesNotExist as exc:
             raise ConversationUnavailable("conversation unavailable") from exc
-        if Message.objects.filter(
-            conversation=conversation,
-            sender=MessageSender.USER,
-            origin=MessageOrigin.SEND,
-            status=MessageLifecycle.IN_PROGRESS,
-        ).exists():
-            return None
-        message = (
-            Message.objects.select_for_update()
-            .filter(
-                conversation=conversation,
-                sender=MessageSender.USER,
-                origin=MessageOrigin.SEND,
-                status=MessageLifecycle.QUEUED,
-            )
-            .order_by("sequence", "id")
-            .first()
+        message = _claim_next_turn_locked(conversation=conversation)
+        if message is not None:
+            from .dispatch import ensure_dispatch_after_accept
+
+            ensure_dispatch_after_accept(message)
+        return message
+
+
+def delete_queued_message(
+    *,
+    user: User,
+    workspace_id: UUID | str,
+    conversation_id: UUID | str,
+    message_id: UUID | str,
+) -> Message:
+    """Redact one unclaimed queued send while retaining its idempotency row."""
+
+    context = require_workspace_capability(
+        user=user,
+        workspace_id=workspace_id,
+        capability=Capability.WORKSPACE_WRITE,
+    )
+    parsed_message_id = _parse_uuid(message_id)
+    with transaction.atomic():
+        conversation = _conversation_for_send(
+            workspace=context.workspace, conversation_id=conversation_id
         )
-        if message is None:
-            return None
-        message.status = MessageLifecycle.IN_PROGRESS
-        message.save(update_fields=("status", "updated_at"))
+        try:
+            message = Message.objects.select_for_update().get(
+                pk=parsed_message_id, conversation=conversation
+            )
+        except Message.DoesNotExist as exc:
+            raise ConversationUnavailable("conversation unavailable") from exc
+        if message.deleted_at is not None:
+            return message
+        if (
+            message.sender != MessageSender.USER
+            or message.origin != MessageOrigin.SEND
+            or message.status != MessageLifecycle.QUEUED
+            or message.execution_claimed_at is not None
+        ):
+            raise MessageNotDeletable("message is not deletable")
+
+        now = timezone.now()
+        message.content = ""
+        message.status = MessageLifecycle.STOPPED
+        message.retry_allowed = False
+        message.deleted_at = now
+        message.save(
+            update_fields=(
+                "content",
+                "status",
+                "retry_allowed",
+                "deleted_at",
+                "updated_at",
+            )
+        )
+        outbox = (
+            DispatchOutbox.objects.select_for_update().filter(message=message).first()
+        )
+        if outbox is not None:
+            outbox.status = DispatchState.FAILED
+            outbox.safe_error_code = "message_deleted"
+            outbox.command_bytes = b""
+            outbox.command_byte_length = 0
+            outbox.next_attempt_at = None
+            outbox.lease_expires_at = None
+            outbox.completed_at = now
+            outbox.save(
+                update_fields=(
+                    "status",
+                    "safe_error_code",
+                    "command_bytes",
+                    "command_byte_length",
+                    "next_attempt_at",
+                    "lease_expires_at",
+                    "completed_at",
+                    "updated_at",
+                )
+            )
         return message
 
 
 def complete_turn(*, message_id: UUID | str, status: str) -> Message:
-    terminal = {
-        MessageLifecycle.COMPLETED,
-        MessageLifecycle.FAILED,
-        MessageLifecycle.STOPPED,
-    }
+    terminal = set(TERMINAL_MESSAGE_STATUSES)
     if status not in terminal:
         raise TurnConflict("invalid terminal status")
     parsed_message_id = _parse_uuid(message_id)
@@ -373,7 +472,9 @@ def complete_turn(*, message_id: UUID | str, status: str) -> Message:
         raise ConversationUnavailable("conversation unavailable") from exc
     with transaction.atomic():
         try:
-            Conversation.objects.select_for_update().get(pk=existing.conversation_id)
+            conversation = Conversation.objects.select_for_update().get(
+                pk=existing.conversation_id
+            )
         except Conversation.DoesNotExist as exc:
             raise ConversationUnavailable("conversation unavailable") from exc
         message = Message.objects.select_for_update().get(pk=existing.pk)
@@ -382,13 +483,20 @@ def complete_turn(*, message_id: UUID | str, status: str) -> Message:
                 return message
             raise TurnConflict("turn already completed differently")
         if (
-            message.status != MessageLifecycle.IN_PROGRESS
+            message.status not in NONTERMINAL_MESSAGE_STATUSES
             or message.sender != MessageSender.USER
             or message.origin != MessageOrigin.SEND
+            or message.execution_claimed_at is None
+            or message.deleted_at is not None
         ):
             raise TurnConflict("turn is not active")
         message.status = status
         message.save(update_fields=("status", "updated_at"))
+        next_message = _claim_next_turn_locked(conversation=conversation)
+        if next_message is not None:
+            from .dispatch import ensure_dispatch_after_accept
+
+            ensure_dispatch_after_accept(next_message)
         return message
 
 
@@ -460,6 +568,16 @@ def parse_cursor(
 
 
 def message_response(message: Message) -> dict[str, Any]:
+    queue_state = None
+    if (
+        message.sender == MessageSender.USER
+        and message.origin == MessageOrigin.SEND
+        and message.status in NONTERMINAL_MESSAGE_STATUSES
+        and message.deleted_at is None
+    ):
+        queue_state = (
+            "claimed" if message.execution_claimed_at is not None else "unclaimed"
+        )
     return {
         "id": str(message.id),
         "sender": message.sender,
@@ -468,6 +586,8 @@ def message_response(message: Message) -> dict[str, Any]:
         "status": message.status,
         "created_at": message.created_at,
         "retryable": is_message_retryable(message),
+        "queue_state": queue_state,
+        "deleted_at": message.deleted_at,
     }
 
 

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from ninja import Schema
@@ -20,6 +20,8 @@ class MessageResponse(Schema):
     status: str
     created_at: datetime
     retryable: bool = False
+    queue_state: Literal["claimed", "unclaimed"] | None = None
+    deleted_at: datetime | None = None
 
 
 class AssistantReplyResponse(Schema):
@@ -38,6 +40,7 @@ class ConversationResponse(Schema):
     id: UUID
     ally_id: UUID
     messages: list[MessageResponse]
+    queue: list[MessageResponse] = Field(default_factory=list)
     assistant_replies: list[AssistantReplyResponse] = Field(default_factory=list)
     next_cursor: str | None = None
 

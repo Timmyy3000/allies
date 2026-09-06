@@ -26,6 +26,18 @@ class MessageLifecycle(models.TextChoices):
     STOPPED = "stopped", "Stopped"
 
 
+NONTERMINAL_MESSAGE_STATUSES = (
+    MessageLifecycle.QUEUED,
+    MessageLifecycle.IN_PROGRESS,
+    MessageLifecycle.AWAITING_ACTION,
+)
+TERMINAL_MESSAGE_STATUSES = (
+    MessageLifecycle.COMPLETED,
+    MessageLifecycle.FAILED,
+    MessageLifecycle.STOPPED,
+)
+
+
 class MessageSender(models.TextChoices):
     USER = "user", "User"
     ASSISTANT = "assistant", "Assistant"
@@ -73,6 +85,8 @@ class Message(models.Model):
         choices=MessageLifecycle.choices,
         default=MessageLifecycle.QUEUED,
     )
+    execution_claimed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
     send_key_digest = models.CharField(
         max_length=DIGEST_LENGTH, blank=True, default="", editable=False
     )
@@ -177,10 +191,40 @@ class Message(models.Model):
                 ),
                 name="chat_message_role_origin_chk",
             ),
+            models.CheckConstraint(
+                condition=(
+                    Q(execution_claimed_at__isnull=True)
+                    | Q(sender=MessageSender.USER, origin=MessageOrigin.SEND)
+                ),
+                name="chat_message_claim_scope_chk",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(deleted_at__isnull=True)
+                    | Q(
+                        sender=MessageSender.USER,
+                        origin=MessageOrigin.SEND,
+                        status=MessageLifecycle.STOPPED,
+                        execution_claimed_at__isnull=True,
+                        content="",
+                    )
+                ),
+                name="chat_message_tombstone_coherent_chk",
+            ),
         ]
         indexes = [
             models.Index(
                 fields=("conversation", "status"), name="chat_message_status_idx"
+            ),
+            models.Index(
+                fields=("conversation", "sequence"),
+                condition=Q(
+                    sender=MessageSender.USER,
+                    origin=MessageOrigin.SEND,
+                    status__in=NONTERMINAL_MESSAGE_STATUSES,
+                    deleted_at__isnull=True,
+                ),
+                name="chat_message_queue_idx",
             ),
         ]
 
