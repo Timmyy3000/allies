@@ -38,6 +38,10 @@ class TurnConflict(ChatError):
     code = "turn_terminal_conflict"
 
 
+class MessageNotDeletable(ChatError):
+    code = "message_not_deletable"
+
+
 class ChatUnavailable(ChatError):
     code = "internal_error"
 

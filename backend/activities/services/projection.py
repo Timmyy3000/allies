@@ -19,6 +19,7 @@ from allies.gateways.contracts import MAX_TERMINAL_SEQUENCE, FoundryEventEnvelop
 from allies.models import AllyBinding, BindingStatus
 from chat.models import (
     ASSISTANT_REPLY_MAX_BYTES,
+    NONTERMINAL_MESSAGE_STATUSES,
     AssistantReply,
     Conversation,
     Message,
@@ -89,6 +90,7 @@ class ActivitySnapshot:
     latest_sequence: int | None = None
     retention_gap: bool = False
     assistant_reply: AssistantReply | None = None
+    active_message_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -329,11 +331,7 @@ def _prior_turn_is_open(message: Message) -> bool:
         sender=MessageSender.USER,
         origin=MessageOrigin.SEND,
         sequence__lt=message.sequence,
-        status__in=(
-            MessageLifecycle.QUEUED,
-            MessageLifecycle.IN_PROGRESS,
-            MessageLifecycle.AWAITING_ACTION,
-        ),
+        status__in=(*NONTERMINAL_MESSAGE_STATUSES,),
     )
     return prior_turns.exists()
 
@@ -533,7 +531,20 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         envelope.event_type == "execution.failed"
         and envelope.payload["retryable"] is True
     )
-    message.save(update_fields=("status", "retry_allowed", "updated_at"))
+    if message.execution_claimed_at is None:
+        message.execution_claimed_at = timezone.now()
+    message.save(
+        update_fields=(
+            "status",
+            "retry_allowed",
+            "execution_claimed_at",
+            "updated_at",
+        )
+    )
+    if message_status in _TERMINAL_STATES:
+        from chat.services.dispatch import _release_next_locked
+
+        _release_next_locked(conversation, now=timezone.now())
     return ProjectionResult(
         status="applied",
         event_id=envelope.event_id,
@@ -629,27 +640,63 @@ def read_activity_snapshot(
             conversation=conversation,
             sender=MessageSender.USER,
             origin=MessageOrigin.SEND,
+            deleted_at__isnull=True,
         )
         .order_by("-sequence", "-id")
         .first()
     )
+    active = (
+        Message.objects.filter(
+            conversation=conversation,
+            sender=MessageSender.USER,
+            origin=MessageOrigin.SEND,
+            status__in=NONTERMINAL_MESSAGE_STATUSES,
+            deleted_at__isnull=True,
+            execution_claimed_at__isnull=False,
+        )
+        .order_by("sequence", "id")
+        .first()
+    )
+    if (
+        active is None
+        and latest is not None
+        and latest.status
+        in {
+            MessageLifecycle.IN_PROGRESS,
+            MessageLifecycle.AWAITING_ACTION,
+        }
+    ):
+        active = latest
+    reply_message = active
+    if (
+        reply_message is None
+        and latest is not None
+        and latest.status in _TERMINAL_STATES
+    ):
+        reply_message = latest
     state = (
-        ProjectionState.RUNNING
-        if latest is not None and latest.status == MessageLifecycle.IN_PROGRESS
+        ProjectionState.QUEUED
+        if active is not None and active.status == MessageLifecycle.QUEUED
+        else ProjectionState.RUNNING
+        if active is not None and active.status == MessageLifecycle.IN_PROGRESS
+        else active.status
+        if active is not None
         else latest.status
         if latest is not None
         else ProjectionState.COMPLETED
     )
     last_contiguous = 0
-    if latest is not None:
+    if reply_message is not None:
         latest_receipt = (
-            FoundryEventReceipt.objects.filter(message=latest)
+            FoundryEventReceipt.objects.filter(message=reply_message)
             .order_by("-generation", "-attempt_sequence")
             .first()
         )
         if latest_receipt is not None:
             last_contiguous = _last_contiguous(
-                latest.id, latest_receipt.attempt_id, latest_receipt.generation
+                reply_message.id,
+                latest_receipt.attempt_id,
+                latest_receipt.generation,
             )
     return ActivitySnapshot(
         conversation,
@@ -662,7 +709,10 @@ def read_activity_snapshot(
         oldest_sequence,
         latest_sequence,
         retention_gap,
-        AssistantReply.objects.select_related("message").filter(message=latest).first(),
+        AssistantReply.objects.select_related("message")
+        .filter(message=reply_message)
+        .first(),
+        active.id if active is not None else None,
     )
 
 

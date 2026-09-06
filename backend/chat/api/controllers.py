@@ -3,7 +3,7 @@ from typing import Annotated
 from django.db import DatabaseError
 from django.http import HttpRequest
 from ninja import Header, Query
-from ninja_extra import ControllerBase, api_controller, http_get, http_post
+from ninja_extra import ControllerBase, api_controller, http_delete, http_get, http_post
 
 from auths.api.common import (
     _require_origin,
@@ -26,6 +26,7 @@ from chat.exceptions import (
     ConversationUnavailable,
     CursorInvalid,
     IdempotencyConflict,
+    MessageNotDeletable,
     MessageValidation,
     OnboardingHandoffRepairRequired,
     OnboardingHandoffUnavailable,
@@ -37,6 +38,7 @@ from chat.services.conversations import retrieve_conversation
 from chat.services.messages import (
     accept_message,
     assistant_reply_response,
+    delete_queued_message,
     message_response,
     retry_message,
 )
@@ -52,6 +54,7 @@ def _conversation_response(result) -> ConversationResponse:
         id=str(result.conversation.id),
         ally_id=str(result.conversation.ally.id),
         messages=[_message_response(message) for message in result.messages],
+        queue=[_message_response(message) for message in result.queue],
         assistant_replies=[
             AssistantReplyResponse.model_validate(assistant_reply_response(reply))
             for message in result.messages
@@ -85,6 +88,8 @@ def _read_error(exc: Exception, request: HttpRequest | None = None):
         return error_json("idempotency_conflict", "request conflicts", 409)
     if isinstance(exc, TurnConflict):
         return error_json("turn_terminal_conflict", "request conflicts", 409)
+    if isinstance(exc, MessageNotDeletable):
+        return error_json("message_not_deletable", "request conflicts", 409)
     if isinstance(exc, (QueueFull, SendRateLimited)):
         if request is None:
             return error_json("rate_limited", "Request temporarily unavailable", 429)
@@ -169,7 +174,7 @@ class ConversationController(ControllerBase):
         response={
             200: SuccessResponse[MessageAcceptanceResponse],
             201: SuccessResponse[MessageAcceptanceResponse],
-            **error_responses(401, 404, 409, 422, 429, 500),
+            **error_responses(401, 403, 404, 409, 422, 429, 500),
         },
     )
     def send(
@@ -188,7 +193,7 @@ class ConversationController(ControllerBase):
             ),
         ],
     ):
-        if rejected := _require_origin(request):
+        if rejected := _require_origin(request, allow_native_bearer=True):
             return rejected
         try:
             session = _session(request)
@@ -215,7 +220,7 @@ class ConversationController(ControllerBase):
         response={
             200: SuccessResponse[MessageAcceptanceResponse],
             201: SuccessResponse[MessageAcceptanceResponse],
-            **error_responses(401, 404, 409, 422, 429, 500),
+            **error_responses(401, 403, 404, 409, 422, 429, 500),
         },
     )
     def retry(
@@ -234,7 +239,7 @@ class ConversationController(ControllerBase):
             ),
         ],
     ):
-        if rejected := _require_origin(request):
+        if rejected := _require_origin(request, allow_native_bearer=True):
             return rejected
         try:
             session = _session(request)
@@ -255,3 +260,34 @@ class ConversationController(ControllerBase):
             "Message retry accepted",
             status=200 if result.replayed else 201,
         )
+
+    @http_delete(
+        "/conversations/{conversation_id}/messages/{message_id}",
+        response={
+            200: SuccessResponse[MessageResponse],
+            **error_responses(401, 403, 404, 409, 500),
+        },
+    )
+    def delete(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        conversation_id: CanonicalUUID,
+        message_id: CanonicalUUID,
+    ):
+        if rejected := _require_origin(request, allow_native_bearer=True):
+            return rejected
+        try:
+            session = _session(request)
+            message = delete_queued_message(
+                user=session.user,
+                workspace_id=workspace_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
+            )
+        except Exception as exc:
+            response = _read_error(exc, request)
+            if response is not None:
+                return response
+            raise
+        return success_json(_message_response(message), "Message deleted")

@@ -158,8 +158,13 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
                     "sequence": 1,
                     "status": "completed",
                     "created_at": "2026-08-20T16:00:00Z",
+                    "retryable": False,
+                    "queue_state": None,
+                    "deleted_at": None,
                 }
             ],
+            "queue": [],
+            "assistant_replies": [],
             "next_cursor": None,
         },
     },
@@ -175,9 +180,27 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
                 "sequence": 3,
                 "status": "queued",
                 "created_at": "2026-08-20T16:01:00Z",
+                "retryable": False,
+                "queue_state": "claimed",
+                "deleted_at": None,
             },
             "execution": None,
             "replayed": False,
+        },
+    },
+    "SuccessResponse_MessageResponse_": {
+        "status": "success",
+        "message": "Message deleted",
+        "data": {
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d83",
+            "sender": "user",
+            "content": "",
+            "sequence": 4,
+            "status": "stopped",
+            "created_at": "2026-08-20T16:02:00Z",
+            "retryable": False,
+            "queue_state": None,
+            "deleted_at": "2026-08-20T16:02:01Z",
         },
     },
     "SuccessResponse_ActivitySnapshotResponse_": {
@@ -198,6 +221,7 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
                 }
             ],
             "state": "running",
+            "active_message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
             "last_contiguous_sequence": 2,
             "last_contiguous_activity_sequence": 1,
             "resume_cursor": "<signed-activity-cursor>",
@@ -522,6 +546,20 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
         ("/api/v1/auths/me/avatar", "delete"),
         ("/api/v1/workspaces/{workspace_id}", "get"),
     }
+    chat_mutation_paths = {
+        (
+            "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages",
+            "post",
+        ),
+        (
+            "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry",
+            "post",
+        ),
+        (
+            "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}",
+            "delete",
+        ),
+    }
     security_schemes = schema.setdefault("components", {}).setdefault(
         "securitySchemes", {}
     )
@@ -531,13 +569,39 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
         "bearerFormat": "JWT",
         "description": (
             "Native sessions only. The bearer is accepted only on the reviewed "
-            "account, profile, avatar, and Workspace methods."
+            "account, profile, avatar, Workspace, and chat methods."
         ),
     }
     for path, method in bearer_paths:
         operation = schema.get("paths", {}).get(path, {}).get(method)
         if isinstance(operation, dict):
             operation["security"] = [{"BearerAuth": []}]
+    for path, method in chat_mutation_paths:
+        operation = schema.get("paths", {}).get(path, {}).get(method)
+        if not isinstance(operation, dict):
+            continue
+        operation["security"] = [{"BrowserSession": []}, {"BearerAuth": []}]
+        operation["description"] = (
+            f"{operation.get('description', '').rstrip()}\n\n"
+            "This mutation accepts either a browser session with a trusted Origin "
+            "or Referer and matching CSRF cookie/header, or a validated native "
+            "bearer-only session. Mixed browser and bearer transport is rejected."
+        ).strip()
+        _add_header_parameter(
+            operation,
+            "Origin",
+            "Required for browser transport and must be trusted; omit for native.",
+        )
+        _add_header_parameter(
+            operation,
+            "Referer",
+            "Browser alternative to Origin; omit for native.",
+        )
+        _add_header_parameter(
+            operation,
+            "X-CSRFToken",
+            "Required with the browser CSRF cookie; omit for native.",
+        )
     for path, path_item in schema.get("paths", {}).items():
         if not path.startswith("/api/v1/auths/native/"):
             continue

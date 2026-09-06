@@ -114,6 +114,7 @@ class ActivityController(ControllerBase):
                     if result.assistant_reply is not None
                     else None
                 ),
+                active_message_id=result.active_message_id,
             ),
             "Activities loaded",
         )
