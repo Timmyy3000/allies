@@ -10,11 +10,12 @@ on:
 
 permissions:
   contents: read
+  packages: write
 
 jobs:
   build:
     name: Build and smoke-test production image
-    runs-on: ubuntu-24.04
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -71,3 +72,40 @@ jobs:
             --volume "$PWD/runtime/hermes-image/smoke_bootstrap_endpoint.py:/tmp/smoke-bootstrap.py:ro" \
             allies/hermes-mnemosyne:ci \
             /tmp/smoke-bootstrap.py
+      - name: Log in to GHCR for manual publishing
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
+      - name: Publish tested Hermes image
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          IMAGE_OWNER: ${{ github.repository_owner }}
+        run: |
+          image="ghcr.io/${IMAGE_OWNER,,}/allies-hermes"
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=true \
+            --sbom=true \
+            --push \
+            --metadata-file /tmp/hermes-publish.json \
+            --build-arg SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            --tag "$image:$GITHUB_SHA" \
+            --file runtime/hermes-image/Dockerfile \
+            runtime/hermes-image
+          digest=$(jq -er '."containerimage.digest"' /tmp/hermes-publish.json)
+          reference="$image@$digest"
+          echo "Published image: $reference"
+          {
+            echo '## Published Hermes image'
+            echo
+            echo 'Copy this value into Foundry staging after confirming the run passed:'
+            echo '```text'
+            echo "HERMES_IMAGE=$reference"
+            echo '```'
+            echo
+            echo "Source commit: $GITHUB_SHA"
+            echo
+            echo 'Publishing does not update Railway configuration or existing Fly machines.'
+          } >> "$GITHUB_STEP_SUMMARY"
