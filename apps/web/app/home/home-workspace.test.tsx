@@ -5,7 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { AllyViewModel } from "@allies/cloud-client";
+import { EMPTY_ACTIVITY_PROJECTION, type AllyViewModel, type ConversationViewModel, type MessageViewModel } from "@allies/cloud-client";
 import type { RuntimeIntentRequester } from "../../lib/allies/runtime-intent";
 import type { ActivityStreamOptions } from "../../lib/allies/activity-stream";
 import HomePage from "./page";
@@ -17,6 +17,7 @@ import {
   activityReplayFailure,
   activitySnapshotBytes,
   HomeWorkspace,
+  projectConversationActivity,
 } from "./home-workspace";
 
 const replace = vi.hoisted(() => vi.fn());
@@ -102,8 +103,16 @@ beforeEach(() => {
   vi.clearAllMocks();
   readActivityStreamMock.mockReset();
   window.localStorage.clear();
+  Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
   stubViewport(false);
 });
+
+function stubQueueMessageLocks() {
+  Object.defineProperty(navigator, "locks", {
+    configurable: true,
+    value: { request: (_name: string, _options: unknown, task: () => Promise<unknown>) => task() },
+  });
+}
 
 function stubViewport(desktop: boolean) {
   Object.defineProperty(window, "matchMedia", {
@@ -433,7 +442,7 @@ describe("HomeWorkspace", () => {
     expect((await screen.findByTestId("activity-reply-2")).textContent).toBe("The initial response arrived.");
   });
 
-  it("discards an unscoped v1 queue with an explicit notice", async () => {
+  it("keeps an unscoped v1 queue untouched with an explicit notice", async () => {
     const legacyKey = `allies:v1:queued-messages:${account.workspace.id}:${ally.id}`;
     window.localStorage.setItem(legacyKey, JSON.stringify([{
       id: "legacy-message",
@@ -444,7 +453,7 @@ describe("HomeWorkspace", () => {
     renderHome([ally], ally.id);
 
     expect((await screen.findByRole("alert")).textContent).toContain("could not be restored safely");
-    expect(window.localStorage.getItem(legacyKey)).toBeNull();
+    expect(window.localStorage.getItem(legacyKey)).toContain("legacy-message");
     expect(screen.queryByText("Do not expose across accounts")).toBeNull();
   });
 
@@ -818,7 +827,79 @@ describe("HomeWorkspace", () => {
     await waitFor(() => expect(window.localStorage.getItem(storageKey)).toBeNull());
   });
 
-  it("holds later messages in the frontend queue until the active turn finishes", async () => {
+  it("retains an accepted tail when a pre-send conversation read resolves afterward", async () => {
+    const head: MessageViewModel = {
+      id: "head", sender: "user", content: "First question", sequence: 2,
+      status: "queued", queueState: "claimed", createdAt: "2026-09-06T12:00:00Z",
+    };
+    const tail: MessageViewModel = { ...head, id: "tail", content: "Second question", sequence: 3, queueState: "unclaimed" };
+    const initial: ConversationViewModel = {
+      id: "conversation", allyId: ally.id, messages: [head], queue: [head], assistantReplies: [], nextCursor: null,
+    };
+    const getAllyConversation = vi.fn(async () => initial);
+    const sendMessage = vi.fn(async () => ({ conversationId: initial.id, message: tail, execution: null, replayed: false }));
+    const client = renderHome([ally], ally.id, {
+      getAllyConversation,
+      getActivities: vi.fn(() => new Promise(() => undefined)),
+      sendMessage,
+    });
+    await screen.findByText("First question", { selector: "article p" });
+    let finishRead!: (value: ConversationViewModel) => void;
+    getAllyConversation.mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve; }));
+    void client.queryClient.refetchQueries({ queryKey: ["workspaces", "workspace", "allies", ally.id, "conversation"] });
+    await waitFor(() => expect(finishRead).toBeDefined());
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: "Second question" } });
+    await clickSendMessage();
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    await act(async () => { finishRead({ ...initial, messages: [...initial.messages] }); });
+    await waitFor(() => expect(window.localStorage.getItem(`allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`)).toBeNull());
+    expect(screen.getByRole("list", { name: "Queued messages" }).textContent).toContain("Second question");
+  });
+
+  it("advances a snapshot to the next head after a missed terminal and rejects an older head", () => {
+    const head: MessageViewModel = {
+      id: "head", sender: "user", content: "First question", sequence: 2,
+      status: "in_progress", queueState: "claimed", createdAt: "2026-09-06T12:00:00Z",
+    };
+    const tail: MessageViewModel = { ...head, id: "tail", sequence: 3, status: "queued", queueState: "unclaimed" };
+    const running = { ...EMPTY_ACTIVITY_PROJECTION, activeMessageId: head.id, state: "running" as const };
+    const next = projectConversationActivity(running, {
+      conversationId: "conversation", activeMessageId: tail.id, activities: [], state: "queued", lastContiguousSequence: 0,
+    }, [head, tail]);
+    expect(next.activeMessageId).toBe(tail.id);
+    expect(next.state).toBe("queued");
+    const stale = projectConversationActivity(next, {
+      conversationId: "conversation", activeMessageId: head.id, activities: [], state: "completed", lastContiguousSequence: 0,
+    }, [head, tail]);
+    expect(stale.activeMessageId).toBe(tail.id);
+    expect(stale.state).toBe("queued");
+  });
+
+  it("moves visible progress to the next head before a stale conversation page refreshes", async () => {
+    const head: MessageViewModel = {
+      id: "head", sender: "user", content: "First question", sequence: 2,
+      status: "in_progress", queueState: "claimed", createdAt: "2026-09-06T12:00:00Z",
+    };
+    const tail: MessageViewModel = { ...head, id: "tail", content: "Second question", sequence: 3, status: "queued", queueState: "unclaimed" };
+    const getActivities = vi.fn()
+      .mockResolvedValueOnce({ conversationId: "conversation", activeMessageId: head.id, activities: [], state: "running", lastContiguousSequence: 0 })
+      .mockResolvedValue({
+        conversationId: "conversation", activeMessageId: tail.id, state: "running", lastContiguousSequence: 1,
+        activities: [{ id: "next-progress", messageId: tail.id, sequence: 1, conversationTurnOrdinal: 3,
+          kind: "assistant_delta", text: "Second task response", state: "running", createdAt: "2026-09-06T12:01:00Z" }],
+      });
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({ id: "conversation", allyId: ally.id, messages: [head, tail], queue: [head, tail], assistantReplies: [], nextCursor: null })),
+      getActivities,
+    });
+    await screen.findByText("First question", { selector: "article p" });
+    await waitFor(() => expect(screen.getByRole("main").textContent).toContain("Second task response"), { timeout: 3000 });
+    expect(screen.getByText("Second question", { selector: "article p" })).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Queued messages" })?.textContent ?? "").not.toContain("Second question");
+    expect(screen.queryByRole("list", { name: "Queued messages" })?.textContent ?? "").not.toContain("First question");
+  });
+
+  it("accepts later messages while the active turn is still running", async () => {
     const conversationId = "00000000-0000-4000-8000-000000000005";
     const activeMessage = {
       id: "00000000-0000-4000-8000-000000000007",
@@ -840,6 +921,7 @@ describe("HomeWorkspace", () => {
         id: "00000000-0000-4000-8000-000000000008",
         content: "Second question",
         sequence: 3,
+        queueState: "unclaimed" as const,
       },
       execution: null,
       replayed: false,
@@ -863,9 +945,9 @@ describe("HomeWorkspace", () => {
 
     const queue = await screen.findByRole("list", { name: "Queued messages" });
     expect(queue.textContent).toBe("Second question");
-    expect(sendMessage).not.toHaveBeenCalled();
-    expect(screen.queryByText("Queued")).toBeNull();
-    expect(screen.queryByText("Working")).toBeNull();
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    expect(sendMessage.mock.calls[0]?.slice(0, 3)).toEqual(["workspace", conversationId, "Second question"]);
+    expect(screen.getByText("Queued")).toBeTruthy();
     expect(screen.getByText("Thinking")).toBeTruthy();
     expect(screen.queryByText("Push")).toBeNull();
 
@@ -878,10 +960,6 @@ describe("HomeWorkspace", () => {
         lastContiguousSequence: 0,
       });
     });
-
-    await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
-    expect(sendMessage.mock.calls[0]?.slice(0, 3)).toEqual(["workspace", conversationId, "Second question"]);
-    await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   });
 
   it("reuses a failed queued message key when the restored draft is resent", async () => {
@@ -969,7 +1047,7 @@ describe("HomeWorkspace", () => {
     expect(input.value).toBe("未完成");
   });
 
-  it("keeps a new draft behind a failed queued head", async () => {
+  it("attempts a new draft after an ambiguous queued head", async () => {
     const conversationId = "00000000-0000-4000-8000-000000000005";
     const activeMessage = {
       id: "00000000-0000-4000-8000-000000000007",
@@ -984,7 +1062,9 @@ describe("HomeWorkspace", () => {
     const getActivities = vi.fn(() => new Promise((resolve) => {
       finishActiveTurn = resolve;
     }));
-    const sendMessage = vi.fn().mockRejectedValueOnce({ kind: "timeout", status: 408 });
+    const sendMessage = vi.fn()
+      .mockRejectedValueOnce({ kind: "timeout", status: 408 })
+      .mockRejectedValue({ kind: "timeout", status: 408 });
     renderHome([ally], ally.id, {
       getAllyConversation: vi.fn(async () => ({
         id: conversationId,
@@ -1023,10 +1103,12 @@ describe("HomeWorkspace", () => {
     const queue = await screen.findByRole("list", { name: "Queued messages" });
     expect(queue.textContent).toContain("Second question");
     expect(queue.textContent).toContain("Third question");
-    expect(screen.getByRole("alert").textContent).toContain("Retry it before sending another message");
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
+    expect(sendMessage.mock.calls[1]?.[2]).toBe("Third question");
+    expect(screen.getByRole("alert").textContent).toContain("couldn't confirm your message");
     const storageKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`;
     expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "[]")[0]?.intentKey).toBe(firstKey);
-    expect(sendMessage).toHaveBeenCalledOnce();
+    expect(sendMessage).toHaveBeenCalledTimes(2);
   });
 
   it("removes a definitively rejected message so edited content can send", async () => {
@@ -1217,6 +1299,7 @@ describe("HomeWorkspace", () => {
         nextCursor: null,
       })),
       getActivities: vi.fn(() => new Promise(() => undefined)),
+      sendMessage: vi.fn(() => new Promise(() => undefined)),
     });
 
     const queue = await screen.findByRole("list", { name: "Queued messages" });
@@ -1241,6 +1324,31 @@ describe("HomeWorkspace", () => {
       status: "in_progress" as const,
       createdAt: "2026-08-20T16:01:00Z",
     };
+    const acceptedMessage = {
+      ...activeMessage,
+      id: "00000000-0000-4000-8000-000000000008",
+      content: "From this tab",
+      sequence: 3,
+      status: "queued" as const,
+      queueState: "unclaimed" as const,
+    };
+    const sendMessage = vi.fn(async (
+      _workspaceId: string,
+      _conversationId: string,
+      content: string,
+    ) => {
+      if (content === "From this tab") {
+        return { conversationId, message: acceptedMessage, execution: null, replayed: false };
+      }
+      throw { kind: "timeout", status: 408 };
+    });
+    const deleteQueuedMessage = vi.fn(async () => ({
+      ...acceptedMessage,
+      content: "",
+      status: "stopped" as const,
+      queueState: null,
+      deletedAt: "2026-08-20T16:01:02Z",
+    }));
     renderHome([ally], ally.id, {
       getAllyConversation: vi.fn(async () => ({
         id: conversationId,
@@ -1249,6 +1357,8 @@ describe("HomeWorkspace", () => {
         nextCursor: null,
       })),
       getActivities: vi.fn(() => new Promise(() => undefined)),
+      sendMessage,
+      deleteQueuedMessage,
     });
 
     await screen.findByText("First question", { selector: "article p" });
@@ -1273,6 +1383,13 @@ describe("HomeWorkspace", () => {
     const staleSnapshot = window.localStorage.getItem(storageKey);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove queued message: From this tab" }));
+    await waitFor(() => expect(deleteQueuedMessage).toHaveBeenCalledWith(
+      account.workspace.id,
+      conversationId,
+      acceptedMessage.id,
+      undefined,
+    ));
+    await waitFor(() => expect(screen.queryByText("From this tab")).toBeNull());
     const remoteTombstoneKey = `${storageKey}:removed:${encodeURIComponent("queued-remote")}`;
     window.localStorage.setItem(remoteTombstoneKey, String(Date.now()));
     window.dispatchEvent(new StorageEvent("storage", {
@@ -1287,7 +1404,8 @@ describe("HomeWorkspace", () => {
     }));
     await waitFor(() => {
       expect(screen.queryByText("From this tab")).toBeNull();
-      expect(screen.queryByText("From another tab")).toBeNull();
+      expect(screen.queryByRole("list", { name: "Queued messages" })?.textContent ?? "")
+        .not.toContain("From another tab");
     });
 
     window.localStorage.setItem(storageKey, staleSnapshot!);
@@ -1382,6 +1500,7 @@ describe("HomeWorkspace", () => {
   });
 
   it("lets the user remove a frontend-queued message", async () => {
+    stubQueueMessageLocks();
     const conversationId = "00000000-0000-4000-8000-000000000005";
     const activeMessage = {
       id: "00000000-0000-4000-8000-000000000007",
@@ -1391,8 +1510,16 @@ describe("HomeWorkspace", () => {
       status: "in_progress" as const,
       createdAt: "2026-08-20T16:01:00Z",
     };
+    const storageKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`;
+    window.localStorage.setItem(storageKey, JSON.stringify([{
+      id: "queued-local",
+      content: "Never mind",
+      intentKey: "intent-local",
+      queuedAt: Date.now(),
+    }]));
+    const pendingAlly = { ...ally, provisioningState: "pending" as const };
     const sendMessage = vi.fn();
-    renderHome([ally], ally.id, {
+    renderHome([pendingAlly], pendingAlly.id, {
       getAllyConversation: vi.fn(async () => ({
         id: conversationId,
         allyId: ally.id,
@@ -1404,17 +1531,77 @@ describe("HomeWorkspace", () => {
     });
 
     expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
-    const input = screen.getByRole("textbox");
-    fireEvent.change(input, { target: { value: "Never mind" } });
-    await clickSendMessage();
     expect(await screen.findByText("Never mind")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove queued message: Never mind" }));
-    expect(screen.queryByText("Never mind")).toBeNull();
+    await waitFor(() => expect(screen.queryByText("Never mind")).toBeNull());
+    expect(sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("does not offer local queue removal without Web Locks", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const storageKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`;
+    const queuedMessage = {
+      id: "queued-no-lock",
+      content: "Keep until Cloud accepts",
+      intentKey: "intent-no-lock",
+      queuedAt: Date.now(),
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify([queuedMessage]));
+    const pendingAlly = { ...ally, provisioningState: "pending" as const };
+    renderHome([pendingAlly], pendingAlly.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [],
+        nextCursor: null,
+      })),
+    });
+
+    expect(await screen.findByText(queuedMessage.content)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: `Remove queued message: ${queuedMessage.content}` })).toBeNull();
+    expect(window.localStorage.getItem(storageKey)).toContain(queuedMessage.content);
+  });
+
+  it("does not remove a local queue item after another tab marks its send attempted", async () => {
+    stubQueueMessageLocks();
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const storageKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`;
+    const queuedMessage = {
+      id: "queued-stale-ref",
+      content: "Keep after another tab starts",
+      intentKey: "intent-stale-ref",
+      queuedAt: Date.now(),
+    };
+    window.localStorage.setItem(storageKey, JSON.stringify([queuedMessage]));
+    const pendingAlly = { ...ally, provisioningState: "pending" as const };
+    const sendMessage = vi.fn();
+    renderHome([pendingAlly], pendingAlly.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [],
+        nextCursor: null,
+      })),
+      sendMessage,
+    });
+
+    expect(await screen.findByText(queuedMessage.content)).toBeTruthy();
+    window.localStorage.setItem(storageKey, JSON.stringify([{
+      ...queuedMessage,
+      attemptedAt: Date.now(),
+    }]));
+
+    fireEvent.click(screen.getByRole("button", { name: `Remove queued message: ${queuedMessage.content}` }));
+
+    expect((await screen.findByRole("alert")).textContent).toContain("couldn't remove this queued message");
+    expect(screen.getByText(queuedMessage.content)).toBeTruthy();
+    expect(window.localStorage.getItem(`${storageKey}:removed:${encodeURIComponent(queuedMessage.id)}`)).toBeNull();
     expect(sendMessage).not.toHaveBeenCalled();
   });
 
   it("keeps a queued message visible when its removal cannot be persisted", async () => {
+    stubQueueMessageLocks();
     const conversationId = "00000000-0000-4000-8000-000000000005";
     const activeMessage = {
       id: "00000000-0000-4000-8000-000000000007",
@@ -1424,8 +1611,16 @@ describe("HomeWorkspace", () => {
       status: "in_progress" as const,
       createdAt: "2026-08-20T16:01:00Z",
     };
+    const storageKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`;
+    window.localStorage.setItem(storageKey, JSON.stringify([{
+      id: "queued-local",
+      content: "Keep this queued",
+      intentKey: "intent-local",
+      queuedAt: Date.now(),
+    }]));
+    const pendingAlly = { ...ally, provisioningState: "pending" as const };
     const sendMessage = vi.fn();
-    renderHome([ally], ally.id, {
+    renderHome([pendingAlly], pendingAlly.id, {
       getAllyConversation: vi.fn(async () => ({
         id: conversationId,
         allyId: ally.id,
@@ -1437,11 +1632,8 @@ describe("HomeWorkspace", () => {
     });
 
     expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
-    const input = screen.getByRole("textbox");
-    fireEvent.change(input, { target: { value: "Keep this queued" } });
-    await clickSendMessage();
     const queue = await screen.findByRole("list", { name: "Queued messages" });
-    const removeItem = vi.spyOn(Storage.prototype, "removeItem").mockImplementation(() => {
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("storage unavailable");
     });
     try {
@@ -1451,11 +1643,11 @@ describe("HomeWorkspace", () => {
       expect(queue.textContent).toContain("Keep this queued");
       expect(sendMessage).not.toHaveBeenCalled();
     } finally {
-      removeItem.mockRestore();
+      setItem.mockRestore();
     }
   });
 
-  it("keeps frontend-queued messages across unmounts", async () => {
+  it("retries an ambiguous queued acceptance after an unmount", async () => {
     const conversationId = "00000000-0000-4000-8000-000000000005";
     const activeMessage = {
       id: "00000000-0000-4000-8000-000000000007",
@@ -1489,7 +1681,7 @@ describe("HomeWorkspace", () => {
 
     expect(await screen.findByText("Keep me waiting")).toBeTruthy();
     expect(screen.getByRole("list", { name: "Queued messages" })).toBeTruthy();
-    expect(overrides.sendMessage).not.toHaveBeenCalled();
+    await waitFor(() => expect(overrides.sendMessage).toHaveBeenCalledTimes(2));
   });
 
   it("offers a per-message retry and starts a fresh turn", async () => {

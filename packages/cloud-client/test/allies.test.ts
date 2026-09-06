@@ -143,6 +143,51 @@ const largeActivityResponse = {
 } as const;
 
 describe("Ally and conversation Cloud client boundary", () => {
+  it("maps durable queue ownership and authenticated repeated deletion without recreating an intent", async () => {
+    const queued = { ...acceptanceResponse.data.message, queue_state: "unclaimed", deleted_at: null };
+    const tombstone = { ...queued, content: "", status: "stopped", queue_state: null, deleted_at: "2026-09-06T12:00:00Z" };
+    const requests: Request[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const request = input as Request;
+      requests.push(request);
+      if (request.method === "DELETE") return Response.json({ status: "success", message: "Removed", data: tombstone });
+      if (request.url.endsWith("/activities")) return Response.json({
+        ...activityResponse, data: { ...activityResponse.data, active_message_id: ids.userMessage },
+      });
+      return Response.json({
+        ...conversationResponse, data: { ...conversationResponse.data, queue: [queued] },
+      });
+    });
+    const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch, prepareRequest: (request) => {
+      request.headers.set("X-CSRFToken", "test-csrf");
+      return request;
+    } });
+    expect((await client.getConversation(ids.workspace, ids.conversation)).queue)
+      .toMatchObject([{ id: ids.userMessage, queueState: "unclaimed", deletedAt: null }]);
+    expect((await client.getActivities(ids.workspace, ids.conversation)).activeMessageId).toBe(ids.userMessage);
+    const deleted = await client.deleteQueuedMessage(ids.workspace, ids.conversation, ids.userMessage);
+    expect(deleted).toMatchObject({ id: ids.userMessage, content: "", deletedAt: tombstone.deleted_at, queueState: null });
+    expect(await client.deleteQueuedMessage(ids.workspace, ids.conversation, ids.userMessage)).toEqual(deleted);
+    const deletes = requests.filter((request) => request.method === "DELETE");
+    expect(deletes).toHaveLength(2);
+    expect(deletes[0].headers.get("X-CSRFToken")).toBe("test-csrf");
+    expect(new URL(deletes[0].url).pathname).toBe(
+      `/api/v1/workspaces/${ids.workspace}/conversations/${ids.conversation}/messages/${ids.userMessage}`,
+    );
+  });
+
+  it("rejects a false deletion receipt and retains conflict/unknown outcomes as errors", async () => {
+    const fetch = vi.fn(async () => Response.json({ status: "success", message: "Removed", data: acceptanceResponse.data.message }));
+    const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch });
+    await expect(client.deleteQueuedMessage(ids.workspace, ids.conversation, ids.userMessage)).rejects.toMatchObject({ kind: "contract" });
+    fetch.mockResolvedValueOnce(Response.json({ status: "error", message: "Cannot remove", data: { code: "message_not_deletable" } }, { status: 409 }));
+    await expect(client.deleteQueuedMessage(ids.workspace, ids.conversation, ids.userMessage)).rejects.toMatchObject({ kind: "conflict" });
+    const abort = new AbortController();
+    abort.abort();
+    await expect(client.deleteQueuedMessage(ids.workspace, ids.conversation, ids.userMessage, abort.signal)).rejects.toMatchObject({ kind: "aborted" });
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it("maps the published Ally, onboarding, conversation, message, and activity operations", async () => {
     const requests: Request[] = [];
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {

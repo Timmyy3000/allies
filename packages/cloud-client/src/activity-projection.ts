@@ -1,6 +1,6 @@
 import type { ActivitySnapshotViewModel, ActivityState, ActivityViewModel } from "./mappers/allies";
 
-export const ACTIVE_ACTIVITY_STATES: readonly ActivityState[] = ["queued", "running"];
+export const ACTIVE_ACTIVITY_STATES: readonly ActivityState[] = ["queued", "running", "awaiting_action"];
 
 export interface AssistantTurnProjection {
   assistantText: string;
@@ -10,6 +10,7 @@ export interface AssistantTurnProjection {
 }
 
 export interface ActivityProjection {
+  activeMessageId?: string | null;
   seenSequences: number[];
   turns: AssistantTurnProjection[];
   state: ActivityState;
@@ -90,7 +91,10 @@ export function projectActivitySnapshot(
     turns: [...turns.values()].sort(
       (left, right) => left.turnOrdinal - right.turnOrdinal || left.messageId.localeCompare(right.messageId),
     ),
-    state: mergeActivityState(current.state, snapshot.state),
+    activeMessageId: snapshot.activeMessageId,
+    state: snapshot.activeMessageId !== undefined && snapshot.activeMessageId !== current.activeMessageId
+      ? snapshot.state
+      : mergeActivityState(current.state, snapshot.state),
     lastContiguousSequence,
     lastContiguousActivitySequence: lastContiguousSequence,
     ...(pendingActivities.length > 0 ? { pendingActivities } : {}),
@@ -115,6 +119,8 @@ function mergeActivityState(
 ): ActivityState {
   if (current && isActivityTerminal(current)) return current;
   if (isActivityTerminal(incoming)) return incoming;
+  if (incoming === "awaiting_action") return incoming;
   if (current === "running" || incoming === "running") return "running";
+  if (current === "awaiting_action") return current;
   return incoming;
 }

@@ -260,7 +260,7 @@ export function QueueStack({
   actionLabel = "",
   onAction,
 }: {
-  items: readonly { id: string; content: string }[];
+  items: readonly { id: string; content: string; removable?: boolean; statusLabel?: string | null }[];
   onRemove?: (id: string) => void;
   actionLabel?: string;
   onAction?: () => void;
@@ -271,7 +271,8 @@ export function QueueStack({
         <li className={styles.frameQueuePill} key={item.id}>
           <span title={item.content}>{item.content}</span>
           {actionLabel && onAction ? <button type="button" onClick={onAction}>{actionLabel}</button> : null}
-          {onRemove ? (
+          {item.statusLabel ? <span aria-label={item.statusLabel}>{item.statusLabel}</span> : null}
+          {onRemove && item.removable !== false ? (
             <button type="button" aria-label={`Remove queued message: ${item.content}`} onClick={() => onRemove(item.id)}>
               <TrashIcon />
             </button>
@@ -346,7 +347,7 @@ export function ConversationComposer({
         disabled={disabled}
         aria-busy={sending}
       />
-      <button type="button" aria-label="Send message" onClick={onSubmit} disabled={disabled || sending || !hasText}>
+      <button type="button" aria-label="Send message" onClick={onSubmit} disabled={disabled || !hasText}>
         {hasText
           ? <img src="/home/chat/send.svg" alt="" width={16} height={16} />
           : <MicIcon />}

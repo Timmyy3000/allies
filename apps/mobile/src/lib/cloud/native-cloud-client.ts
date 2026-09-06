@@ -37,7 +37,9 @@ export function isAuthenticatedCloudRequest(request: Request): boolean {
     (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/allies\/[^/]+\/conversation$/u.test(pathname)) ||
     (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+$/u.test(pathname)) ||
     (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/activities$/u.test(pathname)) ||
-    (method === 'POST' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/messages$/u.test(pathname))
+    (method === 'POST' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/messages$/u.test(pathname)) ||
+    (method === 'POST' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/messages\/[^/]+\/retry$/u.test(pathname)) ||
+    (method === 'DELETE' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/messages\/[^/]+$/u.test(pathname))
   );
 }
 

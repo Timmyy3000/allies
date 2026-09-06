@@ -22,6 +22,8 @@ describe('createMobileCloudClient', () => {
     ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation'],
     ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/activities'],
     ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/messages'],
+    ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/messages/message/retry'],
+    ['DELETE', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/messages/message'],
   ])('classifies %s %s as authenticated', (method, url) => {
     expect(isAuthenticatedCloudRequest(new Request(url, { method }))).toBe(true);
   });
