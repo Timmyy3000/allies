@@ -31,6 +31,28 @@ function snapshot(
 }
 
 describe("activity projection", () => {
+  it("can resume the same claimed turn after awaiting an action", () => {
+    let projection = EMPTY_ACTIVITY_PROJECTION;
+    for (const state of ["running", "awaiting_action", "running", "completed"] as const) {
+      projection = projectActivitySnapshot(projection, { ...snapshot([1], state), activeMessageId: "head" });
+      expect(projection.state).toBe(state);
+      expect(projection.turns[0].state).toBe(state);
+    }
+  });
+
+  it("lets a newly claimed head start queued without regressing the same head", () => {
+    const completed = projectActivitySnapshot(EMPTY_ACTIVITY_PROJECTION, {
+      ...snapshot([1], "completed"), activeMessageId: "first",
+    });
+    const next = projectActivitySnapshot(completed, {
+      ...snapshot([1], "queued"), activeMessageId: "second",
+    });
+    expect(next.state).toBe("queued");
+    expect(next.activeMessageId).toBe("second");
+    const running = projectActivitySnapshot(next, { ...snapshot([], "running"), activeMessageId: "second" });
+    expect(projectActivitySnapshot(running, { ...snapshot([], "queued"), activeMessageId: "second" }).state).toBe("running");
+  });
+
   it("orders unseen deltas and ignores repeated snapshots", () => {
     const first = projectActivitySnapshot(EMPTY_ACTIVITY_PROJECTION, snapshot([2, 1]));
     expect(first.turns[0]?.assistantText).toBe("12");
@@ -102,7 +124,7 @@ describe("activity projection", () => {
   it("recognizes every non-active state as terminal", () => {
     expect(isActivityTerminal("queued")).toBe(false);
     expect(isActivityTerminal("running")).toBe(false);
-    expect(isActivityTerminal("awaiting_action")).toBe(true);
+    expect(isActivityTerminal("awaiting_action")).toBe(false);
     expect(isActivityTerminal("completed")).toBe(true);
     expect(isActivityTerminal("reconciliation_needed")).toBe(true);
   });

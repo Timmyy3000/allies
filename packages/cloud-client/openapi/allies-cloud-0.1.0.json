@@ -54,6 +54,18 @@
       },
       "ActivitySnapshotResponse": {
         "properties": {
+          "active_message_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active Message Id"
+          },
           "activities": {
             "items": {
               "$ref": "#/components/schemas/ActivityResponse"
@@ -446,6 +458,13 @@
               }
             ],
             "title": "Next Cursor"
+          },
+          "queue": {
+            "items": {
+              "$ref": "#/components/schemas/MessageResponse"
+            },
+            "title": "Queue",
+            "type": "array"
           }
         },
         "required": [
@@ -795,10 +814,37 @@
             "title": "Created At",
             "type": "string"
           },
+          "deleted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deleted At"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "queue_state": {
+            "anyOf": [
+              {
+                "enum": [
+                  "claimed",
+                  "unclaimed"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Queue State"
           },
           "retryable": {
             "default": false,
@@ -899,6 +945,15 @@
               "S256"
             ],
             "title": "Code Challenge Method",
+            "type": "string"
+          },
+          "completion_mode": {
+            "default": "redirect",
+            "enum": [
+              "redirect",
+              "manual_code"
+            ],
+            "title": "Completion Mode",
             "type": "string"
           },
           "redirect_uri": {
@@ -1215,6 +1270,7 @@
       "SuccessResponse_ActivitySnapshotResponse_": {
         "example": {
           "data": {
+            "active_message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
             "activities": [
               {
                 "conversation_turn_ordinal": 3,
@@ -1414,18 +1470,23 @@
         "example": {
           "data": {
             "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "assistant_replies": [],
             "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
             "messages": [
               {
                 "content": "Hello! What should we work on first?",
                 "created_at": "2026-08-20T16:00:00Z",
+                "deleted_at": null,
                 "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d80",
+                "queue_state": null,
+                "retryable": false,
                 "sender": "assistant",
                 "sequence": 1,
                 "status": "completed"
               }
             ],
-            "next_cursor": null
+            "next_cursor": null,
+            "queue": []
           },
           "message": "Conversation loaded",
           "status": "success"
@@ -1538,7 +1599,10 @@
             "message": {
               "content": "Help me plan tomorrow's study block.",
               "created_at": "2026-08-20T16:01:00Z",
+              "deleted_at": null,
               "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
+              "queue_state": "claimed",
+              "retryable": false,
               "sender": "user",
               "sequence": 3,
               "status": "queued"
@@ -1568,6 +1632,44 @@
           "data"
         ],
         "title": "SuccessResponse[MessageAcceptanceResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_MessageResponse_": {
+        "example": {
+          "data": {
+            "content": "",
+            "created_at": "2026-08-20T16:02:00Z",
+            "deleted_at": "2026-08-20T16:02:01Z",
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d83",
+            "queue_state": null,
+            "retryable": false,
+            "sender": "user",
+            "sequence": 4,
+            "status": "stopped"
+          },
+          "message": "Message deleted",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/MessageResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[MessageResponse]",
         "type": "object"
       },
       "SuccessResponse_NativeAuthorizationStartResponse_": {
@@ -2083,7 +2185,7 @@
     "securitySchemes": {
       "BearerAuth": {
         "bearerFormat": "JWT",
-        "description": "Native sessions only. The bearer is accepted only on the reviewed account, profile, avatar, and Workspace methods.",
+        "description": "Native sessions only. The bearer is accepted only on the reviewed account, profile, avatar, Workspace, and chat methods.",
         "scheme": "bearer",
         "type": "http"
       },
@@ -2104,7 +2206,7 @@
   "paths": {
     "/api/v1/allies/{ally_id}/runtime-intents": {
       "post": {
-        "operationId": "runtimeintent_request_cfc2953d",
+        "operationId": "runtimeintent_request_9d7697db",
         "parameters": [
           {
             "in": "path",
@@ -2260,7 +2362,7 @@
     },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_294cabb1",
+        "operationId": "authentication_callback_aabcb109",
         "parameters": [
           {
             "in": "path",
@@ -2365,7 +2467,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_5385e3e4",
+        "operationId": "authentication_csrf_4d6cc269",
         "parameters": [],
         "responses": {
           "204": {
@@ -2395,7 +2497,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_43fc06e0",
+        "operationId": "identity_link_b45018f8",
         "parameters": [
           {
             "in": "path",
@@ -2572,7 +2674,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_c80ccf2f",
+        "operationId": "session_logout_5de09f2f",
         "parameters": [],
         "responses": {
           "204": {
@@ -2617,7 +2719,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_6eb6d721",
+        "operationId": "profile_me_b5dbfd54",
         "parameters": [],
         "responses": {
           "200": {
@@ -2674,7 +2776,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_6a9c4f41",
+        "operationId": "avatar_delete_2fbdfa08",
         "parameters": [],
         "responses": {
           "204": {
@@ -2784,7 +2886,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_2077fd5e",
+        "operationId": "avatar_complete_db427fbe",
         "parameters": [
           {
             "in": "path",
@@ -2942,7 +3044,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_e4862ec4",
+        "operationId": "avatar_read_28732bf8",
         "parameters": [],
         "responses": {
           "200": {
@@ -3029,7 +3131,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_3d7d8165",
+        "operationId": "avatar_prepare_474fed68",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3171,7 +3273,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_7d158015",
+        "operationId": "profile_profile_84ca47dc",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3284,7 +3386,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_476b779e",
+        "operationId": "nativeauthentication_callback_d1a1ee44",
         "parameters": [
           {
             "in": "path",
@@ -3327,8 +3429,60 @@
           }
         ],
         "responses": {
+          "200": {
+            "content": {
+              "text/html": {
+                "example": "<!doctype html>...",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Manual-code completion returns a short-lived, single-use exchange code in an HTML page.",
+            "headers": {
+              "Cache-Control": {
+                "description": "The response must not be cached.",
+                "example": "no-store",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Content-Security-Policy": {
+                "example": "default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-<per-response-nonce>'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Pragma": {
+                "example": "no-cache",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Referrer-Policy": {
+                "example": "no-referrer",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Content-Type-Options": {
+                "example": "nosniff",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
           "303": {
-            "description": "See Other"
+            "description": "See Other",
+            "headers": {
+              "Location": {
+                "description": "The exact app redirect URI stored on the transaction.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
           },
           "400": {
             "content": {
@@ -3416,7 +3570,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_031cdce6",
+        "operationId": "nativeauthentication_logout_a28cae36",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3508,7 +3662,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_ae073947",
+        "operationId": "nativeauthentication_sign_in_7248440c",
         "parameters": [
           {
             "in": "path",
@@ -3612,7 +3766,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_6bec2daa",
+        "operationId": "nativeauthentication_token_1b8d3467",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3776,7 +3930,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_43388d66",
+        "operationId": "nativeauthentication_refresh_d3314401",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3939,7 +4093,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_fc4a1f11",
+        "operationId": "session_refresh_01c34a4c",
         "parameters": [],
         "responses": {
           "204": {
@@ -4029,7 +4183,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_3efff569",
+        "operationId": "authentication_sign_in_f5f7adb8",
         "parameters": [
           {
             "in": "path",
@@ -4176,7 +4330,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_b935aefb",
+        "operationId": "health_health_61636c7d",
         "parameters": [],
         "responses": {
           "200": {
@@ -4251,7 +4405,7 @@
     "/api/v1/onboarding/attempts": {
       "post": {
         "description": "This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.",
-        "operationId": "onboarding_begin_127058f5",
+        "operationId": "onboarding_begin_ee3402d5",
         "parameters": [
           {
             "description": "Browser-only signal; if present it must be a configured trusted origin.",
@@ -4428,7 +4582,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_0df2673a",
+        "operationId": "waitlist_create_f8a64fc5",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -4609,7 +4763,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_947d947a",
+        "operationId": "waitlist_complete_8f4d5f89",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -4779,7 +4933,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_992c0040",
+        "operationId": "workspace_context_4660774f",
         "parameters": [
           {
             "in": "path",
@@ -4862,7 +5016,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_9cce0cb7",
+        "operationId": "ally_list_81159475",
         "parameters": [
           {
             "in": "path",
@@ -4939,7 +5093,7 @@
       },
       "post": {
         "description": "Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.",
-        "operationId": "ally_create_17785507",
+        "operationId": "ally_create_347ea961",
         "parameters": [
           {
             "in": "path",
@@ -5175,7 +5329,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_83dc9e7c",
+        "operationId": "ally_retrieve_0c1920ff",
         "parameters": [
           {
             "in": "path",
@@ -5263,7 +5417,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_328ccd80",
+        "operationId": "conversation_by_ally_676b9bb2",
         "parameters": [
           {
             "in": "path",
@@ -5394,7 +5548,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_4d88b087",
+        "operationId": "conversation_by_conversation_875f228a",
         "parameters": [
           {
             "in": "path",
@@ -5525,7 +5679,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_3ffd3d76",
+        "operationId": "activity_snapshot_7b5cb2e3",
         "parameters": [
           {
             "in": "path",
@@ -5697,7 +5851,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
       "get": {
-        "operationId": "activity_stream_b6ce0c4e",
+        "operationId": "activity_stream_5f4b78a9",
         "parameters": [
           {
             "in": "path",
@@ -5750,7 +5904,8 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
-        "operationId": "conversation_send_e19f66cb",
+        "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
+        "operationId": "conversation_send_bce002e8",
         "parameters": [
           {
             "in": "path",
@@ -5782,6 +5937,33 @@
               "maxLength": 128,
               "minLength": 16,
               "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for browser transport and must be trusted; omit for native.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Browser alternative to Origin; omit for native.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required with the browser CSRF cookie; omit for native.",
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": false,
+            "schema": {
               "type": "string"
             }
           }
@@ -5832,6 +6014,21 @@
             },
             "description": "Unauthorized"
           },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
           "404": {
             "content": {
               "application/json": {
@@ -5908,7 +6105,179 @@
             "description": "Internal Server Error"
           }
         },
+        "security": [
+          {
+            "BrowserSession": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Send",
+        "tags": [
+          "Chat"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}": {
+      "delete": {
+        "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
+        "operationId": "conversation_delete_08f0c4f9",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for browser transport and must be trusted; omit for native.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Browser alternative to Origin; omit for native.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required with the browser CSRF cookie; omit for native.",
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_MessageResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Delete",
         "tags": [
           "Chat"
         ]
@@ -5916,7 +6285,8 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
       "post": {
-        "operationId": "conversation_retry_8d589b51",
+        "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
+        "operationId": "conversation_retry_ee549e9e",
         "parameters": [
           {
             "in": "path",
@@ -5960,6 +6330,33 @@
               "title": "Idempotency-Key",
               "type": "string"
             }
+          },
+          {
+            "description": "Required for browser transport and must be trusted; omit for native.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Browser alternative to Origin; omit for native.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required with the browser CSRF cookie; omit for native.",
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -5997,6 +6394,21 @@
               }
             },
             "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
           },
           "404": {
             "content": {
@@ -6074,6 +6486,14 @@
             "description": "Internal Server Error"
           }
         },
+        "security": [
+          {
+            "BrowserSession": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
         "summary": "Retry",
         "tags": [
           "Chat"

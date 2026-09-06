@@ -5,12 +5,14 @@ import type {
   ActivitySnapshotViewModel,
   ActivityState,
   AllyViewModel,
+  ConversationViewModel,
   MessageViewModel,
 } from "@allies/cloud-client";
 import {
   EMPTY_ACTIVITY_PROJECTION,
   isCloudError,
   isActivityTerminal,
+  mergeConversationMessageCopies,
   projectActivitySnapshot,
   type ActivityProjection,
 } from "@allies/cloud-client";
@@ -51,6 +53,7 @@ import {
 
 import {
   buildProductionConversationFrameModel,
+  type ProductionQueuedMessageModel,
   type ProductionConversationFrameActions,
 } from "./conversation-frame-model";
 import {
@@ -66,6 +69,9 @@ import styles from "./home.module.css";
 
 const ACTIVITY_INTERVAL_MS = 500;
 const DURABLE_REPLY_SNAPSHOT_INTERVAL_MS = 3_000;
+const QUEUE_SNAPSHOT_INTERVAL_MS = 3_000;
+const IDLE_CONVERSATION_SNAPSHOT_INTERVAL_MS = 10_000;
+const ERROR_CONVERSATION_SNAPSHOT_INTERVAL_MS = 30_000;
 const ACTIVITY_POLL_LIMIT = 240;
 const ACTIVITY_REPLAY_MAX_PAGES = 64;
 const ACTIVITY_REPLAY_MAX_BYTES = 4 * 1024 * 1024;
@@ -86,6 +92,7 @@ type QueuedMessage = {
   content: string;
   intentKey: string;
   queuedAt: number;
+  attemptedAt?: number;
 };
 
 type AssistantReplyState = {
@@ -118,11 +125,22 @@ export function activitySnapshotBytes(snapshot: ActivitySnapshotViewModel): numb
   })).byteLength;
 }
 
-function hasVisibleAssistantText(snapshot: ActivitySnapshotViewModel): boolean {
+function hasVisibleAssistantText(
+  snapshot: ActivitySnapshotViewModel,
+  messageId?: string | null,
+  turnOrdinal?: number | null,
+): boolean {
   return snapshot.activities.some(
-    (activity) => activity.kind === "assistant_delta" && Boolean(activity.text.trim()),
+    (activity) => activity.kind === "assistant_delta"
+      && (!messageId || activity.messageId === messageId)
+      && (turnOrdinal === undefined || turnOrdinal === null || activity.conversationTurnOrdinal === turnOrdinal)
+      && Boolean(activity.text.trim()),
   ) || Boolean(
-    snapshot.assistantReply?.hasFullPrefix && snapshot.assistantReply.content.trim(),
+    snapshot.assistantReply?.hasFullPrefix
+      && (!messageId || snapshot.assistantReply.sourceMessageId === messageId)
+      && (turnOrdinal === undefined || turnOrdinal === null
+        || snapshot.assistantReply.conversationTurnOrdinal === turnOrdinal)
+      && snapshot.assistantReply.content.trim(),
   );
 }
 
@@ -705,6 +723,10 @@ function ConversationPane({
   const activitySnapshotRequestRef = useRef<AbortController | null>(null);
   const activityHistoryRequestRef = useRef<AbortController | null>(null);
   const activityStreamRef = useRef<ActivityStreamHandle | null>(null);
+  const activeMessageIdRef = useRef<string | null>(null);
+  const activeMessageOrdinalRef = useRef<number | null>(null);
+  const conversationMessagesRef = useRef<readonly MessageViewModel[]>(EMPTY_MESSAGES);
+  const [deletedMessageIds, setDeletedMessageIds] = useState<Set<string>>(() => new Set());
   const turnGenerationRef = useRef(0);
   const responseStartedRef = useRef(false);
   const olderRequestRef = useRef<AbortController | null>(null);
@@ -771,7 +793,6 @@ function ConversationPane({
     const frame = window.requestAnimationFrame(() => {
       try {
         if (window.localStorage.getItem(legacyQueuedMessagesStorageKey)) {
-          window.localStorage.removeItem(legacyQueuedMessagesStorageKey);
           setQueuePersistenceError("Older queued messages could not be restored safely after account isolation changed.");
         }
       } catch {
@@ -798,6 +819,14 @@ function ConversationPane({
     return true;
   }, [queuedMessagesStorageKey]);
 
+  const removeLocalQueuedMessage = useCallback((id: string): boolean => {
+    if (!persistQueuedMessageTombstone(queuedMessagesStorageKey, id)) return false;
+    const removed = commitQueuedMessages((messages) => messages.filter((message) => message.id !== id));
+    if (!removed) return false;
+    blockedQueuedMessageIdsRef.current.delete(id);
+    return true;
+  }, [commitQueuedMessages, queuedMessagesStorageKey]);
+
   useEffect(() => {
     const onStorage = (event: StorageEvent) => {
       if (event.storageArea !== window.localStorage) return;
@@ -815,10 +844,16 @@ function ConversationPane({
     return () => window.removeEventListener("storage", onStorage);
   }, [queuedMessagesStorageKey]);
 
-  const conversationQuery = useQuery({
+  const conversationQuery = useQuery<ConversationViewModel>({
     queryKey: conversationQueryKey(workspaceId, ally.id),
-    refetchOnWindowFocus: false,
-    refetchOnReconnect: false,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+    refetchInterval: (query) => query.state.error
+      ? ERROR_CONVERSATION_SNAPSHOT_INTERVAL_MS
+      : query.state.data?.queue && query.state.data.queue.length > 0
+        ? QUEUE_SNAPSHOT_INTERVAL_MS
+        : IDLE_CONVERSATION_SNAPSHOT_INTERVAL_MS,
+    refetchIntervalInBackground: false,
     queryFn: ({ signal }) =>
       session.runCloudOperation(
         (operationSignal) =>
@@ -832,13 +867,87 @@ function ConversationPane({
   const nextCursor = nextCursorOverride === undefined
     ? conversation?.nextCursor ?? null
     : nextCursorOverride;
-  const latestPersistedUserMessage = conversation?.messages
-    .filter((message) => message.sender === "user")
-    .at(-1);
-  const persistedTurnActive = latestPersistedUserMessage?.status === "queued"
-    || latestPersistedUserMessage?.status === "in_progress";
+  const mergedConversationMessages = mergeConversationMessageCopies(
+    olderMessages,
+    latestConversationMessages,
+    conversation?.queue ?? [],
+  );
+  const authoritativeConversationMessages = filterAuthoritativeQueueMessages(
+    mergedConversationMessages,
+    conversation?.queue,
+  );
+  const conversationQueueMessages = mergeConversationMessageCopies(
+    authoritativeConversationMessages,
+    sentMessages,
+  ).filter((message) => (
+    message.sender === "user"
+    && isLiveQueuedMessage(message)
+    && !deletedMessageIds.has(message.id)
+  ));
+  const allConversationMessages = mergeConversationMessageCopies(
+    authoritativeConversationMessages,
+    sentMessages,
+  ).filter((message) => !deletedMessageIds.has(message.id) || Boolean(message.deletedAt));
+  const activeMessageId = resolveActiveMessageId(
+    projection,
+    conversationQueueMessages,
+    allConversationMessages,
+  );
+  const activeMessageOrdinal = activeMessageId
+    ? allConversationMessages.find((message) => message.id === activeMessageId)?.sequence ?? null
+    : null;
+  useEffect(() => {
+    activeMessageIdRef.current = activeMessageId;
+    activeMessageOrdinalRef.current = activeMessageOrdinal;
+  }, [activeMessageId, activeMessageOrdinal]);
+  useEffect(() => {
+    conversationMessagesRef.current = allConversationMessages;
+  }, [allConversationMessages]);
+  const activePersistedUserMessage = activeMessageId
+    ? allConversationMessages.find((message) => message.id === activeMessageId && message.sender === "user")
+    : undefined;
+  const persistedTurnActive = Boolean(
+    activePersistedUserMessage
+      && isLiveQueuedMessage(activePersistedUserMessage)
+      && (activePersistedUserMessage.queueState !== "unclaimed"
+        || projection.activeMessageId === activePersistedUserMessage.id),
+  );
   const turnInProgress = activeTurn || persistedTurnActive || streamConnected;
   const conversationId = conversation?.id;
+
+  useEffect(() => {
+    if (!conversation) return;
+    const authoritativeMessages = mergeConversationMessageCopies(
+      olderMessages,
+      conversation.messages,
+      conversation.queue ?? [],
+    );
+    const deletedIds = authoritativeMessages
+      .filter((message) => Boolean(message.deletedAt))
+      .map((message) => message.id);
+    const authoritativeIds = new Set(authoritativeMessages.map((message) => message.id));
+    const receiptTask = authoritativeIds.size > 0
+      ? window.setTimeout(() => {
+        setSentMessages((current) => {
+          const next = current.filter((message) => !authoritativeIds.has(message.id));
+          return next.length === current.length ? current : next;
+        });
+      })
+      : null;
+    const deletedTask = deletedIds.length > 0
+      ? window.setTimeout(() => {
+        setDeletedMessageIds((current) => {
+          const next = new Set(current);
+          for (const id of deletedIds) next.add(id);
+          return next.size === current.size ? current : next;
+        });
+      })
+      : null;
+    return () => {
+      if (receiptTask !== null) window.clearTimeout(receiptTask);
+      if (deletedTask !== null) window.clearTimeout(deletedTask);
+    };
+  }, [conversation, olderMessages]);
 
   const applyConversationAccessFailure = useCallback((error: unknown): boolean => {
     const failure = classifyConversationAccessError(error);
@@ -895,7 +1004,7 @@ function ConversationPane({
     }
   }, [applyConversationAccessFailure, conversationQuery.error, conversationQuery.isError, queryAccessFailure]);
 
-  const messages = mergeMessages(olderMessages, latestConversationMessages, sentMessages);
+  const messages = allConversationMessages.filter((message) => !message.deletedAt);
   const assistantReplies = conversation
     ? mergeAssistantReplies(
       conversation.assistantReplies ?? [],
@@ -903,21 +1012,54 @@ function ConversationPane({
     )
     : [];
   const activeUserMessage = turnInProgress || awaitingVisibleResponse
-    ? messages.filter((message) => message.sender === "user").at(-1)
+    ? activeMessageId
+      ? messages.find((message) => message.id === activeMessageId && message.sender === "user")
+      : messages.find((message) => message.sender === "user" && isLiveQueuedMessage(message))
     : undefined;
   const activeProjectedTurn = activeUserMessage
-    ? projection.turns.find((turn) => turn.turnOrdinal === activeUserMessage.sequence)
+    ? projection.turns.find((turn) => (
+      turn.messageId === activeUserMessage.id
+      && turn.turnOrdinal === activeUserMessage.sequence
+    ))
     : undefined;
   const activeAssistantReply = activeUserMessage
     ? assistantReplies.find((reply) => (
-      reply.sourceMessageId === activeUserMessage.id && reply.hasFullPrefix
+      reply.sourceMessageId === activeUserMessage.id
+      && reply.conversationTurnOrdinal === activeUserMessage.sequence
+      && reply.hasFullPrefix
     ))
     : undefined;
   const responseStarted = Boolean(activeProjectedTurn?.assistantText.trim())
     || Boolean(activeAssistantReply?.content.trim())
     || Boolean(activeUserMessage && messages.some(
-      (message) => message.sender === "assistant" && message.sequence > activeUserMessage.sequence,
+      (message) => message.sender === "assistant"
+        && message.sequence > activeUserMessage.sequence
+        && !messages.some(
+          (candidate) => candidate.sender === "user"
+            && candidate.sequence > activeUserMessage.sequence
+            && candidate.sequence < message.sequence,
+        ),
     ));
+  const activeMessageHasProgress = Boolean(activeUserMessage && (
+    responseStarted
+    || Boolean(activeProjectedTurn && activeProjectedTurn.state !== "queued")
+    || projection.pendingActivities?.some((activity) => activity.messageId === activeUserMessage.id)
+  ));
+  const visibleQueueMessages = conversationQueueMessages.filter((message) => (
+    activeMessageOrdinal === null || message.sequence >= activeMessageOrdinal
+  ));
+  const timelineMessages = messages.filter((message) => (
+    !isLiveQueuedMessage(message)
+    || message.id === activeMessageId
+    || !visibleQueueMessages.some((queued) => queued.id === message.id)
+  ));
+  const queuedFrameMessages = buildQueuedFrameMessages(
+    visibleQueueMessages,
+    queuedMessages,
+    activeMessageId,
+    activeMessageHasProgress,
+    messages.some((message) => message.id === activeMessageId),
+  );
   const waitingForVisibleResponse = awaitingVisibleResponse && !responseStarted;
   const shouldPoll = activeTurn || waitingForVisibleResponse || (!pollingSettled && persistedTurnActive);
   const activityPollInterval = streamConnected
@@ -947,7 +1089,7 @@ function ConversationPane({
   }, [ally.id, ally.provisioningState, queryClient, workspaceId]);
 
   const timelineSignature = [
-    messages.map((message) => `${message.id}:${message.status}`).join("|"),
+    timelineMessages.map((message) => `${message.id}:${message.status}`).join("|"),
     projection.turns
       .map((turn) => `${turn.messageId}:${turn.state}:${turn.assistantText.length}`)
       .join("|"),
@@ -1055,11 +1197,15 @@ function ConversationPane({
       bytes += activitySnapshotBytes(snapshot);
       if (bytes > ACTIVITY_REPLAY_MAX_BYTES) throw new ActivityReplayBoundError();
 
-      if (hasVisibleAssistantText(snapshot)) {
+      if (hasVisibleAssistantText(
+        snapshot,
+        snapshot.activeMessageId ?? activeMessageIdRef.current,
+        activeMessageOrdinalRef.current,
+      )) {
         responseStartedRef.current = true;
         setAwaitingVisibleResponse(false);
       }
-      setProjection((current) => projectActivitySnapshot(current, snapshot));
+      setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
       presentActivitySnapshot(snapshot);
       const currentState = activityReplayRef.current;
       if (!currentState || currentState.conversationId !== targetConversationId) return null;
@@ -1156,11 +1302,15 @@ function ConversationPane({
           });
       if (controller.signal.aborted || !mountedRef.current) return;
       if (!snapshot) return;
-      if (hasVisibleAssistantText(snapshot)) {
+      if (hasVisibleAssistantText(
+        snapshot,
+        snapshot.activeMessageId ?? activeMessageIdRef.current,
+        activeMessageOrdinalRef.current,
+      )) {
         responseStartedRef.current = true;
         setAwaitingVisibleResponse(false);
       }
-      setProjection((current) => projectActivitySnapshot(current, snapshot));
+      setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
       presentActivitySnapshot(snapshot);
       setActivityError(null);
       setActivityHistoryError(null);
@@ -1185,11 +1335,15 @@ function ConversationPane({
     queuedMessageId?: string,
   ): Promise<boolean> => {
     if (conversationAccessFailure || !conversation || !canChat(ally)) return false;
+    const activeMessageIdBeforeSend = activeMessageIdRef.current;
+    const hadActiveTurnBeforeSend = Boolean(activeMessageIdBeforeSend || turnInProgress);
     const preservedOlderMessages = olderMessages;
     const preservedCursor = nextCursorOverride;
-    turnGenerationRef.current += 1;
-    responseStartedRef.current = false;
-    activityRequestRef.current?.abort();
+    if (!activeMessageIdBeforeSend && !turnInProgress) {
+      turnGenerationRef.current += 1;
+      responseStartedRef.current = false;
+      activityRequestRef.current?.abort();
+    }
     followLatestRef.current = true;
     setSending(true);
     setSendError(null);
@@ -1199,11 +1353,11 @@ function ConversationPane({
         (signal) => session.client.sendMessage(workspaceId, conversation.id, content, key, signal),
         { csrf: true },
       );
+      if (!accepted?.message) throw { kind: "contract" };
       onActivity();
       setSentMessages((current) => mergeMessages(current, [accepted.message]));
       if (queuedMessageId !== undefined) {
-        const removed = persistQueuedMessageTombstone(queuedMessagesStorageKey, queuedMessageId)
-          && commitQueuedMessages((messages) => messages.filter((message) => message.id !== queuedMessageId));
+        const removed = removeLocalQueuedMessage(queuedMessageId);
         if (removed) {
           blockedQueuedMessageIdsRef.current.delete(queuedMessageId);
           setQueuePersistenceError(null);
@@ -1217,18 +1371,23 @@ function ConversationPane({
         setDraft("");
       }
       intentRef.current = null;
-      setProjection((current) => ({
-        ...current,
-        state: activityStateFromMessage(accepted.message.status),
-      }));
-      setActivityError(null);
-      pollCountRef.current = 0;
-      setPollBudgetReached(false);
-      setPollingSettled(false);
       const turnIsActive = accepted.message.status === "queued" || accepted.message.status === "in_progress";
-      setActiveTurn(turnIsActive);
-      setAwaitingVisibleResponse(turnIsActive || accepted.message.status === "completed");
-      if (!turnIsActive) {
+      const acceptedIsActive = activeMessageIdBeforeSend === accepted.message.id
+        || (!activeMessageIdBeforeSend && accepted.message.queueState !== "unclaimed");
+      if (acceptedIsActive) {
+        setProjection((current) => ({
+          ...current,
+          activeMessageId: accepted.message.id,
+          state: activityStateFromMessage(accepted.message.status),
+        }));
+        setActivityError(null);
+        pollCountRef.current = 0;
+        setPollBudgetReached(false);
+        setPollingSettled(false);
+        setActiveTurn(turnIsActive);
+        setAwaitingVisibleResponse(turnIsActive || accepted.message.status === "completed");
+      }
+      if (acceptedIsActive && !turnIsActive) {
         setPollingSettled(true);
         preserveLatestConversationWindow(latestConversationMessages, latestConversationAssistantReplies);
         const preservedHistoryRevision = historyRevisionRef.current;
@@ -1245,8 +1404,7 @@ function ConversationPane({
         return false;
       }
       if (queuedMessageId !== undefined && isDefinitiveMessageRejection(error)) {
-        const removed = persistQueuedMessageTombstone(queuedMessagesStorageKey, queuedMessageId)
-          && commitQueuedMessages((messages) => messages.filter((message) => message.id !== queuedMessageId));
+        const removed = removeLocalQueuedMessage(queuedMessageId);
         if (removed) {
           blockedQueuedMessageIdsRef.current.delete(queuedMessageId);
           intentRef.current = null;
@@ -1262,7 +1420,7 @@ function ConversationPane({
           setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
         }
       }
-      setAwaitingVisibleResponse(false);
+      if (!hadActiveTurnBeforeSend) setAwaitingVisibleResponse(false);
       setSendError(
         isUnknownMessageAcceptance(error)
           ? MESSAGE_ACCEPTANCE_UNKNOWN_ERROR
@@ -1278,7 +1436,6 @@ function ConversationPane({
     conversationAccessFailure,
     conversation,
     conversationQuery,
-    commitQueuedMessages,
     latestConversationMessages,
     latestConversationAssistantReplies,
     nextCursorOverride,
@@ -1286,13 +1443,14 @@ function ConversationPane({
     olderMessages,
     preserveLatestConversationWindow,
     refreshActivitySnapshot,
+    removeLocalQueuedMessage,
     session,
-    queuedMessagesStorageKey,
+    turnInProgress,
     workspaceId,
   ]);
 
   const submit = async () => {
-    if (conversationAccessFailure || !conversation || !queuedMessagesReady || sending || queuedDispatchRef.current || !canChat(ally)) return;
+    if (conversationAccessFailure || !conversation || !queuedMessagesReady || !canChat(ally)) return;
     const content = draft.trim();
     if (!content) return;
     const signature = `${conversation.id}:${content}`;
@@ -1347,14 +1505,12 @@ function ConversationPane({
       queuedMessagesRef.current,
       readQueuedMessages(queuedMessagesStorageKey),
     ).filter((message) => !removedIds.has(message.id));
-    const nextMessage = liveMessages[0];
+    const nextMessage = liveMessages.find((message) => !blockedQueuedMessageIdsRef.current.has(message.id));
     if (
       !nextMessage
       || !queuedMessagesReady
-      || turnInProgress
       || sending
       || queuedDispatchRef.current
-      || blockedQueuedMessageIdsRef.current.has(nextMessage.id)
       || conversationAccessFailure
       || !conversation
       || !canChat(ally)
@@ -1366,7 +1522,10 @@ function ConversationPane({
       key: nextMessage.intentKey,
       draftRevision: draftRevisionRef.current,
     };
-    void sendMessageContent(nextMessage.content, nextMessage.intentKey, false, nextMessage.id)
+    void withQueueMessageLock(queuedMessagesStorageKey, nextMessage.id, async () => {
+      if (!markQueuedMessageAttempt(queuedMessagesStorageKey, nextMessage.id, commitQueuedMessages)) return false;
+      return sendMessageContent(nextMessage.content, nextMessage.intentKey, false, nextMessage.id);
+    })
       .then((accepted) => {
         if (accepted || conversationAccessFailureRef.current) return;
         if (!queuedMessagesRef.current.some((message) => message.id === nextMessage.id)) return;
@@ -1389,9 +1548,9 @@ function ConversationPane({
     queuedMessagesLoadedFor,
     queuedMessagesReady,
     queuedMessagesStorageKey,
+    commitQueuedMessages,
     sendMessageContent,
     sending,
-    turnInProgress,
   ]);
 
   const retry = async (message: MessageViewModel) => {
@@ -1467,16 +1626,27 @@ function ConversationPane({
           });
       if (controller.signal.aborted || !mountedRef.current) return;
       if (!snapshot) return;
-      if (hasVisibleAssistantText(snapshot)) {
+      const currentActiveMessageId = activeMessageIdRef.current;
+      const snapshotOwnsActiveMessage = snapshotCanOwnActiveMessage(
+        currentActiveMessageId,
+        activeMessageOrdinalRef.current,
+        snapshot,
+        conversationMessagesRef.current,
+      );
+      if (snapshotOwnsActiveMessage && hasVisibleAssistantText(
+        snapshot,
+        snapshot.activeMessageId ?? currentActiveMessageId,
+        snapshotMessageOrdinal(snapshot, conversationMessagesRef.current) ?? activeMessageOrdinalRef.current,
+      )) {
         responseStartedRef.current = true;
         setAwaitingVisibleResponse(false);
       }
-      setProjection((current) => projectActivitySnapshot(current, snapshot));
+      setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
       presentActivitySnapshot(snapshot);
       setActivityError(null);
       setActivityHistoryError(null);
       setActivityReplayUnavailable(false);
-      if (isActivityTerminal(snapshot.state)) {
+      if (snapshotOwnsActiveMessage && isActivityTerminal(snapshot.state)) {
         setActiveTurn(false);
         setAwaitingVisibleResponse(
           snapshot.state === "completed" && !responseStartedRef.current,
@@ -1541,7 +1711,7 @@ function ConversationPane({
       .then((snapshot) => {
         if (controller.signal.aborted || !mountedRef.current) return;
         if (!snapshot) return;
-        setProjection((current) => projectActivitySnapshot(current, snapshot));
+        setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
         setActivityHistoryError(null);
         setActivityError(null);
         setActivityReplayUnavailable(false);
@@ -1637,12 +1807,19 @@ function ConversationPane({
           return;
         }
         if (event.type === "activity") {
+          const currentActiveMessageId = activeMessageIdRef.current;
+          const currentActiveMessageOrdinal = activeMessageOrdinalRef.current;
+          const eventIsActive = (!currentActiveMessageId || event.activity.messageId === currentActiveMessageId)
+            && (currentActiveMessageOrdinal === null
+              || event.activity.conversationTurnOrdinal === currentActiveMessageOrdinal);
+          if (!eventIsActive) return;
           if (event.activity.kind === "assistant_delta" && event.activity.text.trim()) {
             responseStartedRef.current = true;
             setAwaitingVisibleResponse(false);
           }
-          setProjection((current) => projectActivitySnapshot(current, {
+          setProjection((current) => projectConversationActivity(current, {
             conversationId: targetConversationId,
+            activeMessageId: currentActiveMessageId ?? event.activity.messageId,
             activities: [event.activity],
             state: event.activity.state,
             lastContiguousSequence: event.activity.sequence,
@@ -1650,7 +1827,7 @@ function ConversationPane({
             resumeCursor: event.cursor,
             nextCursor: null,
             latestSequence: event.activity.sequence,
-          }));
+          }, conversationMessagesRef.current));
           presentActivity(targetConversationId, event.activity);
           const replayState = activityReplayRef.current;
           if (replayState?.conversationId === targetConversationId) {
@@ -1757,12 +1934,14 @@ function ConversationPane({
     ally,
     resolvedAppearance,
     appearanceAvailable: Boolean(resolvedAppearanceValue),
-    messages,
+    messages: timelineMessages,
     assistantReplies,
     projection,
     activityPresentation: scopedActivityPresentation,
-    queuedMessages,
+    queuedMessages: queuedFrameMessages,
     queuedMessagesReady,
+    activeMessageId,
+    activeMessageHasProgress,
     draft,
     conversationAvailable: Boolean(conversation),
     isLoading: conversationQuery.isPending,
@@ -1788,6 +1967,49 @@ function ConversationPane({
     streaming: shouldPoll || streamConnected,
     retriedMessageIds,
   });
+  const removeQueuedMessage = useCallback(async (id: string) => {
+    const localMessage = queuedMessagesRef.current.find((message) => message.id === id);
+    const cloudMessage = conversationQueueMessages.find((message) => message.id === id);
+    if (cloudMessage) {
+      if (!isCloudQueueMessageRemovable(cloudMessage) || !conversation) return;
+      await withQueueMessageLock(queuedMessagesStorageKey, id, async () => {
+        try {
+          const tombstone = await session.runCloudOperation(
+            (signal) => session.client.deleteQueuedMessage(workspaceId, conversation.id, id, signal),
+            { csrf: true },
+          );
+          if (!tombstone.deletedAt) throw { kind: "contract" };
+          setDeletedMessageIds((current) => {
+            if (current.has(tombstone.id)) return current;
+            return new Set(current).add(tombstone.id);
+          });
+          setSentMessages((current) => mergeMessages(current, [tombstone]));
+          setQueuePersistenceError(null);
+          await queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id) });
+        } catch (error) {
+          if (applyConversationAccessFailure(error)) return;
+          setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
+        }
+      });
+      return;
+    }
+    if (!localMessage) return;
+    if (!supportsQueueMessageLocks()) return;
+    const localRemoval = await withQueueMessageLock(queuedMessagesStorageKey, id, async () => {
+      const persisted = readQueuedMessages(queuedMessagesStorageKey)
+        .find((message) => message.id === id);
+      if (!persisted) return "failed" as const;
+      if (persisted.attemptedAt !== undefined) {
+        return "attempted" as const;
+      }
+      return removeLocalQueuedMessage(id) ? "removed" as const : "failed" as const;
+    });
+    if (localRemoval === "removed") {
+      setQueuePersistenceError(null);
+    } else {
+      setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
+    }
+  }, [ally.id, applyConversationAccessFailure, conversation, conversationQueueMessages, queuedMessagesStorageKey, queryClient, removeLocalQueuedMessage, session, setDeletedMessageIds, workspaceId]);
   const frameActions: ProductionConversationFrameActions = {
     onDraftChange: (value) => {
       const beganInteracting = !draftRef.current.trim() && Boolean(value.trim());
@@ -1801,22 +2023,13 @@ function ConversationPane({
     onCompositionEnd: compositionEnd,
     onSubmit: () => void submit(),
     onRetryMessage: (messageId) => {
-      const message = messages.find((candidate) => candidate.id === messageId);
+      const message = timelineMessages.find((candidate) => candidate.id === messageId);
       if (message) void retry(message);
     },
     onLoadOlder: () => void loadOlder(),
     onRetryConversation: () => void conversationQuery.refetch(),
     onRetryWorkspace,
-    onRemoveQueuedMessage: (id) => {
-      if (!queuedMessages.some((item) => item.id === id)) return;
-      if (!persistQueuedMessageTombstone(queuedMessagesStorageKey, id)
-        || !commitQueuedMessages((messages) => messages.filter((item) => item.id !== id))) {
-        setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
-        return;
-      }
-      blockedQueuedMessageIdsRef.current.delete(id);
-      setQueuePersistenceError(null);
-    },
+    onRemoveQueuedMessage: (id) => void removeQueuedMessage(id),
     onCheckAgain: () => {
       pollCountRef.current = 0;
       setPollBudgetReached(false);
@@ -1888,9 +2101,7 @@ function EmptyThread({
 }
 
 function mergeMessages(...groups: MessageViewModel[][]): MessageViewModel[] {
-  const byId = new Map<string, MessageViewModel>();
-  for (const group of groups) for (const message of group) byId.set(message.id, message);
-  return [...byId.values()].sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id));
+  return mergeConversationMessageCopies(...groups);
 }
 
 function mergeAssistantReplies(
@@ -1987,6 +2198,139 @@ function provisioningNotice(ally: AllyViewModel): string | null {
   return `${ally.name} needs an update before messaging.`;
 }
 
+function isLiveQueuedMessage(message: MessageViewModel): boolean {
+  return message.sender === "user"
+    && !message.deletedAt
+    && message.status !== "completed"
+    && message.status !== "failed"
+    && message.status !== "stopped";
+}
+
+function isCloudQueueMessageRemovable(message: MessageViewModel): boolean {
+  return isLiveQueuedMessage(message)
+    && message.status === "queued"
+    && message.queueState === "unclaimed"
+    && !message.deletedAt;
+}
+
+export function projectConversationActivity(
+  current: ActivityProjection,
+  snapshot: ActivitySnapshotViewModel,
+  messages: readonly MessageViewModel[],
+): ActivityProjection {
+  const currentActiveMessageId = current.activeMessageId;
+  if (
+    currentActiveMessageId
+    && !snapshotCanOwnActiveMessage(
+      currentActiveMessageId,
+      messages.find((message) => message.id === currentActiveMessageId)?.sequence
+        ?? current.turns.find((turn) => turn.messageId === currentActiveMessageId)?.turnOrdinal
+        ?? null,
+      snapshot,
+      messages,
+    )
+  ) {
+    return projectActivitySnapshot(current, {
+      ...snapshot,
+      activeMessageId: currentActiveMessageId,
+      state: current.state,
+    });
+  }
+  if (currentActiveMessageId && snapshot.activeMessageId === undefined) {
+    return projectActivitySnapshot(current, {
+      ...snapshot,
+      activeMessageId: currentActiveMessageId,
+    });
+  }
+  return projectActivitySnapshot(current, snapshot);
+}
+
+function snapshotMessageOrdinal(
+  snapshot: ActivitySnapshotViewModel,
+  messages: readonly MessageViewModel[],
+): number | null {
+  const id = snapshot.activeMessageId;
+  return messages.find((message) => message.id === id)?.sequence
+    ?? snapshot.activities.find((activity) => activity.messageId === id)?.conversationTurnOrdinal
+    ?? (snapshot.assistantReply?.sourceMessageId === id ? snapshot.assistantReply?.conversationTurnOrdinal : null)
+    ?? null;
+}
+
+function snapshotCanOwnActiveMessage(
+  currentId: string | null | undefined,
+  currentOrdinal: number | null,
+  snapshot: ActivitySnapshotViewModel,
+  messages: readonly MessageViewModel[],
+): boolean {
+  if (!currentId || snapshot.activeMessageId === undefined || snapshot.activeMessageId === currentId) return true;
+  const incomingOrdinal = snapshotMessageOrdinal(snapshot, messages);
+  if (currentOrdinal !== null && incomingOrdinal !== null) return incomingOrdinal > currentOrdinal;
+  const currentMessage = messages.find((message) => message.id === currentId);
+  return Boolean(currentMessage && !isLiveQueuedMessage(currentMessage));
+}
+
+function resolveActiveMessageId(
+  projection: ActivityProjection,
+  queue: readonly MessageViewModel[],
+  messages: readonly MessageViewModel[],
+): string | null {
+  if (projection.activeMessageId) {
+    const projectedMessage = messages.find((message) => message.id === projection.activeMessageId);
+    if (projectedMessage && isLiveQueuedMessage(projectedMessage)) return projection.activeMessageId;
+  }
+  const claimed = queue.find((message) => message.queueState === "claimed");
+  if (claimed) return claimed.id;
+  const projected = projection.turns.find((turn) => (
+    (turn.state === "queued" || turn.state === "running")
+      && messages.some((message) => message.id === turn.messageId && isLiveQueuedMessage(message))
+  ));
+  if (projected) return projected.messageId;
+  const fallback = messages
+    .filter((message) => isLiveQueuedMessage(message) && message.queueState !== "unclaimed")
+    .sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id))[0];
+  return fallback?.id ?? null;
+}
+
+function filterAuthoritativeQueueMessages(
+  messages: readonly MessageViewModel[],
+  queue: readonly MessageViewModel[] | undefined,
+): MessageViewModel[] {
+  if (queue === undefined) return [...messages];
+  const queueIds = new Set(queue.map((message) => message.id));
+  return messages.filter((message) => (
+    !isLiveQueuedMessage(message) || queueIds.has(message.id)
+  ));
+}
+
+function buildQueuedFrameMessages(
+  cloudQueue: readonly MessageViewModel[],
+  localQueue: readonly QueuedMessage[],
+  activeMessageId: string | null,
+  activeMessageHasProgress: boolean,
+  activeMessageInTimeline = true,
+): ProductionQueuedMessageModel[] {
+  const items: ProductionQueuedMessageModel[] = [];
+  for (const message of cloudQueue) {
+    if (!isLiveQueuedMessage(message)) continue;
+    if (message.id === activeMessageId && activeMessageInTimeline) continue;
+    items.push({
+      id: message.id,
+      content: message.content,
+      removable: isCloudQueueMessageRemovable(message),
+      statusLabel: message.id === activeMessageId && !activeMessageHasProgress ? "Queued" : null,
+    });
+  }
+  for (const message of localQueue) {
+    items.push({
+      id: message.id,
+      content: message.content,
+      removable: supportsQueueMessageLocks() && message.attemptedAt === undefined,
+      statusLabel: null,
+    });
+  }
+  return items;
+}
+
 function activityStateFromMessage(status: MessageViewModel["status"]): ActivityState {
   return status === "in_progress" ? "running" : status;
 }
@@ -2052,6 +2396,9 @@ function parseQueuedMessages(stored: string | null): QueuedMessage[] {
         content: item.content as string,
         intentKey: item.intentKey as string,
         queuedAt: typeof item.queuedAt === "number" && Number.isFinite(item.queuedAt) ? item.queuedAt : index,
+        ...(typeof item.attemptedAt === "number" && Number.isFinite(item.attemptedAt)
+          ? { attemptedAt: item.attemptedAt }
+          : {}),
       }];
     }).slice(0, MAX_QUEUED_MESSAGES);
   } catch {
@@ -2066,10 +2413,55 @@ function readLiveQueuedMessages(storageKey: string): QueuedMessage[] {
 
 function mergeQueuedMessages(...groups: QueuedMessage[][]): QueuedMessage[] {
   const byId = new Map<string, QueuedMessage>();
-  for (const group of groups) for (const message of group) byId.set(message.id, message);
+  for (const group of groups) {
+    for (const message of group) {
+      const current = byId.get(message.id);
+      if (current?.attemptedAt !== undefined && message.attemptedAt === undefined) continue;
+      byId.set(message.id, message);
+    }
+  }
   return [...byId.values()]
     .sort((left, right) => left.queuedAt - right.queuedAt || left.id.localeCompare(right.id))
     .slice(0, MAX_QUEUED_MESSAGES);
+}
+
+function markQueuedMessageAttempt(
+  storageKey: string,
+  messageId: string,
+  commit: (change: (messages: QueuedMessage[]) => QueuedMessage[]) => boolean,
+): boolean {
+  let found = false;
+  const committed = commit((messages) => messages.map((message) => {
+    if (message.id !== messageId) return message;
+    found = true;
+    return { ...message, attemptedAt: message.attemptedAt ?? Date.now() };
+  }));
+  if (!committed || !found) return false;
+  try {
+    const persisted = readQueuedMessages(storageKey).find((message) => message.id === messageId);
+    return persisted?.attemptedAt !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+async function withQueueMessageLock<T>(
+  storageKey: string,
+  messageId: string,
+  task: () => Promise<T>,
+): Promise<T> {
+  if (supportsQueueMessageLocks()) {
+    return navigator.locks.request(
+      `allies-queued-message:${storageKey}:${messageId}`,
+      { mode: "exclusive" },
+      task,
+    );
+  }
+  return task();
+}
+
+function supportsQueueMessageLocks(): boolean {
+  return typeof navigator !== "undefined" && Boolean(navigator.locks);
 }
 
 function queuedMessageTombstonePrefix(storageKey: string) {

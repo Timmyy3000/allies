@@ -77,7 +77,7 @@ describe("activity projection", () => {
   it("recognizes every non-active state as terminal for polling", () => {
     expect(isActivityTerminal("queued")).toBe(false);
     expect(isActivityTerminal("running")).toBe(false);
-    expect(isActivityTerminal("awaiting_action")).toBe(true);
+    expect(isActivityTerminal("awaiting_action")).toBe(false);
     expect(isActivityTerminal("completed")).toBe(true);
     expect(isActivityTerminal("failed")).toBe(true);
   });
