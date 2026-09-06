@@ -38,5 +38,20 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/allies-runtime:${{ github.sha }}
 
       - name: Report image reference
+        env:
+          IMAGE_OWNER: ${{ github.repository_owner }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
-          echo "Published image: ghcr.io/${{ github.repository_owner }}/allies-runtime@${{ steps.image.outputs.digest }}"
+          reference="ghcr.io/${IMAGE_OWNER,,}/allies-runtime@$IMAGE_DIGEST"
+          echo "Published image: $reference"
+          {
+            echo '## Published runtime image'
+            echo
+            echo '```text'
+            echo "RUNTIME_IMAGE=$reference"
+            echo '```'
+            echo
+            echo "Source commit: $GITHUB_SHA"
+            echo
+            echo 'Publishing does not update Railway configuration or existing Fly machines.'
+          } >> "$GITHUB_STEP_SUMMARY"
