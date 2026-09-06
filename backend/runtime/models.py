@@ -118,6 +118,8 @@ class Workspace(models.Model):
     volume_ref = models.CharField(max_length=255, null=True, blank=True)
     machine_ref = models.CharField(max_length=255, null=True, blank=True)
     machine_generation = models.PositiveIntegerField(default=0)
+    applied_images = models.JSONField(default=dict, blank=True)
+    release_target = models.JSONField(default=dict, blank=True)
     runtime_operation_id = models.UUIDField(null=True, blank=True)
     runtime_operation_state = models.CharField(
         max_length=24,
