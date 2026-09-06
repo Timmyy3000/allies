@@ -121,6 +121,16 @@ const messageCommand: PendingMessageCommand = {
 };
 
 describe('pending command store', () => {
+  it('does not let a delayed acknowledgement clear a different saved message', async () => {
+    const memory = createMemoryDependencies();
+    const store = createPendingCommandStore(memory.dependencies);
+    await store.saveMessage(messageCommand);
+    await store.deleteMessage(messageCommand.conversationId, '00000000-0000-4000-8000-000000000099');
+    expect(await store.readMessage('conv-1', 'user-1', 'workspace-1')).toEqual(messageCommand);
+    await store.deleteMessage(messageCommand.conversationId, messageCommand.idempotencyKey);
+    expect(await store.readMessage('conv-1', 'user-1', 'workspace-1')).toBeNull();
+  });
+
   it('maps the persisted create intent to the shared Cloud contract without changing user input', () => {
     expect(toCloudCreateAllyInput(createCommand)).toEqual({
       name: 'Maya',

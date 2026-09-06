@@ -338,9 +338,10 @@ export function createPendingCommandStore(dependencies: PendingCommandStoreDepen
       });
     },
 
-    deleteMessage(conversationId: string): Promise<void> {
+    deleteMessage(conversationId: string, idempotencyKey?: string): Promise<void> {
       return serialized(async () => {
         const state = await readState();
+        if (idempotencyKey && state.messages[conversationId]?.idempotencyKey !== idempotencyKey) return;
         delete state.messages[conversationId];
         await writeState(state);
       });

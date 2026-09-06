@@ -13,6 +13,7 @@ import {
   conversationResponseSchema,
   createAllyInputSchema,
   messageAcceptanceResponseSchema,
+  messageResponseSchema,
   onboardingAttemptResponseSchema,
   toActivitySnapshotViewModel,
   toAllyListViewModel,
@@ -21,6 +22,7 @@ import {
   toConversationViewModel,
   toCreateAllyRequest,
   toMessageAcceptanceViewModel,
+  toMessageViewModel,
   toOnboardingAttemptViewModel,
   type ActivitySnapshotViewModel,
   type AllySeedInput,
@@ -28,6 +30,7 @@ import {
   type ConversationViewModel,
   type CreateAllyInput,
   type MessageAcceptanceViewModel,
+  type MessageViewModel,
   type OnboardingAttemptViewModel,
 } from "./mappers/allies";
 import { csrfTokenSchema, externalHttpsUrlSchema, type CloudCsrfToken } from "./schemas";
@@ -627,6 +630,35 @@ export function createCloudClient(options: CloudClientOptions) {
         }) as Promise<ApiResult>,
         (data) => toMessageAcceptanceViewModel(successEnvelope(messageAcceptanceResponseSchema).parse(data).data),
         [200, 201],
+      );
+    },
+
+    async deleteQueuedMessage(
+      workspaceId: string,
+      conversationId: string,
+      messageId: string,
+      signal?: AbortSignal,
+    ): Promise<MessageViewModel> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const conversation = parsePathSegment(conversationId);
+      const message = parsePathSegment(messageId);
+      return unwrap(
+        api.DELETE("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}", {
+          params: {
+            path: { workspace_id: workspace, conversation_id: conversation, message_id: message },
+          },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => {
+          const deleted = toMessageViewModel(successEnvelope(messageResponseSchema).parse(data).data);
+          if (deleted.id !== message || !deleted.deletedAt || deleted.content !== ""
+            || deleted.status !== "stopped" || deleted.queueState !== null) {
+            throw { kind: "contract" } satisfies CloudError;
+          }
+          return deleted;
+        },
+        [200],
       );
     },
 

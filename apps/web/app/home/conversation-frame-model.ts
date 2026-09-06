@@ -50,6 +50,8 @@ export interface ProductionConversationActivityGroupModel {
 export interface ProductionQueuedMessageModel {
   id: string;
   content: string;
+  removable?: boolean;
+  statusLabel?: string | null;
 }
 
 export interface ProductionConversationFrameModel {
@@ -103,6 +105,8 @@ export interface ProductionConversationFrameInput {
   activityPresentation: ActivityPresentationState;
   queuedMessages: readonly ProductionQueuedMessageModel[];
   queuedMessagesReady: boolean;
+  activeMessageId?: string | null;
+  activeMessageHasProgress?: boolean;
   draft: string;
   conversationAvailable: boolean;
   isLoading: boolean;
@@ -188,7 +192,9 @@ export function buildProductionConversationFrameModel(
     ? conversationAccessCopy(input.accessFailure)
     : null;
   const accessBlocked = Boolean(accessCopy);
-  const turnsByOrdinal = new Map(input.projection.turns.map((turn) => [turn.turnOrdinal, turn]));
+  const turnsByMessage = new Map(
+    input.projection.turns.map((turn) => [`${turn.messageId}:${turn.turnOrdinal}`, turn]),
+  );
   const assistantReplies = input.assistantReplies ?? [];
   const firstAssistantMessageId = accessBlocked
     ? null
@@ -200,7 +206,11 @@ export function buildProductionConversationFrameModel(
     sequence: message.sequence,
     createdAt: message.createdAt,
     statusLabel: message.sender === "user"
-      ? messageStatusLabel(message.status, turnsByOrdinal.get(message.sequence))
+      ? messageStatusLabel(
+        message.status,
+        turnsByMessage.get(`${message.id}:${message.sequence}`),
+        message.id === input.activeMessageId && !input.activeMessageHasProgress,
+      )
       : null,
     retryable: Boolean(message.retryable),
   }));
@@ -263,7 +273,12 @@ export function buildProductionConversationFrameModel(
       sendError: input.sendError,
       unavailableNotice: input.unavailableNotice,
     },
-    queuedMessages: (accessBlocked ? [] : input.queuedMessages).map(({ id, content }) => ({ id, content })),
+    queuedMessages: accessBlocked ? [] : input.queuedMessages.map((item) => ({
+      id: item.id,
+      content: item.content,
+      removable: item.removable,
+      statusLabel: item.statusLabel,
+    })),
     showThinkingState: accessBlocked ? false : input.showThinkingState,
     responseStarted: accessBlocked ? false : input.responseStarted,
     gettingReady: accessBlocked ? false : input.gettingReady,
@@ -358,7 +373,9 @@ function conversationCanChat(ally: AllyViewModel): boolean {
 function messageStatusLabel(
   status: MessageViewModel["status"],
   turn?: AssistantTurnProjection,
+  waitingForActiveHead = false,
 ): string | null {
+  if (waitingForActiveHead && (status === "queued" || status === "in_progress")) return "Queued";
   if (turn) {
     return {
       queued: null,

@@ -45,7 +45,11 @@ export default defineConfig({
       {
         root: path.resolve(workspaceRoot, "apps/mobile"),
         resolve: {
-          alias: reactAliases(mobileNodeModules),
+          alias: [
+            ...reactAliases(mobileNodeModules),
+            { find: "@/assets", replacement: path.resolve(workspaceRoot, "apps/mobile/assets") },
+            { find: "@", replacement: path.resolve(workspaceRoot, "apps/mobile/src") },
+          ],
           dedupe: ["react", "react-dom"],
         },
         ssr: {

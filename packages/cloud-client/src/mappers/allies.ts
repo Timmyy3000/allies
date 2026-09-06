@@ -71,7 +71,7 @@ export const onboardingAttemptResponseSchema = z
   })
   .loose();
 
-const messageResponseSchema = z
+export const messageResponseSchema = z
   .object({
     id: uuidSchema,
     sender: senderSchema,
@@ -80,6 +80,8 @@ const messageResponseSchema = z
     status: messageStatusSchema,
     created_at: timestampSchema,
     retryable: z.boolean().default(false),
+    queue_state: z.enum(["claimed", "unclaimed"]).nullable().optional(),
+    deleted_at: timestampSchema.nullable().optional(),
   })
   .loose();
 
@@ -102,6 +104,7 @@ export const conversationResponseSchema = z
     id: uuidSchema,
     ally_id: uuidSchema,
     messages: z.array(messageResponseSchema),
+    queue: z.array(messageResponseSchema).max(101).optional(),
     assistant_replies: z.array(assistantReplyResponseSchema).default([]),
     next_cursor: z.string().min(1).max(512).nullable().optional(),
   })
@@ -132,6 +135,7 @@ const activityResponseSchema = z
 export const activitySnapshotResponseSchema = z
   .object({
     conversation_id: uuidSchema,
+    active_message_id: uuidSchema.nullable().optional(),
     activities: z.array(activityResponseSchema).max(200),
     state: activityStateSchema,
     last_contiguous_sequence: z.number().int().nonnegative(),
@@ -206,6 +210,8 @@ export interface MessageViewModel {
   status: MessageStatus;
   createdAt: string;
   retryable?: boolean;
+  queueState?: "claimed" | "unclaimed" | null;
+  deletedAt?: string | null;
 }
 
 export interface AssistantReplyViewModel {
@@ -224,6 +230,7 @@ export interface ConversationViewModel {
   id: string;
   allyId: string;
   messages: MessageViewModel[];
+  queue?: MessageViewModel[];
   assistantReplies: AssistantReplyViewModel[];
   nextCursor: string | null;
 }
@@ -248,6 +255,7 @@ export interface ActivityViewModel {
 
 export interface ActivitySnapshotViewModel {
   conversationId: string;
+  activeMessageId?: string | null;
   activities: ActivityViewModel[];
   state: ActivityState;
   lastContiguousSequence: number;
@@ -287,7 +295,7 @@ export function toOnboardingAttemptViewModel(input: unknown): OnboardingAttemptV
   return { attemptToken: attempt.attempt_token, greeting: attempt.greeting };
 }
 
-function toMessageViewModel(input: unknown): MessageViewModel {
+export function toMessageViewModel(input: unknown): MessageViewModel {
   const message = messageResponseSchema.parse(input);
   return {
     id: message.id,
@@ -297,6 +305,8 @@ function toMessageViewModel(input: unknown): MessageViewModel {
     status: message.status,
     createdAt: message.created_at,
     retryable: message.retryable,
+    queueState: message.queue_state,
+    deletedAt: message.deleted_at,
   };
 }
 
@@ -321,6 +331,7 @@ export function toConversationViewModel(input: unknown): ConversationViewModel {
     id: conversation.id,
     allyId: conversation.ally_id,
     messages: conversation.messages.map(toMessageViewModel),
+    queue: conversation.queue?.map(toMessageViewModel),
     assistantReplies: conversation.assistant_replies.map(toAssistantReplyViewModel),
     nextCursor: conversation.next_cursor ?? null,
   };
@@ -354,6 +365,7 @@ export function toActivitySnapshotViewModel(input: unknown): ActivitySnapshotVie
   const snapshot = activitySnapshotResponseSchema.parse(input);
   return {
     conversationId: snapshot.conversation_id,
+    activeMessageId: snapshot.active_message_id,
     activities: snapshot.activities.map(toActivityViewModel),
     state: snapshot.state,
     lastContiguousSequence: snapshot.last_contiguous_sequence,

@@ -7,6 +7,7 @@ import {
   isActivityPollingAllowed,
   isMessageTerminal,
   mergeConversationMessages,
+  queuedConversationMessages,
   replaceNewestConversationPage,
   shouldKeepPendingMessage,
 } from './conversation-state';
@@ -21,6 +22,36 @@ const message = (id: string, sequence: number, content = id) => ({
 }) satisfies MessageViewModel;
 
 describe('conversation state', () => {
+  it('uses the complete Cloud queue even beyond the history page and releases only correlated progress', () => {
+    const head: MessageViewModel = { ...message('head', 2), status: 'queued', queueState: 'claimed' };
+    const tail: MessageViewModel = { ...message('tail', 3), status: 'queued', queueState: 'unclaimed' };
+    const page = { id: 'conversation', allyId: 'ally', assistantReplies: [], messages: [tail], queue: [head, tail], nextCursor: 'older' };
+    const projection = { turns: [], seenSequences: [], lastContiguousSequence: 0, state: 'queued' as const };
+    expect(queuedConversationMessages([page], projection)).toEqual([head, tail]);
+    expect(queuedConversationMessages([page], { ...projection, state: 'running', activeMessageId: head.id })).toEqual([tail]);
+    expect(queuedConversationMessages([page], { ...projection, state: 'running', activeMessageId: 'foreign-head' })).toEqual([head, tail]);
+    expect(mergeConversationMessages([page])).toEqual([head, tail]);
+  });
+
+  it('removes a Cloud-deleted tail from queue and every cached copy without resurrecting its content', () => {
+    const tail: MessageViewModel = { ...message('tail', 3, 'Private queued text'), status: 'queued', queueState: 'unclaimed' };
+    const page = { id: 'conversation', allyId: 'ally', assistantReplies: [], messages: [tail], queue: [tail], nextCursor: 'older' };
+    const deleted: MessageViewModel = { ...tail, content: '', status: 'stopped', queueState: null, deletedAt: '2026-09-06T12:00:00Z' };
+    const pages = insertAcceptedMessage([page, page], deleted);
+    expect(pages[0].queue).toEqual([]);
+    expect(mergeConversationMessages(pages)).toEqual([]);
+    expect(mergeConversationMessages(insertAcceptedMessage(pages, tail))).toEqual([]);
+    const staleRefresh = replaceNewestConversationPage(pages, page);
+    expect(staleRefresh[0].queue).toEqual([]);
+    expect(mergeConversationMessages(staleRefresh)).toEqual([]);
+    const remoteDeleted = replaceNewestConversationPage([page, page], { ...page, messages: [deleted], queue: [] });
+    const afterEviction = replaceNewestConversationPage(remoteDeleted, {
+      ...page, messages: [message('later', 60)], queue: [],
+    });
+    expect(mergeConversationMessages(afterEviction)).toEqual([message('later', 60)]);
+    expect(mergeConversationMessages([{ ...page, messages: [], queue: [] }, page])).toEqual([]);
+  });
+
   it('deduplicates immutable messages and sorts them by sequence', () => {
     const messages = mergeConversationMessages([
       { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('ally-message', 2), message('user-message', 1)], nextCursor: 'older' },
@@ -85,7 +116,7 @@ describe('conversation state', () => {
     ['queued', true],
     ['in_progress', true],
     ['running', true],
-    ['awaiting_action', false],
+    ['awaiting_action', true],
     ['completed', false],
     ['failed', false],
     ['stopped', false],
@@ -97,7 +128,7 @@ describe('conversation state', () => {
   it.each([
     ['queued', false],
     ['in_progress', false],
-    ['awaiting_action', true],
+    ['awaiting_action', false],
     ['completed', true],
     ['failed', true],
     ['stopped', true],

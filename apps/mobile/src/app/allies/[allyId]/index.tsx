@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  AppState,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -42,6 +43,7 @@ import {
   isActivityPollingAllowed,
   isMessageTerminal,
   mergeConversationMessages,
+  queuedConversationMessages,
   replaceNewestConversationPage,
   shouldKeepPendingMessage,
 } from '@/features/conversation/conversation-state';
@@ -77,7 +79,11 @@ function messageLabel(sender: string): string {
 
 export default function AllyConversationScreen() {
   const mock = useMockApp();
-  return mock.isMock ? <MockConversationScreen /> : <CloudAllyConversationScreen />;
+  const session = useNativeSession();
+  const { allyId } = useLocalSearchParams<{ allyId?: string }>();
+  return mock.isMock ? <MockConversationScreen /> : (
+    <CloudAllyConversationScreen key={`${session.account?.userId ?? ''}:${session.account?.workspace.id ?? ''}:${allyId ?? ''}`} />
+  );
 }
 
 function CloudAllyConversationScreen() {
@@ -91,8 +97,14 @@ function CloudAllyConversationScreen() {
   const { addReachableAllyId } = useAllySessionIndex();
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [foreground, setForeground] = useState(AppState.currentState === 'active');
+  const mounted = useRef(true);
+  const mutation = useRef<AbortController | null>(null);
+  const conversationReadGeneration = useRef(0);
   const [message, setMessage] = useState<string | null>(null);
   const [pendingMessage, setPendingMessage] = useState<PendingMessageCommand | null>(null);
+  const [pendingLoaded, setPendingLoaded] = useState(false);
   const [activityProjection, setActivityProjection] = useState<ActivityProjection>(EMPTY_ACTIVITY_PROJECTION);
   const conversationScrollRef = useRef<ScrollView>(null);
   const scrollIntent = useRef(createConversationScrollIntent()).current;
@@ -100,6 +112,16 @@ function CloudAllyConversationScreen() {
   const pollingConversationId = useRef<string | null>(null);
   const projectionConversationId = useRef<string | null>(null);
   const wasFocused = useRef(focused);
+
+  useEffect(() => {
+    mounted.current = true;
+    const listener = AppState.addEventListener('change', (state) => setForeground(state === 'active'));
+    return () => {
+      mounted.current = false;
+      mutation.current?.abort();
+      listener.remove();
+    };
+  }, []);
 
   const workspaceId = session.status === 'signed-in' && session.account ? session.account.workspace.id : '';
   const canRequest = Boolean(allyId && workspaceId && session.accountClient && session.adapter);
@@ -109,17 +131,18 @@ function CloudAllyConversationScreen() {
   );
   const refreshNewestConversation = useCallback(async (signal?: AbortSignal) => {
     if (!allyId || !workspaceId || !session.accountClient || !session.adapter) return;
+    const generation = ++conversationReadGeneration.current;
     const newest = await session.adapter.withRefresh(() => session.accountClient!.getAllyConversation(
       workspaceId,
       allyId,
       { limit: CONVERSATION_PAGE_LIMIT, signal },
     ));
-    scrollIntent.requestLatest();
+    if (!mounted.current || signal?.aborted || generation !== conversationReadGeneration.current) return;
     queryClient.setQueryData<InfiniteData<ConversationViewModel, string | null>>(
       conversationQueryKey,
       (current) => current ? { ...current, pages: replaceNewestConversationPage(current.pages, newest) } : current,
     );
-  }, [allyId, conversationQueryKey, queryClient, scrollIntent, session.accountClient, session.adapter, workspaceId]);
+  }, [allyId, conversationQueryKey, queryClient, session.accountClient, session.adapter, workspaceId]);
   const allyQuery = useQuery<AllyViewModel>({
     queryKey: ['allies', workspaceId, allyId],
     enabled: canRequest,
@@ -139,6 +162,29 @@ function CloudAllyConversationScreen() {
     refetchOnWindowFocus: false,
   });
   const conversationId = conversationQuery.data?.pages[0]?.id ?? null;
+  const hasQueuedMessages = Boolean(conversationQuery.data?.pages[0]?.queue?.length);
+  useEffect(() => {
+    if (!canRequest || !conversationId || !focused || !foreground) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout>;
+    let failures = 0;
+    const poll = async () => {
+      try {
+        await refreshNewestConversation(controller.signal);
+        failures = 0;
+      } catch {
+        failures += 1;
+      }
+      if (!controller.signal.aborted) schedule();
+    };
+    const schedule = () => {
+      timer = setTimeout(() => void poll(), failures
+        ? Math.min(30_000, 3000 * 2 ** Math.min(failures, 4))
+        : hasQueuedMessages ? 3000 : 10_000);
+    };
+    schedule();
+    return () => { controller.abort(); clearTimeout(timer); };
+  }, [canRequest, conversationId, focused, foreground, hasQueuedMessages, refreshNewestConversation]);
   const activityQuery = useQuery({
     queryKey: ['workspaces', workspaceId, 'conversations', conversationId, 'activities'],
     enabled: Boolean(canRequest && conversationId),
@@ -155,7 +201,9 @@ function CloudAllyConversationScreen() {
         pollingConversationId.current = conversationId;
         pollingStartedAt.current = null;
       }
-      if (query.state.error || !focused || !ACTIVE_ACTIVITY_STATES.includes(state as ActivitySnapshotViewModel['state'])) {
+      if (!focused || !foreground) return false;
+      if (query.state.error) return 30_000;
+      if (!hasQueuedMessages && !ACTIVE_ACTIVITY_STATES.includes(state as ActivitySnapshotViewModel['state'])) {
         pollingStartedAt.current = null;
         return false;
       }
@@ -165,12 +213,13 @@ function CloudAllyConversationScreen() {
         state,
         startedAt: pollingStartedAt.current,
         now: Date.now(),
-      }) ? 3000 : false;
+      }) ? 3000 : 30_000;
     },
   });
   const refetchAlly = allyQuery.refetch;
-  const refetchConversation = conversationQuery.refetch;
   const refetchActivity = activityQuery.refetch;
+  const activeMessageId = activityQuery.data?.activeMessageId;
+  const activityState = activityQuery.data?.state;
 
   useEffect(() => {
     if (!activityQuery.data || !conversationId) return;
@@ -184,18 +233,19 @@ function CloudAllyConversationScreen() {
   }, [activityQuery.data, activityQuery.dataUpdatedAt, conversationId]);
 
   useEffect(() => {
-    if (activityQuery.dataUpdatedAt <= 0) return;
+    if (activityState === undefined) return;
     const controller = new AbortController();
     void refreshNewestConversation(controller.signal).catch(() => undefined);
     return () => controller.abort();
-  }, [activityQuery.dataUpdatedAt, refreshNewestConversation]);
+  }, [activeMessageId, activityState, refreshNewestConversation]);
 
   useEffect(() => {
-    const regainedFocus = focused && !wasFocused.current;
-    wasFocused.current = focused;
+    const visible = focused && foreground;
+    const regainedFocus = visible && !wasFocused.current;
+    wasFocused.current = visible;
     if (!regainedFocus) return;
-    void Promise.all([refetchAlly(), refetchConversation(), refetchActivity()]).catch(() => undefined);
-  }, [focused, refetchActivity, refetchAlly, refetchConversation]);
+    void Promise.all([refetchAlly(), refreshNewestConversation(), refetchActivity()]).catch(() => undefined);
+  }, [focused, foreground, refetchActivity, refetchAlly, refreshNewestConversation]);
 
   useEffect(() => {
     if (!conversationId || session.status !== 'signed-in' || !session.account) return;
@@ -208,7 +258,10 @@ function CloudAllyConversationScreen() {
       if (active) {
         setPendingMessage(command);
         if (command) setDraft(command.content);
+        setPendingLoaded(true);
       }
+    }).catch(() => {
+      if (active) setMessage('We could not read your saved message. Reopen this conversation to retry.');
     });
     return () => {
       active = false;
@@ -230,6 +283,11 @@ function CloudAllyConversationScreen() {
       return { items: [] as MessageViewModel[], conflict: true };
     }
   }, [conversationPages]);
+  const queuedMessages = useMemo(
+    () => queuedConversationMessages(conversationPages ?? [], activityProjection),
+    [conversationPages, activityProjection],
+  );
+  const queuedIds = new Set(queuedMessages.map((item) => item.id));
 
   if (!allyId) return <ErrorState message="This Ally link is not valid." onBack={() => router.replace('/allies' as never)} />;
   if (session.status === 'offline-with-session' || session.status === 'unavailable') {
@@ -259,10 +317,10 @@ function CloudAllyConversationScreen() {
 
   const ally = allyQuery.data;
   const appearance = getAllyAppearance(ally.appearance.key);
-  const canSend = Boolean((pendingMessage?.content ?? draft).trim()) && !sending && session.status === 'signed-in';
+  const canSend = pendingLoaded && Boolean((pendingMessage?.content ?? draft).trim()) && !sending && !deletingId && session.status === 'signed-in';
 
   const send = async () => {
-    if (!canSend || !conversationId || !session.account || !session.accountClient || !session.adapter) return;
+    if (!canSend || mutation.current || !conversationId || !session.account || !session.accountClient || !session.adapter) return;
     const command: PendingMessageCommand = pendingMessage ?? {
       kind: 'message',
       conversationId,
@@ -275,17 +333,25 @@ function CloudAllyConversationScreen() {
 
     setSending(true);
     setMessage(null);
+    const controller = new AbortController();
+    mutation.current = controller;
     try {
       if (!pendingMessage) {
         await pendingCommandStore.saveMessage(command);
         setPendingMessage(command);
       }
+      if (!mounted.current) return;
       const acceptance = await session.adapter.withRefresh(() => session.accountClient!.sendMessage(
         session.account!.workspace.id,
         command.conversationId,
         command.content,
         command.idempotencyKey,
+        controller.signal,
       ));
+      if (!mounted.current) return;
+      conversationReadGeneration.current += 1;
+      await queryClient.cancelQueries({ queryKey: conversationQueryKey });
+      if (!mounted.current) return;
       let cacheConflict = false;
       try {
         scrollIntent.requestLatest();
@@ -297,11 +363,12 @@ function CloudAllyConversationScreen() {
         cacheConflict = true;
       }
       try {
-        await pendingCommandStore.deleteMessage(conversationId);
+        await pendingCommandStore.deleteMessage(conversationId, command.idempotencyKey);
       } catch {
         setMessage('Your message was accepted, but its saved retry could not be cleared. Retry once to confirm it.');
         return;
       }
+      if (!mounted.current) return;
       setPendingMessage(null);
       setDraft('');
       try {
@@ -315,15 +382,52 @@ function CloudAllyConversationScreen() {
       }
       if (cacheConflict) setMessage('Your message was sent, but the conversation data changed unexpectedly. Refresh to reconcile it.');
     } catch (error) {
+      if (!mounted.current) return;
       if (shouldKeepPendingMessage(error)) {
         setMessage('We could not confirm your message. Retry the saved message.');
       } else {
-        await pendingCommandStore.deleteMessage(conversationId);
+        try {
+          await pendingCommandStore.deleteMessage(conversationId, command.idempotencyKey);
+        } catch {
+          setMessage('Your saved message could not be cleared. Retry the same message to confirm it.');
+          return;
+        }
+        if (!mounted.current) return;
         setPendingMessage(null);
         setMessage('We could not send your message. Try again.');
       }
     } finally {
-      setSending(false);
+      if (mutation.current === controller) mutation.current = null;
+      if (mounted.current) setSending(false);
+    }
+  };
+
+  const removeQueued = async (item: MessageViewModel) => {
+    if (item.queueState !== 'unclaimed' || item.status !== 'queued' || item.deletedAt
+      || mutation.current || sending || deletingId || !conversationId || !session.accountClient || !session.adapter) return;
+    const controller = new AbortController();
+    mutation.current = controller;
+    setDeletingId(item.id);
+    setMessage(null);
+    try {
+      const deleted = await session.adapter.withRefresh(() =>
+        session.accountClient!.deleteQueuedMessage(workspaceId, conversationId, item.id, controller.signal));
+      if (!mounted.current) return;
+      conversationReadGeneration.current += 1;
+      await queryClient.cancelQueries({ queryKey: conversationQueryKey });
+      if (!mounted.current) return;
+      queryClient.setQueryData<InfiniteData<ConversationViewModel, string | null>>(
+        conversationQueryKey,
+        (current) => current ? { ...current, pages: insertAcceptedMessage(current.pages, deleted) } : current,
+      );
+      await refreshNewestConversation(controller.signal);
+    } catch {
+      if (!mounted.current) return;
+      setMessage('We could not confirm removal. The message may have started; refresh or try again.');
+      void refreshNewestConversation().catch(() => undefined);
+    } finally {
+      if (mutation.current === controller) mutation.current = null;
+      if (mounted.current) setDeletingId(null);
     }
   };
 
@@ -355,7 +459,7 @@ function CloudAllyConversationScreen() {
           showsVerticalScrollIndicator={false}>
           {messages.conflict ? (
             <Text style={styles.errorText}>We received conflicting conversation data. Refresh to try again.</Text>
-          ) : messages.items.length ? messages.items.map((item) => (
+          ) : messages.items.length ? messages.items.filter((item) => !queuedIds.has(item.id)).map((item) => (
             <View
               key={item.id}
               style={[
@@ -408,6 +512,25 @@ function CloudAllyConversationScreen() {
           {message ? <Text style={styles.errorText}>{message}</Text> : null}
         </ScrollView>
 
+        {queuedMessages.length ? (
+          <View accessibilityLabel="Queued messages" style={styles.queue}>
+            <Text style={styles.messageSender}>Queued</Text>
+            <ScrollView style={styles.queueItems}>
+              {queuedMessages.map((item) => (
+                <View key={item.id} style={styles.queueRow}>
+                  <Text style={styles.queueText}>{item.content}</Text>
+                  {item.queueState === 'unclaimed' ? (
+                    <Pressable accessibilityRole="button" accessibilityLabel={`Remove queued message: ${item.content}`}
+                      disabled={sending || Boolean(deletingId)} onPress={() => void removeQueued(item)}
+                      style={styles.queueRemove}>
+                      <Text>{deletingId === item.id ? 'Removing…' : 'Remove'}</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        ) : null}
         <View style={[styles.composerRow, { paddingBottom: Math.max(12, insets.bottom > 0 ? 8 : 12) }]}>
           <View style={styles.composer}>
             <TextInput
@@ -472,6 +595,11 @@ function ErrorState({ message, onBack, onRetry }: { message: string; onBack: () 
 }
 
 const styles = StyleSheet.create({
+  queue: { paddingHorizontal: 20, paddingBottom: 12 },
+  queueItems: { maxHeight: 140 },
+  queueRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 4 },
+  queueText: { flex: 1, color: '#606060', fontSize: 14 },
+  queueRemove: { padding: 12 },
   activityBlock: {
     borderLeftColor: '#FF5800',
     borderLeftWidth: 2,
