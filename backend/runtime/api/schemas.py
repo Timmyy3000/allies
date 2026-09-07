@@ -30,6 +30,8 @@ __all__ = [
     "ProfileProvisioningReceipt",
     "ProfileProvisioningRequest",
     "ReconciliationReceipt",
+    "RuntimeActivityWaitReceipt",
+    "RuntimeActivityWaitRequest",
     "RuntimeIntentReceipt",
     "RuntimeIntentRequest",
     "RuntimeReadinessReceipt",
@@ -48,7 +50,7 @@ class ClaimRequest(Schema):
 class RuntimeIntentRequest(Schema):
     model_config = ConfigDict(extra="forbid")
 
-    intent: Literal["composing_started"]
+    intent: Literal["composing_started", "ally_creation_started"]
     received_at: datetime
 
 
@@ -63,6 +65,20 @@ class RuntimeIntentReceipt(Schema):
         "rate_limited",
         "failed",
     ]
+
+
+class RuntimeActivityWaitRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    after_revision: StrictInt = Field(..., ge=0)
+    wait_seconds: float = Field(..., gt=0, le=5)
+
+
+class RuntimeActivityWaitReceipt(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: StrictInt = Field(..., ge=0)
+    reason: Literal["changed", "timeout"]
 
 
 class RuntimeReadinessRequest(Schema):

@@ -26,6 +26,7 @@ from runtime.models import (
     ExecutionStatus,
     Lease,
     LeaseState,
+    ProvisioningHintDelivery,
     RuntimeProfile,
     RuntimeProfileLifecycleState,
     Workspace,
@@ -42,6 +43,7 @@ from runtime.services.profiles import (
     list_profile_reconciliation,
     request_profile_cleanup,
 )
+from runtime.services.provisioning_hints import claim_provisioning_hint_deliveries
 from runtime.services.runtime_auth import (
     authenticate_runtime_token,
     issue_runtime_credential,
@@ -209,6 +211,37 @@ def test_reconciliation_receipt_is_stable_and_exposes_no_secret(ready_workspace,
             created.seed_fingerprint,
             "repair_required",
         )
+
+
+def test_readiness_hint_claim_routes_cloud_tenant_reference(ready_workspace, seed):
+    cloud_workspace_id = str(uuid4())
+    Workspace.objects.filter(pk=ready_workspace.id).update(
+        tenant_ref=cloud_workspace_id
+    )
+    ready_workspace.refresh_from_db()
+    profile_id = uuid4()
+    created = ensure_runtime_profile(ready_workspace.id, profile_id, "ally-a", seed)
+    context, _issued = _context(ready_workspace)
+
+    receipt = accept_materialization_receipt(
+        context,
+        profile_id,
+        uuid4(),
+        created.lifecycle_epoch,
+        1,
+        created.seed_fingerprint,
+        "created",
+    )
+    delivery = ProvisioningHintDelivery.objects.get(runtime_profile_id=profile_id)
+    claims = claim_provisioning_hint_deliveries(
+        now=timezone.now() + timedelta(seconds=1)
+    )
+
+    assert receipt.receipt_id == delivery.receipt_id
+    assert len(claims) == 1
+    assert str(ready_workspace.id) != cloud_workspace_id
+    assert claims[0].workspace_id == cloud_workspace_id
+    assert claims[0].payload()["workspace_id"] == cloud_workspace_id
 
 
 def test_pending_profile_blocks_claim_reconciliation_until_receipt(

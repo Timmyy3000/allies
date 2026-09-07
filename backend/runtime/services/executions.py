@@ -18,6 +18,7 @@ from runtime.exceptions import (
 )
 from runtime.models import ConversationBinding, Execution, RuntimeProfile, Workspace
 
+from .activity import advance_workspace_activity
 from .retry import run_with_sqlite_lock_retry
 from .runtime_intents import request_execution_wake_locked
 from .validation import (
@@ -208,6 +209,7 @@ def _create_contract_execution_once(
         raise RuntimeConflictError(
             "execution identity conflicts with existing state"
         ) from exc
+    advance_workspace_activity(workspace)
     request_execution_wake_locked(workspace)
     return execution, True
 
@@ -262,6 +264,7 @@ def _create_execution_once(
                 input_payload=payload,
                 payload_digest=payload_digest,
             )
+            advance_workspace_activity(workspace)
             request_execution_wake_locked(workspace)
             return execution
     except IntegrityError:

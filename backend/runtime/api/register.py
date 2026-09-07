@@ -9,6 +9,8 @@ from ninja.security import HttpBearer
 from ninja_extra import NinjaExtraAPI
 
 from runtime.exceptions import (
+    ActivityWaitSaturated,
+    ActivityWaitUnavailable,
     RuntimeAuthorizationError,
     RuntimeConflictError,
     RuntimeDomainError,
@@ -24,6 +26,7 @@ from runtime.management.commands.activate_fly_workspace import (
     Command as ActivateFlyWorkspaceCommand,
 )
 from runtime.models import Workspace
+from runtime.services.activity import wait_for_workspace_activity
 from runtime.services.attempts import complete_attempt, fail_attempt
 from runtime.services.claims import claim_next_execution
 from runtime.services.events import append_runtime_event
@@ -55,6 +58,8 @@ from .schemas import (
     FailRequest,
     MaterializationReceiptRequest,
     ProfileProvisioningRequest,
+    RuntimeActivityWaitReceipt,
+    RuntimeActivityWaitRequest,
     RuntimeIntentReceipt,
     RuntimeIntentRequest,
     RuntimeReadinessReceipt,
@@ -153,10 +158,28 @@ def register(api: NinjaExtraAPI) -> None:
                     "workspace_id": str(context.workspace_id),
                     "machine_generation": context.machine_generation,
                     "runtime_start_epoch": workspace.runtime_start_epoch,
+                    "activity_revision": workspace.activity_revision,
                     "profiles": [_profile_json(profile) for profile in profiles],
                 },
                 status=200,
             )
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post("/runtime/activity-waits", auth=None)
+    def activity_wait(request: HttpRequest, payload: RuntimeActivityWaitRequest):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            receipt = wait_for_workspace_activity(
+                context,
+                payload.after_revision,
+                payload.wait_seconds,
+            )
+            response = RuntimeActivityWaitReceipt(
+                revision=receipt.revision,
+                reason=receipt.reason,
+            )
+            return JsonResponse(response.model_dump(mode="json"), status=200)
         except RuntimeDomainError as exc:
             return _error(exc)
 
@@ -549,6 +572,10 @@ def _error(exc: RuntimeDomainError) -> JsonResponse:
         status = 401
     elif isinstance(exc, RuntimeValidationError):
         status = 422
+    elif isinstance(exc, ActivityWaitSaturated):
+        status = 429
+    elif isinstance(exc, ActivityWaitUnavailable):
+        status = 503
     else:
         status = 409
     return JsonResponse(

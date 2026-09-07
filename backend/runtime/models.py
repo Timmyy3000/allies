@@ -6,6 +6,7 @@ from typing import ClassVar
 
 from django.db import models, transaction
 from django.db.models import Q
+from django.utils import timezone
 
 from runtime.contracts import MAX_TERMINAL_SEQUENCE
 from runtime.exceptions import RuntimeConflictError, RuntimeValidationError
@@ -100,6 +101,7 @@ class RuntimeOperationTrigger(models.TextChoices):
 
 class RuntimeIntentType(models.TextChoices):
     COMPOSING_STARTED = "composing_started", "Composing started"
+    ALLY_CREATION_STARTED = "ally_creation_started", "Ally creation started"
 
 
 class RuntimeIntentOutcome(models.TextChoices):
@@ -135,6 +137,8 @@ class Workspace(models.Model):
     runtime_operation_requested_at = models.DateTimeField(null=True, blank=True)
     runtime_operation_retry_count = models.PositiveSmallIntegerField(default=0)
     runtime_start_epoch = models.PositiveBigIntegerField(default=0)
+    # Monotonic durable wake signal for already-running runtime workers.
+    activity_revision = models.PositiveBigIntegerField(default=0)
     ready_generation = models.PositiveIntegerField(null=True, blank=True)
     ready_start_epoch = models.PositiveBigIntegerField(null=True, blank=True)
     ready_boot_id = models.UUIDField(null=True, blank=True)
@@ -208,6 +212,10 @@ class Workspace(models.Model):
             models.CheckConstraint(
                 condition=Q(runtime_operation_state__in=RuntimeOperationState.values),
                 name="runtime_workspace_operation_state_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(activity_revision__gte=0),
+                name="runtime_workspace_activity_revision_nonnegative",
             ),
             models.CheckConstraint(
                 condition=(
@@ -522,6 +530,88 @@ class RuntimeProfile(models.Model):
         return super().save(*args, **kwargs)
 
 
+class ProvisioningHintDeliveryState(models.TextChoices):
+    PENDING = "pending", "Pending"
+    DELIVERING = "delivering", "Delivering"
+    DELIVERED = "delivered", "Delivered"
+    EXHAUSTED = "exhausted", "Exhausted"
+
+
+class ProvisioningHintDelivery(models.Model):
+    """Durable, content-free nudge from profile materialization to Cloud."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="provisioning_hint_deliveries",
+    )
+    runtime_profile = models.ForeignKey(
+        RuntimeProfile,
+        on_delete=models.CASCADE,
+        related_name="provisioning_hint_deliveries",
+    )
+    ally_ref = models.CharField(max_length=255)
+    generation = models.PositiveIntegerField()
+    receipt_id = models.UUIDField()
+    occurred_at = models.DateTimeField()
+    state = models.CharField(
+        max_length=16,
+        choices=ProvisioningHintDeliveryState,
+        default=ProvisioningHintDeliveryState.PENDING,
+    )
+    delivery_attempts = models.PositiveSmallIntegerField(default=0)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField()
+    safe_error_code = models.CharField(max_length=64, default="", blank=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["runtime_profile", "receipt_id"],
+                name="runtime_hint_profile_receipt_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(state__in=ProvisioningHintDeliveryState.values),
+                name="runtime_hint_state_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(generation__gt=0),
+                name="runtime_hint_generation_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(delivery_attempts__gte=0) & Q(delivery_attempts__lte=8),
+                name="runtime_hint_attempts_bounded",
+            ),
+        ]
+        indexes: ClassVar = [
+            models.Index(
+                fields=["state", "next_attempt_at", "lease_expires_at"],
+                name="rt_hint_due_idx",
+            ),
+            models.Index(
+                fields=["workspace", "generation", "receipt_id"],
+                name="rt_hint_workspace_receipt_idx",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.generation <= 0:
+            raise RuntimeValidationError("hint generation must be positive")
+        if not 0 <= self.delivery_attempts <= 8:
+            raise RuntimeValidationError(
+                "hint delivery attempts exceed the bounded budget"
+            )
+        if self.safe_error_code and not re.fullmatch(
+            r"[a-z][a-z0-9_-]{0,63}", self.safe_error_code
+        ):
+            raise RuntimeValidationError("hint delivery error code is invalid")
+        return super().save(*args, **kwargs)
+
+
 class ConversationBinding(models.Model):
     profile = models.OneToOneField(
         RuntimeProfile,
@@ -816,8 +906,12 @@ class ExecutionEventDelivery(models.Model):
             previous = (
                 type(self)
                 .objects.only(
-                    "event_id", "envelope_bytes", "byte_length", "fingerprint",
-                    "state", "repair_cycle"
+                    "event_id",
+                    "envelope_bytes",
+                    "byte_length",
+                    "fingerprint",
+                    "state",
+                    "repair_cycle",
                 )
                 .get(pk=self.pk)
             )
@@ -842,8 +936,10 @@ class ExecutionEventDelivery(models.Model):
                 and self.byte_length > 0
                 and self.repair_cycle > previous.repair_cycle
             )
-            if identity_changed or payload_changed and not (
-                terminal_erasure or repair_rehydration
+            if (
+                identity_changed
+                or payload_changed
+                and not (terminal_erasure or repair_rehydration)
             ):
                 raise RuntimeConflictError("event delivery envelope is immutable")
         if not isinstance(self.envelope_bytes, bytes):
