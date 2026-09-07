@@ -359,6 +359,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/foundry/profile-readiness-hints": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Profile Readiness Hint */
+        post: operations["allies_api_register_profile_readiness_hint"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/onboarding/attempts": {
         parameters: {
             query?: never;
@@ -373,6 +390,26 @@ export interface paths {
          * @description This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.
          */
         post: operations["onboarding_begin_ee3402d5"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/onboarding/runtime-intents": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Runtime Intent
+         * @description This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.
+         */
+        post: operations["onboarding_runtime_intent_c2f276cc"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1136,6 +1173,46 @@ export interface components {
             /** Upload Url */
             upload_url: string;
         };
+        /**
+         * ProfileReadinessHint
+         * @description Content-free, authenticated readiness signal received from Foundry.
+         */
+        ProfileReadinessHint: {
+            /**
+             * Ally Ref
+             * Format: uuid
+             */
+            ally_ref: string;
+            /** Generation */
+            generation: number;
+            /**
+             * Hint Id
+             * Format: uuid
+             */
+            hint_id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /**
+             * Receipt Id
+             * Format: uuid
+             */
+            receipt_id: string;
+            /**
+             * Runtime Profile Id
+             * Format: uuid
+             */
+            runtime_profile_id: string;
+            /** Version */
+            version: number;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+        };
         /** ProfileResponse */
         ProfileResponse: {
             /** Avatar Url */
@@ -1799,6 +1876,21 @@ export interface components {
             name: string;
             /** Role */
             role: string;
+        };
+        /** WorkspaceRuntimeIntentRequest */
+        WorkspaceRuntimeIntentRequest: {
+            /**
+             * Intent
+             * @constant
+             */
+            intent: "ally_creation_started";
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Version */
+            version: number;
         };
         /** WorkspaceScope */
         WorkspaceScope: {
@@ -3768,6 +3860,28 @@ export interface operations {
             };
         };
     };
+    allies_api_register_profile_readiness_hint: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProfileReadinessHint"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     onboarding_begin_ee3402d5: {
         parameters: {
             query?: never;
@@ -3804,6 +3918,111 @@ export interface operations {
             };
             /** @description Forbidden */
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    onboarding_runtime_intent_c2f276cc: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable UUID for repeating one runtime intent. */
+                "Idempotency-Key": string;
+                /** @description Required for browser transport and must be trusted; omit for native. */
+                Origin?: string;
+                /** @description Browser alternative to Origin; omit for native. */
+                Referer?: string;
+                /** @description Required with the browser CSRF cookie; omit for native. */
+                "X-CSRFToken"?: string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceRuntimeIntentRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_RuntimeIntentResponse_"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_RuntimeIntentResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

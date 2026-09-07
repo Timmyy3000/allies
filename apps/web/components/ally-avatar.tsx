@@ -32,6 +32,8 @@ export const ALLY_ANIMATION_CYCLE_MS: Record<AllyAnimationState, number> = {
  * margin inside that shell when a color is present.
  */
 const COLORED_ARTWORK_SCALE = 0.86;
+// Render animated SVG masks and transforms above display size before downsampling on high-DPI surfaces.
+const ARTWORK_RENDER_SCALE = 2;
 
 type AssetSource = {
   animated: string;
@@ -216,6 +218,8 @@ export type AllyAvatarProps = {
   artworkSize?: "default" | "full";
   label?: string;
   className?: string;
+  onAnimationStateChange?: (state: string) => void;
+  skipWakeTransition?: boolean;
 };
 
 export function AllyAvatar({
@@ -232,6 +236,8 @@ export function AllyAvatar({
   artworkSize = "default",
   label,
   className,
+  onAnimationStateChange,
+  skipWakeTransition = false,
 }: AllyAvatarProps) {
   const shape = normalizeAllyShape(shapeInput);
   const requestedState = normalizeAllyAnimationState(stateInput);
@@ -290,8 +296,32 @@ export function AllyAvatar({
             transformOrigin: "center",
           }}
         >
-          <div style={{ width: "100%", height: "100%", filter: neutral ? "grayscale(1) opacity(0.38)" : undefined }}>
-            {shape && stateReady && <AllyArtwork key={shape} shape={shape} state={requestedState} reduced={reducedMotion} onStateChange={setDisplayedState} />}
+          <div
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              filter: neutral ? "grayscale(1) opacity(0.38)" : undefined,
+            }}
+          >
+            <div
+              data-ally-artwork-raster
+              data-ally-artwork-raster-scale={ARTWORK_RENDER_SCALE}
+              style={{
+                width: `${ARTWORK_RENDER_SCALE * 100}%`,
+                height: `${ARTWORK_RENDER_SCALE * 100}%`,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                flexShrink: 0,
+                transform: `scale(${1 / ARTWORK_RENDER_SCALE})`,
+                transformOrigin: "center",
+              }}
+            >
+              {shape && stateReady && <AllyArtwork key={shape} shape={shape} state={requestedState} reduced={reducedMotion} skipWakeTransition={skipWakeTransition} onStateChange={(state) => { setDisplayedState(state); onAnimationStateChange?.(state); }} />}
+            </div>
           </div>
         </div>
       ) : null}

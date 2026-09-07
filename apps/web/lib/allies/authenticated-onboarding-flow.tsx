@@ -1,7 +1,16 @@
 "use client";
 
 import { isCloudError, type AllyViewModel, type CloudError } from "@allies/cloud-client";
-import { useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { useSession } from "../session/session-context";
 import { useQueryClient } from "@tanstack/react-query";
@@ -31,6 +40,14 @@ function newIdempotencyKey(): string {
   return `ally-create-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`;
 }
 
+const CREATION_WAKE_TIMEOUT_MS = 1_500;
+
+interface CreationWakeContextValue {
+  requestCreationWake(value: string): Promise<void>;
+}
+
+const CreationWakeContext = createContext<CreationWakeContextValue | null>(null);
+
 function normalizeError(error: unknown): CloudError {
   if (isCloudError(error)) return error;
   if (error instanceof WaitlistMappingError) {
@@ -46,12 +63,14 @@ function normalizeError(error: unknown): CloudError {
 export interface AuthenticatedAllyFlowProviderProps {
   workspaceId: string;
   onCreated: (ally: AllyViewModel) => void;
+  creationWakeEnabled?: boolean;
   children: ReactNode;
 }
 
 export function AuthenticatedAllyFlowProvider({
   workspaceId,
   onCreated,
+  creationWakeEnabled = false,
   children,
 }: AuthenticatedAllyFlowProviderProps) {
   const { client, runCloudOperation } = useSession();
@@ -63,7 +82,43 @@ export function AuthenticatedAllyFlowProvider({
   const retryAction = useRef<(() => Promise<unknown>) | null>(null);
   const inFlightAction = useRef<Promise<unknown> | null>(null);
   const createIntent = useRef<{ signature: string; key: string } | null>(null);
+  const creationWakeSent = useRef(false);
+  const creationWakeController = useRef<AbortController | null>(null);
   const attemptToken = useRef<string | null>(null);
+
+  useEffect(() => {
+    creationWakeController.current?.abort();
+    creationWakeController.current = null;
+    creationWakeSent.current = false;
+    return () => {
+      creationWakeController.current?.abort();
+      creationWakeController.current = null;
+    };
+  }, [workspaceId]);
+
+  const requestCreationWake = useCallback(async (value: string): Promise<void> => {
+    if (!creationWakeEnabled || creationWakeSent.current || !value.trim()) return;
+
+    creationWakeSent.current = true;
+    const controller = new AbortController();
+    const occurredAt = new Date().toISOString();
+    const idempotencyKey = globalThis.crypto?.randomUUID?.();
+    if (!idempotencyKey) return;
+    creationWakeController.current = controller;
+    const timer = setTimeout(() => controller.abort(), CREATION_WAKE_TIMEOUT_MS);
+
+    try {
+      await runCloudOperation(
+        (signal) => client.requestWorkspaceRuntimeIntent(occurredAt, idempotencyKey, signal),
+        { csrf: true, retryTransient: false, signal: controller.signal },
+      );
+    } catch {
+      // The creation wake is speculative; onboarding owns all user-visible state.
+    } finally {
+      clearTimeout(timer);
+      if (creationWakeController.current === controller) creationWakeController.current = null;
+    }
+  }, [client, creationWakeEnabled, runCloudOperation]);
 
   const run = useCallback(<T,>(
     action: "configuration" | "join",
@@ -238,11 +293,22 @@ export function AuthenticatedAllyFlowProvider({
     [error, lastAction, pendingAction, recordReply, retry, saveConfiguration, snapshot],
   );
 
-  return (
-    <AllyPreviewFlowContext.Provider value={value}>
-      {children}
-    </AllyPreviewFlowContext.Provider>
+  const creationWake = useMemo<CreationWakeContextValue | null>(
+    () => creationWakeEnabled ? { requestCreationWake } : null,
+    [creationWakeEnabled, requestCreationWake],
   );
+
+  return (
+    <CreationWakeContext.Provider value={creationWake}>
+      <AllyPreviewFlowContext.Provider value={value}>
+        {children}
+      </AllyPreviewFlowContext.Provider>
+    </CreationWakeContext.Provider>
+  );
+}
+
+export function useCreationWake(): CreationWakeContextValue | null {
+  return useContext(CreationWakeContext);
 }
 
 export function useAuthenticatedAllyFlow(): AllyPreviewFlowValue {

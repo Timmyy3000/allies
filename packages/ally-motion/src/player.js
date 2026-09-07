@@ -134,6 +134,7 @@ function startAlly(config) {
     reduced = Boolean(value.reduced);
     paused = Boolean(value.paused);
     if (changedMotion || (reduced && state !== requested)) load(requested);
+    else if (value.skipWakeTransition && ['sleeping', 'waking', 'falling-asleep'].includes(state) && requested !== 'sleeping') load(requested);
     else if (!reduced && state === 'sleeping' && requested !== 'sleeping') load('waking', true);
     schedule();
   };

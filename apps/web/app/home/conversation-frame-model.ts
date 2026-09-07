@@ -3,6 +3,7 @@ import type {
   ActivityState,
   AllyViewModel,
   MessageViewModel,
+  RuntimeIntentViewModel,
 } from "@allies/cloud-client";
 import type { ActivityProjection, AssistantTurnProjection } from "@allies/cloud-client";
 import type { UIEvent } from "react";
@@ -13,6 +14,8 @@ import type {
 } from "../../lib/allies/activity-presentation";
 import type { AllyShape } from "../../components/ally-avatar";
 import { conversationAccessCopy, type ConversationAccessFailure } from "./conversation-access-error";
+
+export type ProductionRuntimeIntentStatus = RuntimeIntentViewModel["status"] | "requesting" | null;
 
 export interface ProductionAllyFrameModel {
   name: string;
@@ -30,6 +33,7 @@ export interface ProductionConversationMessageModel {
   createdAt: string;
   statusLabel: string | null;
   retryable: boolean;
+  queued?: boolean;
 }
 
 export interface ProductionConversationTurnModel {
@@ -66,7 +70,6 @@ export interface ProductionConversationFrameModel {
     loadError: string | null;
     accessFailure: ConversationAccessFailure | null;
     accessCopy: { title: string; detail: string } | null;
-    setupNotice: string | null;
     olderMessagesAvailable: boolean;
     loadingOlder: boolean;
     olderLoadError: string | null;
@@ -112,7 +115,6 @@ export interface ProductionConversationFrameInput {
   isLoading: boolean;
   loadError: string | null;
   accessFailure: ConversationAccessFailure | null;
-  setupNotice: string | null;
   olderMessagesAvailable: boolean;
   loadingOlder: boolean;
   olderLoadError: string | null;
@@ -137,7 +139,7 @@ export interface ProductionConversationFrameActions {
   onDraftChange: (value: string) => void;
   onCompositionStart?: () => void;
   onCompositionEnd?: (value: string) => void;
-  onSubmit: () => void;
+  onSubmit: (showImmediately?: boolean) => void;
   onRetryMessage: (messageId: string) => void;
   onLoadOlder: () => void;
   onRetryConversation: () => void;
@@ -196,6 +198,15 @@ export function buildProductionConversationFrameModel(
     input.projection.turns.map((turn) => [`${turn.messageId}:${turn.turnOrdinal}`, turn]),
   );
   const assistantReplies = input.assistantReplies ?? [];
+  // Acceptance wakes the runtime; only actual turn progress releases its queue item.
+  // Keep the durable message in the model so lifecycle/activity identity is preserved.
+  const queuedIds = new Set(input.messages.filter((message) => {
+    if (message.sender !== "user" || message.status !== "queued" || message.retryable) return false;
+    const turn = turnsByMessage.get(`${message.id}:${message.sequence}`);
+    if (turn?.messageId === message.id && turn.state !== "queued") return false;
+    if (assistantReplies.some((reply) => reply.sourceMessageId === message.id)) return false;
+    return !hasLegacyAssistantReply(input.messages, { messageId: message.id, turnOrdinal: message.sequence });
+  }).map((message) => message.id));
   const firstAssistantMessageId = accessBlocked
     ? null
     : input.messages.find((message) => message.sender === "assistant")?.id ?? null;
@@ -209,10 +220,10 @@ export function buildProductionConversationFrameModel(
       ? messageStatusLabel(
         message.status,
         turnsByMessage.get(`${message.id}:${message.sequence}`),
-        message.id === input.activeMessageId && !input.activeMessageHasProgress,
       )
       : null,
     retryable: Boolean(message.retryable),
+    queued: queuedIds.has(message.id),
   }));
   const activityGroups = (accessBlocked ? [] : input.activityPresentation.orderedKeys)
     .map((key) => input.activityPresentation.groupsByKey[key])
@@ -250,7 +261,6 @@ export function buildProductionConversationFrameModel(
       loadError: input.loadError,
       accessFailure: input.accessFailure,
       accessCopy,
-      setupNotice: input.setupNotice,
       olderMessagesAvailable: input.olderMessagesAvailable,
       loadingOlder: input.loadingOlder,
       olderLoadError: input.olderLoadError,
@@ -273,12 +283,13 @@ export function buildProductionConversationFrameModel(
       sendError: input.sendError,
       unavailableNotice: input.unavailableNotice,
     },
-    queuedMessages: accessBlocked ? [] : input.queuedMessages.map((item) => ({
+    queuedMessages: accessBlocked ? [] : [...messages.filter((message) => message.queued && !input.queuedMessages.some((item) => item.id === message.id))
+      .map(({ id, content }) => ({ id, content, removable: false })), ...input.queuedMessages.map((item) => ({
       id: item.id,
       content: item.content,
       removable: item.removable,
       statusLabel: item.statusLabel,
-    })),
+    }))],
     showThinkingState: accessBlocked ? false : input.showThinkingState,
     responseStarted: accessBlocked ? false : input.responseStarted,
     gettingReady: accessBlocked ? false : input.gettingReady,
@@ -373,9 +384,7 @@ function conversationCanChat(ally: AllyViewModel): boolean {
 function messageStatusLabel(
   status: MessageViewModel["status"],
   turn?: AssistantTurnProjection,
-  waitingForActiveHead = false,
 ): string | null {
-  if (waitingForActiveHead && (status === "queued" || status === "in_progress")) return "Queued";
   if (turn) {
     return {
       queued: null,

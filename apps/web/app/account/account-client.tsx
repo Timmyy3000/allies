@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { AlliesLoading } from "@/components/allies-loading";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
 import {
   useEffect,
   useRef,
@@ -52,37 +55,11 @@ function AccountShell({ children }: { children: React.ReactNode }) {
 }
 
 function Brand() {
-  return <Link className={styles.brand} href="/" aria-label="Allies home"><span aria-hidden="true">✦</span> Allies</Link>;
+  return <Link className={styles.brand} href="/" aria-label="Allies home"><Image src="/allies-icon.svg" alt="" width={28} height={28} /> allies</Link>;
 }
 
 function PendingAccount() {
-  return (
-    <AccountShell>
-      <div className={styles.pending}>
-        <Brand />
-        <div className={styles.pendingCopy}>
-          <span className={styles.pendingMark} aria-hidden="true" />
-          <h1>Restoring your account</h1>
-          <p className={styles.copy} role="status" aria-live="polite">Checking your secure session…</p>
-        </div>
-      </div>
-    </AccountShell>
-  );
-}
-
-function SignedOutAccount({ logoutMessage }: { logoutMessage?: string | null }) {
-  return (
-    <AccountShell>
-      <div className={styles.centerState}>
-        <Brand />
-        <p className={styles.eyebrow}>Personal space</p>
-        <h1>Sign in to see your account</h1>
-        <p className={styles.copy}>Your profile and Workspace are waiting when you’re ready.</p>
-        {logoutMessage ? <p className={styles.logoutMessage} role="alert">{logoutMessage}</p> : null}
-        <Link className={styles.primaryAction} href="/sign-in?returnTo=%2Faccount">Sign in</Link>
-      </div>
-    </AccountShell>
-  );
+  return <AlliesLoading label="Restoring your account" />;
 }
 
 function UnavailableAccount({ onRetry }: { onRetry: () => void }) {
@@ -104,6 +81,7 @@ function UnavailableAccount({ onRetry }: { onRetry: () => void }) {
 
 export function AccountClient() {
   const session = useSession();
+  const router = useRouter();
   const { restore } = session;
   const queryClient = useQueryClient();
   const restoreStarted = useRef(false);
@@ -126,6 +104,10 @@ export function AccountClient() {
     void restore();
   }, [restore]);
 
+  useEffect(() => {
+    if (session.state.status === "signed-out" && !logoutPending) router.replace("/");
+  }, [logoutPending, router, session.state.status]);
+
   useEffect(() => () => uploadController.current?.abort(), []);
 
   const accountQuery = useQuery({
@@ -140,7 +122,7 @@ export function AccountClient() {
   });
 
   if (session.state.status === "unknown" || session.state.status === "restoring") return <PendingAccount />;
-  if (session.state.status === "signed-out") return <SignedOutAccount logoutMessage={logoutMessage} />;
+  if (session.state.status === "signed-out") return null;
   if (session.state.status === "unavailable") return <UnavailableAccount onRetry={() => void restore()} />;
   if (accountQuery.isError) {
     return <UnavailableAccount onRetry={() => void accountQuery.refetch()} />;
@@ -245,35 +227,26 @@ export function AccountClient() {
     if (logoutPending) return;
     setLogoutPending(true);
     setLogoutMessage(null);
-    const result = await session.logout();
-    if (!result.serverConfirmed) {
-      setLogoutMessage("You’re signed out here, but Cloud couldn’t confirm server logout. You can sign in again when ready.");
+    try {
+      const result = await session.logout();
+      router.replace(result.serverConfirmed ? "/" : "/?signout=unconfirmed");
+    } catch {
+      router.replace("/?signout=unconfirmed");
     }
-    setLogoutPending(false);
   };
 
   return (
     <AccountShell>
       <header className={styles.header}>
         <Brand />
-        <button type="button" className={styles.logoutButton} onClick={() => void logout()} disabled={logoutPending}>
-          {logoutPending ? "Signing out…" : "Sign out"}
-        </button>
+        <Link href="/home" className={styles.backLink}><span aria-hidden="true">←</span> Back to chats</Link>
       </header>
 
       <div className={styles.intro}>
-        <div className={styles.avatarLarge}>
-          {avatarUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={avatarUrl} alt="Profile avatar" />
-          ) : (
-            <span aria-hidden="true">{initials(account.displayName)}</span>
-          )}
-        </div>
         <div>
-          <p className={styles.eyebrow}>Personal account</p>
-          <h1>Welcome, {account.displayName}</h1>
-          <p className={styles.copy}>This is your space for the allies you’re building.</p>
+          <p className={styles.eyebrow}>Your space</p>
+          <h1>Account</h1>
+          <p className={styles.copy}>A little about you. Make yourself at home.</p>
         </div>
       </div>
 
@@ -281,12 +254,11 @@ export function AccountClient() {
         <section className={styles.card} aria-labelledby="profile-title">
           <div className={styles.sectionHeading}>
             <div>
-              <p className={styles.eyebrow}>Identity</p>
-              <h2 id="profile-title">Profile</h2>
+              <h2 id="profile-title">Your name</h2>
+              <p className={styles.sectionCopy}>What your Allies call you.</p>
             </div>
-            <span className={styles.sectionNumber} aria-hidden="true">01</span>
           </div>
-          <form onSubmit={(event) => void submitProfile(event)}>
+          <form className={styles.editor} onSubmit={(event) => void submitProfile(event)}>
             <label className={styles.fieldLabel} htmlFor="display-name">Display name</label>
             <input
               id="display-name"
@@ -312,54 +284,31 @@ export function AccountClient() {
           </form>
         </section>
 
-        <section className={styles.card} aria-labelledby="workspace-title">
-          <div className={styles.sectionHeading}>
-            <div>
-              <p className={styles.eyebrow}>Cloud context</p>
-              <h2 id="workspace-title">Your Workspace</h2>
-            </div>
-            <span className={styles.sectionNumber} aria-hidden="true">02</span>
-          </div>
-          <dl className={styles.workspaceDetails}>
-            <div><dt>Name</dt><dd>{account.workspace.name}</dd></div>
-            <div><dt>Workspace ID</dt><dd className={styles.mono}>{account.workspace.id}</dd></div>
-            <div><dt>Role</dt><dd>{account.workspace.role}</dd></div>
-          </dl>
-          <div className={styles.capabilityBlock}>
-            <p className={styles.fieldLabel}>Capabilities</p>
-            {account.workspace.capabilities.length > 0 ? (
-              <ul className={styles.capabilities}>
-                {account.workspace.capabilities.map((capability) => <li key={capability}>{capability}</li>)}
-              </ul>
-            ) : <p className={styles.muted}>Cloud hasn’t shared capability details yet.</p>}
-          </div>
-        </section>
-
         <section className={`${styles.card} ${styles.avatarCard}`} aria-labelledby="avatar-title">
           <div className={styles.sectionHeading}>
             <div>
-              <p className={styles.eyebrow}>A face for your account</p>
-              <h2 id="avatar-title">Profile avatar</h2>
+              <h2 id="avatar-title">Your photo</h2>
+              <p className={styles.sectionCopy}>A familiar face in your space.</p>
             </div>
-            <span className={styles.sectionNumber} aria-hidden="true">03</span>
           </div>
+          <div className={styles.editor}>
           <div className={styles.avatarRow}>
             <div className={styles.avatarMedium}>
               {avatarUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img src={avatarUrl} alt="Current profile avatar" />
+                <img src={avatarUrl} alt="Profile avatar" />
               ) : <span aria-hidden="true">{initials(account.displayName)}</span>}
             </div>
             <div className={styles.avatarCopy}>
-              <p>{avatarUrl ? "Your current avatar stays in place until a new one is verified." : "Add a small visual signature to your account."}</p>
+              <p className={styles.profileName}>{account.displayName}</p>
+              <p>JPEG, PNG, or WebP · up to 5 MB</p>
               {avatarQuery.isError ? (
                 <button type="button" className={styles.inlineAction} onClick={() => void avatarQuery.refetch()}>Retry avatar read</button>
               ) : null}
             </div>
           </div>
           <label className={styles.filePicker} htmlFor="avatar-file">
-            <span>Choose a profile avatar</span>
-            <small>JPEG, PNG, or WebP · up to 5 MB</small>
+            <span>{avatarUrl ? "Change photo" : "Add a photo"}</span>
             <input
               ref={fileInput}
               id="avatar-file"
@@ -383,8 +332,16 @@ export function AccountClient() {
           ) : null}
           <p className={styles.formStatus} aria-live="polite">{avatarMessage}</p>
           {avatarError ? <p className={styles.formError} role="alert">{avatarError}</p> : null}
+          </div>
         </section>
       </div>
+
+      <section className={styles.sessionRow} aria-label="Session">
+        <div><h2>See you soon</h2><p className={styles.sectionCopy}>Your Allies will be here when you return.</p></div>
+        <button type="button" className={styles.logoutButton} onClick={() => void logout()} disabled={logoutPending}>
+          {logoutPending ? "Signing out…" : "Sign out"}<span aria-hidden="true"> ↗</span>
+        </button>
+      </section>
 
       {logoutMessage ? <p className={styles.logoutMessage} role="alert">{logoutMessage}</p> : null}
     </AccountShell>

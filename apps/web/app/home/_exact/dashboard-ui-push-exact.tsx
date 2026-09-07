@@ -79,7 +79,7 @@ export function DashboardUiPushExact({
                             <img
                                 data-figma-node-id="384:8391"
                                 data-figma-asset="Group"
-                                src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574629/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group.svg"
+                                src="/home/desktop-dashboard/icon-1.svg"
                                 alt="Group"
                                 width={19}
                                 height={19}
@@ -266,7 +266,7 @@ export function DashboardUiPushExact({
                                         <img
                                             data-figma-node-id="384:7834"
                                             data-figma-asset="fill"
-                                            src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574630/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/fill.svg"
+                                            src="/home/desktop-dashboard/icon-2.svg"
                                             alt="fill"
                                             width={30}
                                             height={33}
@@ -632,7 +632,7 @@ export function DashboardUiPushExact({
                                     <img
                                         data-figma-node-id="384:7859"
                                         data-figma-asset="Vector"
-                                        src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574633/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/vector.svg"
+                                        src="/home/desktop-dashboard/icon-3.svg"
                                         alt="Vector"
                                         width={33}
                                         height={32}
@@ -995,7 +995,7 @@ export function DashboardUiPushExact({
                             <img
                                 data-figma-node-id="384:8386"
                                 data-figma-asset="Group"
-                                src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574636/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group-2.svg"
+                                src="/home/desktop-dashboard/icon-4.svg"
                                 alt="Group"
                                 width={16}
                                 height={16}
@@ -1170,7 +1170,7 @@ export function DashboardUiPushExact({
                                 <img
                                     data-figma-node-id="384:8710"
                                     data-figma-asset="Group"
-                                    src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574656/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group-3.svg"
+                                    src="/home/desktop-dashboard/icon-5.svg"
                                     alt="Group"
                                     width={21}
                                     height={21}
@@ -1325,7 +1325,7 @@ export function DashboardUiPushExact({
                             <img
                                 data-figma-node-id="384:8407"
                                 data-figma-asset="Group"
-                                src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788578645/figma-screens/batch_mtntjjr9_jvgvd/frame/assets/group-2.svg"
+                                src="/home/desktop-dashboard/icon-6.svg"
                                 alt=""
                                 width={18}
                                 height={18}
@@ -1398,7 +1398,7 @@ export function DashboardUiPushExact({
                                         <img
                                             data-figma-node-id="384:8415"
                                             data-figma-asset="Vector"
-                                            src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788578597/figma-screens/batch_mtntil4u_vvlj8/frame-1000009486/assets/vector.svg"
+                                            src="/home/desktop-dashboard/icon-7.svg"
                                             alt=""
                                             width={25}
                                             height={24}

@@ -9,7 +9,7 @@ export function getArtboardScale(containerWidth: number): number {
 
 export function Artboard({
   children,
-  background = "#fff",
+  background = "var(--canvas)",
 }: {
   children: ReactNode;
   background?: string;

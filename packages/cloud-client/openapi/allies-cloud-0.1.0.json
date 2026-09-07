@@ -1140,6 +1140,65 @@
         "title": "PreparedAvatarResponse",
         "type": "object"
       },
+      "ProfileReadinessHint": {
+        "additionalProperties": false,
+        "description": "Content-free, authenticated readiness signal received from Foundry.",
+        "properties": {
+          "ally_ref": {
+            "format": "uuid",
+            "title": "Ally Ref",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "hint_id": {
+            "format": "uuid",
+            "title": "Hint Id",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "receipt_id": {
+            "format": "uuid",
+            "title": "Receipt Id",
+            "type": "string"
+          },
+          "runtime_profile_id": {
+            "format": "uuid",
+            "title": "Runtime Profile Id",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 1,
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "hint_id",
+          "workspace_id",
+          "ally_ref",
+          "runtime_profile_id",
+          "generation",
+          "receipt_id",
+          "occurred_at"
+        ],
+        "title": "ProfileReadinessHint",
+        "type": "object"
+      },
       "ProfileResponse": {
         "properties": {
           "avatar_url": {
@@ -2158,6 +2217,34 @@
           "capabilities"
         ],
         "title": "WorkspaceResponse",
+        "type": "object"
+      },
+      "WorkspaceRuntimeIntentRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "intent": {
+            "const": "ally_creation_started",
+            "title": "Intent",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "version": {
+            "maximum": 1,
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "version",
+          "intent",
+          "occurred_at"
+        ],
+        "title": "WorkspaceRuntimeIntentRequest",
         "type": "object"
       },
       "WorkspaceScope": {
@@ -4402,6 +4489,28 @@
         "summary": "Foundry Event"
       }
     },
+    "/api/v1/internal/foundry/profile-readiness-hints": {
+      "post": {
+        "operationId": "allies_api_register_profile_readiness_hint",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileReadinessHint"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Profile Readiness Hint"
+      }
+    },
     "/api/v1/onboarding/attempts": {
       "post": {
         "description": "This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.",
@@ -4574,6 +4683,290 @@
         },
         "security": [],
         "summary": "Begin",
+        "tags": [
+          "Onboarding"
+        ]
+      }
+    },
+    "/api/v1/onboarding/runtime-intents": {
+      "post": {
+        "description": "This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.",
+        "operationId": "onboarding_runtime_intent_c2f276cc",
+        "parameters": [
+          {
+            "description": "Stable UUID for repeating one runtime intent.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "Stable UUID for repeating one runtime intent.",
+              "maxLength": 36,
+              "minLength": 36,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for browser transport and must be trusted; omit for native.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Browser alternative to Origin; omit for native.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required with the browser CSRF cookie; omit for native.",
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceRuntimeIntentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RuntimeIntentResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RuntimeIntentResponse_"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "session_invalid": {
+                    "summary": "session invalid",
+                    "value": {
+                      "data": {
+                        "code": "session_invalid"
+                      },
+                      "message": "session invalid",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "csrf_rejected": {
+                    "summary": "csrf rejected",
+                    "value": {
+                      "data": {
+                        "code": "csrf_rejected"
+                      },
+                      "message": "csrf rejected",
+                      "status": "error"
+                    }
+                  },
+                  "origin_rejected": {
+                    "summary": "origin rejected",
+                    "value": {
+                      "data": {
+                        "code": "origin_rejected"
+                      },
+                      "message": "origin rejected",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "runtime_intent_unavailable": {
+                    "summary": "runtime intent unavailable",
+                    "value": {
+                      "data": {
+                        "code": "runtime_intent_unavailable"
+                      },
+                      "message": "Runtime intent unavailable",
+                      "status": "error"
+                    }
+                  },
+                  "workspace_unavailable": {
+                    "summary": "workspace unavailable",
+                    "value": {
+                      "data": {
+                        "code": "workspace_unavailable"
+                      },
+                      "message": "Workspace unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "runtime_intent_conflict": {
+                    "summary": "runtime intent conflict",
+                    "value": {
+                      "data": {
+                        "code": "runtime_intent_conflict"
+                      },
+                      "message": "Runtime intent unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "validation_error": {
+                    "summary": "validation error",
+                    "value": {
+                      "data": {
+                        "code": "validation_error",
+                        "details": {
+                          "errors": [
+                            {
+                              "code": "string_type",
+                              "field": "body.payload.name"
+                            }
+                          ]
+                        }
+                      },
+                      "message": "request validation failed",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "rate_limited": {
+                    "summary": "rate limited",
+                    "value": {
+                      "data": {
+                        "code": "rate_limited"
+                      },
+                      "message": "Request temporarily unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "examples": {
+                  "runtime_intent_unavailable": {
+                    "summary": "runtime intent unavailable",
+                    "value": {
+                      "data": {
+                        "code": "runtime_intent_unavailable"
+                      },
+                      "message": "Runtime intent unavailable",
+                      "status": "error"
+                    }
+                  },
+                  "throttle_unavailable": {
+                    "summary": "throttle unavailable",
+                    "value": {
+                      "data": {
+                        "code": "throttle_unavailable"
+                      },
+                      "message": "Request temporarily unavailable",
+                      "status": "error"
+                    }
+                  }
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Runtime Intent",
         "tags": [
           "Onboarding"
         ]

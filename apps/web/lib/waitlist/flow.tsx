@@ -3,7 +3,7 @@
 import { isCloudError, type CloudError, type WaitlistCompletionViewModel } from "@allies/cloud-client";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 
-import { useCloudClient } from "../session/session-context";
+import { useSession } from "../session/session-context";
 import {
   captureWaitlistEvent,
   identifyWaitlistSubscriber,
@@ -17,6 +17,7 @@ export type AllyPreviewAction = WaitlistAction;
 export type AllyPreviewFlowStatus = WaitlistFlowStatus;
 
 export interface AllyPreviewSnapshot {
+  onboardingAttempt?: string;
   lifecycle: "configuring" | "greeting_ready" | "reply_pending" | "pending_claim";
   configuration: { name: string | null; appearanceCatalogVersion: string | null; appearanceKey: string | null; job: string | null; personality: string | null };
   greeting: { text: string } | null;
@@ -68,8 +69,8 @@ function newAttemptId(): string {
   return globalThis.crypto?.randomUUID?.() ?? `attempt-${Date.now()}-${Math.random()}`;
 }
 
-export function WaitlistFlowProvider({ featureEnabled, consentVersion, children }: { featureEnabled: boolean; consentVersion: string | null; children: ReactNode }) {
-  const client = useCloudClient();
+export function WaitlistFlowProvider({ featureEnabled, consentVersion, children, onboarding = false }: { featureEnabled: boolean; consentVersion: string | null; children: ReactNode; onboarding?: boolean }) {
+  const { client, runCloudOperation } = useSession();
   const attemptId = useRef(newAttemptId());
   const attemptToken = useRef<string | null>(null);
   const [snapshot, setSnapshot] = useState<LocalSnapshot>(EMPTY_SNAPSHOT);
@@ -104,16 +105,19 @@ export function WaitlistFlowProvider({ featureEnabled, consentVersion, children 
   }, []);
 
   const saveConfiguration = useCallback(async (payload: WaitlistConfigurationPayload) => run("configuration", async () => {
-    const entry = await client.createWaitlistEntry({
-      attemptId: attemptId.current,
+    const seed = {
       name: payload.name,
       appearanceCatalogVersion: payload.appearance_catalog_version,
       appearanceKey: payload.appearance_key,
       job: payload.job,
       personality: payload.personality ?? "",
-    });
+    };
+    const entry = onboarding
+      ? await runCloudOperation((signal) => client.beginOnboarding(seed, signal), { csrf: true })
+      : await client.createWaitlistEntry({ ...seed, attemptId: attemptId.current });
     attemptToken.current = entry.attemptToken;
     const next: AllyPreviewSnapshot = {
+      ...(onboarding ? { onboardingAttempt: entry.attemptToken } : {}),
       lifecycle: "greeting_ready",
       configuration: {
         name: payload.name,
@@ -127,9 +131,9 @@ export function WaitlistFlowProvider({ featureEnabled, consentVersion, children 
       join: null,
     };
     setSnapshot(next);
-    captureWaitlistEvent("waitlist_ally_created");
+    if (!onboarding) captureWaitlistEvent("waitlist_ally_created");
     return next;
-  }), [client, run]);
+  }), [client, onboarding, run, runCloudOperation]);
 
   const recordReply = useCallback(async (text: string) => {
     const reply = text.trim();
@@ -163,7 +167,7 @@ export function WaitlistFlowProvider({ featureEnabled, consentVersion, children 
     completionMode: "waitlist",
     featureEnabled,
     consentVersion,
-    status: featureEnabled ? (error ? "error" : "ready") : "disabled",
+    status: featureEnabled || onboarding ? (error ? "error" : "ready") : "disabled",
     snapshot,
     error,
     pendingAction,
@@ -172,7 +176,7 @@ export function WaitlistFlowProvider({ featureEnabled, consentVersion, children 
     recordReply,
     join,
     retry,
-  }), [consentVersion, error, featureEnabled, join, lastAction, pendingAction, recordReply, retry, saveConfiguration, snapshot]);
+  }), [consentVersion, error, featureEnabled, join, lastAction, onboarding, pendingAction, recordReply, retry, saveConfiguration, snapshot]);
 
   return <AllyPreviewFlowContext.Provider value={value}>{children}</AllyPreviewFlowContext.Provider>;
 }

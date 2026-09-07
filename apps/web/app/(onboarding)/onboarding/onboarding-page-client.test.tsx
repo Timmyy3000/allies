@@ -22,6 +22,7 @@ vi.mock("../../../lib/env", () => ({
   getWebEnvironment: () => ({ waitlistEnabled: true, waitlistConsentVersion: "waitlist-v1" }),
 }));
 vi.mock("../../../lib/session/session-context", () => sessionMock);
+vi.mock("../../../lib/allies/onboarding-handoff-screen", () => ({ OnboardingHandoffScreen: () => <div data-testid="onboarding-handoff" /> }));
 vi.mock("../../../lib/waitlist/flow", () => ({
   WaitlistFlowProvider: ({ children }: { children: ReactNode }) => (
     <div data-testid="waitlist-provider">{children}</div>
@@ -68,13 +69,13 @@ describe("OnboardingPageClient", () => {
     expect(screen.queryByTestId("public-onboarding")).toBeNull();
   });
 
-  it("keeps a signed-in visitor on onboarding after Google returns", async () => {
+  it("completes the saved Ally after Google returns", async () => {
     setupSession("signed-in");
     searchParamsMock.get.mockReturnValue("welcome");
 
     render(<OnboardingPageClient />);
 
-    expect(screen.getByTestId("public-onboarding")).toBeTruthy();
+    expect(screen.getByTestId("onboarding-handoff")).toBeTruthy();
     expect(routerMock.replace).not.toHaveBeenCalled();
   });
 

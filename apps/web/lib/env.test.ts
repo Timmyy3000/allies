@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { getActivitySseEnabled, parseWebEnvironment } from "./env";
+import { getActivitySseEnabled, getCreationWakeEnabled, parseWebEnvironment } from "./env";
 
 describe("web environment", () => {
   it("defaults waitlist enablement off and consent empty", () => {
@@ -55,6 +55,16 @@ describe("web environment", () => {
     expect(getActivitySseEnabled()).toBe(true);
     vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "false");
     expect(getActivitySseEnabled()).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
+  it("keeps creation wake opt-in", () => {
+    vi.stubEnv("NEXT_PUBLIC_CREATION_WAKE_ENABLED", "");
+    expect(getCreationWakeEnabled()).toBe(false);
+    vi.stubEnv("NEXT_PUBLIC_CREATION_WAKE_ENABLED", "true");
+    expect(getCreationWakeEnabled()).toBe(true);
+    vi.stubEnv("NEXT_PUBLIC_CREATION_WAKE_ENABLED", "false");
+    expect(getCreationWakeEnabled()).toBe(false);
     vi.unstubAllEnvs();
   });
 });

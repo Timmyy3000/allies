@@ -7,7 +7,7 @@ export const HEADING_STYLE = {
   fontWeight: 700,
   letterSpacing: -1,
   lineHeight: "120%",
-  color: "#121212",
+  color: "var(--text-primary)",
   whiteSpace: "pre-wrap" as const,
 };
 

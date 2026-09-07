@@ -75,7 +75,7 @@ export default defineConfig({
           name: "packages",
           clearMocks: true,
           restoreMocks: true,
-          include: ["packages/**/*.test.ts", "packages/**/*.test.tsx"],
+          include: ["packages/**/*.test.ts", "packages/**/*.test.tsx", "scripts/**/*.test.ts"],
         },
       },
     ],

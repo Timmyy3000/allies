@@ -1,12 +1,36 @@
 // @vitest-environment jsdom
 
-import { act, renderHook } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { createElement, StrictMode, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { useComposingRuntimeIntent, type RuntimeIntentRequester } from "./runtime-intent";
 
 describe("useComposingRuntimeIntent", () => {
+  it("exposes confirmed readiness without treating an outstanding request as ready", async () => {
+    let resolveIntent!: (value: { status: "ready" }) => void;
+    const request = vi.fn<RuntimeIntentRequester>(() => new Promise(resolve => { resolveIntent = resolve; }));
+    const { result } = renderHook(() => useComposingRuntimeIntent("ally-1", request));
+    act(() => result.current.observeEdit("hello"));
+    expect(result.current.status).toBe("requesting");
+    await act(async () => resolveIntent({ status: "ready" }));
+    expect(result.current.status).toBe("ready");
+  });
+
+  it("ignores late readiness from the previous Ally", async () => {
+    let resolveOld!: (value: { status: "ready" }) => void;
+    const request = vi.fn<RuntimeIntentRequester>((id) => id === "ally-1"
+      ? new Promise(resolve => { resolveOld = resolve; })
+      : Promise.resolve({ status: "waking" }));
+    const { result, rerender } = renderHook(({ id }) => useComposingRuntimeIntent(id, request), { initialProps: { id: "ally-1" } });
+    act(() => result.current.observeEdit("hello"));
+    rerender({ id: "ally-2" });
+    act(() => result.current.observeEdit("hello"));
+    await waitFor(() => expect(result.current.status).toBe("waking"));
+    await act(async () => resolveOld({ status: "ready" }));
+    expect(result.current.status).toBe("waking");
+  });
+
   it("emits one content-free intent on the first meaningful edit", () => {
     const requestIntent = vi.fn<RuntimeIntentRequester>(async () => ({ status: "waking" as const }));
     const { result } = renderHook(() => useComposingRuntimeIntent("ally-1", requestIntent));

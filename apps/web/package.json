@@ -13,7 +13,8 @@
     "verify:chat-frames:signoff": "bun tests/chat-frames/verify-chat-frame-runtime.ts && bun tests/chat-frames/verify-chat-frame-manifest.ts --mode=signoff && bun tests/chat-frames/verify-production-bundle-boundary.ts",
     "test:chat-frames": "bun run verify:chat-frames && playwright test --config playwright.chat-frames.config.ts",
     "test:chat-frames:update": "bun run verify:chat-frames:prebaseline && playwright test --config playwright.chat-frames.config.ts --project=chat-chromium --update-snapshots",
-    "test:ally-motion": "playwright test --config playwright.ally-motion.config.ts"
+    "test:ally-motion": "playwright test --config playwright.ally-motion.config.ts",
+    "test:home-smoke": "playwright test --config playwright.home-smoke.config.ts"
   },
   "dependencies": {
     "@allies/cloud-client": "workspace:*",

@@ -3,6 +3,30 @@ import { describe, expect, it, vi } from "vitest";
 import { readActivityStream } from "./activity-stream";
 
 describe("readActivityStream", () => {
+  it("handles reader cancellation rejection after the parent aborts", async () => {
+    const parent = new AbortController();
+    const onError = vi.fn();
+    let streamController: ReadableStreamDefaultController<Uint8Array>;
+    const stream = new ReadableStream<Uint8Array>({ start(controller) { streamController = controller; } });
+    const cancel = vi.spyOn(ReadableStreamDefaultReader.prototype, "cancel");
+    vi.stubGlobal("fetch", vi.fn(async (_url, init: RequestInit) => {
+      init.signal?.addEventListener("abort", () => streamController.error(new DOMException("BodyStreamBuffer was aborted", "AbortError")), { once: true });
+      return new Response(stream);
+    }));
+    const onOpen = vi.fn();
+    const handle = readActivityStream({ baseUrl: "http://localhost:8000", workspaceId: "workspace", conversationId: "conversation", signal: parent.signal, onEvent: vi.fn(), onOpen, onError });
+    try {
+      await vi.waitFor(() => expect(onOpen).toHaveBeenCalledOnce());
+      parent.abort();
+      await vi.waitFor(() => expect(cancel).toHaveBeenCalledOnce());
+      expect(onError).not.toHaveBeenCalled();
+    } finally {
+      handle.close();
+      cancel.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("parses ready and activity frames and sends the accepted cursor on reconnect input", async () => {
     const events: unknown[] = [];
     const onError = vi.fn();

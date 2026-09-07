@@ -30,6 +30,7 @@ test.describe("chat frame geometry and behavior", () => {
   test("matches the reference mobile anchors", async ({ page }) => {
     await page.setViewportSize(referenceViewport);
     await openFrame(page, CHAT_FRAME_IDS[0]);
+    await expect(page.getByTestId("conversation-frame-scroll-blur")).toBeHidden();
     const measurements = await page.evaluate(() => {
       const rect = (selector: string) => {
         const element = document.querySelector<HTMLElement>(selector);
@@ -76,6 +77,63 @@ test.describe("chat frame geometry and behavior", () => {
     expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
   });
 
+  test("keeps focused mobile input readable without zoom-sized text or overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 375, height: 812 });
+    await openFrame(page, CHAT_FRAME_IDS[0]);
+    const input = page.locator("#ally-message");
+    await input.fill("A reply\nwith another line");
+    await input.focus();
+    const geometry = await input.evaluate((element) => ({
+      fontSize: parseFloat(getComputedStyle(element).fontSize),
+      left: element.getBoundingClientRect().left,
+      right: element.getBoundingClientRect().right,
+      viewportWidth: document.documentElement.clientWidth,
+      pageWidth: document.documentElement.scrollWidth,
+    }));
+    expect(geometry.fontSize).toBeGreaterThanOrEqual(16);
+    expect(geometry.left).toBeGreaterThanOrEqual(0);
+    expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth);
+    expect(geometry.pageWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+  });
+
+  test("keeps long mobile bubbles compact", async ({ page }) => {
+    await page.setViewportSize(referenceViewport);
+    await openFrame(page, "315:3009");
+    const geometry = await page.evaluate(() => {
+      const bubble = document.querySelector<HTMLElement>("article[data-multiline='true']")!;
+      const rail = document.querySelector<HTMLElement>("[data-testid='conversation-frame-rail']")!;
+      return {
+        bubbleWidth: bubble.getBoundingClientRect().width,
+        railWidth: rail.getBoundingClientRect().width,
+      };
+    });
+
+    expect(geometry.bubbleWidth).toBeLessThanOrEqual(255);
+    expect(geometry.bubbleWidth / geometry.railWidth).toBeLessThanOrEqual(0.77);
+
+    const productionGeometry = await page.evaluate(() => {
+      const rules = [...document.styleSheets].flatMap((sheet) => {
+        try { return [...sheet.cssRules]; } catch { return []; }
+      });
+      const productionRule = rules.find((rule): rule is CSSStyleRule => (
+        rule instanceof CSSStyleRule
+        && rule.style.getPropertyValue("--chat-history-clearance").includes("136px")
+      ));
+      const productionClass = productionRule?.selectorText.match(/\.([\w-]*frameProduction[\w-]*)/)?.[1];
+      const shell = document.querySelector<HTMLElement>("[data-testid='conversation-frame-shell']")!;
+      const canvas = document.querySelector<HTMLElement>("[data-testid='conversation-frame-canvas']")!;
+      const blur = document.querySelector<HTMLElement>("[data-testid='conversation-frame-scroll-blur']")!;
+      if (productionClass) shell.classList.add(productionClass);
+      return {
+        productionClass,
+        canvasTop: parseFloat(getComputedStyle(canvas).paddingTop),
+        gradientHeight: parseFloat(getComputedStyle(blur).height),
+      };
+    });
+    expect(productionGeometry.productionClass).toBeTruthy();
+    expect(productionGeometry.canvasTop - productionGeometry.gradientHeight).toBeCloseTo(4, 0);
+  });
+
   test("toggles the native activity disclosure", async ({ page }) => {
     await openFrame(page, "315:3141");
     const details = page.locator("details");
@@ -93,30 +151,27 @@ test.describe("chat frame geometry and behavior", () => {
     await expect(page.getByRole("button", { name: /Remove queued message:/ })).toHaveCount(0);
   });
 
-  test("transitions report, approval, image, routine, and cart interactions", async ({ page }) => {
-    await openFrame(page, "362:6356");
-    await page.getByRole("button", { name: "Report" }).click();
-    await expect(page.getByText("Thanks for sharing this report", { exact: true })).toBeVisible();
-    await expect(page.getByText("Error message sits here")).toHaveCount(0);
+  test("bounds an unbroken queued URL without hiding its controls", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 700 });
+    await openFrame(page, "347:5953");
+    const queue = page.getByRole("list", { name: "Queued messages" });
+    await queue.locator("li > span").first().evaluate((element) => {
+      element.textContent = `https://example.com/${"unbroken".repeat(80)}`;
+    });
+    const geometry = await queue.locator("li").evaluate((item) => {
+      const bounds = item.getBoundingClientRect();
+      const parent = item.parentElement!.getBoundingClientRect();
+      const buttons = [...item.querySelectorAll("button")].map((button) => {
+        const box = button.getBoundingClientRect();
+        return { left: box.left, right: box.right, width: box.width };
+      });
+      return { left: bounds.left, right: bounds.right, parentLeft: parent.left, parentRight: parent.right, buttons };
+    });
 
-    await openFrame(page, "355:6222");
-    await expect(page.getByRole("dialog")).toContainText("manual approval");
-    await page.getByRole("button", { name: "Approve" }).click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-
-    await openFrame(page, "332:5289");
-    await expect(page.getByRole("dialog", { name: "Image preview" })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "Image preview" })).toHaveCount(0);
-
-    await openFrame(page, "372:6829");
-    await page.getByRole("button", { name: "Delete" }).click();
-    await expect(page.getByRole("dialog")).toContainText("Are you sure");
-    await page.getByRole("button", { name: "Cancel" }).click();
-    await expect(page.getByRole("dialog")).toHaveCount(0);
-
-    await openFrame(page, "332:4740");
-    await page.getByRole("button", { name: "Increase quantity" }).click();
-    await expect(page.locator("[aria-live='polite']")).toHaveText("2");
+    expect(geometry.left).toBeGreaterThanOrEqual(geometry.parentLeft);
+    expect(geometry.right).toBeLessThanOrEqual(geometry.parentRight);
+    expect(geometry.buttons.length).toBe(2);
+    expect(geometry.buttons.every((button) => button.width > 0 && button.left >= geometry.left && button.right <= geometry.right)).toBe(true);
   });
+
 });

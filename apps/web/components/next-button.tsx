@@ -1,6 +1,6 @@
 export const ONBOARDING_COLORS = {
   activeCta: "#FF5800",
-  inactiveCta: "#D9D9D9",
+  inactiveCta: "var(--control-disabled)",
 } as const;
 
 export const ONBOARDING_LAYOUT = {

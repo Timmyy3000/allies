@@ -1,8 +1,9 @@
 .frameShell {
-  --chat-ink: #121212;
-  --chat-muted: #a0a0a0;
-  --chat-surface: #f3f3f3;
+  --chat-ink: var(--text-primary);
+  --chat-muted: var(--text-muted);
+  --chat-surface: var(--surface);
   --chat-accent: #ff2d55;
+  --chat-on-accent: #fff;
   --chat-safe-top: env(safe-area-inset-top, 0px);
   --chat-safe-bottom: env(safe-area-inset-bottom, 0px);
   display: grid;
@@ -13,9 +14,9 @@
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #fff;
+  background: var(--canvas);
   color: var(--chat-ink);
-  color-scheme: light;
+  color-scheme: var(--app-color-scheme);
   font-family: var(--font-open-runde), sans-serif;
 }
 
@@ -41,6 +42,17 @@
   pointer-events: none;
 }
 
+@media (max-width: 1023px) {
+  .frameProduction {
+    height: var(--chat-viewport-height, 100%);
+    translate: 0 var(--chat-viewport-offset, 0);
+  }
+
+  .frameDesktopFade {
+    display: none;
+  }
+}
+
 .frameScrollBlur::before,
 .frameScrollBlur::after {
   position: absolute;
@@ -51,15 +63,15 @@
 .frameScrollBlur::before {
   background: linear-gradient(
     to bottom,
-    rgb(255 255 255 / 0.97) 0%,
-    rgb(255 255 255 / 0.91) 40%,
-    rgb(255 255 255 / 0.62) 72%,
-    rgb(255 255 255 / 0) 100%
+    rgb(var(--canvas-rgb) / 0.97) 0%,
+    rgb(var(--canvas-rgb) / 0.91) 40%,
+    rgb(var(--canvas-rgb) / 0.62) 72%,
+    rgb(var(--canvas-rgb) / 0) 100%
   );
 }
 
 .frameScrollBlur::after {
-  background: rgb(255 255 255 / 0.01);
+  background: rgb(var(--canvas-rgb) / 0.01);
   -webkit-backdrop-filter: blur(5px);
   backdrop-filter: blur(5px);
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 42%, transparent 100%);
@@ -179,7 +191,7 @@
 
 .frameIdentity p {
   margin-top: 1px;
-  color: #757575;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 18px;
 }
@@ -193,7 +205,7 @@
   margin-left: auto;
   align-items: center;
   gap: 7px;
-  color: #757575;
+  color: var(--text-secondary);
   font-size: 14px;
   line-height: 18px;
 }
@@ -209,6 +221,10 @@
 }
 
 .frameCanvas {
+  --chat-scroll-thumb: transparent;
+  scrollbar-width: thin;
+  scrollbar-color: var(--chat-scroll-thumb) transparent;
+  transition: --chat-scroll-thumb 400ms ease;
   min-width: 0;
   min-height: 0;
   overflow-x: hidden;
@@ -265,7 +281,82 @@
 }
 
 .frameSleepingStatus {
-  display: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -1px;
+  line-height: 22px;
+}
+
+.frameProduction .frameRail { gap: 24px; }
+
+.frameProduction .frameUserBubble + .frameAssistantMessage,
+.frameProduction .frameAssistantMessage + .frameUserBubble {
+  margin-top: 24px;
+}
+
+.frameProduction {
+  --chat-history-clearance: calc(136px + var(--chat-safe-top));
+}
+
+.frameProduction .frameCanvas {
+  padding-top: var(--chat-history-clearance);
+}
+
+.frameProduction .frameUserBubble {
+  background: var(--chat-accent);
+  width: fit-content;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.frameComposerPlus img {
+  filter: var(--mono-icon-filter);
+}
+
+.frameProduction .frameUserBubble[data-multiline="true"] {
+  width: fit-content;
+}
+
+.frameProduction .frameComposerArea {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.frameProduction .frameQueue {
+  gap: 6px;
+}
+
+.frameProduction .frameQueuePill {
+  background: var(--surface-secondary);
+}
+
+.frameProduction .frameQueuePill > span {
+  letter-spacing: -0.7px;
+  padding-block: 2px;
+}
+
+.frameProduction .frameQueuePill > button:last-child svg {
+  width: 18px;
+  height: 18px;
+  stroke: none;
+}
+
+.frameSleepingStatus > span:last-child {
+  min-width: 0;
+  padding-block: 3px;
+  margin-block: -3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .frameSleepingAvatar {
@@ -277,6 +368,152 @@
   overflow: hidden;
   border-radius: 16px;
   background: #a0a0a0;
+}
+
+.framePresenceActor {
+  position: absolute;
+  z-index: 3;
+  top: 0;
+  left: 0;
+  width: 36px;
+  height: 36px;
+  transform-origin: top left;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.framePresenceColor {
+  filter: saturate(1) brightness(1);
+  transition: filter 1400ms ease;
+}
+
+.framePresenceColor[data-muted="true"] {
+  filter: saturate(0.28) brightness(var(--sleeping-shell-brightness));
+}
+
+.frameCanvas[data-scrolling="true"] {
+  --chat-scroll-thumb: var(--chat-accent);
+  transition-duration: 100ms;
+}
+
+@supports selector(::-webkit-scrollbar) {
+  .frameCanvas { scrollbar-width: auto; scrollbar-color: auto; }
+  .frameCanvas::-webkit-scrollbar { width: 6px; }
+  .frameCanvas::-webkit-scrollbar-track { background: transparent; }
+  .frameCanvas::-webkit-scrollbar-thumb {
+    background: var(--chat-scroll-thumb);
+    border-radius: 999px;
+  }
+  .frameCanvas::-webkit-scrollbar-button { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frameCanvas { transition: none; }
+}
+
+.framePresenceHeaderSlot {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+}
+
+.framePresenceThreadSlot {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+}
+
+.framePresenceRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 36px;
+}
+
+.framePresenceRow[data-docked="true"] {
+  visibility: hidden;
+}
+
+.framePresenceActivity {
+  min-width: 0;
+  color: var(--chat-accent);
+  font-size: 16px;
+  font-weight: 500;
+  line-height: 36px;
+  letter-spacing: -0.5px;
+}
+
+.framePresenceLabel {
+  animation: presence-label-in 220ms ease both;
+}
+
+.frameThinkingLabel {
+  color: var(--chat-accent);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -1px;
+}
+
+.frameAssistantMessage [data-streamdown="table-wrapper"] {
+  min-width: 0;
+  margin-block: 12px;
+  padding: 0;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+}
+
+.frameAssistantMessage [data-streamdown="table-wrapper"] > div:has(> table) {
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  background: var(--canvas);
+  scrollbar-width: thin;
+  scrollbar-color: var(--chat-accent) transparent;
+}
+
+.frameAssistantMessage [data-streamdown="table-wrapper"] button {
+  color: var(--text-secondary);
+  border-radius: 6px;
+}
+
+.frameAssistantMessage [data-streamdown="table-wrapper"] button:hover {
+  color: var(--text-primary);
+  background: var(--surface);
+}
+
+.frameAssistantMessage [data-streamdown="table"] {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text-primary);
+}
+
+.frameAssistantMessage [data-streamdown="table-header"] {
+  background: var(--surface);
+}
+
+.frameAssistantMessage :is(th, td) {
+  padding: 12px 16px;
+  font-size: 14px;
+  line-height: 1.6;
+  letter-spacing: -0.2px;
+  vertical-align: top;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 100px;
+}
+
+.frameAssistantMessage th { font-weight: 600; }
+.frameAssistantMessage td { font-weight: 400; }
+.frameAssistantMessage :is(tbody, tr) { border-color: var(--divider); }
+
+@keyframes presence-label-in {
+  from { opacity: 0; transform: translateY(3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .framePresenceColor { transition: none; }
+  .framePresenceLabel { animation: none; }
 }
 
 .frameAssistantIdentity {
@@ -309,38 +546,117 @@
 }
 
 .frameAssistantMessage {
+  width: 100%;
+  min-width: 0;
   align-self: flex-start;
-  color: #121212;
+  color: var(--text-primary);
   font-family: var(--font-open-runde), "Open Runde", sans-serif;
   font-size: 16px;
   font-style: normal;
   font-weight: 500;
   letter-spacing: -0.5px;
-  line-height: 22px;
+  line-height: 1.55;
 }
 
-.frameAssistantMessage :is(p, div, span, li, a, em, code, pre, ul, ol, h1, h2, h3, h4) {
-  margin: 0;
-  color: inherit;
-  font-family: inherit;
-  font-size: 16px;
-  font-style: inherit;
-  font-weight: 500;
-  letter-spacing: -0.5px;
-  line-height: 22px;
-}
-
-.frameAssistantMessage strong {
+.frameAssistantMessage :is(strong, [data-streamdown="strong"]) {
   font-weight: 600;
-  letter-spacing: -0.5px;
 }
+
+.frameAssistantMessage :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.3em 0 0.5em;
+  color: var(--text-primary);
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.6px;
+  text-wrap: pretty;
+}
+.frameAssistantMessage h1 { font-size: 26px; }
+.frameAssistantMessage h2 { font-size: 22px; }
+.frameAssistantMessage h3 { font-size: 19px; }
+.frameAssistantMessage :is(h4, h5, h6) { font-size: 16px; }
+.frameAssistantMessage :is(em, i) { font-style: italic; }
+.frameAssistantMessage :is(ul, ol) { margin: 12px 0; padding-left: 24px; }
+.frameAssistantMessage ul { list-style: disc outside; }
+.frameAssistantMessage ol { list-style: decimal outside; }
+.frameAssistantMessage li { display: list-item; margin-block: 5px; padding-left: 3px; }
+.frameAssistantMessage li::marker { color: var(--text-secondary); }
+.frameAssistantMessage li :is(ul, ol) { margin-block: 6px; }
+.frameAssistantMessage li:has(> input[type="checkbox"]) { list-style: none; }
+.frameAssistantMessage input[type="checkbox"] { accent-color: var(--chat-accent); margin-right: 8px; }
+.frameAssistantMessage blockquote {
+  margin: 16px 0;
+  padding: 8px 16px;
+  border-left: 3px solid var(--chat-accent);
+  background: var(--surface);
+  border-radius: 0 8px 8px 0;
+  color: var(--text-secondary);
+}
+.frameAssistantMessage [data-streamdown="link"] {
+  color: var(--chat-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  overflow-wrap: anywhere;
+}
+.frameAssistantMessage :is(code, pre, pre span) {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.65;
+}
+.frameAssistantMessage [data-streamdown="inline-code"] {
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text-primary);
+}
+.frameAssistantMessage [data-streamdown="code-block"] {
+  margin-block: 16px;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.frameAssistantMessage [data-streamdown="code-block-header"] {
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--divider);
+  padding: 8px 14px;
+  font-size: 12px;
+}
+.frameAssistantMessage [data-streamdown="code-block-body"] {
+  padding: 14px 16px;
+  background: var(--surface);
+  color: var(--text-primary);
+  scrollbar-width: thin;
+  scrollbar-color: var(--chat-accent) transparent;
+}
+.frameAssistantMessage [data-streamdown="code-block-actions"] {
+  border-color: var(--divider);
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+}
+.frameAssistantMessage pre { white-space: pre; overflow-x: auto; }
+.frameAssistantMessage hr { margin-block: 24px; border-color: var(--divider); }
+.frameAssistantMessage details {
+  margin-block: 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--divider);
+  border-radius: 10px;
+}
+.frameAssistantMessage summary { cursor: pointer; font-weight: 600; }
+.frameAssistantMessage details[open] summary { margin-bottom: 10px; }
+.frameAssistantMessage [data-footnotes] { margin-top: 24px; color: var(--text-secondary); font-size: 14px; }
+.frameAssistantMessage img { max-width: 100%; height: auto; border-radius: 10px; }
 
 .frameAssistantIdentity + .frameAssistantMessage {
   margin-top: 28px;
 }
 
-.frameAssistantMessage p,
-.frameAssistantMessage > div,
+.frameAssistantMessage p { margin: 0 0 12px; white-space: normal; }
+.frameAssistantMessage :is(p, h1, h2, h3, ul, ol, blockquote):first-child { margin-top: 0; }
+.frameAssistantMessage :is(p, ul, ol, blockquote):last-child { margin-bottom: 0; }
+.frameAssistantMessage > div { white-space: normal; }
 .frameUserBubble p {
   margin: 0;
   white-space: pre-wrap;
@@ -353,7 +669,7 @@
   padding: 10px 12px;
   border-radius: 30px;
   background: #ff2d55;
-  color: #fff;
+  color: var(--chat-on-accent);
   font-size: 14px;
   font-weight: 500;
   letter-spacing: -0.48px;
@@ -384,7 +700,7 @@
 .frameRetryButton {
   display: block;
   margin-top: 4px;
-  color: rgba(255, 255, 255, 0.8);
+  color: var(--chat-on-accent);
   font-size: 11px;
   line-height: 14px;
   text-align: right;
@@ -486,12 +802,13 @@
 }
 
 .frameActivityMuted {
-  color: #757575;
+  color: var(--text-secondary);
 }
 
 .frameQueue {
   display: grid;
   width: 100%;
+  min-width: 0;
   gap: 8px;
   margin: 0;
   padding: 0;
@@ -500,6 +817,9 @@
 
 .frameQueuePill {
   display: flex;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 48px;
   align-items: center;
   gap: 8px;
@@ -507,6 +827,7 @@
   padding: 6px 8px 6px 12px;
   border-radius: 100px;
   background: var(--chat-surface);
+  overflow: hidden;
 }
 
 .frameQueuePill > span {
@@ -574,7 +895,7 @@
   min-width: 0;
   box-sizing: border-box;
   padding: 0 20px calc(24px + var(--chat-safe-bottom));
-  background: #fff;
+  background: var(--canvas);
 }
 
 .frameComposerArea > :not(.frameComposer) {
@@ -637,19 +958,102 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: #121212;
+  color: var(--text-primary);
   font: inherit;
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
   letter-spacing: -0.49px;
-  line-height: 18.2px;
-  padding: 9px 0;
+  line-height: 22px;
+  padding: 7px 0;
 }
 
 .frameComposer textarea::placeholder {
   color: var(--chat-muted);
   opacity: 1;
 }
+
+.frameComposerContent { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.frameProduction .frameComposer[data-has-paste="true"] { max-height: none; padding-top: 14px; }
+.frameComposerContent > textarea { width: 100%; flex: none; }
+.framePasteCard { display: flex; align-items: center; width: fit-content; max-width: 100%; border-radius: 16px; background: var(--surface-secondary); }
+.frameProduction .framePasteCard > button.framePastedText { width: auto; flex: 0 1 auto; background: transparent; }
+.frameProduction .framePasteCard > button.frameRemovePaste { flex: 0 0 32px; width: 32px; height: 32px; margin-right: 8px; background: transparent; color: var(--chat-accent); }
+.frameRemovePaste svg { width: 18px; height: 18px; }
+.frameProduction .frameComposerContent > button.framePastedText { flex: none; width: 100%; }
+
+.frameComposer textarea,
+.framePasteDialog textarea {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--chat-accent) 65%, transparent) transparent;
+}
+
+.frameComposer textarea::-webkit-scrollbar,
+.framePasteDialog textarea::-webkit-scrollbar { width: 5px; }
+.frameComposer textarea::-webkit-scrollbar-track,
+.framePasteDialog textarea::-webkit-scrollbar-track { background: transparent; }
+.frameComposer textarea::-webkit-scrollbar-thumb,
+.framePasteDialog textarea::-webkit-scrollbar-thumb { background: var(--chat-accent); border-radius: 999px; }
+.frameComposer textarea::-webkit-scrollbar-button,
+.framePasteDialog textarea::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+
+.frameProduction .frameComposer button.framePastedText {
+  display: flex;
+  flex: 1;
+  width: auto;
+  height: auto;
+  min-width: 0;
+  gap: 12px;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: var(--surface-secondary);
+  color: var(--text-primary);
+  text-align: left;
+}
+@supports selector(::-webkit-scrollbar) {
+  .frameComposer textarea,
+  .framePasteDialog textarea { scrollbar-width: auto; scrollbar-color: auto; }
+}
+.framePastedText > span:first-child { color: var(--chat-accent); font-size: 26px; }
+.framePastedText strong { display: block; font-size: 14px; font-weight: 600; }
+.framePastedText small { display: block; color: var(--text-secondary); font-size: 12px; line-height: 18px; }
+
+.frameComposerArea > dialog.framePasteDialog {
+  box-sizing: border-box;
+  width: min(680px, calc(100vw - 32px));
+  max-height: calc(100dvh - 32px);
+  margin: auto;
+  padding: 24px;
+  border: 0;
+  border-radius: 30px;
+  background: var(--panel);
+  color: var(--text-primary);
+  font-family: var(--font-open-runde), "Open Runde", sans-serif;
+}
+.framePasteDialog::backdrop { background: rgb(0 0 0 / 40%); backdrop-filter: blur(6px); }
+.framePasteHeading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.framePasteHeading h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.7px; }
+.framePasteDialog p { margin: 12px 0; color: var(--text-secondary); font-size: 14px; }
+.framePasteDialog textarea {
+  box-sizing: border-box;
+  width: 100%;
+  height: min(50dvh, 420px);
+  padding: 16px;
+  border: 1px solid var(--divider);
+  border-radius: 16px;
+  resize: none;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.framePasteDialog footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 16px; }
+.framePasteDialog footer span { color: var(--text-secondary); font-size: 12px; }
+.framePasteDialog button { border: 0; border-radius: 999px; cursor: pointer; font: inherit; }
+.framePasteHeading button { width: 36px; height: 36px; background: var(--surface); color: var(--text-secondary); font-size: 24px; }
+.framePasteDialog footer button { min-height: 44px; padding: 10px 24px; background: var(--chat-accent); color: white; font-weight: 600; }
+.framePasteDialog :is(button, textarea):focus-visible,
+.frameComposer button.framePastedText:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: 3px; }
 
 .frameComposer button {
   display: grid;
@@ -683,7 +1087,7 @@
 .frameComposerError,
 .frameQuietState {
   margin: 0 0 8px;
-  color: #757575;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 16px;
   text-align: center;
@@ -735,7 +1139,7 @@
   border: 0;
   border-radius: 20px;
   background: var(--chat-surface);
-  color: #757575;
+  color: var(--text-secondary);
   font: inherit;
   font-size: 13px;
   font-weight: 600;
@@ -770,7 +1174,7 @@
   box-sizing: border-box;
   padding: 24px 20px 20px;
   border-radius: 30px;
-  background: #fff;
+  background: var(--canvas);
   box-shadow: 0 22px 70px rgba(18, 18, 18, 0.18);
 }
 
@@ -833,7 +1237,7 @@
 
 .frameNeutralAction {
   background: var(--chat-surface);
-  color: #757575;
+  color: var(--text-secondary);
 }
 
 .frameAccentAction {
@@ -968,7 +1372,7 @@
   flex: 0 0 32px;
   place-items: center;
   border-radius: 10px;
-  background: #fff;
+  background: var(--canvas);
 }
 
 .frameCartStore svg {
@@ -1099,7 +1503,7 @@
 }
 
 .frameQuantityControls button:disabled {
-  background: #d9d9d9;
+  background: var(--control-disabled);
   cursor: default;
 }
 
@@ -1108,7 +1512,7 @@
   flex: 0 0 48px;
   margin-top: auto;
   background: var(--chat-surface);
-  color: #757575;
+  color: var(--text-secondary);
 }
 
 .frameRoutineCard {
@@ -1135,7 +1539,7 @@
   flex: 0 0 36px;
   place-items: center;
   border-radius: 50%;
-  background: #fff;
+  background: var(--canvas);
 }
 
 .frameRoutineIcon svg {
@@ -1170,7 +1574,7 @@
 }
 
 .frameRoutineCopy span {
-  color: #757575;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 17px;
 }
@@ -1286,7 +1690,7 @@
     justify-content: center;
     gap: 6px;
     min-width: 0;
-    color: #121212;
+    color: var(--text-primary);
     font-size: 18px;
     font-weight: 600;
     letter-spacing: -0.93px;
@@ -1294,35 +1698,30 @@
     white-space: nowrap;
   }
 
-  .frameScrollBlur {
-    left: 50%;
-    width: 471px;
-    height: 203px;
-    transform: translateX(-50%);
-    background: #fff;
-    filter: blur(30px);
-    opacity: 0.96;
-  }
-
-  .frameScrollBlur::before,
-  .frameScrollBlur::after {
-    content: none;
-  }
-
   .frameCanvas {
     padding-top: calc(116px + var(--chat-safe-top));
     padding-right: 20px;
     padding-left: 20px;
   }
+
+  .frameUserBubble[data-multiline="true"] {
+    width: fit-content;
+    max-width: min(255px, 76%);
+  }
 }
 
 @media (min-width: 1024px) {
+  .frameProduction {
+    --chat-history-clearance: 188px;
+  }
+
   .frameHeader {
     height: 52px;
+    background: var(--panel);
     justify-content: center;
     align-items: center;
     padding: 0 28px;
-    border-bottom: 1px solid #e8e8e8;
+    border-bottom: 1px solid var(--divider);
   }
 
   .frameIconHit,
@@ -1332,6 +1731,7 @@
   }
 
   .frameScrollBlur {
+    top: 52px;
     height: 120px;
   }
 
@@ -1344,16 +1744,23 @@
   }
 
   .frameSleepingStatus {
-    display: none;
+    position: absolute;
+    top: 72px;
+    left: 24px;
+    right: 24px;
+  }
+
+  .frameShell:has(.frameHeaderSleeping) .frameCanvas {
+    padding-top: max(140px, var(--chat-history-clearance, 0px));
   }
 
   .frameSettingsDesktop {
     margin-left: 0;
     gap: 8px;
-    color: #757575;
+    color: var(--text-secondary);
     font-size: 16px;
     font-weight: 500;
-    letter-spacing: -0.65px;
+    letter-spacing: -0.7px;
     line-height: 19px;
   }
 
@@ -1363,7 +1770,7 @@
   }
 
   .frameCanvas {
-    padding: 76px 0 34px;
+    padding: 76px 24px 34px;
     scroll-padding-bottom: 34px;
   }
 
@@ -1376,7 +1783,7 @@
   }
 
   .frameComposerArea {
-    padding: 0 0 calc(48px + var(--chat-safe-bottom));
+    padding: 0 24px calc(48px + var(--chat-safe-bottom));
   }
 
   .frameComposer,
@@ -1406,20 +1813,26 @@
     width: 18px;
     height: 18px;
     font-size: 13px;
+    margin-bottom: 0;
   }
 
   .frameComposer textarea {
-    font-size: 14px;
+    align-self: center;
+    font-size: 16px;
     letter-spacing: -0.49px;
-    line-height: 18.2px;
+    line-height: 22px;
+  }
+
+  .frameComposer[data-expanded="true"] .frameComposerPlus {
+    margin-bottom: 9px;
   }
 
   .frameComposer button {
     width: 37px;
     height: 36px;
     flex-basis: 37px;
-    background: #d9d9d9;
-    color: #757575;
+    background: var(--control-disabled);
+    color: var(--text-secondary);
   }
 
   .frameComposer button:not(:disabled) {
