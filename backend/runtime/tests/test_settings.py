@@ -397,3 +397,51 @@ def test_production_mode_accepts_explicit_database(database_url, engine):
         assert "31536000" in result.stdout
     else:
         assert "'transaction_mode': 'IMMEDIATE'" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({}, [True, False, False, 0]),
+        (
+            {
+                "ALLIES_CLOUD_URL": "https://cloud.example.com",
+                "ALLIES_CLOUD_EVENT_SERVICE_TOKEN": "x" * 32,
+            },
+            [True, True, False, 0],
+        ),
+        ({"ALLIES_CLOUD_URL": "https://cloud.example.com"}, [True, False, False, 0]),
+        ({"ALLIES_CLOUD_EVENT_SERVICE_TOKEN": "x" * 32}, [True, False, False, 0]),
+        (
+            {
+                "ALLIES_CLOUD_URL": "https://cloud.example.com",
+                "ALLIES_CLOUD_EVENT_SERVICE_TOKEN": "x" * 32,
+                "ALLIES_RUNTIME_READINESS_HINT_ENABLED": "false",
+                "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED": "false",
+            },
+            [False, False, False, 0],
+        ),
+    ],
+)
+def test_readiness_defaults_and_rollback(monkeypatch, overrides, expected):
+    import json
+
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "PROBE",
+        "import json; import config.settings as s; print(json.dumps([s.ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED, s.ALLIES_RUNTIME_READINESS_HINT_ENABLED, s.ALLIES_RUNTIME_IDLE_STOP_ENABLED, s.READY_WORKSPACE_POOL_TARGET]))",
+    )
+    result = run_settings_probe(DJANGO_DEBUG="true", **overrides)
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout) == expected
+
+
+def test_explicit_hint_enable_requires_delivery_credentials():
+    result = run_settings_probe(
+        DJANGO_DEBUG="true", ALLIES_RUNTIME_READINESS_HINT_ENABLED="true"
+    )
+    assert result.returncode != 0
+    assert (
+        "ALLIES_CLOUD_URL and ALLIES_CLOUD_EVENT_SERVICE_TOKEN are required"
+        in result.stderr
+    )

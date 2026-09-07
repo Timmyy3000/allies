@@ -7,7 +7,9 @@ remain authoritative.
 
 ## Configuration
 
-The acceleration flags are disabled by default:
+Activity waiting is enabled by default. Readiness hints default on when both
+existing Cloud delivery URL and token are configured; explicit false overrides
+remain available for rollback:
 
 - `ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED`: enables the authenticated PostgreSQL
   activity-wait endpoint for awake runtimes.
@@ -27,9 +29,9 @@ continue to use the existing polling behavior. The waiter is bounded to five
 seconds, rejects a second waiter for the same workspace, and returns capacity
 or service errors without changing runtime correctness.
 
-For the candidate and proof topology, set the runtime container's
-`ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED` flag as well as the matching Foundry
-setting. Use `WEB_THREADS=16` and no more than eight waiters per process. The
+Foundry and the runtime default activity waiting on. The web entrypoint defaults
+to 16 threads with at most eight waiters per process. Existing explicit false
+flags or thread overrides continue to win and must be removed to adopt defaults. The
 proof is capped at eight connected runtime workspaces in total, including
 unassigned reserve Machines, leaving at least eight ordinary request threads
 available per worker process.
@@ -37,12 +39,13 @@ available per worker process.
 ## Rollout
 
 Deploy the Foundry migration and API before enabling either sender. Deploy the
-Cloud readiness-hint receiver before enabling Foundry hint delivery. Start the
-dedicated publisher with a one-second supervised loop when hint latency is a
-release requirement:
+Cloud readiness-hint receiver before enabling Foundry hint delivery. Configure a dedicated publisher service using the same repository and Dockerfile,
+with the following start command. The platform supervises it and redeploys it
+automatically from the staging branch. Its watch cadence
+already defaults to one second. For local operation the equivalent entrypoint is:
 
 ```text
-python manage.py publish_profile_readiness_hints --watch --interval 1
+python manage.py publish_profile_readiness_hints --watch
 ```
 
 Run one bounded pass during inspection or recovery:
@@ -87,3 +90,11 @@ latency affects ordinary requests. Disable
 Existing polling and scheduled reconciliation continue, and durable hint rows
 can be inspected or retried after the receiver is healthy. Leave additive
 columns and rows in place until all old and new binaries have been retired.
+
+The publisher references the API service's DATABASE_URL, DJANGO_DEBUG,
+DJANGO_SECRET_KEY, ALLIES_CLOUD_SERVICE_TOKEN, ALLIES_CLOUD_URL and
+ALLIES_CLOUD_EVENT_SERVICE_TOKEN. It needs no public endpoint or Fly credentials.
+A backend deploy does not update existing Fly container configuration: publish
+and reconcile the compatible runtime image separately. Pool size stays zero
+and idle stopping stays disabled by default. These defaults do not establish a
+less-than-five-second wake guarantee.
