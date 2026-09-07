@@ -12,6 +12,7 @@ from allies.api.schemas import (
     OnboardingAttemptResponse,
     RuntimeIntentRequest,
     RuntimeIntentResponse,
+    WorkspaceRuntimeIntentRequest,
 )
 from allies.exceptions import (
     IdempotencyConflict,
@@ -30,7 +31,10 @@ from allies.gateways.foundry import (
 from allies.models import Ally, ProvisioningStatus
 from allies.services.creation import create_ally, list_allies, retrieve_ally
 from allies.services.onboarding import begin_onboarding, digest_value
-from allies.services.runtime_intents import request_runtime_intent
+from allies.services.runtime_intents import (
+    request_runtime_intent,
+    request_workspace_runtime_intent,
+)
 from auths.api.common import (
     _client_identity,
     _csrf_binding,
@@ -157,6 +161,86 @@ class OnboardingController(ControllerBase):
                 ),
                 "Onboarding started",
             )
+        )
+
+    @http_post(
+        "/runtime-intents",
+        response={
+            200: SuccessResponse[RuntimeIntentResponse],
+            202: SuccessResponse[RuntimeIntentResponse],
+            **error_responses(401, 403, 404, 409, 422, 429, 503),
+        },
+    )
+    def runtime_intent(
+        self,
+        request: HttpRequest,
+        payload: WorkspaceRuntimeIntentRequest,
+        idempotency_key: Annotated[
+            str,
+            Header(
+                alias="Idempotency-Key",
+                min_length=36,
+                max_length=36,
+                description="Stable UUID for repeating one runtime intent.",
+            ),
+        ],
+    ):
+        native_request = bool(
+            request.headers.get("Authorization")
+        ) and not _has_browser_signal(request)
+        if native_request and not native_enabled():
+            return error_json("session_invalid", "session invalid", 401)
+        if rejected := _require_origin(request, allow_native_bearer=True):
+            return rejected
+        try:
+            session = _session(
+                request,
+                expected_client_kind=(
+                    SessionClientKind.NATIVE
+                    if native_request
+                    else SessionClientKind.BROWSER
+                ),
+            )
+            result = request_workspace_runtime_intent(
+                user=session.user,
+                intent=payload.intent,
+                occurred_at=payload.occurred_at,
+                idempotency_key=idempotency_key,
+            )
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        except RuntimeIntentInvalid:
+            return error_json("validation_error", "request validation failed", 422)
+        except (WorkspaceAccessDenied, ValueError):
+            return error_json("workspace_unavailable", "Workspace unavailable", 404)
+        except ThrottleExceeded:
+            return error_json("rate_limited", "Request temporarily unavailable", 429)
+        except ThrottleUnavailable:
+            return error_json(
+                "throttle_unavailable", "Request temporarily unavailable", 503
+            )
+        except FoundryGatewayConflict:
+            return error_json(
+                "runtime_intent_conflict", "Runtime intent unavailable", 409
+            )
+        except FoundryGatewayNotFound:
+            return error_json(
+                "runtime_intent_unavailable", "Runtime intent unavailable", 404
+            )
+        except (
+            FoundryGatewayInvalid,
+            FoundryGatewayRejected,
+            FoundryGatewayRetryable,
+            FoundryGatewayUnknownOutcome,
+        ):
+            return error_json(
+                "runtime_intent_unavailable", "Runtime intent unavailable", 503
+            )
+        response = RuntimeIntentResponse(status=result.status)
+        return success_json(
+            response,
+            "Runtime intent accepted",
+            status=202 if result.status == "waking" else 200,
         )
 
 

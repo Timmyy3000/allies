@@ -277,6 +277,15 @@ ONBOARDING_ERROR_CODES: dict[tuple[str, str], dict[int, tuple[str, ...]]] = {
         409: ("idempotency_conflict",),
         422: ("onboarding_invalid",),
     },
+    ("/api/v1/onboarding/runtime-intents", "post"): {
+        401: ("session_invalid",),
+        403: ("origin_rejected", "csrf_rejected"),
+        404: ("workspace_unavailable", "runtime_intent_unavailable"),
+        409: ("runtime_intent_conflict",),
+        422: ("validation_error",),
+        429: ("rate_limited",),
+        503: ("throttle_unavailable", "runtime_intent_unavailable"),
+    },
 }
 
 
@@ -305,6 +314,11 @@ def _onboarding_error_example(code: str) -> dict[str, Any]:
         "ally_unavailable": "Ally unavailable",
         "idempotency_conflict": "request conflicts",
         "onboarding_invalid": "onboarding attempt invalid",
+        "workspace_unavailable": "Workspace unavailable",
+        "runtime_intent_conflict": "Runtime intent unavailable",
+        "runtime_intent_unavailable": "Runtime intent unavailable",
+        "rate_limited": "Request temporarily unavailable",
+        "throttle_unavailable": "Request temporarily unavailable",
         "validation_error": "request validation failed",
         "throttled": "try again later",
         "onboarding_unavailable": "onboarding unavailable",
@@ -523,6 +537,56 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
             ("/api/v1/workspaces/{workspace_id}/allies", "post")
         ].items():
             response = _response(allies_create, status)
+            if response is None:
+                continue
+            content = response.get("content", {}).get("application/json")
+            if not isinstance(content, dict):
+                continue
+            content.pop("example", None)
+            content["examples"] = {
+                code: {
+                    "summary": code.replace("_", " "),
+                    "value": _onboarding_error_example(code),
+                }
+                for code in codes
+            }
+
+    workspace_runtime_intent = (
+        schema.get("paths", {})
+        .get("/api/v1/onboarding/runtime-intents", {})
+        .get("post")
+    )
+    if isinstance(workspace_runtime_intent, dict):
+        workspace_runtime_intent["security"] = [
+            {"BrowserSession": []},
+            {"BearerAuth": []},
+        ]
+        workspace_runtime_intent["description"] = (
+            f"{workspace_runtime_intent.get('description', '').rstrip()}\n\n"
+            "This operation accepts either a browser session with a trusted "
+            "Origin or Referer and matching CSRF cookie/header, or a validated "
+            "native bearer-only session. The workspace is derived from the "
+            "authenticated principal; request content contains no Ally draft."
+        ).strip()
+        _add_header_parameter(
+            workspace_runtime_intent,
+            "Origin",
+            "Required for browser transport and must be trusted; omit for native.",
+        )
+        _add_header_parameter(
+            workspace_runtime_intent,
+            "Referer",
+            "Browser alternative to Origin; omit for native.",
+        )
+        _add_header_parameter(
+            workspace_runtime_intent,
+            "X-CSRFToken",
+            "Required with the browser CSRF cookie; omit for native.",
+        )
+        for status, codes in ONBOARDING_ERROR_CODES[
+            ("/api/v1/onboarding/runtime-intents", "post")
+        ].items():
+            response = _response(workspace_runtime_intent, status)
             if response is None:
                 continue
             content = response.get("content", {}).get("application/json")

@@ -58,6 +58,14 @@ class RuntimeIntentRequest(Schema):
     occurred_at: AwareDatetime
 
 
+class WorkspaceRuntimeIntentRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    version: int = Field(ge=1, le=1)
+    intent: Literal["ally_creation_started"]
+    occurred_at: AwareDatetime
+
+
 class RuntimeIntentResponse(Schema):
     status: Literal[
         "disabled",
