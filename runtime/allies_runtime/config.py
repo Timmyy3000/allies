@@ -167,6 +167,19 @@ def _float_setting(env: Mapping[str, object], name: str, default: float) -> floa
     return result
 
 
+def _bounded_float_setting(
+    env: Mapping[str, object], name: str, default: float, *, maximum: float
+) -> float:
+    raw = env.get(name, default)
+    try:
+        result = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise SettingsError(f"{name} must be a number") from exc
+    if not 0 < result <= maximum:
+        raise SettingsError(f"{name} must be greater than 0 and at most {maximum:g}s")
+    return result
+
+
 def _int_setting(env: Mapping[str, object], name: str, default: int) -> int:
     raw = env.get(name, default)
     try:
@@ -261,6 +274,8 @@ class RuntimeSettings:
     runtime_image: str | None = None
     source_commit: str = PINNED_HERMES_SOURCE_COMMIT
     wide_events: WideEventSettings = field(default_factory=WideEventSettings)
+    activity_wait_enabled: bool = False
+    activity_wait_seconds: float = 5.0
 
 
 def load_settings(env: Mapping[str, object] | None = None) -> RuntimeSettings:
@@ -322,6 +337,15 @@ def load_settings(env: Mapping[str, object] | None = None) -> RuntimeSettings:
         runtime_image=runtime_image,
         source_commit=source_commit,
         wide_events=wide_events,
+        activity_wait_enabled=_observability_bool(
+            values, "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED", False
+        ),
+        activity_wait_seconds=_bounded_float_setting(
+            values,
+            "ALLIES_RUNTIME_ACTIVITY_WAIT_SECONDS",
+            5.0,
+            maximum=5.0,
+        ),
     )
 
 
