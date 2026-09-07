@@ -86,6 +86,8 @@ event IDs without changing state; `--confirm` is required to redrive an
 exhausted row.
 
 Idle claim polling starts at one second and grows exponentially through 2, 4,
-8, and 10 seconds with bounded jitter. A claimed execution or a recovered
+8, and 10 seconds with bounded jitter. When reconciliation materializes one or
+more profiles, successful empty claims use the one-second minimum for eight
+polls before normal idle backoff resumes. A claimed execution or a recovered
 retryable claim response resets the delay; active slots refill immediately when
 work completes. Readiness probing still uses its separate startup retry loop.

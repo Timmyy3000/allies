@@ -50,6 +50,7 @@ MAX_PROFILE_RECONCILIATION_RETRY_DELAY = 5.0
 MIN_IDLE_BACKOFF_SECONDS = 1.0
 MAX_IDLE_BACKOFF_SECONDS = 10.0
 IDLE_BACKOFF_JITTER_RATIO = 0.25
+POST_MATERIALIZATION_FAST_POLLS = 8
 
 
 def _jittered_idle_delay(base: float, minimum: float) -> float:
@@ -240,6 +241,13 @@ class RuntimeReconciliationSnapshot:
     machine_generation: int
     runtime_start_epoch: int | None
     profiles: tuple[ProfileDesiredState, ...]
+    activity_revision: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class ActivityWaitReceipt:
+    revision: int
+    reason: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -681,6 +689,7 @@ class FoundryClient:
         rows = payload.get("profiles")
         generation = payload.get("machine_generation")
         runtime_start_epoch = payload.get("runtime_start_epoch")
+        activity_revision = payload.get("activity_revision", 0)
         if (
             not isinstance(rows, list)
             or isinstance(generation, bool)
@@ -702,10 +711,21 @@ class FoundryClient:
                 status=200,
                 code="MALFORMED_RESPONSE",
             )
+        if (
+            isinstance(activity_revision, bool)
+            or not isinstance(activity_revision, int)
+            or activity_revision < 0
+        ):
+            raise FoundryError(
+                "Foundry profile reconciliation response was malformed",
+                status=200,
+                code="MALFORMED_RESPONSE",
+            )
         snapshot = RuntimeReconciliationSnapshot(
             machine_generation=generation,
             runtime_start_epoch=runtime_start_epoch,
             profiles=tuple(_profile_desired_state(row, generation) for row in rows),
+            activity_revision=activity_revision,
         )
         self.last_reconciliation_snapshot = snapshot
         return snapshot
@@ -714,6 +734,54 @@ class FoundryClient:
         """Read the current-generation, workspace-scoped profile desired state."""
 
         return (await self.reconciliation_snapshot()).profiles
+
+    async def wait_for_activity(
+        self,
+        after_revision: int,
+        wait_seconds: float,
+    ) -> ActivityWaitReceipt:
+        if (
+            isinstance(after_revision, bool)
+            or not isinstance(after_revision, int)
+            or after_revision < 0
+        ):
+            raise ValueError("after_revision must be a non-negative integer")
+        if isinstance(wait_seconds, bool):
+            raise TypeError("wait_seconds must be a positive number")
+        try:
+            wait_seconds = float(wait_seconds)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("wait_seconds must be a positive number") from exc
+        if not 0 < wait_seconds <= 5:
+            raise ValueError("wait_seconds must be greater than 0 and at most 5")
+        payload = await self._request(
+            "POST",
+            "/api/v1/runtime/activity-waits",
+            body={
+                "after_revision": after_revision,
+                "wait_seconds": wait_seconds,
+            },
+        )
+        if not payload:
+            raise FoundryError(
+                "Foundry activity wait response was malformed",
+                status=200,
+                code="MALFORMED_RESPONSE",
+            )
+        revision = payload.get("revision")
+        reason = payload.get("reason")
+        if (
+            isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision < 0
+            or reason not in {"changed", "timeout"}
+        ):
+            raise FoundryError(
+                "Foundry activity wait response was malformed",
+                status=200,
+                code="MALFORMED_RESPONSE",
+            )
+        return ActivityWaitReceipt(revision=revision, reason=reason)
 
     async def report_readiness(
         self,
@@ -1108,6 +1176,8 @@ class FoundryWorker:
         profile_reconcile_interval: float = DEFAULT_PROFILE_RECONCILE_INTERVAL,
         readiness_heartbeat_interval: float = 15.0,
         boot_id: str | UUID | None = None,
+        activity_wait_enabled: bool = False,
+        activity_wait_seconds: float = 5.0,
     ):
         if (
             isinstance(slots, bool)
@@ -1121,6 +1191,13 @@ class FoundryWorker:
             raise ValueError("profile reconcile interval must be positive")
         if readiness_heartbeat_interval <= 0:
             raise ValueError("readiness heartbeat interval must be positive")
+        if not isinstance(activity_wait_enabled, bool):
+            raise TypeError("activity wait enabled must be a boolean")
+        if (
+            isinstance(activity_wait_seconds, bool)
+            or not 0 < float(activity_wait_seconds) <= 5
+        ):
+            raise ValueError("activity wait seconds must be between 0 and 5")
         self.foundry = foundry
         self.hermes = hermes
         self.slots = slots
@@ -1136,8 +1213,12 @@ class FoundryWorker:
         self._readiness_heartbeat_interval = readiness_heartbeat_interval
         self.boot_id = str(boot_id or uuid4())
         self._last_readiness_report: float | None = None
+        self._activity_wait_enabled = activity_wait_enabled
+        self._activity_wait_seconds = float(activity_wait_seconds)
+        self._activity_revision = 0
         self._active: set[asyncio.Task[Any]] = set()
         self._ambiguous_claims: dict[str, float] = {}
+        self._fast_polls_remaining = 0
         self._stopping = False
 
     @property
@@ -1150,6 +1231,7 @@ class FoundryWorker:
 
     async def stop(self) -> None:
         self._stopping = True
+        self._fast_polls_remaining = 0
         tasks = tuple(self._active)
         if tasks:
             for task in tasks:
@@ -1668,9 +1750,17 @@ class FoundryWorker:
                     retry_pending = False
                 if claim is None:
                     empty += 1
-                    poll_delay = _jittered_idle_delay(idle_backoff, initial_idle_delay)
-                    idle_backoff = min(MAX_IDLE_BACKOFF_SECONDS, idle_backoff * 2)
+                    if self._fast_polls_remaining:
+                        self._fast_polls_remaining -= 1
+                        idle_backoff = initial_idle_delay
+                        poll_delay = initial_idle_delay
+                    else:
+                        poll_delay = _jittered_idle_delay(
+                            idle_backoff, initial_idle_delay
+                        )
+                        idle_backoff = min(MAX_IDLE_BACKOFF_SECONDS, idle_backoff * 2)
                     break
+                self._fast_polls_remaining = 0
                 idle_backoff = initial_idle_delay
                 poll_delay = initial_idle_delay
                 task = asyncio.create_task(self._run_claim(claim))
@@ -1701,6 +1791,35 @@ class FoundryWorker:
                 continue
             if (idle_cycles is not None and empty >= idle_cycles) or self._stopping:
                 break
+            if self._activity_wait_enabled and not retry_pending and poll_delay > 1.0:
+                try:
+                    waited = await self._wait_for_activity()
+                except (FencedError, InvalidCredentialError):
+                    self._stopping = True
+                    break
+                except NotReadyError:
+                    self._profiles_reconciled = False
+                    poll_delay = _jittered_idle_delay(idle_backoff, initial_idle_delay)
+                    idle_backoff = min(MAX_IDLE_BACKOFF_SECONDS, idle_backoff * 2)
+                    await asyncio.sleep(poll_delay)
+                    continue
+                except (ResponseLossError, RateLimitedError, ServiceUnavailableError):
+                    poll_delay = _jittered_idle_delay(idle_backoff, initial_idle_delay)
+                    idle_backoff = min(MAX_IDLE_BACKOFF_SECONDS, idle_backoff * 2)
+                    await asyncio.sleep(poll_delay)
+                    continue
+                if waited is not None:
+                    self._activity_revision = max(
+                        self._activity_revision, waited.revision
+                    )
+                    if waited.reason == "changed":
+                        self._profiles_reconciled = False
+                        empty = 0
+                        idle_backoff = initial_idle_delay
+                        poll_delay = initial_idle_delay
+                        continue
+                    await asyncio.sleep(random.uniform(0.1, 0.25))
+                    continue
             await asyncio.sleep(poll_delay)
         if self._active:
             done, _ = await asyncio.wait(self._active)
@@ -1740,6 +1859,53 @@ class FoundryWorker:
         self._profile_reconciliation_retry_attempts = 0
         return True
 
+    async def _wait_for_activity(self) -> ActivityWaitReceipt | None:
+        method = getattr(self.foundry, "wait_for_activity", None)
+        if not callable(method):
+            return None
+        try:
+            result = method(self._activity_revision, self._activity_wait_seconds)
+            if inspect.isawaitable(result):
+                result = await result
+        except FoundryError as error:
+            if error.status == 422:
+                # Independently deployed servers may allow a shorter wait.
+                # Optional acceleration must never stop the runtime worker.
+                self._activity_wait_enabled = False
+                return None
+            # Older Foundry servers do not know this optional endpoint.  A
+            # malformed optional response has the same safe fallback: keep
+            # the established bounded polling loop alive.
+            if error.status == 404 or error.code == "MALFORMED_RESPONSE":
+                raise ServiceUnavailableError(
+                    "Foundry activity wait is unavailable",
+                    status=503,
+                    code="ACTIVITY_WAIT_UNAVAILABLE",
+                ) from error
+            raise
+        if result is None:
+            return None
+        if isinstance(result, ActivityWaitReceipt):
+            return result
+        if isinstance(result, Mapping):
+            revision = result.get("revision")
+            reason = result.get("reason")
+        else:
+            revision = getattr(result, "revision", None)
+            reason = getattr(result, "reason", None)
+        if (
+            isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision < 0
+            or reason not in {"changed", "timeout"}
+        ):
+            raise ServiceUnavailableError(
+                "Foundry activity wait response was malformed",
+                status=503,
+                code="MALFORMED_RESPONSE",
+            )
+        return ActivityWaitReceipt(revision=revision, reason=reason)
+
     async def _reconcile_profiles(self, *, force: bool = False) -> None:
         if self.profile_reconciler is None:
             return
@@ -1752,10 +1918,20 @@ class FoundryWorker:
             < self._profile_reconcile_interval
         ):
             return
-        await self.profile_reconciler.reconcile()
+        report = await self.profile_reconciler.reconcile()
+        if getattr(report, "materialized", ()):
+            self._fast_polls_remaining = POST_MATERIALIZATION_FAST_POLLS
         self._profiles_reconciled = True
         self._last_profile_reconciliation = self._clock()
         snapshot = getattr(self.foundry, "last_reconciliation_snapshot", None)
+        if snapshot is not None:
+            activity_revision = getattr(snapshot, "activity_revision", 0)
+            if isinstance(activity_revision, int) and not isinstance(
+                activity_revision, bool
+            ):
+                self._activity_revision = max(
+                    self._activity_revision, activity_revision
+                )
         if (
             snapshot is not None
             and snapshot.runtime_start_epoch is not None
@@ -1827,6 +2003,7 @@ __all__ = [
     "MAX_CLAIM_SLOTS",
     "MAX_RUNTIME_EVENT_SEQUENCE",
     "MAX_TERMINAL_SEQUENCE",
+    "ActivityWaitReceipt",
     "EventReceipt",
     "FencedError",
     "FoundryClaim",

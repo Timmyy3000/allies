@@ -78,6 +78,8 @@ def compose_runtime(
         slots=settings.proof_slots,
         profile_reconciler=profile_reconciler,
         profile_reconcile_interval=profile_reconcile_interval,
+        activity_wait_enabled=settings.activity_wait_enabled,
+        activity_wait_seconds=settings.activity_wait_seconds,
     )
     return RuntimeComposition(
         settings=settings,
