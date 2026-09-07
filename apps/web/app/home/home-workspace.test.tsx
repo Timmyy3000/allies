@@ -9,6 +9,7 @@ import { EMPTY_ACTIVITY_PROJECTION, type AllyViewModel, type ConversationViewMod
 import type { RuntimeIntentRequester } from "../../lib/allies/runtime-intent";
 import type { ActivityStreamOptions } from "../../lib/allies/activity-stream";
 import HomePage from "./page";
+import HomeLayout from "./layout";
 import AllyHomePage from "./[allyId]/page";
 import NewAllyPage from "./new/page";
 
@@ -20,12 +21,13 @@ import {
   projectConversationActivity,
 } from "./home-workspace";
 
+const selectedSegment = vi.hoisted(() => vi.fn<() => string | null>(() => null));
 const replace = vi.hoisted(() => vi.fn());
 const push = vi.hoisted(() => vi.fn());
 const useSessionMock = vi.hoisted(() => vi.fn());
 const readActivityStreamMock = vi.hoisted(() => vi.fn());
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, push }) }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, push }), useSelectedLayoutSegment: selectedSegment }));
 vi.mock("next/link", () => ({
   default: ({
     children,
@@ -139,6 +141,7 @@ function renderHome(
   clientOverrides: Record<string, unknown> = {},
   page?: ReactNode,
 ) {
+  selectedSegment.mockReturnValue(selectedAllyId);
   const client = {
     getCurrentAccount: vi.fn(async () => account),
     listAllies: vi.fn(async () => allies),
@@ -175,7 +178,7 @@ function renderHome(
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
     <QueryClientProvider client={queryClient}>
-      {page ?? <HomeWorkspace selectedAllyId={selectedAllyId} />}
+      {page !== undefined ? <HomeLayout>{page}</HomeLayout> : <HomeWorkspace selectedAllyId={selectedAllyId} />}
     </QueryClientProvider>,
   );
   return Object.assign(client, { queryClient, view });
@@ -200,13 +203,18 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     expect(screen.queryByText("SD")).toBeNull();
     expect(screen.getByRole("link", { name: account.displayName }).getAttribute("href")).toBe("/account");
 
-    fireEvent.click(screen.getByRole("button", { name: desktop ? "Meet another Ally" : "Make an Ally" }));
+    const chefButton = screen.getByRole("button", { name: "Chef" }) as HTMLButtonElement;
+    expect(chefButton.disabled).toBe(true);
+    fireEvent.click(chefButton);
+    expect(screen.queryByRole("dialog", { name: "Make your Ally" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Make an Ally" }));
     expect(await screen.findByRole("dialog", { name: "Make your Ally" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Finish create" }));
     const createdId = "00000000-0000-4000-8000-000000000099";
     expect(replace).toHaveBeenCalledWith(`/home/${createdId}`);
-    const page = await AllyHomePage({ params: Promise.resolve({ allyId: createdId }) });
-    client.view.rerender(<QueryClientProvider client={client.queryClient}>{page}</QueryClientProvider>);
+    selectedSegment.mockReturnValue(createdId);
+    const page = <AllyHomePage />;
+    client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout>{page}</HomeLayout></QueryClientProvider>);
     expect(await screen.findByRole("heading", { name: "Nova" })).toBeTruthy();
     await waitFor(() => expect(client.getAllyConversation).toHaveBeenCalledWith(
       account.workspace.id, createdId, expect.objectContaining({ limit: 50 }),
@@ -243,7 +251,7 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
       state: "completed" as const,
       lastContiguousSequence: sent ? 1 : 0,
     }));
-    const page = await AllyHomePage({ params: Promise.resolve({ allyId: ally.id }) });
+    const page = <AllyHomePage />;
     renderHome([ally], ally.id, { sendMessage, getActivities }, page);
     expect(await screen.findByRole("heading", { name: ally.name })).toBeTruthy();
     expect((await screen.findAllByText("What should we work on first?")).length).toBeGreaterThan(0);
@@ -257,7 +265,7 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
   });
 
   it("keeps unknown Ally IDs honest", async () => {
-    const page = await AllyHomePage({ params: Promise.resolve({ allyId: "not-owned" }) });
+    const page = <AllyHomePage />;
     renderHome([ally], "not-owned", {}, page);
     expect(await screen.findByText("That Ally isn't in this Workspace")).toBeTruthy();
     expect(screen.queryByText("Sally Morano")).toBeNull();
@@ -278,9 +286,10 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
       runCloudOperation: vi.fn(),
     });
     const page = route === "home" ? <HomePage /> : route === "new" ? <NewAllyPage />
-      : await AllyHomePage({ params: Promise.resolve({ allyId: ally.id }) });
+      : <AllyHomePage />;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-    render(<QueryClientProvider client={queryClient}>{page}</QueryClientProvider>);
+    selectedSegment.mockReturnValue(route === "home" ? null : route === "new" ? "new" : ally.id);
+    render(<QueryClientProvider client={queryClient}><HomeLayout>{page}</HomeLayout></QueryClientProvider>);
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in?returnTo=%2Fhome"));
     expect(screen.queryByText("SD")).toBeNull();
     expect(screen.queryByRole("button", { name: "Make an Ally" })).toBeNull();
@@ -345,7 +354,7 @@ describe("HomeWorkspace", () => {
     stubViewport(true);
     renderHome([ally], ally.id);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Meet another Ally" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Make an Ally" }));
     expect(await screen.findByRole("dialog", { name: "Make your Ally" })).toBeTruthy();
     expect(screen.getByText("Shape your Ally")).toBeTruthy();
 
@@ -366,8 +375,8 @@ describe("HomeWorkspace", () => {
     const retryingAlly = { ...ally, provisioningState: "retryable" as const, retryable: true };
     renderHome([retryingAlly], retryingAlly.id);
 
-    expect((await screen.findAllByText("Getting ready")).length).toBeGreaterThan(0);
-    expect(screen.getByText("Mira is finishing setup. This usually takes a moment.")).toBeTruthy();
+    expect(await screen.findByText("Waking up")).toBeTruthy();
+    expect(screen.queryByText(/finishing setup/i)).toBeNull();
     expect(screen.queryByText(/outside Home/i)).toBeNull();
   });
 
@@ -419,7 +428,7 @@ describe("HomeWorkspace", () => {
       client.queryClient.setQueryData(["workspaces", "workspace", "allies"], [ally]);
     });
 
-    expect(await screen.findByText("Thinking")).toBeTruthy();
+    expect(screen.getByTestId("conversation-ally").getAttribute("data-state")).not.toBe("thinking");
     await waitFor(() => expect(getActivities).toHaveBeenCalledTimes(2), { timeout: 2_000 });
     await waitFor(() => expect(
       getAllyConversation.mock.calls.filter((call) => call[2]?.limit === 50).length,
@@ -439,7 +448,8 @@ describe("HomeWorkspace", () => {
       state: "running",
       lastContiguousSequence: 1,
     }));
-    expect((await screen.findByTestId("activity-reply-2")).textContent).toBe("The initial response arrived.");
+    expect(await screen.findByText("Initial question", { selector: "article p" })).toBeTruthy();
+    expect(screen.queryByText("The initial response arrived.")).toBeNull();
   });
 
   it("keeps an unscoped v1 queue untouched with an explicit notice", async () => {
@@ -536,11 +546,47 @@ describe("HomeWorkspace", () => {
 
     expect(await screen.findByRole("link", { name: /Mira/ })).toBeTruthy();
     expect(screen.getByTestId("dashboard-ui-push")).toBeTruthy();
-    expect(screen.getByText("Search")).toBeTruthy();
-    expect(screen.getByText("My allies")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Search Allies" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Make an Ally" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Selected Ally conversation" })).toBeTruthy();
     expect(screen.getByTestId("empty-thread")).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("filters Allies by name without navigating and restores the list when search closes", async () => {
+    renderHome([ally]);
+    expect(await screen.findByRole("link", { name: /Mira/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Search Allies" }));
+    const search = screen.getByRole("searchbox", { name: "Filter Allies by name" });
+    fireEvent.change(search, { target: { value: "  mIrA  " } });
+    expect(screen.getByRole("link", { name: /Mira/ })).toBeTruthy();
+    fireEvent.change(search, { target: { value: "no matching name" } });
+    expect(screen.queryByRole("link", { name: /Mira/ })).toBeNull();
+    expect(screen.getByRole("status").textContent).toBe("No Allies match your search.");
+    fireEvent.click(screen.getByRole("button", { name: "Search Allies" }));
+    expect(screen.getByRole("link", { name: /Mira/ })).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+  });
+
+  it("keeps sidebar nodes, search and sleeping state across Home layout navigation", async () => {
+    stubViewport(true);
+    const secondAlly = { ...ally, id: "00000000-0000-4000-8000-000000000010", name: "Nova" };
+    const client = renderHome([ally, secondAlly], ally.id, {}, <AllyHomePage />);
+    const row = await screen.findByRole("link", { name: /Mira/ });
+    await waitFor(() => expect(row.getAttribute("data-ally-sleeping")).toBe("true"));
+    const avatar = row.querySelector("[data-testid=ally-avatar]");
+    const sidebar = screen.getByRole("complementary", { name: "Ally sidebar" });
+    fireEvent.click(screen.getByRole("button", { name: "Search Allies" }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "MiRa" } });
+    selectedSegment.mockReturnValue(secondAlly.id);
+    client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout><AllyHomePage /></HomeLayout></QueryClientProvider>);
+    expect(await screen.findByRole("heading", { name: "Nova" })).toBeTruthy();
+    expect(screen.getByRole("complementary", { name: "Ally sidebar" })).toBe(sidebar);
+    expect(screen.getByRole("link", { name: /Mira/ })).toBe(row);
+    expect(row.querySelector("[data-testid=ally-avatar]")).toBe(avatar);
+    expect(row.getAttribute("data-ally-sleeping")).toBe("true");
+    expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("MiRa");
+    expect((screen.getByRole("button", { name: "Routines" }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("does not load another account's queued messages", async () => {
@@ -779,6 +825,26 @@ describe("HomeWorkspace", () => {
     await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""));
   });
 
+  it("keeps thinking visible after an awake send is accepted but not yet claimed", async () => {
+    const sendMessage = vi.fn(async () => ({
+      conversationId: "00000000-0000-4000-8000-000000000005",
+      message: {
+        id: "accepted-unclaimed", sender: "user" as const, content: "Start now",
+        sequence: 2, status: "queued" as const, queueState: "unclaimed" as const,
+        createdAt: new Date().toISOString(),
+      },
+      execution: null, replayed: false,
+    }));
+    const requestRuntimeIntent = vi.fn<RuntimeIntentRequester>(async () => ({ status: "already_ready" }));
+    renderHome([ally], ally.id, { sendMessage, requestRuntimeIntent });
+    fireEvent.change(await screen.findByRole("textbox"), { target: { value: "Start now" } });
+    await waitFor(() => expect(requestRuntimeIntent).toHaveBeenCalledOnce());
+    await clickSendMessage();
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    expect(await screen.findByRole("status", { name: "Thinking" })).toBeTruthy();
+    expect(screen.getByText("Start now")).toBeTruthy();
+  });
+
   it("persists an immediate send before I/O and reuses its key after response loss and reload", async () => {
     const storageKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`;
     let firstKey: string | undefined;
@@ -814,6 +880,13 @@ describe("HomeWorkspace", () => {
     expect(await screen.findByText("We couldn't confirm your message")).toBeTruthy();
     expect(storedBeforeFirstRequest).toContain("Recover this send");
     expect(window.localStorage.getItem(storageKey)).toContain(firstKey);
+    const failedQueue = screen.getByRole("list", { name: "Queued messages" });
+    expect(failedQueue.textContent).toContain("Recover this send");
+    expect((input as HTMLTextAreaElement).value).toBe("Recover this send");
+    expect((screen.getByRole("button", { name: "Send message" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.queryByText("Sending")).toBeNull();
+    expect(screen.queryByText("Not confirmed")).toBeNull();
+    expect(screen.queryByRole("status", { name: "Thinking" })).toBeNull();
 
     await clickSendMessage();
     await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(2));
@@ -843,7 +916,7 @@ describe("HomeWorkspace", () => {
       getActivities: vi.fn(() => new Promise(() => undefined)),
       sendMessage,
     });
-    await screen.findByText("First question", { selector: "article p" });
+    await screen.findByText("First question", { selector: "article p, ol li span" });
     let finishRead!: (value: ConversationViewModel) => void;
     getAllyConversation.mockImplementationOnce(() => new Promise((resolve) => { finishRead = resolve; }));
     void client.queryClient.refetchQueries({ queryKey: ["workspaces", "workspace", "allies", ally.id, "conversation"] });
@@ -892,8 +965,9 @@ describe("HomeWorkspace", () => {
       getAllyConversation: vi.fn(async () => ({ id: "conversation", allyId: ally.id, messages: [head, tail], queue: [head, tail], assistantReplies: [], nextCursor: null })),
       getActivities,
     });
-    await screen.findByText("First question", { selector: "article p" });
-    await waitFor(() => expect(screen.getByRole("main").textContent).toContain("Second task response"), { timeout: 3000 });
+    await screen.findByText("First question", { selector: "article p, ol li span" });
+    await waitFor(() => expect(screen.getByText("Second question", { selector: "article p" })).toBeTruthy(), { timeout: 3000 });
+    expect(screen.queryByText("Second task response")).toBeNull();
     expect(screen.getByText("Second question", { selector: "article p" })).toBeTruthy();
     expect(screen.queryByRole("list", { name: "Queued messages" })?.textContent ?? "").not.toContain("Second question");
     expect(screen.queryByRole("list", { name: "Queued messages" })?.textContent ?? "").not.toContain("First question");
@@ -937,18 +1011,17 @@ describe("HomeWorkspace", () => {
       sendMessage,
     });
 
-    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    expect(await screen.findByText("First question", { selector: "article p, ol li span" })).toBeTruthy();
     await waitFor(() => expect(getActivities).toHaveBeenCalledOnce());
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "Second question" } });
     await clickSendMessage();
 
     const queue = await screen.findByRole("list", { name: "Queued messages" });
-    expect(queue.textContent).toBe("Second question");
+    expect(queue.textContent).toBe("First questionSecond question");
     await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
     expect(sendMessage.mock.calls[0]?.slice(0, 3)).toEqual(["workspace", conversationId, "Second question"]);
-    expect(screen.getByText("Queued")).toBeTruthy();
-    expect(screen.getByText("Thinking")).toBeTruthy();
+    expect(screen.getByTestId("conversation-ally").getAttribute("data-state")).toBe("idle");
     expect(screen.queryByText("Push")).toBeNull();
 
     await act(async () => {
@@ -1001,7 +1074,7 @@ describe("HomeWorkspace", () => {
       sendMessage,
     });
 
-    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    expect(await screen.findByText("First question", { selector: "article p, ol li span" })).toBeTruthy();
     await waitFor(() => expect(getActivities).toHaveBeenCalledOnce());
     const input = screen.getByRole("textbox") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "Second question" } });
@@ -1076,7 +1149,7 @@ describe("HomeWorkspace", () => {
       sendMessage,
     });
 
-    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    expect(await screen.findByText("First question", { selector: "article p, ol li span" })).toBeTruthy();
     await waitFor(() => expect(getActivities).toHaveBeenCalledOnce());
     const input = screen.getByRole("textbox") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "Second question" } });
@@ -1154,7 +1227,7 @@ describe("HomeWorkspace", () => {
       sendMessage,
     });
 
-    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    expect(await screen.findByText("First question", { selector: "article p, ol li span" })).toBeTruthy();
     await waitFor(() => expect(getActivities).toHaveBeenCalledOnce());
     const input = screen.getByRole("textbox") as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "Rejected question" } });
@@ -1260,7 +1333,7 @@ describe("HomeWorkspace", () => {
         sendMessage,
       });
 
-      expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+      expect(await screen.findByText("First question", { selector: "article p, ol li span" })).toBeTruthy();
       const input = screen.getByRole("textbox") as HTMLTextAreaElement;
       fireEvent.change(input, { target: { value: "Keep this draft" } });
       await clickSendMessage();
@@ -1361,7 +1434,7 @@ describe("HomeWorkspace", () => {
       deleteQueuedMessage,
     });
 
-    await screen.findByText("First question", { selector: "article p" });
+    await screen.findByText("First question", { selector: "article p, ol li span" });
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "From this tab" } });
     await clickSendMessage();
     const storageKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`;
@@ -1421,7 +1494,7 @@ describe("HomeWorkspace", () => {
       })),
       getActivities: vi.fn(() => new Promise(() => undefined)),
     });
-    await screen.findByText("First question", { selector: "article p" });
+    await screen.findByText("First question", { selector: "article p, ol li span" });
     expect(screen.queryByText("From this tab")).toBeNull();
     expect(screen.queryByText("From another tab")).toBeNull();
   });
@@ -1475,7 +1548,7 @@ describe("HomeWorkspace", () => {
     const overrides = { getAllyConversation, getActivities, sendMessage };
 
     renderHome([ally], ally.id, overrides);
-    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    expect(await screen.findByText("First question", { selector: "article p, ol li span" })).toBeTruthy();
     await waitFor(() => expect(getActivities).toHaveBeenCalledOnce());
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "Second question" } });
     await clickSendMessage();
@@ -1532,7 +1605,7 @@ describe("HomeWorkspace", () => {
       sendMessage,
     });
 
-    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    expect(await screen.findByText("First question", { selector: "article p, ol li span" })).toBeTruthy();
     expect(await screen.findByText("Never mind")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Remove queued message: Never mind" }));
@@ -1633,7 +1706,7 @@ describe("HomeWorkspace", () => {
       sendMessage,
     });
 
-    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    expect(await screen.findByText("First question", { selector: "article p, ol li span" })).toBeTruthy();
     const queue = await screen.findByRole("list", { name: "Queued messages" });
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new Error("storage unavailable");
@@ -1671,7 +1744,7 @@ describe("HomeWorkspace", () => {
     };
     renderHome([ally], ally.id, overrides);
 
-    expect(await screen.findByText("First question", { selector: "article p" })).toBeTruthy();
+    expect(await screen.findByText("First question", { selector: "article p, ol li span" })).toBeTruthy();
     const input = screen.getByRole("textbox");
     fireEvent.change(input, { target: { value: "Keep me waiting" } });
     await clickSendMessage();
@@ -1900,7 +1973,8 @@ describe("HomeWorkspace", () => {
       timeout: 4_000,
       interval: 50,
     });
-    expect(screen.getByTestId("activity-reply-2").textContent).toContain("The durable answer recovered.");
+    expect(screen.queryByTestId("activity-reply-2")).toBeNull();
+    expect(screen.queryByText("The durable answer recovered.")).toBeNull();
     expect(closeStream).not.toHaveBeenCalled();
   }, 10_000);
 
@@ -1973,7 +2047,7 @@ describe("HomeWorkspace", () => {
       expect(getActivities.mock.calls.length).toBeGreaterThanOrEqual(241);
       expect(closeStream).not.toHaveBeenCalled();
       expect(screen.getByText("Status checking is paused.")).toBeTruthy();
-      expect(screen.getByText("Thinking")).toBeTruthy();
+      expect(screen.getByRole("status", { name: "Thinking" })).toBeTruthy();
       const readsBeforeFallback = getActivities.mock.calls.length;
       const streamOptions = readActivityStreamMock.mock.calls[0][0] as ActivityStreamOptions;
       await act(async () => {
@@ -1985,6 +2059,7 @@ describe("HomeWorkspace", () => {
       });
       await waitFor(() => expect(getActivities.mock.calls.length).toBeGreaterThan(readsBeforeFallback));
       expect(screen.queryByText("Status checking is paused.")).toBeNull();
+      expect(screen.queryByText("Live updates paused. Checking again…")).toBeNull();
       expect(readActivityStreamMock).toHaveBeenCalledOnce();
     } finally {
       cleanup();
@@ -2061,7 +2136,7 @@ describe("HomeWorkspace", () => {
     await waitFor(() => expect(getActivities).toHaveBeenCalledTimes(2), { timeout: 2_000 });
     await waitFor(() => expect(getAllyConversation).toHaveBeenCalled());
     expect(screen.getAllByText("Previous latest answer").length).toBeGreaterThan(0);
-    expect(screen.getByText("Thinking")).toBeTruthy();
+    expect(screen.getByTestId("conversation-ally").getAttribute("data-state")).toBe("idle");
   });
 
   it("shows pending activity text when a terminal snapshot has a sequence gap", async () => {
@@ -2235,7 +2310,7 @@ describe("HomeWorkspace", () => {
     expect(secondQuestion.compareDocumentPosition(secondAnswer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("renders markdown structure while an Ally response is still streaming", async () => {
+  it("renders markdown structure once an Ally response is completed", async () => {
     renderHome([ally], ally.id, {
       getAllyConversation: vi.fn(async () => ({
         id: "00000000-0000-4000-8000-000000000005",
@@ -2259,10 +2334,10 @@ describe("HomeWorkspace", () => {
           conversationTurnOrdinal: 2,
           kind: "assistant_delta" as const,
           text: "## A streamed heading\n\n- The first detail\n- The second detail",
-          state: "running" as const,
+          state: "completed" as const,
           createdAt: "2026-08-20T16:01:01Z",
         }],
-        state: "running" as const,
+        state: "completed" as const,
         lastContiguousSequence: 1,
       })),
     });

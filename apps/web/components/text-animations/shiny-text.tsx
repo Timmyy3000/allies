@@ -35,7 +35,7 @@ export function ShinyText({
 
   const backgroundPosition = useTransform(progress, (value) => `${150 - value * 2}% center`);
 
-  if (reducedMotion) return <span className={className}>{children}</span>;
+  if (reducedMotion) return <span className={className} style={{ color }}>{children}</span>;
 
   return (
     <motion.span

@@ -88,7 +88,6 @@ const model: ProductionConversationFrameModel = {
     loadError: null,
     accessFailure: null,
     accessCopy: null,
-    setupNotice: null,
     olderMessagesAvailable: false,
     loadingOlder: false,
     olderLoadError: null,
@@ -152,6 +151,150 @@ afterEach(() => {
 });
 
 describe("ConversationFrame", () => {
+  it("moves only the started queue head into the transcript and keeps local removal available", () => {
+    const queuedModel = {
+      ...model,
+      messages: [{ ...model.messages[0], queued: true }],
+      activityGroups: [],
+      queuedMessages: [
+        { id: "message-1", content: "First request", removable: false },
+        { id: "local-next", content: "Next request" },
+      ],
+    };
+    const view = render(<ConversationFrame model={queuedModel} actions={actions} sleeping />);
+    expect(screen.getByText("First request").closest("ol")?.getAttribute("aria-label")).toBe("Queued messages");
+    expect(screen.queryByRole("button", { name: "Remove queued message: First request" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Remove queued message: Next request" })).toBeTruthy();
+    view.rerender(<ConversationFrame model={{
+      ...queuedModel,
+      messages: [{ ...model.messages[0], queued: false }],
+      queuedMessages: [queuedModel.queuedMessages[1]],
+    }} actions={actions} runtimeIntentStatus="ready" />);
+    expect(screen.getByText("First request", { selector: "article p" })).toBeTruthy();
+    expect(screen.getByText("Next request").closest("ol")).toBeTruthy();
+    expect(screen.getAllByText("First request")).toHaveLength(1);
+  });
+
+  it("remeasures the avatar when the centred status label changes width", () => {
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const slot = this.className.includes("framePresenceHeaderSlot");
+      const x = slot ? (this.parentElement?.textContent?.includes("waking up") ? 60 : 100) : 0;
+      return { x, y: 0, left: x, top: 0, right: x + 24, bottom: 24, width: 24, height: 24, toJSON: () => ({}) };
+    });
+    const view = render(<ConversationFrame model={model} actions={actions} sleeping />);
+    const actor = screen.getByTestId("conversation-ally");
+    expect(actor.style.transform).toContain("translate(100px, 0px)");
+    view.rerender(<ConversationFrame model={model} actions={actions} runtimeIntentStatus="waking" />);
+    expect(actor.style.transform).toContain("translate(0px, 0px)");
+  });
+
+  it("reflows the thread avatar directly into its reserved slot when a greeting appears", () => {
+    const animate = vi.fn(() => ({ cancel: vi.fn() }));
+    Object.defineProperty(HTMLElement.prototype, "animate", { configurable: true, value: animate });
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+      const isThreadSlot = this.className.includes("framePresenceThreadSlot");
+      const messageCount = this.closest("[data-testid='conversation-frame-rail']")?.querySelectorAll('[class*="frameMessageRow"]').length ?? 0;
+      const y = isThreadSlot ? 100 + messageCount * 40 : 0;
+      return { x: 20, y, left: 20, top: y, right: 56, bottom: y + 36, width: 36, height: 36, toJSON: () => ({}) };
+    });
+    const beforeGreeting = { ...model, messages: model.messages.filter((message) => message.sender === "user") };
+    const view = render(<ConversationFrame model={beforeGreeting} actions={actions} runtimeIntentStatus="ready" />);
+
+    view.rerender(<ConversationFrame model={model} actions={actions} runtimeIntentStatus="ready" />);
+
+    expect(animate).not.toHaveBeenCalled();
+    expect(screen.getByTestId("conversation-ally").style.transform).toContain("translate(0px, 220px)");
+  });
+
+  it("keeps one avatar mounted through sleeping, waking, readiness and thinking", () => {
+    const view = render(<ConversationFrame model={model} actions={actions} sleeping />);
+    const actor = screen.getByTestId("conversation-ally");
+    const frame = actor.querySelector("iframe")!;
+    expect(actor.getAttribute("data-location")).toBe("header");
+    expect(actor.querySelector('[data-muted="true"]')).toBeTruthy();
+
+    view.rerender(<ConversationFrame model={model} actions={actions} runtimeIntentStatus="waking" />);
+    act(() => window.dispatchEvent(new MessageEvent("message", {
+      source: frame.contentWindow, data: { type: "ally-state", state: "idle" },
+    })));
+    expect(actor.getAttribute("data-location")).toBe("thread");
+    expect(screen.getByText("Waking up")).toBeTruthy();
+    expect(actor.querySelector('[data-muted="true"]')).toBeTruthy();
+    expect(actor.getAttribute("data-state")).toBe("idle");
+
+    view.rerender(<ConversationFrame model={model} actions={actions} runtimeIntentStatus="ready" />);
+    expect(actor.getAttribute("data-location")).toBe("thread");
+    expect(actor.getAttribute("data-state")).toBe("idle");
+    expect(actor.querySelector('[data-muted="false"]')).toBeTruthy();
+    expect(actor.querySelector("iframe")).toBe(frame);
+
+    view.rerender(<ConversationFrame model={{ ...model, showThinkingState: true, activityState: "queued" }} actions={actions} runtimeIntentStatus="ready" />);
+    expect(actor.getAttribute("data-state")).toBe("idle");
+    view.rerender(<ConversationFrame model={{ ...model, showThinkingState: true, activityState: "running" }} actions={actions} runtimeIntentStatus="waking" />);
+    expect(actor.getAttribute("data-state")).toBe("thinking");
+    view.rerender(<ConversationFrame model={model} actions={actions} runtimeIntentStatus="waking" />);
+    expect(actor.getAttribute("data-location")).toBe("thread");
+    expect(actor.getAttribute("data-state")).toBe("idle");
+    expect(actor.querySelector("iframe")).toBe(frame);
+    expect(screen.getByTestId("conversation-frame-shell").querySelectorAll("[data-ally-avatar]")).toHaveLength(1);
+  });
+
+  it("keeps an awake ally ready during a new composing intent check", () => {
+    const view = render(<ConversationFrame model={{ ...model, showThinkingState: true, activityState: "running" }} actions={actions} />);
+    view.rerender(<ConversationFrame model={model} actions={actions} />);
+    view.rerender(<ConversationFrame model={model} actions={actions} runtimeIntentStatus="requesting" />);
+    expect(screen.queryByRole("status", { name: "Waking up" })).toBeNull();
+    view.rerender(<ConversationFrame model={model} actions={actions} runtimeIntentStatus="already_ready" />);
+    expect(screen.queryByRole("status", { name: "Waking up" })).toBeNull();
+  });
+
+  it("shows thinking while an awake ally's message is being accepted", () => {
+    render(<ConversationFrame model={{ ...model, activityGroups: [], showThinkingState: true, activityState: "queued" }} actions={actions} runtimeIntentStatus="ready" />);
+    expect(screen.getByRole("status", { name: "Thinking" })).toBeTruthy();
+  });
+
+  it.each(["turn", "message"])("clears stale waking when polling delivers a completed %s without running events", (source) => {
+    const waiting = { ...model, messages: model.messages.filter((message) => message.sender === "user"), activityGroups: [], showThinkingState: true, activityState: "queued" as const };
+    const view = render(<ConversationFrame model={waiting} actions={actions} runtimeIntentStatus="waking" />);
+    expect(screen.getByText("Waking up")).toBeTruthy();
+    const completed = {
+      ...waiting, showThinkingState: false, activityState: "completed" as const,
+      messages: source === "message" ? model.messages : waiting.messages,
+      turns: source === "turn" ? [{ messageId: "message-2", turnOrdinal: 4, state: "completed" as const, assistantText: "Here is your reply." }] : [],
+    };
+    view.rerender(<ConversationFrame model={completed} actions={actions} runtimeIntentStatus="waking" />);
+    expect(screen.queryByText("Waking up")).toBeNull();
+    expect(screen.getByTestId("conversation-ally").querySelector('[data-muted="false"]')).toBeTruthy();
+    view.rerender(<ConversationFrame model={completed} actions={actions} runtimeIntentStatus="waking" />);
+    expect(screen.queryByText("Waking up")).toBeNull();
+    view.rerender(<ConversationFrame model={completed} actions={actions} sleeping />);
+    view.rerender(<ConversationFrame model={completed} actions={actions} runtimeIntentStatus="waking" />);
+    expect(screen.getByText("Waking up")).toBeTruthy();
+  });
+
+  it.each([null, "ready", "already_ready"] as const)("invalidates prior wake evidence after sleep with retained intent %s", (status) => {
+    const view = render(<ConversationFrame model={{ ...model, showThinkingState: true, activityState: "running" }} actions={actions} runtimeIntentStatus={status} />);
+    const actor = screen.getByTestId("conversation-ally");
+    expect(actor.getAttribute("data-location")).toBe("thread");
+    view.rerender(<ConversationFrame model={model} actions={actions} sleeping runtimeIntentStatus={status} />);
+    expect(screen.getByText("Sally is asleep")).toBeTruthy();
+    view.rerender(<ConversationFrame model={model} actions={actions} runtimeIntentStatus={status} />);
+    expect(screen.getByText("Waking up")).toBeTruthy();
+    expect(actor.getAttribute("data-location")).toBe("thread");
+    expect(actor.querySelector('[data-muted="true"]')).toBeTruthy();
+    view.rerender(<ConversationFrame model={{ ...model, showThinkingState: true, activityState: "running" }} actions={actions} runtimeIntentStatus={status} />);
+    expect(actor.getAttribute("data-location")).toBe("thread");
+    expect(actor.querySelector('[data-muted="false"]')).toBeTruthy();
+  });
+
+  it.each(["failed", "disabled", "rate_limited", "first_provision_required"] as const)("keeps speculative wake result %s neutral without claiming readiness or blocking send", (status) => {
+    render(<ConversationFrame model={model} actions={actions} runtimeIntentStatus={status} />);
+    expect(screen.getByTestId("conversation-ally").getAttribute("data-location")).toBe("thread");
+    expect(screen.getByText("Waking up")).toBeTruthy();
+    expect(screen.queryByText(/couldn’t wake/)).toBeNull();
+    expect(screen.getByRole("textbox").hasAttribute("disabled")).toBe(false);
+  });
+
   it("shows the awaiting-action explanation when the projected turn has no text", () => {
     render(
       <ConversationFrame
@@ -183,6 +326,76 @@ describe("ConversationFrame", () => {
     expect(activity).toBeGreaterThan(firstRequest);
     expect(secondRequest).toBeGreaterThan(activity);
     expect(screen.getByText(formatConversationDateDivider(messages[0].createdAt), { exact: false })).toBeTruthy();
+  });
+
+  it("uses the latest lifecycle entry for completed activity history", () => {
+    const completedActivity = {
+      ...model,
+      activityGroups: [{
+        ...model.activityGroups[0],
+        entries: [
+          model.activityGroups[0].entries[0],
+          {
+            ...model.activityGroups[0].entries[0],
+            id: "activity-2",
+            sequence: 3,
+            kind: "activity_completed" as const,
+            text: "Search completed",
+            state: "completed" as const,
+          },
+        ],
+      }],
+      activityState: "completed" as const,
+      showThinkingState: false,
+    };
+
+    render(<ConversationFrame model={completedActivity} actions={actions} />);
+
+    const request = screen.getByText("First request", { selector: "article p" });
+    const disclosure = request.closest("article")?.parentElement?.querySelector("details");
+    expect(disclosure?.querySelector("summary")?.textContent).toContain("Search completed");
+    expect(disclosure?.textContent).toContain("Searching for citysubs");
+  });
+
+  it("fits the focused conversation to the visual viewport and follows the latest message", () => {
+    const viewport = new EventTarget() as VisualViewport;
+    const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+      callback(0);
+      return 1;
+    });
+    Object.defineProperty(viewport, "height", { configurable: true, value: 480 });
+    Object.defineProperty(viewport, "offsetTop", { configurable: true, value: 24 });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    const view = render(<ConversationFrame model={model} actions={actions} />);
+    const shell = screen.getByTestId("conversation-frame-shell");
+    const canvas = screen.getByTestId("conversation-frame-canvas");
+    const scrollTo = vi.fn();
+    Object.defineProperties(canvas, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 600 },
+      scrollTop: { configurable: true, value: 180, writable: true },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+
+    act(() => screen.getByRole("textbox").focus());
+    act(() => viewport.dispatchEvent(new Event("resize")));
+
+    expect(shell.style.getPropertyValue("--chat-viewport-height")).toBe("480px");
+    expect(shell.style.getPropertyValue("--chat-viewport-offset")).toBe("24px");
+    expect(scrollTo).toHaveBeenCalledWith({ top: 600 });
+    scrollTo.mockClear();
+    canvas.scrollTop = 0;
+    fireEvent.scroll(canvas);
+    act(() => viewport.dispatchEvent(new Event("resize")));
+    expect(scrollTo).not.toHaveBeenCalled();
+    act(() => screen.getByRole("textbox").blur());
+    expect(shell.style.getPropertyValue("--chat-viewport-height")).toBe("");
+    expect(shell.style.getPropertyValue("--chat-viewport-offset")).toBe("");
+    view.unmount();
+    expect(shell.style.getPropertyValue("--chat-viewport-height")).toBe("");
+    expect(shell.style.getPropertyValue("--chat-viewport-offset")).toBe("");
+    requestFrame.mockRestore();
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: undefined });
   });
 
   it("does not attach a projected turn when its message identity is stale", () => {
@@ -246,7 +459,18 @@ describe("ConversationFrame", () => {
     expect(screen.queryByText("Thinking", { exact: true })).toBeNull();
   });
 
-  it("keeps only the ally icon below a response while it is streaming", () => {
+  it.each(["idle", "sleeping", "waking", "busy"] as const)("requests immediate bubble presentation only for an awake idle Ally (%s)", (state) => {
+    const onSubmit = vi.fn();
+    render(<ConversationFrame model={{ ...model,
+      showThinkingState: state === "busy",
+      composer: { ...model.composer, draft: "Hello", disabled: false },
+    }} actions={{ ...actions, onSubmit }} sleeping={state === "sleeping"}
+      runtimeIntentStatus={state === "waking" ? "waking" : "ready"} />);
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(onSubmit).toHaveBeenCalledWith(state === "idle");
+  });
+
+  it("buffers partial answer text while keeping the thinking avatar and activities live", () => {
     render(
       <ConversationFrame
         model={{
@@ -268,11 +492,36 @@ describe("ConversationFrame", () => {
       />,
     );
 
-    expect(screen.queryByText("Thinking", { exact: true })).toBeNull();
-    const status = screen.getByRole("status", { name: "Responding" });
-    const response = screen.getByTestId("activity-reply-4");
-    expect(status.querySelector("[data-ally-avatar][data-ally-state='thinking']")).toBeTruthy();
-    expect(response.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const status = screen.getByRole("status", { name: "Thinking" });
+    expect(status.textContent).toBe("Thinking..");
+    expect(screen.queryByTestId("activity-reply-4")).toBeNull();
+    expect(screen.queryByText("A response is being generated.")).toBeNull();
+    expect(screen.getAllByText("Searching for citysubs").length).toBeGreaterThan(0);
+    expect(screen.getByTestId("conversation-ally").getAttribute("data-state")).toBe("thinking");
+    expect(screen.getByTestId("conversation-frame-shell").querySelectorAll("[data-ally-avatar]")).toHaveLength(1);
+    expect(status).toBeTruthy();
+  });
+
+  it("reveals a newly completed answer once and renders reopened history immediately", () => {
+    vi.useFakeTimers();
+    try {
+      const running = { ...model, messages: model.messages.slice(0, 2), turns: [{
+        assistantText: "Partial", messageId: "message-2", state: "running" as const, turnOrdinal: 4,
+      }] };
+      const complete = { ...running, turns: [{ ...running.turns[0], state: "completed" as const, assistantText: "The full answer is here." }] };
+      const view = render(<ConversationFrame model={running} actions={actions} />);
+      expect(screen.queryByText("Partial")).toBeNull();
+      view.rerender(<ConversationFrame model={complete} actions={actions} />);
+      const reply = screen.getByTestId("activity-reply-4");
+      expect(reply.textContent).toBe("The full answer is here.");
+      expect(reply.querySelector('[data-sd-animate]')).toBeTruthy();
+      act(() => vi.advanceTimersByTime(2800));
+      expect(reply.querySelector('[data-sd-animate]')).toBeNull();
+      view.unmount();
+      render(<ConversationFrame model={complete} actions={actions} />);
+      expect(screen.getByTestId("activity-reply-4").textContent).toBe("The full answer is here.");
+      expect(screen.getByTestId("activity-reply-4").querySelector('[data-sd-animate]')).toBeNull();
+    } finally { vi.useRealTimers(); }
   });
 
   it.each(["completed", "failed", "stopped"] as const)("retains a truncated %s reply with an explicit notice", (state) => {
@@ -352,14 +601,14 @@ describe("ConversationFrame", () => {
     expect(screen.getByTestId("conversation-composer").getAttribute("data-expanded")).toBe("true");
   });
 
-  it("shows the header blur only after the thread has scrolled", () => {
+  it("keeps the desktop fade and enables the mobile fade when the thread scrolls", () => {
     render(<ConversationFrame model={model} actions={actions} />);
 
-    expect(screen.queryByTestId("conversation-frame-scroll-blur")).toBeNull();
+    expect(screen.getByTestId("conversation-frame-scroll-blur").className).toContain("frameDesktopFade");
     fireEvent.scroll(screen.getByTestId("conversation-frame-canvas"), { target: { scrollTop: 24 } });
-    expect(screen.getByTestId("conversation-frame-scroll-blur")).toBeTruthy();
+    expect(screen.getByTestId("conversation-frame-scroll-blur").className).not.toContain("frameDesktopFade");
     fireEvent.scroll(screen.getByTestId("conversation-frame-canvas"), { target: { scrollTop: 0 } });
-    expect(screen.queryByTestId("conversation-frame-scroll-blur")).toBeNull();
+    expect(screen.getByTestId("conversation-frame-scroll-blur").className).toContain("frameDesktopFade");
   });
 
   it("shows sleep only when the workspace reports it, regardless of elapsed time", () => {
@@ -370,7 +619,8 @@ describe("ConversationFrame", () => {
       expect(screen.queryByTestId("ally-sleeping-status")).toBeNull();
       view.rerender(<ConversationFrame model={model} actions={actions} sleeping />);
       expect(screen.getByTestId("ally-sleeping-status").textContent).toContain("Sally is asleep");
-      view.rerender(<ConversationFrame model={model} actions={actions} sleeping={false} />);
+      expect(screen.getByTestId("conversation-frame-scroll-blur").className).not.toContain("frameDesktopFade");
+      view.rerender(<ConversationFrame model={model} actions={actions} sleeping={false} runtimeIntentStatus="ready" />);
       expect(screen.queryByTestId("ally-sleeping-status")).toBeNull();
     } finally {
       vi.useRealTimers();

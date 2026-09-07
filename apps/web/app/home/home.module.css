@@ -1,16 +1,138 @@
-.exactHost {
+.homeLayout {
+  color-scheme: var(--app-color-scheme);
+  display: grid;
+  grid-template-columns: clamp(320px, 28.57vw, 432px) minmax(0, 1fr);
   width: 100%;
-  min-width: 1512px;
   height: 100dvh;
   overflow: hidden;
-  background: #fff;
+  color: var(--text-primary);
+  background: var(--canvas);
+}
+
+.homeSidebar {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  padding: 24px 20px 0;
+  box-sizing: border-box;
+  color: var(--text-primary);
+  background: var(--panel);
+}
+
+.homeLayout .homeSidebar {
+  border-right: 1px solid var(--divider);
+}
+
+.sidebarHeader,
+.sidebarProfileControls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebarHeader {
+  justify-content: space-between;
+  flex: 0 0 auto;
+  margin-bottom: 24px;
+}
+
+.sidebarSearch {
+  min-width: 0;
+  width: 100%;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  margin-bottom: 24px;
+  padding: 12px 16px;
+  border: 0;
+  border-radius: 24px;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.sidebarTabs {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.sidebarTab {
+  height: 33px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 100px;
+  background: #ff5800;
+  color: #fff;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
+  line-height: 17px;
+}
+
+.sidebarTabMuted {
+  background: var(--surface);
+  color: var(--text-secondary);
+}
+
+.sidebarList {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  padding-bottom: 130px;
+  scroll-padding-bottom: 130px;
+}
+
+.sidebarList::-webkit-scrollbar {
+  display: none;
+}
+
+.homeSidebar .exactAllyRow {
+  min-height: 48px;
+  padding: 0;
+}
+
+.sidebarFooter {
+  position: absolute;
+  z-index: 2;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+}
+
+.sidebarNoResults {
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.exactMobileAction:focus-visible,
+.exactMobileCreate:focus-visible,
+.sidebarTab:focus-visible,
+.sidebarSearch:focus-visible {
+  outline: 2px solid #ff5800;
+  outline-offset: 3px;
+}
+
+.exactHost {
+  width: 100%;
+  min-width: 0;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--canvas);
 }
 
 .exactMobileHost {
   width: 100%;
   height: 100dvh;
   overflow: hidden;
-  background: #fff;
+  background: var(--canvas);
 }
 
 .exactMobileAction {
@@ -23,7 +145,7 @@
   border: 0;
   border-radius: 50%;
   text-decoration: none;
-  color: #121212;
+  color: var(--text-primary);
   cursor: pointer;
 }
 
@@ -32,7 +154,11 @@
 }
 
 .exactMobileActionWash {
-  background: #f3f3f3;
+  background: var(--surface);
+}
+
+.exactMobileActionWash img {
+  filter: var(--mono-icon-filter);
 }
 
 .exactMobileAction img,
@@ -46,7 +172,7 @@
   width: 19px;
   height: 19px;
   fill: none;
-  stroke: #121212;
+  stroke: var(--text-primary);
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 3;
@@ -92,10 +218,6 @@
   width: 100%;
 }
 
-.exactMobileHost .exactAllyRow .allyMeta time {
-  display: none;
-}
-
 .exactMobileTab {
   display: inline-flex;
   align-items: center;
@@ -112,7 +234,7 @@
 }
 
 .exactMobileTabMuted {
-  color: #757575;
+  color: var(--text-secondary);
   font-size: 14px;
   font-weight: 600;
   letter-spacing: -0.58px;
@@ -126,7 +248,7 @@
   border: 0;
   outline: 0;
   background: transparent;
-  color: #121212;
+  color: var(--text-primary);
   font-family: inherit;
   font-size: 16px;
   font-weight: 500;
@@ -135,7 +257,7 @@
 }
 
 .exactComposerInput::placeholder {
-  color: #a0a0a0;
+  color: var(--text-muted);
   opacity: 1;
 }
 
@@ -168,43 +290,47 @@
 }
 
 .exactAllyRow .allyMeta strong {
+  padding-block: 2px;
+  margin-block: -2px;
   font-size: 18px;
   font-weight: 600;
-  letter-spacing: -0.75px;
-  line-height: 100%;
-  color: #121212;
+  letter-spacing: -1px;
+  line-height: 22px;
+  color: var(--text-primary);
 }
 
 .exactAllyRow .allyMeta time {
-  position: absolute;
-  top: 2px;
-  right: 0;
-  color: #a0a0a0;
+  color: var(--text-muted);
   font-size: 12px;
   font-weight: 500;
-  letter-spacing: -0.44px;
+  letter-spacing: -0.5px;
+  line-height: 15px;
+  font-variant-numeric: normal;
 }
 
 .exactAllyRow .allyPreview,
 .exactAllyRow .allyPreviewPending {
-  width: 299px;
+  padding-block: 2px;
+  margin-block: -2px;
+  width: 100%;
+  max-width: 274px;
   overflow: hidden;
-  color: #757575;
+  color: var(--text-secondary);
   font-size: 14px;
   font-weight: 500;
-  letter-spacing: -0.48px;
-  line-height: 100%;
+  letter-spacing: -0.5px;
+  line-height: 17px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.exactAllyRow .presenceDot {
-  right: 2px;
+.homeSidebar .exactAllyRow .presenceDot {
+  right: 1px;
   bottom: 3px;
   width: 10px;
   height: 10px;
-  border-width: 1px;
-  border-color: #fff;
+  border: 1px solid var(--panel);
+  box-sizing: border-box;
 }
 
 .exactAllyRow .presenceDotReady {
@@ -235,7 +361,7 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  color: #121212;
+  color: var(--text-primary);
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.91px;
@@ -249,7 +375,7 @@
   flex: 0 0 40px;
   place-items: center;
   border-radius: 50%;
-  background: #f0f0f0;
+  background: var(--surface-secondary);
   color: #000;
   font-size: 20px;
   font-weight: 600;
@@ -268,17 +394,17 @@
 }
 
 .page {
-  --ink: #161616;
-  --muted: #757575;
-  --quiet: #a0a0a0;
-  --paper: #fff;
-  --roster-paper: #fff;
-  --wash: #f3f3f3;
-  --selected: #f3f3f3;
-  --border: #e8e8e8;
+  --ink: var(--text-primary);
+  --muted: var(--text-secondary);
+  --quiet: var(--text-muted);
+  --paper: var(--canvas);
+  --roster-paper: var(--panel);
+  --wash: var(--surface);
+  --selected: var(--surface);
+  --border: var(--divider);
   --orange: #ff5800;
   --user-bubble: #ff5800;
-  color-scheme: light;
+  color-scheme: var(--app-color-scheme);
   display: grid;
   grid-template-columns: 432px minmax(1080px, 1fr);
   width: 100%;
@@ -472,7 +598,7 @@ button.newAllyButton {
   margin: 18px 36px 0;
   padding: 0 18px;
   border-radius: 100px;
-  background: #f0f0f0;
+  background: var(--surface-secondary);
   color: var(--muted);
   font-size: 16px;
   font-weight: 600;
@@ -569,7 +695,7 @@ button.newAllyButton {
 }
 
 .sleepingAvatar {
-  filter: saturate(0.28) brightness(0.97);
+  filter: saturate(0.28) brightness(var(--sleeping-shell-brightness));
 }
 
 .presenceDot {
@@ -691,7 +817,7 @@ button.newAllyButton {
   gap: 12px;
   padding: 0;
   border-radius: 15px;
-  color: #121212;
+  color: var(--text-primary);
   font-size: 18px;
   font-weight: 600;
   letter-spacing: -0.91px;
@@ -708,7 +834,7 @@ button.newAllyButton {
   height: 40px;
   place-items: center;
   border-radius: 50%;
-  background: #f0f0f0;
+  background: var(--surface-secondary);
   color: #000;
   font-size: 20px;
   font-weight: 600;
@@ -1238,7 +1364,7 @@ button.newAllyButton {
   align-items: center;
   justify-content: center;
   flex-direction: column;
-  background: #fff;
+  background: var(--canvas);
   padding: 40px 24px;
   text-align: center;
 }
@@ -1298,7 +1424,7 @@ button.newAllyButton {
   width: 100%;
   height: 100dvh;
   overflow: hidden;
-  background: #fff;
+  background: var(--canvas);
 }
 
 .homeDesktopFrame {
@@ -1327,7 +1453,7 @@ button.newAllyButton {
   z-index: 40;
   display: grid;
   place-items: center;
-  background: #fff;
+  background: var(--canvas);
 }
 
 .exactUnstyledButton {
@@ -1347,8 +1473,8 @@ button.newAllyButton {
   justify-content: center;
   flex-direction: column;
   padding: 32px;
-  background: #fff;
-  color: #121212;
+  background: var(--canvas);
+  color: var(--text-primary);
   text-align: center;
 }
 
@@ -1673,7 +1799,7 @@ button.newAllyButton {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: #fff;
+  background: var(--canvas);
   --onboarding-frame-min-height: 0px;
   --onboarding-artboard-min-height: 0px;
 }
@@ -1690,7 +1816,7 @@ button.newAllyButton {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--home-thread, #fff);
+  background: var(--home-thread, var(--canvas));
   --onboarding-frame-min-height: 0px;
   --onboarding-artboard-min-height: 0px;
 }

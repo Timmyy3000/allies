@@ -33,7 +33,6 @@ export default defineConfig({
     viewport: { width: 375, height: 812 },
     trace: "retain-on-failure",
     screenshot: "only-on-failure",
-    video: "retain-on-failure",
   },
   webServer: {
     command: `bun run dev -- --hostname 127.0.0.1 --port ${port}`,
@@ -44,14 +43,17 @@ export default defineConfig({
   projects: [
     {
       name: "chat-chromium",
+      grepInvert: process.env.CHAT_FRAME_RASTER === "false" ? /chat frame visual catalog/ : undefined,
       use: { ...devices["Desktop Chrome"] },
     },
     {
       name: "chat-webkit",
+      grepInvert: /chat frame visual catalog/,
       use: { ...devices["Desktop Safari"] },
     },
     {
       name: "chat-firefox",
+      grepInvert: /chat frame visual catalog/,
       use: { ...devices["Desktop Firefox"] },
     },
   ],

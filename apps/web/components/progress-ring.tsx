@@ -13,7 +13,7 @@ export function ProgressRing({ progress, color = "#ff5800" }: { progress: number
       aria-hidden
       style={{ display: "block", width: 40, height: 40, flexShrink: 0 }}
     >
-      <circle cx="20" cy="20" r={radius} fill="none" stroke="#f3f3f3" strokeWidth="3.5863" />
+      <circle cx="20" cy="20" r={radius} fill="none" stroke="var(--surface)" strokeWidth="3.5863" />
       <circle
         cx="20"
         cy="20"

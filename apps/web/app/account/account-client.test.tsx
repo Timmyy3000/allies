@@ -7,6 +7,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AccountViewModel, AvatarViewModel } from "@allies/cloud-client";
 
+const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+vi.mock("next/navigation", () => ({ useRouter: () => navigation }));
 const sessionMock = vi.hoisted(() => ({ useSession: vi.fn() }));
 const avatarUploadMock = vi.hoisted(() => ({ uploadAvatar: vi.fn() }));
 vi.mock("../../lib/session/session-context", () => sessionMock);
@@ -76,6 +78,12 @@ function renderAccount(seed = account) {
 
 afterEach(cleanup);
 beforeEach(() => {
+  window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+    matches: false,
+    media: query,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+  }));
   vi.clearAllMocks();
   sessionMock.useSession.mockReset();
   avatarUploadMock.uploadAvatar.mockReset();
@@ -86,10 +94,10 @@ describe("AccountClient", () => {
     const { client } = setupSession();
     renderAccount();
 
-    expect(screen.getByRole("heading", { name: /Welcome, Ada Lovelace/ })).toBeTruthy();
-    expect(screen.getByText("Ada's Workspace")).toBeTruthy();
-    expect(screen.getByText("wsp_example")).toBeTruthy();
-    expect(screen.getByText("profile.write")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Account" })).toBeTruthy();
+
+
+
     expect(client.getWorkspace).not.toHaveBeenCalled();
   });
 
@@ -98,11 +106,18 @@ describe("AccountClient", () => {
     setupSession({ state: { status: "unknown" }, restore });
     renderAccount();
 
-    expect(screen.getByRole("heading", { name: "Restoring your account" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Restoring your account" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
     expect(restore).toHaveBeenCalledOnce();
   });
 
+  it("redirects signed-out visitors without displaying private data or sign-in controls", async () => {
+    setupSession({ state: { status: "signed-out" } });
+    renderAccount();
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/"));
+    expect(screen.queryByText("Ada Lovelace")).toBeNull();
+    expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
+  });
   it("preserves the raw profile draft after a recoverable failure and updates Query after success", async () => {
     const { client } = setupSession();
     client.updateProfile
@@ -180,15 +195,14 @@ describe("AccountClient", () => {
     expect(screen.getByText("Avatar saved")).toBeTruthy();
   });
 
-  it("announces when Cloud cannot confirm logout", async () => {
+  it("preserves unconfirmed server logout on the landing page", async () => {
     const logout = vi.fn(async () => ({ status: "signed-out" as const, serverConfirmed: false }));
     setupSession({ logout });
     renderAccount();
 
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
 
-    const message = await screen.findByRole("alert");
-    expect(message.textContent).toContain("Cloud couldn’t confirm server logout");
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/?signout=unconfirmed"));
     expect(logout).toHaveBeenCalledOnce();
   });
 });

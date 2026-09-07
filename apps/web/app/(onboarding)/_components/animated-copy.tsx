@@ -964,7 +964,7 @@ export function AnimatedCopy({
           content = (
             <span
               style={{
-                color: "#121212",
+                color: "var(--text-primary)",
                 transition: "color 520ms ease",
               }}
             >
@@ -1009,7 +1009,7 @@ export function AnimatedCopy({
           content = (
             <span
               aria-hidden="true"
-              style={{ visibility: "hidden", color: "#121212" }}
+              style={{ visibility: "hidden", color: "var(--text-primary)" }}
             >
               <WipingLine
                 parts={paragraph.parts}

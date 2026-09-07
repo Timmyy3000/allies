@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,6 +39,9 @@ vi.mock("../lib/waitlist/flow", () => ({
   WaitlistFlowProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 vi.mock("../lib/session/session-context", () => sessionMock);
+vi.mock("../lib/allies/onboarding-handoff-screen", () => ({
+  OnboardingHandoffScreen: () => <div data-testid="onboarding-handoff" />,
+}));
 
 import { HomePageClient } from "./home-page-client";
 
@@ -64,13 +67,23 @@ beforeEach(() => {
 });
 
 describe("public homepage sign-in entry", () => {
-  it("returns Google sign-in to the authenticated Home surface", () => {
+  it("does not restore an unconfirmed logout and offers a server retry", async () => {
+    const { restore } = setupSession("unknown");
+    const logout = vi.fn(async () => ({ serverConfirmed: true }));
+    sessionMock.useSession.mockReturnValue({ state: { status: "unknown" }, restore, logout });
+    searchParamsMock.get.mockImplementation((key) => key === "signout" ? "unconfirmed" : null);
+    render(<HomePageClient />);
+    expect(screen.getByRole("alert").textContent).toContain("may still be signed in");
+    expect(restore).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Retry sign out" }));
+    await waitFor(() => expect(routerMock.replace).toHaveBeenCalledWith("/"));
+  });
+  it("shows onboarding to a signed-out visitor", () => {
     setupSession("signed-out");
 
     render(<HomePageClient />);
 
-    expect(screen.getByRole("link", { name: "Continue with Google" }).getAttribute("href"))
-      .toBe("/sign-in?returnTo=%2Fhome");
+    expect(screen.getByTestId("public-onboarding")).toBeTruthy();
   });
 
   it("sends a signed-in visitor from the base route to Home", async () => {
@@ -83,13 +96,19 @@ describe("public homepage sign-in entry", () => {
     expect(screen.queryByTestId("public-onboarding")).toBeNull();
   });
 
-  it("keeps a signed-in Google return on the landing overlay", () => {
+  it("finishes the saved Ally before redirecting a signed-in Google return", () => {
     window.sessionStorage.setItem(ONBOARDING_RESUME_PENDING_KEY, ONBOARDING_RESUME_PENDING_VALUE);
     setupSession("signed-in");
 
     render(<HomePageClient />);
 
-    expect(screen.getByTestId("public-onboarding").getAttribute("data-resume")).toBe("true");
+    expect(screen.getByTestId("onboarding-handoff")).toBeTruthy();
+    expect(screen.queryByTestId("public-onboarding")).toBeNull();
+    expect(routerMock.replace).not.toHaveBeenCalled();
+    act(() => {
+      window.sessionStorage.clear();
+      window.dispatchEvent(new StorageEvent("storage"));
+    });
     expect(routerMock.replace).not.toHaveBeenCalled();
   });
 });

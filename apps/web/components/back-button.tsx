@@ -7,7 +7,7 @@ export function BackButton({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       style={{
         borderRadius: 100,
-        backgroundColor: "#f3f3f3",
+        backgroundColor: "var(--surface)",
         width: 40,
         height: 40,
         display: "grid",
@@ -26,7 +26,7 @@ export function BackButton({ onClick }: { onClick: () => void }) {
       >
         <path
           d="M11.75 3L5.5 9.25L11.75 15.5"
-          stroke="#212121"
+          stroke="var(--text-primary)"
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"

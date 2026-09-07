@@ -1,18 +1,17 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import Onboarding from "../_components";
 import {
-  OnboardingAuthResumeContext,
   isOnboardingResumeQuery,
-  readOnboardingResume,
 } from "../_store/onboarding-resume";
-import { OnboardingStateProvider, useOnboardingStore } from "../_store/onboarding-store";
+import { OnboardingStateProvider } from "../_store/onboarding-store";
 import { getWebEnvironment } from "../../../lib/env";
 import { useSession } from "../../../lib/session/session-context";
 import { WaitlistFlowProvider } from "../../../lib/waitlist/flow";
+import { OnboardingHandoffScreen } from "../../../lib/allies/onboarding-handoff-screen";
 
 export function OnboardingPageClient() {
   const environment = getWebEnvironment();
@@ -51,8 +50,10 @@ export function OnboardingPageClient() {
     (sessionStatus === "signed-in" && resumeAfterGoogle);
   const resumeSignedIn = resumeAfterGoogle && sessionStatus === "signed-in";
 
+  if (resumeSignedIn) return <OnboardingHandoffScreen />;
+
   return (
-    <OnboardingStateProvider initialStep={resumeSignedIn ? "preview" : "name"}>
+    <OnboardingStateProvider initialStep="name">
       {sessionStatus === "signed-in" && !resumeAfterGoogle ? (
         <OnboardingStatus message="Opening your Ally space…" />
       ) : sessionStatus === "unavailable" ? (
@@ -64,35 +65,17 @@ export function OnboardingPageClient() {
         <OnboardingStatus message="Checking your secure session…" />
       ) : stayOnPublicFlow ? (
         <WaitlistFlowProvider
+          onboarding
           featureEnabled={environment.waitlistEnabled}
           consentVersion={environment.waitlistConsentVersion}
         >
-          <OnboardingAuthResumeContext.Provider value={resumeSignedIn}>
-            {resumeSignedIn ? <OnboardingResumeHydrator /> : null}
             <Onboarding waitlistEnabled={environment.waitlistEnabled} />
-          </OnboardingAuthResumeContext.Provider>
         </WaitlistFlowProvider>
       ) : (
         <OnboardingStatus message="Checking your secure session…" />
       )}
     </OnboardingStateProvider>
   );
-}
-
-function OnboardingResumeHydrator() {
-  const hydrate = useOnboardingStore((state) => state.hydrate);
-  const goTo = useOnboardingStore((state) => state.goTo);
-  const applied = useRef(false);
-
-  useLayoutEffect(() => {
-    if (applied.current) return;
-    applied.current = true;
-    const snapshot = readOnboardingResume();
-    if (snapshot) hydrate(snapshot);
-    goTo("preview");
-  }, [goTo, hydrate]);
-
-  return null;
 }
 
 function OnboardingStatus({
@@ -109,7 +92,7 @@ function OnboardingStatus({
         display: "grid",
         placeItems: "center",
         padding: 24,
-        color: "#121212",
+        color: "var(--text-primary)",
         fontFamily: "var(--font-open-runde), sans-serif",
       }}
     >

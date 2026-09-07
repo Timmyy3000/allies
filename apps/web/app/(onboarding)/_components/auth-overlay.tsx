@@ -17,13 +17,11 @@ export function AuthOverlay({
   shape,
   color,
   onClose,
-  onSignUp,
   onPrepareGoogleSignIn,
 }: {
   shape: AllyShape;
   color: string;
   onClose: () => void;
-  onSignUp: (provider: "chatgpt" | "google") => void;
   onPrepareGoogleSignIn: () => void;
 }) {
   const { client, runCloudOperation } = useSession();
@@ -35,11 +33,13 @@ export function AuthOverlay({
   const startGoogleSignIn = async () => {
     if (redirecting) return;
 
-    onPrepareGoogleSignIn();
     setGoogleState("redirecting");
     setGoogleError(null);
 
+    let previewPrepared = false;
     try {
+      onPrepareGoogleSignIn();
+      previewPrepared = true;
       const redirectUrl = await runCloudOperation(
         (signal) => client.beginSignIn(ONBOARDING_GOOGLE_RETURN_TO, signal),
         { csrf: true },
@@ -47,7 +47,11 @@ export function AuthOverlay({
       window.location.assign(redirectUrl);
     } catch (error) {
       setGoogleState("error");
-      setGoogleError(googleSignInErrorMessage(error));
+      setGoogleError(
+        previewPrepared
+          ? googleSignInErrorMessage(error)
+          : "We couldn’t save your preview in this browser. Keep this page open and try again.",
+      );
       window.requestAnimationFrame(() => googleButtonRef.current?.focus());
     }
   };
@@ -115,17 +119,7 @@ export function AuthOverlay({
         </p>
 
         <div className="waitlist-auth-actions">
-          <button
-            type="button"
-            data-testid="signup-chatgpt"
-            onClick={() => onSignUp("chatgpt")}
-            disabled={redirecting}
-            className="waitlist-auth-provider"
-          >
-            <Image src="/ally/icons/auth-chatgpt.svg" alt="" width={24} height={24} />
-            <span>Sign up with ChatGPT</span>
-          </button>
-          <button
+<button
             ref={googleButtonRef}
             type="button"
             data-testid="signup-google"
@@ -146,8 +140,8 @@ export function AuthOverlay({
         ) : null}
 
         <p className="waitlist-auth-legal">
-          By continuing, you agree to our <span>Terms of Service</span> and have
-          read our <span>Privacy Policy</span>
+          By continuing, you agree to our <a href="/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a> and have
+          read our <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
         </p>
       </motion.div>
     </motion.div>

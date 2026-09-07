@@ -67,7 +67,6 @@ function makeInput(overrides: Partial<ProductionConversationFrameInput> = {}): P
     isLoading: false,
     loadError: null,
     accessFailure: null,
-    setupNotice: null,
     olderMessagesAvailable: false,
     loadingOlder: false,
     olderLoadError: null,
@@ -91,6 +90,56 @@ function makeInput(overrides: Partial<ProductionConversationFrameInput> = {}): P
 }
 
 describe("buildProductionConversationFrameModel", () => {
+  it.each(["queued", "in_progress"] as const)("does not label an accepted %s chat bubble as queued", (status) => {
+    const result = buildProductionConversationFrameModel(makeInput({
+      messages: [{ ...userMessage, status }],
+      projection: EMPTY_ACTIVITY_PROJECTION,
+      activeMessageId: userMessage.id,
+      activeMessageHasProgress: false,
+    }));
+    expect(result.messages[0]?.statusLabel).toBeNull();
+  });
+  it("restores the accepted sleeping message ahead of local drafts until its own turn starts", () => {
+    const input = makeInput({
+      messages: [{ ...userMessage, status: "queued" }],
+      projection: { ...EMPTY_ACTIVITY_PROJECTION, state: "queued" },
+      queuedMessages: [{ id: "local-next", content: "And a drink" }],
+    });
+    const queued = buildProductionConversationFrameModel(input);
+    expect(queued.messages[0]?.queued).toBe(true);
+    expect(queued.queuedMessages).toEqual([
+      { id: userMessage.id, content: userMessage.content, removable: false },
+      { id: "local-next", content: "And a drink" },
+    ]);
+    const running = buildProductionConversationFrameModel({ ...input, projection: {
+      ...input.projection, state: "running", turns: [{
+        messageId: userMessage.id, turnOrdinal: 1, state: "running", assistantText: "",
+      }],
+    } });
+    expect(running.messages[0]?.queued).toBe(false);
+    expect(running.queuedMessages).toEqual([{ id: "local-next", content: "And a drink" }]);
+  });
+
+  it("does not release a queued message for another message's activity", () => {
+    const model = buildProductionConversationFrameModel(makeInput({
+      messages: [{ ...userMessage, status: "queued" }],
+      projection: { ...EMPTY_ACTIVITY_PROJECTION, state: "running", turns: [{
+        messageId: "unrelated", turnOrdinal: 1, state: "running", assistantText: "",
+      }] },
+    }));
+    expect(model.messages[0]?.queued).toBe(true);
+  });
+
+  it.each(["in_progress", "completed", "failed", "stopped"] as const)(
+    "releases durable %s messages without waiting for a live event", (status) => {
+      const model = buildProductionConversationFrameModel(makeInput({
+        messages: [{ ...userMessage, status }], projection: EMPTY_ACTIVITY_PROJECTION,
+      }));
+      expect(model.messages[0]?.queued).toBe(false);
+      expect(model.queuedMessages).toEqual([]);
+    },
+  );
+
   it("places grouped activity on the exact triggering user turn", () => {
     const activityPresentation = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, {
       conversationId: "conversation-1",

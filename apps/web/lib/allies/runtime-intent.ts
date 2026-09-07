@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { RuntimeIntentViewModel } from "@allies/cloud-client";
 
@@ -37,6 +37,12 @@ export function useComposingRuntimeIntent(
   const composingRef = useRef(false);
   const requestRef = useRef<{ occurredAt: string; idempotencyKey: string } | null>(null);
   const controllerRef = useRef<AbortController | null>(null);
+  const [status, setStatus] = useState<RuntimeIntentViewModel["status"] | "requesting" | null>(null);
+  const [statusAllyId, setStatusAllyId] = useState(allyId);
+  if (statusAllyId !== allyId) {
+    setStatusAllyId(allyId);
+    setStatus(null);
+  }
 
   useEffect(() => {
     controllerRef.current?.abort();
@@ -62,6 +68,7 @@ export function useComposingRuntimeIntent(
     requestRef.current = request;
     const controller = new AbortController();
     controllerRef.current = controller;
+    setStatus("requesting");
 
     try {
       void requestIntent(
@@ -69,8 +76,13 @@ export function useComposingRuntimeIntent(
         request.occurredAt,
         request.idempotencyKey,
         controller.signal,
-      ).catch(() => undefined);
+      ).then((result) => {
+        if (!controller.signal.aborted) setStatus(result.status);
+      }).catch(() => {
+        if (!controller.signal.aborted) setStatus("failed");
+      });
     } catch {
+      setStatus("failed");
       // Speculative wake must never affect the composer or message send path.
     }
   }, [allyId, requestIntent]);
@@ -84,5 +96,5 @@ export function useComposingRuntimeIntent(
     observeEdit(value);
   }, [observeEdit]);
 
-  return { observeEdit, compositionStart, compositionEnd };
+  return { observeEdit, compositionStart, compositionEnd, status };
 }

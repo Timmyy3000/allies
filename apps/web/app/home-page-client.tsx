@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import Onboarding from "./(onboarding)/_components";
 import {
-  OnboardingAuthResumeContext,
   hasOnboardingResume,
   isOnboardingResumeQuery,
 } from "./(onboarding)/_store/onboarding-resume";
@@ -14,40 +12,48 @@ import { OnboardingStateProvider } from "./(onboarding)/_store/onboarding-store"
 import { getWebEnvironment } from "../lib/env";
 import { useSession } from "../lib/session/session-context";
 import { WaitlistFlowProvider } from "../lib/waitlist/flow";
+import { OnboardingHandoffScreen } from "../lib/allies/onboarding-handoff-screen";
 
-import styles from "./page.module.css";
+
+const subscribeToResume = (notify: () => void) => {
+  window.addEventListener("storage", notify);
+  return () => window.removeEventListener("storage", notify);
+};
 
 export function HomePageClient() {
   const environment = getWebEnvironment();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const logoutUnconfirmed = searchParams.get("signout") === "unconfirmed";
   const session = useSession();
   const sessionStatus = session.state.status;
   const restoreSession = session.restore;
   const restoreStarted = useRef(false);
   const homeRedirectStarted = useRef(false);
   const [restoreFailed, setRestoreFailed] = useState(false);
-  const [storedResume, setStoredResume] = useState<boolean | null>(null);
+  const storedResume = useSyncExternalStore(subscribeToResume, hasOnboardingResume, () => null);
   const resumeRequested =
     isOnboardingResumeQuery(searchParams.get("resume")) || storedResume === true;
-  const resumeSignedIn = resumeRequested && sessionStatus === "signed-in";
-  const sendSignedInHome = storedResume !== null && sessionStatus === "signed-in" && !resumeRequested;
-
-  if (storedResume === null && typeof window !== "undefined") {
-    setStoredResume(hasOnboardingResume());
-  }
+  const resumeSignedIn = !logoutUnconfirmed && resumeRequested && sessionStatus === "signed-in";
+  const sendSignedInHome = !logoutUnconfirmed && storedResume !== null && sessionStatus === "signed-in" && !resumeRequested;
 
   useEffect(() => {
-    if (restoreStarted.current || sessionStatus !== "unknown") return;
+    if (logoutUnconfirmed || restoreStarted.current || sessionStatus !== "unknown") return;
     restoreStarted.current = true;
     void restoreSession().catch(() => setRestoreFailed(true));
-  }, [restoreSession, sessionStatus]);
+  }, [logoutUnconfirmed, restoreSession, sessionStatus]);
 
   useEffect(() => {
+    if (resumeSignedIn) {
+      homeRedirectStarted.current = true;
+      return;
+    }
     if (!sendSignedInHome || homeRedirectStarted.current) return;
     homeRedirectStarted.current = true;
     router.replace("/home");
-  }, [router, sendSignedInHome]);
+  }, [resumeSignedIn, router, sendSignedInHome]);
+
+  if (logoutUnconfirmed) return <LogoutRecovery />;
 
   if (storedResume === null) {
     return <HomeResumeStatus message="Checking your secure session…" />;
@@ -61,25 +67,42 @@ export function HomePageClient() {
     return <HomeResumeStatus message="Opening your home…" />;
   }
 
+  if (resumeSignedIn) return <OnboardingHandoffScreen />;
+
   return (
-    <OnboardingStateProvider initialStep={resumeSignedIn ? "preview" : "welcome"}>
-      <OnboardingAuthResumeContext.Provider value={resumeSignedIn}>
-        <WaitlistFlowProvider
-          featureEnabled={environment.waitlistEnabled}
-          consentVersion={environment.waitlistConsentVersion}
-        >
-          <Onboarding
-            presentation="drawer"
-            waitlistEnabled={environment.waitlistEnabled}
-            resumeAfterAuth={resumeSignedIn}
-          />
-        </WaitlistFlowProvider>
-      </OnboardingAuthResumeContext.Provider>
-      <Link className={styles.googleSignInProbe} href="/sign-in?returnTo=%2Fhome">
-        Continue with Google
-      </Link>
+    <OnboardingStateProvider initialStep="welcome">
+      <WaitlistFlowProvider
+        onboarding
+        featureEnabled={environment.waitlistEnabled}
+        consentVersion={environment.waitlistConsentVersion}
+      >
+        <Onboarding
+          presentation="drawer"
+          waitlistEnabled={environment.waitlistEnabled}
+        />
+      </WaitlistFlowProvider>
     </OnboardingStateProvider>
   );
+}
+
+function LogoutRecovery() {
+  const session = useSession();
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    setBusy(true);
+    try {
+      const result = await session.logout();
+      if (result.serverConfirmed) router.replace("/");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <main className="onboarding-handoff">
+    <h1>Let’s finish signing you out</h1>
+    <p role="alert">We couldn’t confirm sign-out with the server. Your account may still be signed in on this browser.</p>
+    <button type="button" disabled={busy} onClick={() => void retry().catch(() => undefined)}>{busy ? "Signing out…" : "Retry sign out"}</button>
+  </main>;
 }
 
 function HomeResumeStatus({ message }: { message: string }) {
@@ -90,7 +113,7 @@ function HomeResumeStatus({ message }: { message: string }) {
         display: "grid",
         placeItems: "center",
         padding: 24,
-        color: "#121212",
+        color: "var(--text-primary)",
         fontFamily: "var(--font-open-runde), sans-serif",
       }}
     >

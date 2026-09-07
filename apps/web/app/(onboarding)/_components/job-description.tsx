@@ -75,7 +75,7 @@ export function JobDescriptionScreen() {
                 aria-label="Close job help"
                 data-testid="job-help-close"
                 className="onboarding-help-close"
-                style={{ backgroundColor: "#f3f3f3" }}
+                style={{ backgroundColor: "var(--surface)" }}
                 onClick={() => {
                   requestRestoreFocus();
                   setShowHelp(false);

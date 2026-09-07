@@ -24,6 +24,20 @@ beforeEach(() => {
 });
 
 describe("AuthOverlay Google sign-in", () => {
+  it("does not leave the page when the preview cannot be persisted", async () => {
+    const beginSignIn = vi.fn();
+    sessionMock.useSession.mockReturnValue({ client: { beginSignIn }, runCloudOperation: vi.fn() });
+    render(<AuthOverlay shape="ghosty" color="#3446e9" onClose={() => undefined}
+      onPrepareGoogleSignIn={() => { throw new Error("Storage blocked"); }} />);
+    expect(screen.queryByTestId("signup-chatgpt")).toBeNull();
+    expect(screen.getByRole("link", { name: "Terms of Service" }).getAttribute("href")).toBe("/terms");
+    expect(screen.getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe("/privacy");
+    fireEvent.click(screen.getByTestId("signup-google"));
+    expect((await screen.findByRole("alert")).textContent).toContain("couldn’t save your preview");
+    expect(beginSignIn).not.toHaveBeenCalled();
+    expect((screen.getByTestId("signup-google") as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("starts Cloud Google sign-in and keeps the ally draft hook in front", async () => {
     const beginSignIn = vi.fn(async () => "https://accounts.google.com/auth");
     const runCloudOperation = vi.fn(async (operation: (signal?: AbortSignal) => Promise<unknown>) => operation());
@@ -43,12 +57,18 @@ describe("AuthOverlay Google sign-in", () => {
         shape="ghosty"
         color="#3446e9"
         onClose={() => undefined}
-        onSignUp={() => undefined}
+
         onPrepareGoogleSignIn={onPrepareGoogleSignIn}
       />,
     );
 
+    expect(screen.queryByTestId("signup-chatgpt")).toBeNull();
+    expect(screen.getByRole("link", { name: "Terms of Service" }).getAttribute("href")).toBe("/terms");
+    expect(screen.getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe("/privacy");
     fireEvent.click(screen.getByTestId("signup-google"));
+    expect(screen.queryByTestId("signup-chatgpt")).toBeNull();
+    expect(screen.getByRole("link", { name: "Terms of Service" }).getAttribute("href")).toBe("/terms");
+    expect(screen.getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe("/privacy");
     fireEvent.click(screen.getByTestId("signup-google"));
 
     await waitFor(() => expect(runCloudOperation).toHaveBeenCalledOnce());
@@ -73,16 +93,46 @@ describe("AuthOverlay Google sign-in", () => {
         shape="ghosty"
         color="#3446e9"
         onClose={() => undefined}
-        onSignUp={() => undefined}
+
         onPrepareGoogleSignIn={() => undefined}
       />,
     );
 
+    expect(screen.queryByTestId("signup-chatgpt")).toBeNull();
+    expect(screen.getByRole("link", { name: "Terms of Service" }).getAttribute("href")).toBe("/terms");
+    expect(screen.getByRole("link", { name: "Privacy Policy" }).getAttribute("href")).toBe("/privacy");
     fireEvent.click(screen.getByTestId("signup-google"));
 
     expect((await screen.findByRole("alert")).textContent).toBe(
       "Google sign-in is temporarily unavailable. Try again.",
     );
+    expect((screen.getByTestId("signup-google") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("uses sign-in recovery copy when Cloud redirect fails after preview save", async () => {
+    const beginSignIn = vi.fn(async () => {
+      throw new Error("offline");
+    });
+    const runCloudOperation = vi.fn(async (operation: (signal?: AbortSignal) => Promise<unknown>) => operation());
+    const onPrepareGoogleSignIn = vi.fn();
+    sessionMock.useSession.mockReturnValue({
+      client: { beginSignIn },
+      runCloudOperation,
+    });
+
+    render(
+      <AuthOverlay
+        shape="ghosty"
+        color="#3446e9"
+        onClose={() => undefined}
+        onPrepareGoogleSignIn={onPrepareGoogleSignIn}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("signup-google"));
+
+    expect((await screen.findByRole("alert")).textContent).toBe("We couldn't start sign-in. Try again.");
+    expect(onPrepareGoogleSignIn).toHaveBeenCalledOnce();
     expect((screen.getByTestId("signup-google") as HTMLButtonElement).disabled).toBe(false);
   });
 });

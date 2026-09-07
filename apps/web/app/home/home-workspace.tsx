@@ -44,7 +44,7 @@ import {
   mergeActivityPresentation,
   type ActivityPresentationState,
 } from "../../lib/allies/activity-presentation";
-import { getActivitySseEnabled, getWebEnvironment } from "../../lib/env";
+import { getActivitySseEnabled, getCreationWakeEnabled, getWebEnvironment } from "../../lib/env";
 import { useSession } from "../../lib/session/session-context";
 import {
   WAITLIST_APPEARANCE_CATALOG_VERSION,
@@ -61,7 +61,6 @@ import {
   type ConversationAccessFailure,
 } from "./conversation-access-error";
 import { ConversationFrame } from "./conversation-frame";
-import { DashboardUiPushExact } from "./_exact/dashboard-ui-push-exact";
 import { MobileHomeRosterExact } from "./_exact/mobile-home-roster-exact";
 import { HomeReadySplash } from "./home-ready-splash";
 import { useIsMobileHome } from "./use-is-mobile-home";
@@ -158,11 +157,14 @@ export function isAllySleeping(
 export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | null }) {
   const session = useSession();
   const queryClient = useQueryClient();
+  const creationWakeEnabled = getCreationWakeEnabled();
   const sessionStatus = session.state.status;
   const restoreSession = session.restore;
   const router = useRouter();
   const restoreStarted = useRef(false);
   const redirectStarted = useRef(false);
+  const [allySearch, setAllySearch] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
   const [sleepClock, setSleepClock] = useState<number | null>(null);
   const [recentActivityByAlly, setRecentActivityByAlly] = useState<Record<string, number>>({});
   const recordAllyActivity = useCallback((allyId: string) => {
@@ -365,7 +367,11 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     >
       <div className={styles.creationOverlay}>
         <OnboardingStateProvider initialStep="name">
-          <AuthenticatedAllyFlowProvider workspaceId={workspaceId} onCreated={handleCreated}>
+          <AuthenticatedAllyFlowProvider
+            workspaceId={workspaceId}
+            onCreated={handleCreated}
+            creationWakeEnabled={creationWakeEnabled}
+          >
             <Onboarding exitHref="/home" onExit={closeCreateOverlay} />
           </AuthenticatedAllyFlowProvider>
         </OnboardingStateProvider>
@@ -373,9 +379,10 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     </OnboardingDrawer>
   );
 
+  const matchingAllies = allies.filter((ally) => ally.name.toLocaleLowerCase().includes(allySearch.trim().toLocaleLowerCase()));
   const allyRows = (exact: boolean) => allies.length ? (
     <nav className={exact ? styles.exactAllyList : styles.allyList} aria-label="Choose an Ally">
-      {allies.map((ally) => (
+      {matchingAllies.map((ally) => (
         <AllyConversationRow
           key={ally.id}
           ally={ally}
@@ -400,117 +407,68 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     </div>
   );
 
-  if (showDesktopDashboard) {
-    return (
-      <main className={styles.exactHost} data-testid="dashboard-ui-push">
-        <DashboardUiPushExact
-          brand={(
-            <Link href="/home" aria-label="Allies home">
-              <Image src="/allies-icon.svg" alt="Allies" width={48} height={48} priority />
-            </Link>
-          )}
-          createControl={(
-            <button
-              type="button"
-              className={styles.exactCreate}
-              aria-label="Meet another Ally"
-              onClick={openCreateOverlay}
-            >
-              <PlusIcon />
-            </button>
-          )}
-          allies={(
-            <>
-              {hasBackgroundQueryError && !selectedAllyId ? (
-                <WorkspaceRefreshError onRetry={retryWorkspaceQueries} />
-              ) : null}
-              {allyRows(true)}
-            </>
-          )}
-          profile={(
-            <Link className={styles.exactProfile} href="/account">
-              <span className={styles.exactProfileMark} aria-hidden="true">
-                {initials(accountQuery.data.displayName)}
-              </span>
-              <span>{accountQuery.data.displayName || "Your account"}</span>
-            </Link>
-          )}
-          thread={(
-            <section className={styles.exactThread} aria-label="Selected Ally conversation">
-              {threadBody}
-            </section>
-          )}
+  const sidebar = (
+    <aside className={`${styles.homeSidebar} ${selectedAllyId ? styles.rosterHiddenOnMobile : ""}`} aria-label="Ally sidebar">
+      <header className={styles.sidebarHeader}>
+        <div className={styles.sidebarProfileControls}>
+          <Link
+            className={`${styles.exactMobileAction} ${styles.exactMobileActionWash} ${styles.exactMobileProfile}`}
+            href="/account"
+            aria-label={accountQuery.data.displayName || "Open account"}
+          >
+            {initials(accountQuery.data.displayName)}
+          </Link>
+          <button type="button" className={`${styles.exactMobileAction} ${styles.exactMobileActionCreate}`} style={{ cursor: "default" }} aria-label="Chef" disabled>
+            <ChefIcon />
+          </button>
+        </div>
+        <button
+          type="button"
+          className={`${styles.exactMobileAction} ${styles.exactMobileActionWash}`}
+          aria-label="Search Allies"
+          aria-expanded={searchOpen}
+          aria-controls="ally-search"
+          onClick={() => { setSearchOpen(!searchOpen); setAllySearch(""); }}
+        >
+          <SearchIcon />
+        </button>
+      </header>
+      <div className={styles.sidebarTabs} aria-label="Sidebar views">
+        <button type="button" className={styles.sidebarTab} aria-pressed="true">My allies</button>
+        <button type="button" className={`${styles.sidebarTab} ${styles.sidebarTabMuted}`} disabled>Routines</button>
+      </div>
+      {searchOpen ? (
+        <input
+          id="ally-search"
+          className={styles.sidebarSearch}
+          type="search"
+          aria-label="Filter Allies by name"
+          placeholder="Search Allies"
+          value={allySearch}
+          onChange={(event) => setAllySearch(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Escape") { setAllySearch(""); setSearchOpen(false); }
+          }}
         />
-        {createOverlay}
-      </main>
-    );
-  }
+      ) : null}
+      <div className={styles.sidebarList}>
+        {hasBackgroundQueryError && !selectedAllyId ? <WorkspaceRefreshError onRetry={retryWorkspaceQueries} /> : null}
+        {allyRows(true)}
+        {allies.length > 0 && matchingAllies.length === 0 ? (
+          <p role="status" className={styles.sidebarNoResults}>No Allies match your search.</p>
+        ) : null}
+      </div>
+      <footer className={styles.sidebarFooter}>
+        <button type="button" className={styles.exactMobileCreate} aria-label="Make an Ally" onClick={openCreateOverlay}>Make an ally</button>
+      </footer>
+    </aside>
+  );
 
   return (
-    <main className={styles.exactMobileHost} data-testid="mobile-home-roster">
-      <section
-        className={selectedAllyId ? styles.rosterHiddenOnMobile : undefined}
-        aria-label="Ally conversations"
-        style={{ width: "100%", height: "100%" }}
-      >
-        <MobileHomeRosterExact
-          actions={(
-            <>
-              <button
-                type="button"
-                className={`${styles.exactMobileAction} ${styles.exactMobileActionCreate}`}
-                aria-label="Meet another Ally"
-                onClick={openCreateOverlay}
-              >
-                <ChefIcon />
-              </button>
-              <div
-                className={`${styles.exactMobileAction} ${styles.exactMobileActionWash}`}
-                aria-hidden="true"
-              >
-                <SearchIcon />
-              </div>
-              <Link
-                className={`${styles.exactMobileAction} ${styles.exactMobileActionWash} ${styles.exactMobileProfile}`}
-                href="/account"
-                aria-label={accountQuery.data.displayName || "Open account"}
-              >
-                {initials(accountQuery.data.displayName)}
-              </Link>
-            </>
-          )}
-          tabs={(
-            <>
-              <span className={styles.exactMobileTab}>My allies</span>
-              <span className={styles.exactMobileTabMuted}>Events</span>
-            </>
-          )}
-          allies={(
-            <>
-              {hasBackgroundQueryError && !selectedAllyId ? (
-                <WorkspaceRefreshError onRetry={retryWorkspaceQueries} />
-              ) : null}
-              {allyRows(true)}
-            </>
-          )}
-          createControl={(
-            <button
-              type="button"
-              className={styles.exactMobileCreate}
-              aria-label="Make an Ally"
-              onClick={openCreateOverlay}
-            >
-              Make an ally
-            </button>
-          )}
-        />
-      </section>
-
+    <main className={showDesktopDashboard ? styles.homeLayout : styles.exactMobileHost} data-testid={showDesktopDashboard ? "dashboard-ui-push" : "mobile-home-roster"}>
+      {sidebar}
       {showThread ? (
-        <section
-          className={`${styles.thread} ${!selectedAllyId ? styles.threadHiddenOnMobile : ""}`}
-          aria-label="Selected Ally conversation"
-        >
+        <section className={styles.exactThread} aria-label="Selected Ally conversation">
           {threadBody}
         </section>
       ) : null}
@@ -670,6 +628,7 @@ function ConversationPane({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderLoadError, setOlderLoadError] = useState<string | null>(null);
   const [sentMessages, setSentMessages] = useState<MessageViewModel[]>([]);
+  const [immediateMessageIds, setImmediateMessageIds] = useState<ReadonlySet<string>>(() => new Set());
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
   const [assistantReplyState, setAssistantReplyState] = useState<AssistantReplyState>({
@@ -683,6 +642,7 @@ function ConversationPane({
   const blockedQueuedMessageIdsRef = useRef<Set<string>>(new Set());
   const [queuePersistenceError, setQueuePersistenceError] = useState<string | null>(null);
   const [sending, setSending] = useState(false);
+  const [sendingMessageId, setSendingMessageId] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   const [retryingMessageId, setRetryingMessageId] = useState<string | null>(null);
   const [retriedMessageIds, setRetriedMessageIds] = useState<Set<string>>(() => new Set());
@@ -713,12 +673,9 @@ function ConversationPane({
   } | null>(null);
   const activityReplayExpiredRestartedRef = useRef(false);
   const [activityHistoryRetry, setActivityHistoryRetry] = useState(0);
-  const [showSetupToast, setShowSetupToast] = useState(false);
   const [conversationAccessFailure, setConversationAccessFailure] = useState<ConversationAccessFailure | null>(null);
   const conversationAccessFailureRef = useRef<ConversationAccessFailure | null>(null);
   const queryAccessFailureRef = useRef<ConversationAccessFailure | null>(null);
-  const setupToastShownForRef = useRef<string | null>(null);
-  const setupToastTimerRef = useRef<number | null>(null);
   const activityRequestRef = useRef<AbortController | null>(null);
   const activitySnapshotRequestRef = useRef<AbortController | null>(null);
   const activityHistoryRequestRef = useRef<AbortController | null>(null);
@@ -745,7 +702,7 @@ function ConversationPane({
       ),
     [session],
   );
-  const { observeEdit, compositionStart, compositionEnd } = useComposingRuntimeIntent(
+  const { observeEdit, compositionStart, compositionEnd, status: runtimeIntentStatus } = useComposingRuntimeIntent(
     ally.id,
     requestRuntimeIntent,
   );
@@ -778,16 +735,9 @@ function ConversationPane({
       activityHistoryRequestRef.current?.abort();
       activityStreamRef.current?.close();
       olderRequestRef.current?.abort();
-      if (setupToastTimerRef.current !== null) window.clearTimeout(setupToastTimerRef.current);
     };
   }, []);
 
-  useEffect(() => {
-    if (ally.provisioningState !== "retryable" || setupToastShownForRef.current === ally.operationId) return;
-    setupToastShownForRef.current = ally.operationId;
-    setShowSetupToast(true);
-    setupToastTimerRef.current = window.setTimeout(() => setShowSetupToast(false), 4_000);
-  }, [ally.operationId, ally.provisioningState]);
 
   useEffect(() => {
     const frame = window.requestAnimationFrame(() => {
@@ -961,6 +911,7 @@ function ConversationPane({
     olderRequestRef.current?.abort();
     setOlderMessages([]);
     setSentMessages([]);
+    setImmediateMessageIds(new Set());
     setProjection(EMPTY_ACTIVITY_PROJECTION);
     setActivityPresentation(EMPTY_ACTIVITY_PRESENTATION);
     setOlderLoadError(null);
@@ -1050,6 +1001,7 @@ function ConversationPane({
   ));
   const timelineMessages = messages.filter((message) => (
     !isLiveQueuedMessage(message)
+    || immediateMessageIds.has(message.id)
     || message.id === activeMessageId
     || !visibleQueueMessages.some((queued) => queued.id === message.id)
   ));
@@ -1067,7 +1019,8 @@ function ConversationPane({
     : ACTIVITY_INTERVAL_MS;
   const showThinkingState = sending
     || turnInProgress
-    || waitingForVisibleResponse;
+    || waitingForVisibleResponse
+    || messages.some((message) => immediateMessageIds.has(message.id) && isLiveQueuedMessage(message));
   const gettingReady = isGettingReady(ally);
 
   useEffect(() => {
@@ -1346,6 +1299,7 @@ function ConversationPane({
     }
     followLatestRef.current = true;
     setSending(true);
+    setSendingMessageId(queuedMessageId ?? null);
     setSendError(null);
     setQueuePersistenceError(null);
     try {
@@ -1356,6 +1310,13 @@ function ConversationPane({
       if (!accepted?.message) throw { kind: "contract" };
       onActivity();
       setSentMessages((current) => mergeMessages(current, [accepted.message]));
+      if (queuedMessageId) setImmediateMessageIds((current) => {
+        if (!current.has(queuedMessageId)) return current;
+        const next = new Set(current);
+        next.delete(queuedMessageId);
+        next.add(accepted.message.id);
+        return next;
+      });
       if (queuedMessageId !== undefined) {
         const removed = removeLocalQueuedMessage(queuedMessageId);
         if (removed) {
@@ -1400,6 +1361,12 @@ function ConversationPane({
       }
       return true;
     } catch (error) {
+      if (queuedMessageId !== undefined) setImmediateMessageIds((current) => {
+        if (!current.has(queuedMessageId)) return current;
+        const next = new Set(current);
+        next.delete(queuedMessageId);
+        return next;
+      });
       if (applyConversationAccessFailure(error)) {
         return false;
       }
@@ -1429,6 +1396,7 @@ function ConversationPane({
       return false;
     } finally {
       setSending(false);
+      setSendingMessageId((current) => current === queuedMessageId ? null : current);
     }
   }, [
     ally,
@@ -1449,7 +1417,7 @@ function ConversationPane({
     workspaceId,
   ]);
 
-  const submit = async () => {
+  const submit = async (showImmediately = false) => {
     if (conversationAccessFailure || !conversation || !queuedMessagesReady || !canChat(ally)) return;
     const content = draft.trim();
     if (!content) return;
@@ -1494,6 +1462,9 @@ function ConversationPane({
         ? BLOCKED_QUEUE_HEAD_ERROR
         : null,
     );
+    if (showImmediately && !turnInProgress && queuedMessagesSnapshot.length === 0) {
+      setImmediateMessageIds((current) => new Set([...current, nextMessage.id]));
+    }
     draftRef.current = "";
     setDraft("");
     intentRef.current = null;
@@ -1803,7 +1774,6 @@ function ConversationPane({
         if ("conversationId" in event && event.conversationId !== targetConversationId) {
           controller.abort();
           startPollingFallback();
-          setActivityError("Live updates paused. Checking again…");
           return;
         }
         if (event.type === "activity") {
@@ -1868,8 +1838,6 @@ function ConversationPane({
           return;
         }
         startPollingFallback();
-        if (error.status === 503) return;
-        setActivityError("Live updates paused. Checking again…");
       },
     });
     activityStreamRef.current = stream;
@@ -1930,7 +1898,7 @@ function ConversationPane({
   const scopedActivityPresentation = activityPresentation.conversationId === (conversationId ?? null)
     ? activityPresentation
     : EMPTY_ACTIVITY_PRESENTATION;
-  const frameModel = buildProductionConversationFrameModel({
+  const baseFrameModel = buildProductionConversationFrameModel({
     ally,
     resolvedAppearance,
     appearanceAvailable: Boolean(resolvedAppearanceValue),
@@ -1947,7 +1915,6 @@ function ConversationPane({
     isLoading: conversationQuery.isPending,
     loadError: conversationLoadError,
     accessFailure: effectiveConversationAccessFailure,
-    setupNotice: showSetupToast ? `${ally.name} is finishing setup. This usually takes a moment.` : null,
     olderMessagesAvailable: Boolean(nextCursor),
     loadingOlder,
     olderLoadError,
@@ -1967,7 +1934,7 @@ function ConversationPane({
     streaming: shouldPoll || streamConnected,
     retriedMessageIds,
   });
-  const removeQueuedMessage = useCallback(async (id: string) => {
+  const removeQueuedMessage = async (id: string) => {
     const localMessage = queuedMessagesRef.current.find((message) => message.id === id);
     const cloudMessage = conversationQueueMessages.find((message) => message.id === id);
     if (cloudMessage) {
@@ -2009,7 +1976,25 @@ function ConversationPane({
     } else {
       setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
     }
-  }, [ally.id, applyConversationAccessFailure, conversation, conversationQueueMessages, queuedMessagesStorageKey, queryClient, removeLocalQueuedMessage, session, setDeletedMessageIds, workspaceId]);
+  };
+  const visibleFrameMessages = baseFrameModel.messages.map((message) => immediateMessageIds.has(message.id)
+    ? { ...message, queued: false } : message);
+  const lastSequence = Math.max(0, ...visibleFrameMessages.map((message) => message.sequence));
+  const immediateFrameMessages = queuedMessages.filter((message) => !baseFrameModel.timeline.accessCopy && immediateMessageIds.has(message.id)).map((message, index) => ({
+    id: message.id,
+    sender: "user" as const,
+    content: message.content,
+    sequence: lastSequence + index + 1,
+    createdAt: new Date(message.queuedAt).toISOString(),
+    statusLabel: sendingMessageId === message.id ? "Sending" : "Not confirmed",
+    retryable: false,
+    queued: false,
+  }));
+  const frameModel = {
+    ...baseFrameModel,
+    messages: [...visibleFrameMessages, ...immediateFrameMessages],
+    queuedMessages: baseFrameModel.queuedMessages.filter((message) => !immediateMessageIds.has(message.id)),
+  };
   const frameActions: ProductionConversationFrameActions = {
     onDraftChange: (value) => {
       const beganInteracting = !draftRef.current.trim() && Boolean(value.trim());
@@ -2021,7 +2006,7 @@ function ConversationPane({
     },
     onCompositionStart: compositionStart,
     onCompositionEnd: compositionEnd,
-    onSubmit: () => void submit(),
+    onSubmit: (showImmediately) => void submit(showImmediately),
     onRetryMessage: (messageId) => {
       const message = timelineMessages.find((candidate) => candidate.id === messageId);
       if (message) void retry(message);
@@ -2044,7 +2029,7 @@ function ConversationPane({
     },
   };
 
-  return <ConversationFrame stateReady={stateReady} sleeping={sleeping} model={frameModel} actions={frameActions} canvasRef={messageCanvasRef} />;
+  return <ConversationFrame stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} canvasRef={messageCanvasRef} />;
 }
 
 function HomeStatus({
@@ -2353,16 +2338,12 @@ function initials(name: string): string {
   return value.split(/\s+/u).slice(0, 2).map((part) => part[0]?.toUpperCase()).join("");
 }
 
-function PlusIcon() {
-  return <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg>;
-}
-
 function ChefIcon() {
-  return <Image src="/ally/icons/chef.svg" alt="" width={40} height={40} aria-hidden="true" />;
+  return <Image src="/home/mobile-roster/chef.svg" alt="" width={22} height={22} aria-hidden="true" />;
 }
 
 function SearchIcon() {
-  return <svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="5.8" /><path d="m15.2 15.2 4.3 4.3" /></svg>;
+  return <Image src="/home/mobile-roster/search.svg" alt="" width={22} height={22} aria-hidden="true" />;
 }
 
 function readQueuedMessages(storageKey: string): QueuedMessage[] {

@@ -7,13 +7,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AllyViewModel } from "@allies/cloud-client";
 import {
   AuthenticatedAllyFlowProvider,
+  useCreationWake,
   useAuthenticatedAllyFlow,
 } from "./authenticated-onboarding-flow";
 
 const useSessionMock = vi.hoisted(() => vi.fn());
 vi.mock("../session/session-context", () => ({ useSession: useSessionMock }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 beforeEach(() => vi.clearAllMocks());
 
 const configuration = {
@@ -41,9 +45,16 @@ function Probe({ onFlow }: { onFlow: (flow: ReturnType<typeof useAuthenticatedAl
   return null;
 }
 
+function WakeProbe({ onWake }: { onWake: (wake: ReturnType<typeof useCreationWake>) => void }) {
+  onWake(useCreationWake());
+  return null;
+}
+
 function renderFlow(overrides: {
   beginOnboarding?: ReturnType<typeof vi.fn>;
   createAlly?: ReturnType<typeof vi.fn>;
+  requestWorkspaceRuntimeIntent?: ReturnType<typeof vi.fn>;
+  creationWakeEnabled?: boolean;
   onCreated?: (created: AllyViewModel) => void;
 } = {}) {
   const beginOnboarding = overrides.beginOnboarding ?? vi.fn(async () => ({
@@ -51,25 +62,33 @@ function renderFlow(overrides: {
     greeting: "Hello. What should we work on first?",
   }));
   const createAlly = overrides.createAlly ?? vi.fn(async () => ally);
+  const requestWorkspaceRuntimeIntent = overrides.requestWorkspaceRuntimeIntent
+    ?? vi.fn(async () => ({ status: "waking" as const }));
   useSessionMock.mockReturnValue({
-    client: { beginOnboarding, createAlly },
-    runCloudOperation: vi.fn(async (operation: (signal?: AbortSignal) => Promise<unknown>) => operation()),
+    client: { beginOnboarding, createAlly, requestWorkspaceRuntimeIntent },
+    runCloudOperation: vi.fn(async (
+      operation: (signal?: AbortSignal) => Promise<unknown>,
+      options?: { signal?: AbortSignal },
+    ) => operation(options?.signal)),
   });
 
   let flow: ReturnType<typeof useAuthenticatedAllyFlow> | null = null;
+  let wake: ReturnType<typeof useCreationWake> | null = null;
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={queryClient}>
       <AuthenticatedAllyFlowProvider
         workspaceId="00000000-0000-4000-8000-000000000001"
         onCreated={overrides.onCreated ?? vi.fn()}
+        creationWakeEnabled={overrides.creationWakeEnabled}
       >
         <Probe onFlow={(value) => { flow = value; }} />
+        <WakeProbe onWake={(value) => { wake = value; }} />
       </AuthenticatedAllyFlowProvider>
     </QueryClientProvider>,
   );
 
-  return { beginOnboarding, createAlly, getFlow: () => flow! };
+  return { beginOnboarding, createAlly, requestWorkspaceRuntimeIntent, getFlow: () => flow!, getWake: () => wake };
 }
 
 describe("AuthenticatedAllyFlowProvider", () => {
@@ -123,5 +142,53 @@ describe("AuthenticatedAllyFlowProvider", () => {
         code: "onboarding_configuration_missing",
       });
     });
+  });
+
+  it("keeps the creation wake disabled by default", async () => {
+    const { getWake, requestWorkspaceRuntimeIntent } = renderFlow();
+
+    await act(async () => {
+      await getWake()?.requestCreationWake("Mira");
+    });
+
+    expect(requestWorkspaceRuntimeIntent).not.toHaveBeenCalled();
+  });
+
+  it("sends one content-free workspace intent with a UUID and no transient retry", async () => {
+    const requestWorkspaceRuntimeIntent = vi.fn(async (...args: [string, string, AbortSignal?]) => {
+      void args;
+      return { status: "waking" as const };
+    });
+    const { getWake } = renderFlow({ creationWakeEnabled: true, requestWorkspaceRuntimeIntent });
+
+    await act(async () => {
+      await getWake()?.requestCreationWake("  Mira  ");
+      await getWake()?.requestCreationWake("Mira again");
+    });
+
+    expect(requestWorkspaceRuntimeIntent).toHaveBeenCalledOnce();
+    expect(requestWorkspaceRuntimeIntent.mock.calls[0]).toHaveLength(3);
+    expect(requestWorkspaceRuntimeIntent.mock.calls[0]?.[0]).toMatch(/Z$/);
+    expect(requestWorkspaceRuntimeIntent.mock.calls[0]?.[1]).toMatch(/^[0-9a-f-]{36}$/);
+    expect(requestWorkspaceRuntimeIntent.mock.calls[0]?.[2]).toBeInstanceOf(AbortSignal);
+  });
+
+  it("aborts a stalled creation wake at its short timeout", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const requestWorkspaceRuntimeIntent = vi.fn(async (...args: [string, string, AbortSignal?]) => {
+      signal = args[2];
+      return new Promise<{ status: "waking" }>(() => undefined);
+    });
+    const { getWake } = renderFlow({ creationWakeEnabled: true, requestWorkspaceRuntimeIntent });
+
+    act(() => {
+      void getWake()?.requestCreationWake("Mira");
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_500);
+    });
+
+    expect(signal?.aborted).toBe(true);
   });
 });

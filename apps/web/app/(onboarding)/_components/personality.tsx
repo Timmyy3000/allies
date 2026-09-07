@@ -76,7 +76,7 @@ export function PersonalityScreen() {
                 aria-label="Close personality help"
                 data-testid="personality-help-close"
                 className="onboarding-help-close"
-                style={{ backgroundColor: "#f3f3f3" }}
+                style={{ backgroundColor: "var(--surface)" }}
                 onClick={() => {
                   requestRestoreFocus();
                   setShowHelp(false);
