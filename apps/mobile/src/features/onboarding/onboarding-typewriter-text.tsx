@@ -33,7 +33,7 @@ export function OnboardingTypewriterText({
 
         if (block.type === 'heading') {
           const heading = getVisibleBlockText(
-            `✨ ${block.heading}`,
+            `🌟 ${block.heading}`,
             block.textStart,
             characterCount,
           );

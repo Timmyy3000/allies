@@ -30,6 +30,11 @@ export function bytesToBase64Url(bytes: Uint8Array): string {
   return toBase64Url(encoded);
 }
 
+function getSingleParam(url: URL, name: string): string | null {
+  const values = url.searchParams.getAll(name);
+  return values.length === 1 ? values[0] ?? null : null;
+}
+
 function matchesRedirect(url: URL, redirectUri?: string): boolean {
   if (!redirectUri) return true;
 
@@ -61,14 +66,17 @@ export function parseNativeAuthReturn(
 
   if (!matchesRedirect(url, redirectUri)) return { status: 'error', reason: 'invalid-return' };
 
-  const state = url.searchParams.get('state');
+  const state = getSingleParam(url, 'state');
   if (!state || state !== expectedState) return { status: 'error', reason: 'state-mismatch' };
 
-  const error = url.searchParams.get('error');
+  const error = getSingleParam(url, 'error');
+  const code = getSingleParam(url, 'code');
+  if (url.searchParams.has('error') && !error) return { status: 'error', reason: 'flow-failed' };
+  if (url.searchParams.has('code') && !code) return { status: 'error', reason: 'invalid-return' };
+  if (error && code) return { status: 'error', reason: 'flow-failed' };
   if (error === 'access_denied') return { status: 'canceled' };
   if (error) return { status: 'error', reason: 'flow-failed' };
-
-  const code = url.searchParams.get('code');
   if (!code) return { status: 'error', reason: 'invalid-return' };
+
   return { status: 'success', code };
 }

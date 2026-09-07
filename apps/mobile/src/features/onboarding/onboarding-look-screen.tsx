@@ -10,7 +10,14 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import { useEffect, useRef, useState } from 'react';
-import Animated, { ZoomIn, useReducedMotion } from 'react-native-reanimated';
+import Animated, {
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  ZoomIn,
+  type SharedValue,
+} from 'react-native-reanimated';
 
 import { OnboardingAllyPreview } from './onboarding-ally-preview';
 import {
@@ -21,7 +28,8 @@ import {
   ONBOARDING_LOOK_HINT_ICON_GAP,
   ONBOARDING_LOOK_HINT_ICON_SIZE,
   getOnboardingEdgeToEdgeStyle,
-  getOnboardingLookArtworkScale,
+  getOnboardingLookDotProgress,
+  getOnboardingLookShellSize,
   getOnboardingLookPreviewLayerScales,
 } from './onboarding-layout';
 import {
@@ -33,6 +41,7 @@ import {
   getOnboardingLookSwipeHintOffsets,
 } from './onboarding-motion';
 import { ALLY_COLORS, ALLY_SHAPES, type AllyColorValue, type AllyShape } from './onboarding-state';
+import { useTheme } from '@/hooks/use-theme';
 
 const CAROUSEL_COPY_COUNT = 3;
 const AVATAR_SIZE = 160;
@@ -53,6 +62,47 @@ type OnboardingLookScreenProps = {
   onSwipe: () => void;
 };
 
+type OnboardingLookDotProps = {
+  accentColor: string;
+  dotCount: number;
+  index: number;
+  pageWidth: number;
+  reducedMotion: boolean;
+  scrollX: SharedValue<number>;
+  selected: boolean;
+};
+
+function OnboardingLookDot({
+  accentColor,
+  dotCount,
+  index,
+  pageWidth,
+  reducedMotion,
+  scrollX,
+  selected,
+}: OnboardingLookDotProps) {
+  const theme = useTheme();
+  const fillStyle = useAnimatedStyle(
+    () => ({
+      opacity: reducedMotion
+        ? selected
+          ? 1
+          : 0
+        : getOnboardingLookDotProgress(scrollX.value / pageWidth, index, dotCount),
+    }),
+    [dotCount, index, pageWidth, reducedMotion, selected],
+  );
+
+  return (
+    <View style={[styles.dot, { backgroundColor: theme.progressTrack }]}>
+      <Animated.View
+        pointerEvents="none"
+        style={[StyleSheet.absoluteFill, styles.dotFill, { backgroundColor: accentColor }, fillStyle]}
+      />
+    </View>
+  );
+}
+
 function modulo(value: number, divisor: number) {
   return ((value % divisor) + divisor) % divisor;
 }
@@ -65,6 +115,7 @@ export function OnboardingLookScreen({
   onShapeChange,
   onSwipe,
 }: OnboardingLookScreenProps) {
+  const theme = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
   const edgeToEdgeStyle = getOnboardingEdgeToEdgeStyle(windowWidth);
@@ -82,6 +133,8 @@ export function OnboardingLookScreen({
   const pageWidth = viewportWidth || Math.max(1, windowWidth);
   const pageCount = ALLY_SHAPES.length * CAROUSEL_COPY_COUNT;
   const hasSelectedColor = selectedColor !== null;
+  const shellSize = getOnboardingLookShellSize(hasSelectedColor, AVATAR_SIZE);
+  const scrollX = useSharedValue(carouselIndex * pageWidth);
 
   const cancelSwipeHint = () => {
     swipeHintTimersRef.current.forEach(clearTimeout);
@@ -107,6 +160,12 @@ export function OnboardingLookScreen({
     });
     positionedViewportRef.current = viewportWidth;
   }, [carouselIndex, viewportWidth]);
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollX.value = event.contentOffset.x;
+    },
+  });
 
   useEffect(() => {
     if (
@@ -202,16 +261,19 @@ export function OnboardingLookScreen({
   };
 
   return (
-    <View style={styles.root}>
+    <View
+      style={[styles.root, { backgroundColor: theme.appBackground }]}
+    >
       <View style={ONBOARDING_LOOK_CAROUSEL_GROUP_STYLE}>
         <View
           onLayout={({ nativeEvent }) => setViewportWidth(nativeEvent.layout.width)}
-          style={[styles.carouselFrame, edgeToEdgeStyle]}>
-          <ScrollView
+          style={[styles.carouselFrame, { height: shellSize }, edgeToEdgeStyle]}>
+          <Animated.ScrollView
             contentContainerStyle={{ width: pageWidth * pageCount }}
             horizontal
             onMomentumScrollEnd={handleScrollEnd}
             onScrollBeginDrag={cancelSwipeHint}
+            onScroll={scrollHandler}
             pagingEnabled={!swipeHintActive}
             ref={scrollRef}
             scrollEventThrottle={16}
@@ -228,14 +290,13 @@ export function OnboardingLookScreen({
                     color={selectedColor}
                     identity={pageShape}
                     size={AVATAR_SIZE}
-                    artworkScale={
-                      artworkScale * getOnboardingLookArtworkScale(pageShape, hasSelectedColor)
-                    }
+                    shellSize={shellSize}
+                    artworkScale={artworkScale}
                   />
                 </View>
               );
             })}
-          </ScrollView>
+          </Animated.ScrollView>
         </View>
 
         <View accessibilityLabel="Ally shape choices" style={styles.dots}>
@@ -250,8 +311,17 @@ export function OnboardingLookScreen({
                 hitSlop={8}
                 key={shape}
                 onPress={() => jumpToShape(index)}
-                style={[styles.dot, selected && { backgroundColor: selectedColor ?? '#FF5800' }]}
-              />
+                style={styles.dotPressable}>
+                <OnboardingLookDot
+                  accentColor={selectedColor ?? '#FF5800'}
+                  dotCount={ALLY_SHAPES.length}
+                  index={index}
+                  pageWidth={pageWidth}
+                  reducedMotion={Boolean(reducedMotion)}
+                  scrollX={scrollX}
+                  selected={selected}
+                />
+              </Pressable>
             );
           })}
         </View>
@@ -302,7 +372,7 @@ export function OnboardingLookScreen({
             source={require('@/assets/allies/icons/paint.svg')}
             style={styles.hintIcon}
           />
-          <Text style={styles.hintText}>Swipe then pick a colour</Text>
+          <Text style={[styles.hintText, { color: theme.primaryText }]}>Swipe then pick a colour</Text>
         </View>
       )}
     </View>
@@ -340,8 +410,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: ONBOARDING_LOOK_COLOR_ROW_HORIZONTAL_PADDING,
   },
   dot: {
-    backgroundColor: '#F0F0F0',
     borderRadius: 4,
+    height: 8,
+    overflow: 'hidden',
+    width: 8,
+  },
+  dotFill: {
+    borderRadius: 4,
+  },
+  dotPressable: {
     height: 8,
     marginHorizontal: 2,
     width: 8,
@@ -365,7 +442,6 @@ const styles = StyleSheet.create({
     marginBottom: ONBOARDING_LOOK_COLOR_ROW_BOTTOM_MARGIN,
   },
   hintText: {
-    color: '#121212',
     fontFamily: 'OpenRundeSemibold',
     fontSize: 16,
     letterSpacing: -0.5,
@@ -377,7 +453,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   root: {
-    backgroundColor: '#FFFFFF',
     flex: 1,
   },
   swatch: {

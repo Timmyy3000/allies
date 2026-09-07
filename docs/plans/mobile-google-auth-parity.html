@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mobile Google sign-in parity plan</title>
+    <style>
+      :root { color-scheme: dark; --bg: #101322; --surface: #171b2d; --line: #30364e; --text: #f8f8fb; --muted: #aeb5cb; --accent: #ff5800; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: radial-gradient(circle at 85% 0%, #29304d 0, var(--bg) 42rem); color: var(--text); font: 16px/1.6 system-ui, sans-serif; }
+      main { width: min(960px, calc(100% - 40px)); margin: 0 auto; padding: 72px 0 96px; }
+      h1, h2, h3 { line-height: 1.15; letter-spacing: -.02em; }
+      h1 { font-size: clamp(36px, 7vw, 64px); max-width: 760px; }
+      h2 { margin-top: 56px; font-size: 28px; }
+      h3 { margin-top: 32px; font-size: 20px; }
+      p, li { max-width: 780px; }
+      .lede, .meta { color: var(--muted); }
+      code { color: #ffb38a; font-family: ui-monospace, monospace; }
+      table { width: 100%; border-collapse: collapse; margin: 20px 0 28px; background: color-mix(in srgb, var(--surface) 88%, transparent); }
+      th, td { border-bottom: 1px solid var(--line); padding: 12px 14px; text-align: left; vertical-align: top; }
+      th { color: var(--muted); font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
+      @media (max-width: 640px) { main { padding-top: 36px; } table { display: block; overflow-x: auto; } th, td { min-width: 180px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="meta">Allies mobile · implementation plan</p>
+      <h1>Mobile Google sign-in parity</h1>
+      <p class="lede">Make mobile account access match the existing web Google-only passwordless flow, while reconnecting the existing native PKCE and session boundaries.</p>
+
+      <h2>Feature overview</h2>
+      <ul>
+        <li>Replace the mobile placeholder with one centered orange Google action.</li>
+        <li>Reuse the existing typed Cloud client, native PKCE flow, callback validation, and secure session adapter.</li>
+        <li>Preserve safe return paths and unrelated onboarding work.</li>
+      </ul>
+
+      <h2>Scope</h2>
+      <h3>In scope</h3>
+      <ul>
+        <li>Google-only mobile sign-in, matching <code>apps/web/app/sign-in/sign-in-client.tsx</code> and its stylesheet for copy, states, and design.</li>
+        <li>Native browser/app-link return handling and the protected-route guard.</li>
+        <li>Focused tests for callback validation, flow state, errors, and routing.</li>
+        <li>Real auth initialization when configured, independent of local mock product data.</li>
+        <li>Session guarding is enabled when the Cloud client exists; a client-less build keeps the mock walkthrough.</li>
+      </ul>
+      <h3>Out of scope</h3>
+      <ul>
+        <li>Username/password fields, account creation, new dependencies, Cloud changes, web changes, and unrelated routes.</li>
+      </ul>
+
+      <h2>Contracts and state</h2>
+      <p><code>createGoogleSignInFlow</code> owns one in-memory PKCE attempt, opens the browser, accepts one validated callback, exchanges the code, and returns a bounded <code>GoogleSignInOutcome</code>. <code>useGoogleSignIn</code> owns transient UI state. <code>NativeSessionProvider</code> and its adapter own the durable session and account.</p>
+      <table>
+        <thead><tr><th>Surface</th><th>State/behavior</th></tr></thead>
+        <tbody>
+          <tr><td>Google button</td><td><code>Continue with Google</code> → <code>Opening Google…</code>; disabled during the flow.</td></tr>
+          <tr><td>Live status</td><td><code>Opening a secure Google sign-in…</code> while the browser is opening or waiting.</td></tr>
+          <tr><td>Callback</td><td>Accept only the configured redirect URI, matching state, and a code; reject stale or malformed input.</td></tr>
+          <tr><td>Routing</td><td>Signed-out protected routes go to sign-in; signed-in auth entry routes go to a validated <code>/allies</code>, <code>/allies/new</code>, or one-segment <code>/allies/&lt;allyId&gt;</code> target, otherwise <code>/allies</code>.</td></tr>
+        </tbody>
+      </table>
+      <p>The existing native Cloud endpoints remain the transport boundary: the Google start request sends <code>redirect_uri</code>, <code>code_challenge</code>, <code>code_challenge_method: "S256"</code>, and <code>state</code>; the token exchange at <code>POST /api/v1/auths/native/token</code> sends <code>grant_type: "authorization_code"</code>, <code>code</code>, <code>code_verifier</code>, and <code>redirect_uri</code>. No duplicate client or backend rule is added.</p>
+
+      <h2>Implementation phases</h2>
+      <h3>Phase 1: Reconnect native auth</h3>
+      <ul>
+        <li>Restore only the PKCE, callback listener, Google flow hook, auth-return route, and session-route guard required by the flow.</li>
+        <li>Reconcile imports with the current providers, preserve mock onboarding behavior, and remove only the provider guard that prevents configured auth from initializing.</li>
+      </ul>
+      <h3>Phase 2: Match web and verify</h3>
+      <ul>
+        <li>Replace the placeholder with the single web-equivalent Google pill.</li>
+        <li>Map cancellation, unavailable, invalid-return, and generic failures to clear retryable messages.</li>
+        <li>Run focused auth tests, mobile lint/typecheck, regression tests, and <code>git diff --check</code>.</li>
+      </ul>
+
+      <h2>Acceptance criteria</h2>
+      <ol>
+        <li>No username, password, or create-account UI appears on mobile sign-in.</li>
+        <li>The button, loading copy, live status, and error behavior match web.</li>
+        <li>Only a valid PKCE callback can complete sign-in; duplicate or stale callbacks are safe.</li>
+        <li>Successful sign-in persists through the existing session provider and reaches a safe destination.</li>
+        <li>Signed-out protection and mock onboarding behavior remain correct.</li>
+        <li>Configured authentication can initialize while mock product content remains available.</li>
+        <li>Return targets are limited to <code>/allies</code>, <code>/allies/new</code>, or one-segment <code>/allies/&lt;allyId&gt;</code>; deleted nested routes are rejected.</li>
+        <li>A client-less build keeps the mock walkthrough; a configured client enables session guarding and real Google access.</li>
+        <li>Unrelated dirty files are not restored or overwritten.</li>
+      </ol>
+
+      <h2>Test plan</h2>
+      <ul>
+        <li>Test valid, malformed, wrong-origin, wrong-state, canceled, duplicate, transient, and generic flow outcomes.</li>
+        <li>Test route actions for checking, signed-out, offline, signed-in, and unsafe return targets.</li>
+        <li>Manually verify the sign-in screen, cancel/retry behavior, successful return, and protected-route redirect in a configured native build.</li>
+        <li>Before device proof, verify the Cloud redirect allowlist, hosted platform-link association, and a fresh binary with generated link entitlements.</li>
+      </ul>
+      <p><code>bun run test:run -- apps/mobile/src/features/auth apps/mobile/src/lib/session</code></p>
+      <p><code>bun --filter mobile typecheck</code> · <code>bun run lint:mobile</code> · <code>bun run test:run</code> · <code>git diff --check</code></p>
+
+      <h2>Risks and mitigations</h2>
+      <ul>
+        <li>Missing native redirect registration: disable the action with a configuration message instead of fabricating a URI.</li>
+        <li>Malicious or duplicate callbacks: validate URI/state/code, allow one active flow, and dispose the listener.</li>
+        <li>Dirty parallel work: patch focused paths in place and inspect the final status/diff.</li>
+        <li>Stuck loading state: reset transient flow state in <code>finally</code> and allow retry.</li>
+      </ul>
+    </main>
+  </body>
+</html>

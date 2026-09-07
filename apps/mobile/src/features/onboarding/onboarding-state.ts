@@ -21,7 +21,9 @@ export type OnboardingStep =
   | 'look'
   | 'job'
   | 'personality'
-  | 'preview';
+  | 'preview'
+  | 'basics'
+  | 'notifications';
 
 export type OnboardingFlowState = {
   allyName: string;
@@ -56,6 +58,8 @@ const PROGRESS_BY_STEP: Record<OnboardingStep, number> = {
   name: 0,
   personality: 0.9,
   preview: 1,
+  basics: 1,
+  notifications: 1,
   welcome: 0,
 };
 
@@ -65,6 +69,8 @@ const PREVIOUS_STEP: Record<OnboardingStep, OnboardingStep> = {
   name: 'welcome',
   personality: 'job',
   preview: 'personality',
+  basics: 'preview',
+  notifications: 'basics',
   welcome: 'welcome',
 };
 
@@ -135,6 +141,7 @@ export function getNextOnboardingStep(
   if (step === 'personality') {
     return isPersonalityReady(state.personalities, state.personalityNote) ? 'preview' : step;
   }
-
-  return 'preview';
+  if (step === 'preview') return 'basics';
+  if (step === 'basics') return 'notifications';
+  return 'notifications';
 }

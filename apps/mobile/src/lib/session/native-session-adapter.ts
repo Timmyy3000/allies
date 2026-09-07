@@ -30,7 +30,8 @@ export interface NativeSessionLogoutResult {
 
 export interface NativeSessionAdapter {
   restore(signal?: AbortSignal): Promise<NativeSessionState>;
-  completeSignIn(input: NativeGoogleCodeExchangeInput): Promise<NativeSessionState>;
+  completeSignIn(input: NativeGoogleCodeExchangeInput, signal?: AbortSignal): Promise<NativeSessionState>;
+  cancelSignIn(): Promise<void>;
   refresh(signal?: AbortSignal): Promise<boolean>;
   withRefresh<T>(operation: () => Promise<T>): Promise<T>;
   logout(signal?: AbortSignal): Promise<NativeSessionLogoutResult>;
@@ -41,6 +42,53 @@ export interface NativeSessionAdapter {
 export interface NativeSessionAdapterOptions {
   onSessionInvalidated?: () => void;
   onStorageUnavailable?: () => void;
+}
+
+interface NativeSessionRuntime {
+  client: NativeSessionClient;
+  store: NativeSessionStore;
+  accessToken: string | null;
+  generation: number;
+  activeRefresh: Promise<boolean> | null;
+  activeRefreshController: AbortController | null;
+  activeSignInController: AbortController | null;
+  activeRestorations: Set<AbortController>;
+  activeLogoutCount: number;
+  storageTail: Promise<void>;
+  signInTokenGeneration: number | null;
+  options: NativeSessionAdapterOptions;
+}
+
+const runtimes = new WeakMap<NativeSessionStore, NativeSessionRuntime>();
+
+function runtimeFor(client: NativeSessionClient, store: NativeSessionStore, options: NativeSessionAdapterOptions) {
+  const existing = runtimes.get(store);
+  if (existing) {
+    if (existing.client !== client) {
+      existing.client.setAccessToken(null);
+      existing.client = client;
+      existing.client.setAccessToken(existing.accessToken);
+    }
+    existing.options = options;
+    return existing;
+  }
+
+  const runtime: NativeSessionRuntime = {
+    client,
+    store,
+    accessToken: null,
+    generation: 0,
+    activeRefresh: null,
+    activeRefreshController: null,
+    activeSignInController: null,
+    activeRestorations: new Set(),
+    activeLogoutCount: 0,
+    storageTail: Promise.resolve(),
+    signInTokenGeneration: null,
+    options,
+  };
+  runtimes.set(store, runtime);
+  return runtime;
 }
 
 function storageError(): CloudError {
@@ -71,172 +119,232 @@ function combineAbortSignals(caller: AbortSignal | undefined, internal: AbortSig
   };
 }
 
+function enqueueStorage<T>(runtime: NativeSessionRuntime, operation: () => Promise<T>): Promise<T> {
+  const next = runtime.storageTail.then(operation, operation);
+  runtime.storageTail = next.then(() => undefined, () => undefined);
+  return next;
+}
+
+async function clearStore(runtime: NativeSessionRuntime): Promise<boolean> {
+  runtime.accessToken = null;
+  runtime.client.setAccessToken(null);
+  try {
+    await runtime.store.clear();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function setAccessToken(runtime: NativeSessionRuntime, token: string | null) {
+  runtime.accessToken = token;
+  runtime.client.setAccessToken(token);
+}
+
 export function createNativeSessionAdapter(
   client: NativeSessionClient,
   store: NativeSessionStore,
   options: NativeSessionAdapterOptions = {},
 ): NativeSessionAdapter {
-  let accessToken: string | null = null;
-  let generation = 0;
-  let activeRefresh: Promise<boolean> | null = null;
-  let activeRefreshController: AbortController | null = null;
-  let activeLogoutCount = 0;
-  const activeRestorations = new Set<AbortController>();
+  const runtime = runtimeFor(client, store, options);
 
-  const setAccessToken = (token: string | null) => {
-    accessToken = token;
-    client.setAccessToken(token);
+  const abortActiveWork = () => {
+    runtime.activeSignInController?.abort();
+    for (const controller of runtime.activeRestorations) controller.abort();
+    runtime.activeRefreshController?.abort();
   };
 
-  const clearLocalStorage = async (): Promise<boolean> => {
-    setAccessToken(null);
-    try {
-      await store.clear();
-      return true;
-    } catch {
-      return false;
-    }
-  };
-
-  const clearAndInvalidate = async () => {
-    generation += 1;
-    for (const controller of activeRestorations) controller.abort();
-    activeRefreshController?.abort();
-    return clearLocalStorage();
+  const clearAndInvalidate = async (): Promise<boolean> => {
+    runtime.generation += 1;
+    abortActiveWork();
+    return enqueueStorage(runtime, async () => {
+      const localCleared = await clearStore(runtime);
+      if (localCleared) runtime.signInTokenGeneration = null;
+      return localCleared;
+    });
   };
 
   const invalidateLocal = async () => {
     const localCleared = await clearAndInvalidate();
-    if (localCleared) options.onSessionInvalidated?.();
-    else options.onStorageUnavailable?.();
+    if (localCleared) runtime.options.onSessionInvalidated?.();
+    else runtime.options.onStorageUnavailable?.();
     return localCleared;
   };
 
   const markStorageUnavailable = async () => {
-    const localCleared = await clearAndInvalidate();
-    options.onStorageUnavailable?.();
-    return localCleared;
+    await clearAndInvalidate();
+    runtime.options.onStorageUnavailable?.();
   };
 
-  const commitTokens = async (tokens: NativeSessionTokens) => {
+  const commitTokens = (
+    tokens: NativeSessionTokens,
+    operationGeneration: number,
+    signal: AbortSignal,
+    owner: 'refresh' | 'sign-in',
+  ) => enqueueStorage(runtime, async () => {
+    if (operationGeneration !== runtime.generation || signal.aborted) return false;
+    if (owner === 'sign-in') runtime.signInTokenGeneration = operationGeneration;
+
     try {
-      await store.writeRefresh(tokens.refreshToken);
+      await runtime.store.writeRefresh(tokens.refreshToken);
     } catch {
-      await clearLocalStorage();
+      await clearStore(runtime);
       throw storageError();
     }
-    setAccessToken(tokens.accessToken);
-  };
+
+    if (operationGeneration !== runtime.generation || signal.aborted) {
+      const localCleared = await clearStore(runtime);
+      if (!localCleared) throw storageError();
+      if (owner === 'sign-in') runtime.signInTokenGeneration = null;
+      return false;
+    }
+
+    setAccessToken(runtime, tokens.accessToken);
+    return true;
+  });
 
   const refresh = (signal?: AbortSignal): Promise<boolean> => {
-    if (activeRefresh) return activeRefresh;
+    if (runtime.activeRefresh) return runtime.activeRefresh;
 
+    const operationGeneration = runtime.generation;
     const controller = new AbortController();
-    activeRefreshController = controller;
+    runtime.activeRefreshController = controller;
     const combined = combineAbortSignals(signal, controller.signal);
+    const operationClient = runtime.client;
     const operation = (async () => {
       let refreshToken: string | null;
       try {
-        refreshToken = await store.readRefresh();
+        refreshToken = await runtime.store.readRefresh();
       } catch {
         throw storageError();
       }
+      if (operationGeneration !== runtime.generation || combined.signal.aborted) return false;
       if (!refreshToken) {
-        setAccessToken(null);
+        setAccessToken(runtime, null);
         return false;
       }
-      const tokens = await client.refreshSession(refreshToken, combined.signal);
-      await commitTokens(tokens);
-      return true;
+      const tokens = await operationClient.refreshSession(refreshToken, combined.signal);
+      return commitTokens(tokens, operationGeneration, combined.signal, 'refresh');
     })();
-    activeRefresh = operation;
+    runtime.activeRefresh = operation;
     void operation.then(
       () => {
-        if (activeRefresh === operation) activeRefresh = null;
-        if (activeRefreshController === controller) activeRefreshController = null;
+        if (runtime.activeRefresh === operation) runtime.activeRefresh = null;
+        if (runtime.activeRefreshController === controller) runtime.activeRefreshController = null;
       },
       () => {
-        if (activeRefresh === operation) activeRefresh = null;
-        if (activeRefreshController === controller) activeRefreshController = null;
+        if (runtime.activeRefresh === operation) runtime.activeRefresh = null;
+        if (runtime.activeRefreshController === controller) runtime.activeRefreshController = null;
       },
     );
     return operation.finally(combined.cleanup);
   };
 
   const restore = async (signal?: AbortSignal): Promise<NativeSessionState> => {
-    if (activeLogoutCount > 0) return { status: 'signed-out', reason: 'canceled' };
-    const restoreGeneration = generation;
+    if (runtime.activeLogoutCount > 0) return { status: 'signed-out', reason: 'canceled' };
+    const restoreGeneration = runtime.generation;
     const controller = new AbortController();
-    activeRestorations.add(controller);
+    runtime.activeRestorations.add(controller);
     const combined = combineAbortSignals(signal, controller.signal);
     try {
       let refreshToken: string | null;
       try {
-        refreshToken = await store.readRefresh();
+        refreshToken = await runtime.store.readRefresh();
       } catch {
         throw storageError();
       }
-      if (restoreGeneration !== generation) {
+      if (restoreGeneration !== runtime.generation || combined.signal.aborted) {
         return { status: 'signed-out', reason: 'canceled' };
       }
       if (!refreshToken) {
-        setAccessToken(null);
+        setAccessToken(runtime, null);
         return { status: 'signed-out', reason: 'missing-refresh' };
       }
       const refreshed = await refresh(combined.signal);
-      if (!refreshed || restoreGeneration !== generation) {
+      if (!refreshed || restoreGeneration !== runtime.generation || combined.signal.aborted) {
         return { status: 'signed-out', reason: 'canceled' };
       }
-      const account = await client.getCurrentAccount(combined.signal);
-      return restoreGeneration === generation
+      const account = await runtime.client.getCurrentAccount(combined.signal);
+      return restoreGeneration === runtime.generation && !combined.signal.aborted
         ? { status: 'signed-in', account }
         : { status: 'signed-out', reason: 'canceled' };
     } catch (error) {
-      if (restoreGeneration !== generation || combined.signal.aborted) {
+      if (restoreGeneration !== runtime.generation || combined.signal.aborted) {
         return { status: 'signed-out', reason: 'canceled' };
       }
       if (isUnauthorized(error)) {
-        const localCleared = await clearLocalStorage();
+        const localCleared = await invalidateLocal();
         return localCleared
           ? { status: 'signed-out', reason: 'session-invalid' }
           : { status: 'unavailable', reason: 'storage' };
       }
       if (isCloudError(error) && error.code === 'secure_store') {
-        await clearLocalStorage();
+        await clearAndInvalidate();
         return { status: 'unavailable', reason: 'storage' };
       }
       if (isTransient(error)) return { status: 'offline-with-session' };
       return { status: 'unavailable', reason: 'auth' };
     } finally {
       combined.cleanup();
-      activeRestorations.delete(controller);
+      runtime.activeRestorations.delete(controller);
     }
   };
 
-  const completeSignIn = async (input: NativeGoogleCodeExchangeInput): Promise<NativeSessionState> => {
-    const signInGeneration = ++generation;
-    for (const controller of activeRestorations) controller.abort();
-    activeRefreshController?.abort();
+  const completeSignIn = async (
+    input: NativeGoogleCodeExchangeInput,
+    signal?: AbortSignal,
+  ): Promise<NativeSessionState> => {
+    const signInGeneration = ++runtime.generation;
+    abortActiveWork();
+    const controller = new AbortController();
+    runtime.activeSignInController = controller;
+    const combined = combineAbortSignals(signal, controller.signal);
+    const operationClient = runtime.client;
+
     try {
-      const tokens = await client.exchangeGoogleCode(input);
-      await commitTokens(tokens);
-      const account = await client.getCurrentAccount();
-      return signInGeneration === generation
+      if (combined.signal.aborted) return { status: 'signed-out', reason: 'canceled' };
+      const tokens = await operationClient.exchangeGoogleCode(input, combined.signal);
+      if (signInGeneration !== runtime.generation || combined.signal.aborted) {
+        return { status: 'signed-out', reason: 'canceled' };
+      }
+      const committed = await commitTokens(tokens, signInGeneration, combined.signal, 'sign-in');
+      if (!committed) return { status: 'signed-out', reason: 'canceled' };
+      const account = await runtime.client.getCurrentAccount(combined.signal);
+      return signInGeneration === runtime.generation && !combined.signal.aborted
         ? { status: 'signed-in', account }
         : { status: 'signed-out', reason: 'canceled' };
     } catch (error) {
+      if (signInGeneration !== runtime.generation || combined.signal.aborted) {
+        return { status: 'signed-out', reason: 'canceled' };
+      }
       if (isUnauthorized(error)) {
-        const localCleared = await clearLocalStorage();
+        const localCleared = await invalidateLocal();
         return localCleared
           ? { status: 'signed-out', reason: 'session-invalid' }
           : { status: 'unavailable', reason: 'storage' };
       }
       if (isCloudError(error) && error.code === 'secure_store') {
+        await markStorageUnavailable();
         return { status: 'unavailable', reason: 'storage' };
       }
       if (isTransient(error)) return { status: 'offline-with-session' };
       return { status: 'unavailable', reason: 'auth' };
+    } finally {
+      combined.cleanup();
+      if (runtime.activeSignInController === controller) runtime.activeSignInController = null;
     }
+  };
+
+  const cancelSignIn = async (): Promise<void> => {
+    const canceledGeneration = ++runtime.generation;
+    runtime.activeSignInController?.abort();
+    const cleared = await enqueueStorage(runtime, async () => {
+      if (runtime.signInTokenGeneration === null || runtime.signInTokenGeneration >= canceledGeneration) return true;
+      const localCleared = await clearStore(runtime);
+      if (localCleared) runtime.signInTokenGeneration = null;
+      return localCleared;
+    });
+    if (!cleared) throw storageError();
   };
 
   const withRefresh = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -265,13 +373,12 @@ export function createNativeSessionAdapter(
   };
 
   const logout = async (signal?: AbortSignal): Promise<NativeSessionLogoutResult> => {
-    activeLogoutCount += 1;
-    generation += 1;
-    for (const controller of activeRestorations) controller.abort();
-    activeRefreshController?.abort();
-    if (activeRefresh) {
+    runtime.activeLogoutCount += 1;
+    runtime.generation += 1;
+    abortActiveWork();
+    if (runtime.activeRefresh) {
       try {
-        await activeRefresh;
+        await runtime.activeRefresh;
       } catch {
         // Logout still clears local state after a refresh race.
       }
@@ -281,13 +388,13 @@ export function createNativeSessionAdapter(
     try {
       let refreshToken: string | null;
       try {
-        refreshToken = await store.readRefresh();
+        refreshToken = await runtime.store.readRefresh();
       } catch {
         refreshToken = null;
       }
       if (refreshToken) {
         try {
-          await client.logout(refreshToken, accessToken ?? undefined, signal);
+          await runtime.client.logout(refreshToken, runtime.accessToken ?? undefined, signal);
           serverConfirmed = true;
         } catch {
           serverConfirmed = false;
@@ -296,8 +403,12 @@ export function createNativeSessionAdapter(
     } catch {
       serverConfirmed = false;
     } finally {
-      const localCleared = await clearLocalStorage();
-      activeLogoutCount -= 1;
+      const localCleared = await enqueueStorage(runtime, async () => {
+        const cleared = await clearStore(runtime);
+        if (cleared) runtime.signInTokenGeneration = null;
+        return cleared;
+      });
+      runtime.activeLogoutCount -= 1;
       return { status: 'signed-out', serverConfirmed, localCleared };
     }
   };
@@ -305,10 +416,11 @@ export function createNativeSessionAdapter(
   return {
     restore,
     completeSignIn,
+    cancelSignIn,
     refresh,
     withRefresh,
     logout,
     clearLocal: clearAndInvalidate,
-    getAccessToken: () => accessToken,
+    getAccessToken: () => runtime.accessToken,
   };
 }

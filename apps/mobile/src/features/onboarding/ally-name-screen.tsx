@@ -11,6 +11,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useAnimatedColor } from '@/components/ui/use-animated-color';
+import { useTheme } from '@/hooks/use-theme';
 
 import {
   ALLY_NAME_CARET_BLINK_INTERVAL_MS,
@@ -34,6 +35,7 @@ export function AllyNameScreen({
   onNameChange,
   onNext,
 }: AllyNameScreenProps) {
+  const theme = useTheme();
   const [isInputFocused, setIsInputFocused] = useState(false);
   const canContinue = isAllyNameReady(allyName);
   const animatedAccentColor = useAnimatedColor(accentColor);
@@ -70,8 +72,8 @@ export function AllyNameScreen({
   };
 
   return (
-    <View style={styles.root}>
-      <View style={styles.inputArea}>
+    <View pointerEvents="box-none" style={styles.root}>
+      <View pointerEvents="box-none" style={styles.inputArea}>
         <AnimatedTextInput
           accessibilityLabel="Ally name"
           autoCapitalize="words"
@@ -88,7 +90,7 @@ export function AllyNameScreen({
           value={allyName}
         />
         {!allyName && !isInputFocused ? (
-          <Text pointerEvents="none" style={styles.placeholder}>
+          <Text pointerEvents="none" style={[styles.placeholder, { color: theme.placeholderText }]}>
             {ALLY_NAME_PLACEHOLDER}
           </Text>
         ) : null}
@@ -119,35 +121,37 @@ const styles = StyleSheet.create({
   },
   inputArea: {
     alignItems: 'center',
-    flex: 1,
+    bottom: 0,
+    left: '15%',
     justifyContent: 'center',
-    position: 'relative',
+    position: 'absolute',
+    right: '15%',
+    top: 0,
   },
   emptyCaret: {
-    height: ALLY_NAME_INPUT_LINE_HEIGHT,
+    height: 30,
     left: '50%',
-    marginLeft: -1.5,
-    marginTop: -(ALLY_NAME_INPUT_LINE_HEIGHT / 2),
+    marginLeft: -0.75,
+    marginTop: -15,
     position: 'absolute',
     top: '50%',
-    width: 3,
+    width: 1.5,
   },
   placeholder: {
-    color: '#D9D9D9',
     fontFamily: 'OpenRundeSemibold',
     fontSize: 28,
     left: 0,
     letterSpacing: -1,
     lineHeight: ALLY_NAME_INPUT_LINE_HEIGHT,
+    marginTop: -(ALLY_NAME_INPUT_LINE_HEIGHT / 2),
     position: 'absolute',
     right: 0,
     textAlign: 'center',
     textAlignVertical: 'center',
-    top: 0,
-    bottom: 0,
+    top: '50%',
   },
   root: {
-    backgroundColor: '#FFFFFF',
     flex: 1,
+    position: 'relative',
   },
 });

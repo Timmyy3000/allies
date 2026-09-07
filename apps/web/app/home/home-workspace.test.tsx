@@ -1378,8 +1378,10 @@ describe("HomeWorkspace", () => {
     }));
 
     const queue = await screen.findByRole("list", { name: "Queued messages" });
-    expect(queue.textContent).toContain("From this tab");
-    expect(queue.textContent).toContain("From another tab");
+    await waitFor(() => {
+      expect(queue.textContent).toContain("From this tab");
+      expect(queue.textContent).toContain("From another tab");
+    });
     const staleSnapshot = window.localStorage.getItem(storageKey);
 
     fireEvent.click(screen.getByRole("button", { name: "Remove queued message: From this tab" }));

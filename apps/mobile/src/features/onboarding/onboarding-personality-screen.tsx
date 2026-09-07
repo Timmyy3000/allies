@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Image } from 'expo-image';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -12,23 +13,27 @@ import {
 } from 'react-native';
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 
-import { useAnimatedColor } from '@/components/ui/use-animated-color';
+import { LiquidGlassBackground } from '@/components/ui/liquid-glass-background';
+import { useTheme } from '@/hooks/use-theme';
 
 import {
   ONBOARDING_PERSONALITY_CHIP_GAP,
-  ONBOARDING_PERSONALITY_EDITOR_BACKGROUND,
   ONBOARDING_PERSONALITY_HELP_CONTROL_SIZE,
   ONBOARDING_PERSONALITY_HELP_CARD_MIN_HEIGHT,
   ONBOARDING_PERSONALITY_HELP_ICON_SIZE,
-  ONBOARDING_PERSONALITY_HELP_OUTER_BACKGROUND,
   ONBOARDING_PERSONALITY_HELP_TO_CHIP_GAP,
   ONBOARDING_PERSONALITY_ROW_INSET,
   getOnboardingEdgeToEdgeStyle,
 } from './onboarding-layout';
 import { PERSONALITIES, type Personality } from './onboarding-state';
-import { getMutedOnboardingColor } from './onboarding-motion';
-
-const AnimatedText = Animated.createAnimatedComponent(Text);
+import {
+  ONBOARDING_EDITOR_HEIGHT,
+  ONBOARDING_EDITOR_REGION_HEIGHT,
+  getMutedOnboardingColor,
+  getOnboardingPersonalitySelectorOffset,
+} from './onboarding-motion';
+import { OnboardingSelectorChip } from './onboarding-selector-chip';
+import { useOnboardingEditorHeight } from './use-onboarding-editor-height';
 
 type OnboardingPersonalityScreenProps = {
   accentColor: string;
@@ -39,43 +44,6 @@ type OnboardingPersonalityScreenProps = {
   onTogglePersonality: (personality: Personality) => void;
 };
 
-type PersonalityChipProps = {
-  accentColor: string;
-  mutedColor: string;
-  onPress: () => void;
-  personality: Personality;
-  selected: boolean;
-};
-
-function PersonalityChip({
-  accentColor,
-  mutedColor,
-  onPress,
-  personality,
-  selected,
-}: PersonalityChipProps) {
-  const animatedBackground = useAnimatedColor(selected ? accentColor : mutedColor);
-  const animatedText = useAnimatedColor(selected ? '#FFFFFF' : accentColor);
-  const backgroundStyle = useAnimatedStyle(() => ({
-    backgroundColor: animatedBackground.value,
-  }));
-  const textStyle = useAnimatedStyle(() => ({
-    color: animatedText.value,
-  }));
-
-  return (
-    <Pressable
-      accessibilityLabel={`${selected ? 'Remove' : 'Choose'} ${personality} personality`}
-      accessibilityRole="button"
-      accessibilityState={{ selected }}
-      onPress={onPress}
-      style={({ pressed }) => [styles.chip, pressed && styles.chipPressed]}>
-      <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.chipBackground, backgroundStyle]} />
-      <AnimatedText style={[styles.chipText, textStyle]}>{personality}</AnimatedText>
-    </Pressable>
-  );
-}
-
 export function OnboardingPersonalityScreen({
   accentColor,
   personalityNote,
@@ -84,17 +52,32 @@ export function OnboardingPersonalityScreen({
   onPersonalityNoteChange,
   onTogglePersonality,
 }: OnboardingPersonalityScreenProps) {
+  const theme = useTheme();
+  const {
+    editorRef,
+    editorStyle,
+    keyboardProgress,
+    keyboardVisible,
+    onEditorLayout,
+  } = useOnboardingEditorHeight();
   const { width: windowWidth } = useWindowDimensions();
   const [showHelp, setShowHelp] = useState(false);
   const edgeToEdgeStyle = getOnboardingEdgeToEdgeStyle(windowWidth);
   const mutedColor = getMutedOnboardingColor(accentColor);
   const remaining = 200 - personalityNote.length;
   const filled = personalityNote.trim().length > 0;
+  const personalitySelectorStyle = useAnimatedStyle(() => ({
+    transform: [{
+      translateY: getOnboardingPersonalitySelectorOffset(keyboardProgress.value),
+    }],
+  }));
 
-  return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.root}>
+  const content = (
+    <ScrollView
+      contentContainerStyle={styles.rootContent}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      style={[styles.root, { backgroundColor: theme.appBackground }, edgeToEdgeStyle]}>
       {showHelp ? (
         <View style={styles.helpStack}>
           <Pressable
@@ -104,8 +87,17 @@ export function OnboardingPersonalityScreen({
               setShowHelp(false);
               onHelpVisibilityChange(false);
             }}
-            style={[styles.helpClose, { backgroundColor: mutedColor }]}>
-            <Text style={styles.helpCloseText}>×</Text>
+            style={styles.helpClose}>
+            <LiquidGlassBackground
+              borderRadius={18}
+              fallbackColor={mutedColor}
+            />
+            <Image
+              accessibilityLabel=""
+              contentFit="contain"
+              source={require('@/assets/allies/icons/x-icon.svg')}
+              style={[styles.helpCloseIcon, { tintColor: theme.primaryText }]}
+            />
           </Pressable>
           <View style={[styles.helpCard, { backgroundColor: accentColor }]}>
             <Text style={styles.helpText}>
@@ -118,11 +110,11 @@ export function OnboardingPersonalityScreen({
         </View>
       ) : (
         <View style={styles.stack}>
-          <ScrollView
+          <Animated.ScrollView
             contentContainerStyle={styles.chipRow}
             horizontal
             showsHorizontalScrollIndicator={false}
-            style={edgeToEdgeStyle}>
+            style={[edgeToEdgeStyle, personalitySelectorStyle]}>
             <Pressable
               accessibilityLabel="Learn about personality"
               accessibilityRole="button"
@@ -130,79 +122,79 @@ export function OnboardingPersonalityScreen({
                 setShowHelp(true);
                 onHelpVisibilityChange(true);
               }}
-              style={[
-                styles.helpTrigger,
-                { backgroundColor: ONBOARDING_PERSONALITY_HELP_OUTER_BACKGROUND },
-              ]}
+            style={[styles.helpTrigger, { backgroundColor: theme.controlSurface }]}
             >
               <View style={[styles.helpTriggerIcon, { borderColor: accentColor }]}>
                 <Text style={[styles.helpTriggerText, { color: accentColor }]}>?</Text>
               </View>
             </Pressable>
             {PERSONALITIES.map((personality) => (
-              <PersonalityChip
+              <OnboardingSelectorChip
+                accessibilityLabel={`${personalities.includes(personality) ? 'Remove' : 'Choose'} ${personality} personality`}
                 accentColor={accentColor}
+                label={personality}
                 mutedColor={mutedColor}
                 key={personality}
                 onPress={() => onTogglePersonality(personality)}
-                personality={personality}
                 selected={personalities.includes(personality)}
               />
             ))}
-          </ScrollView>
+          </Animated.ScrollView>
 
-          <View style={styles.editorCard}>
-            <TextInput
-              accessibilityLabel="Personality note"
-              maxLength={200}
-              multiline
-              onChangeText={onPersonalityNoteChange}
-              placeholder="How should I speak and respond to you?"
-              placeholderTextColor="#A8A8A8"
-              style={styles.input}
-              textAlignVertical="top"
-              value={personalityNote}
-            />
+          <View
+            onLayout={onEditorLayout}
+            pointerEvents="box-none"
+            ref={editorRef}
+            style={styles.editorRegion}>
+            <Animated.View style={[styles.editorCard, editorStyle]}>
+              <LiquidGlassBackground
+                borderRadius={20}
+                fallbackColor={theme.onboardingInput}
+                tintColor={getMutedOnboardingColor(accentColor, 0.02)}
+              />
+              <TextInput
+                accessibilityLabel="Personality note"
+                maxLength={200}
+                multiline
+                onChangeText={onPersonalityNoteChange}
+                placeholder="How should I speak and respond to you?"
+                placeholderTextColor="#A8A8A8"
+                scrollEnabled
+                style={[styles.input, { color: theme.primaryText }]}
+                textAlignVertical="top"
+                value={personalityNote}
+              />
+            </Animated.View>
+            {!keyboardVisible ? (
+              <Text style={[styles.counter, { color: theme.primaryText }]}>
+                {filled ? `${remaining} characters left` : '200 character limit'}
+              </Text>
+            ) : null}
           </View>
-          <Text style={styles.counter}>
-            {filled ? `${remaining} characters left` : '200 character limit'}
-          </Text>
         </View>
       )}
+    </ScrollView>
+  );
+
+  return Platform.OS === 'ios' ? (
+    <View style={[styles.root, { backgroundColor: theme.appBackground }]}>
+      {content}
+    </View>
+  ) : (
+    <KeyboardAvoidingView behavior="height" style={styles.root}>
+      {content}
     </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
-  chip: {
-    alignItems: 'center',
-    borderRadius: 100,
-    height: 36,
-    justifyContent: 'center',
-    minWidth: 84,
-    overflow: 'hidden',
-    paddingHorizontal: 24,
-  },
-  chipBackground: {
-    borderRadius: 100,
-  },
-  chipPressed: {
-    opacity: 0.8,
-  },
   chipRow: {
     alignItems: 'center',
     gap: ONBOARDING_PERSONALITY_CHIP_GAP,
     paddingLeft: ONBOARDING_PERSONALITY_ROW_INSET,
     paddingRight: 20,
   },
-  chipText: {
-    fontFamily: 'OpenRundeSemibold',
-    fontSize: 16,
-    letterSpacing: -0.43,
-    lineHeight: 20,
-  },
   counter: {
-    color: '#121212',
     fontFamily: 'OpenRundeSemibold',
     fontSize: 14,
     letterSpacing: -0.45,
@@ -211,11 +203,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   editorCard: {
-    backgroundColor: ONBOARDING_PERSONALITY_EDITOR_BACKGROUND,
     borderRadius: 20,
-    height: 250,
-    marginTop: 12,
+    height: ONBOARDING_EDITOR_HEIGHT,
     overflow: 'hidden',
+  },
+  editorRegion: {
+    height: ONBOARDING_EDITOR_REGION_HEIGHT,
+    marginTop: 12,
   },
   helpCard: {
     borderRadius: 20,
@@ -225,18 +219,15 @@ const styles = StyleSheet.create({
   },
   helpClose: {
     alignItems: 'center',
-    backgroundColor: '#F3F3F3',
     borderRadius: 18,
     height: 36,
     justifyContent: 'center',
+    overflow: 'hidden',
     width: 36,
   },
-  helpCloseText: {
-    color: '#121212',
-    fontFamily: 'OpenRundeMedium',
-    fontSize: 28,
-    lineHeight: 28,
-    marginTop: -3,
+  helpCloseIcon: {
+    height: 10.5,
+    width: 10.5,
   },
   helpStack: {
     gap: 12,
@@ -254,13 +245,12 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   input: {
-    color: '#121212',
+    flex: 1,
     fontFamily: 'OpenRundeSemibold',
     fontSize: 16,
     includeFontPadding: false,
     letterSpacing: -0.48,
     lineHeight: 22,
-    minHeight: 250,
     paddingHorizontal: 14,
     paddingTop: 18,
   },
@@ -289,8 +279,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   root: {
-    backgroundColor: '#FFFFFF',
     flex: 1,
+  },
+  rootContent: {
+    flexGrow: 1,
+    paddingHorizontal: ONBOARDING_PERSONALITY_ROW_INSET,
   },
   stack: {
     marginTop: 'auto',

@@ -37,12 +37,7 @@ export function useAvatarUpload() {
         setMessage('Photo access is needed to choose an avatar.');
         return false;
       }
-
-      const result = await ImagePicker.launchImageLibraryAsync({
-        allowsEditing: false,
-        mediaTypes: ['images'],
-        quality: 1,
-      });
+      const result = await ImagePicker.launchImageLibraryAsync({ allowsEditing: false, mediaTypes: ['images'], quality: 1 });
       if (result.canceled || !result.assets[0]) {
         setState('idle');
         return false;
@@ -57,25 +52,17 @@ export function useAvatarUpload() {
         return false;
       }
       setState('uploading');
-
       const avatar = await uploadAvatar({
         client: {
-          completeAvatar: (assetId, signal) =>
-            session.adapter!.withRefresh(() => session.accountClient!.completeAvatar(assetId, signal)),
-          prepareAvatarUpload: (input, signal) =>
-            session.adapter!.withRefresh(() => session.accountClient!.prepareAvatarUpload(input, signal)),
+          completeAvatar: (assetId, signal) => session.adapter!.withRefresh(() => session.accountClient!.completeAvatar(assetId, signal)),
+          prepareAvatarUpload: (input, signal) => session.adapter!.withRefresh(() => session.accountClient!.prepareAvatarUpload(input, signal)),
         },
         contentType: asset.mimeType ?? 'image/jpeg',
         size: fileSize,
-        hash: async (bytes) => {
-          const digestInput = new Uint8Array(bytes.byteLength);
-          digestInput.set(bytes);
-          const digest = await Crypto.digest(
-            Crypto.CryptoDigestAlgorithm.SHA256,
-            digestInput.buffer as ArrayBuffer,
-          );
-          return bytesToHex(new Uint8Array(digest));
-        },
+        hash: async (bytes) => bytesToHex(new Uint8Array(await Crypto.digest(
+          Crypto.CryptoDigestAlgorithm.SHA256,
+          bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+        ))),
         readBytes: () => file.bytes(),
       });
       await Promise.all([
@@ -92,10 +79,5 @@ export function useAvatarUpload() {
     }
   }, [queryClient, session.accountClient, session.adapter]);
 
-  return {
-    isBusy: state === 'picking' || state === 'uploading',
-    message,
-    pickAndUpload,
-    state,
-  };
+  return { isBusy: state === 'picking' || state === 'uploading', message, pickAndUpload, state };
 }

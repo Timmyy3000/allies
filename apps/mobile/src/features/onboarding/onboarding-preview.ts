@@ -1,7 +1,6 @@
 export type OnboardingPreviewPhase = 'coming-alive' | 'thinking' | 'ready';
 
 export const ONBOARDING_PREVIEW_ENTRANCE_DELAY_MS = 2400;
-export const ONBOARDING_PREVIEW_THINKING_DELAY_MS = 900;
 export const ONBOARDING_PREVIEW_GREETING_CHAR_INTERVAL_MS = 12;
 export const ONBOARDING_PREVIEW_GREETING_REVEAL_DURATION_MS = 2400;
 export const ONBOARDING_PREVIEW_NAME_CHAR_INTERVAL_MS = 55;
@@ -9,11 +8,7 @@ export const ONBOARDING_PREVIEW_THINKING_SHINE_DURATION_MS = 1700;
 export const ONBOARDING_PREVIEW_FOCUS_DURATION_MS = 280;
 export const ONBOARDING_PREVIEW_HEADER_AVATAR_SIZE = 24;
 export const ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE = 28;
-export const ONBOARDING_PREVIEW_AVATAR_HANDOFF_SPRING = {
-  damping: 24,
-  mass: 0.82,
-  stiffness: 190,
-} as const;
+export const ONBOARDING_PREVIEW_CONVERSATION_ALLY_SIZE = ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE * 1.44;
 export const ONBOARDING_PREVIEW_HEADER_NAME_GAP = 12;
 export const ONBOARDING_PREVIEW_HEADER_NAME_TEXT_STYLE = {
   fontFamily: 'OpenRundeSemibold',
@@ -59,13 +54,6 @@ export function getOnboardingGreetingRevealStep(greetingLength: number): number 
   return Math.max(1, Math.ceil(Math.max(0, greetingLength) / revealTicks));
 }
 
-export type OnboardingAvatarLayout = {
-  height: number;
-  width: number;
-  x: number;
-  y: number;
-};
-
 export type OnboardingGreetingRun = {
   bold: boolean;
   text: string;
@@ -97,9 +85,9 @@ export function getOnboardingGreetingBlocks(greeting: string): OnboardingGreetin
   let blockStart = 0;
 
   greeting.split('\n\n').forEach((rawBlock, blockIndex, rawBlocks) => {
-    if (rawBlock.startsWith('✨ ')) {
+    if (rawBlock.startsWith('🌟 ')) {
       blocks.push({
-        heading: rawBlock.slice(2),
+        heading: rawBlock.slice('🌟 '.length),
         start: blockStart,
         textStart: blockStart,
         type: 'heading',
@@ -138,19 +126,6 @@ export function getOnboardingGreetingBlocks(greeting: string): OnboardingGreetin
   return blocks;
 }
 
-export function getOnboardingAllyHandoffTransform(
-  source: OnboardingAvatarLayout,
-  target: OnboardingAvatarLayout,
-) {
-  const scale = target.width / source.width;
-
-  return {
-    scale,
-    translateX: target.x - source.x + (scale - 1) * (source.width / 2),
-    translateY: target.y - source.y + (scale - 1) * (source.height / 2),
-  };
-}
-
 export function getOnboardingGreetingRuns(
   greeting: string,
   characterCount: number,
@@ -159,7 +134,7 @@ export function getOnboardingGreetingRuns(
   if (visibleLength === 0) return [];
 
   const boldMarkers = [
-    '✨ What We Can Do Together',
+    '🌟 What We Can Do Together',
     'Chat Freely:',
     'Brainstorm Ideas:',
   ];
@@ -208,16 +183,32 @@ export function getOnboardingGreetingRuns(
 const FIRST_ALLY_GREETING = [
   'Welcome! I am your ally, and I am thrilled to help you make your day easier, more productive, and fun. Think of me as your always-available partner for brainstorming, writing, learning, and organising.',
   'No task is too big or too small, and I am constantly learning new ways to assist you better. Let us collaborate and build something great together.',
-  '✨ What We Can Do Together',
+  '🌟 What We Can Do Together',
   '• Chat Freely: Ask me questions about history, science, pop culture, or everyday facts.',
   '• Brainstorm Ideas: Outline your next big business project, travel itinerary, or workout plan.',
 ].join('\n\n');
 
 export function getNextOnboardingPreviewPhase(
   phase: OnboardingPreviewPhase,
+  responseReady = false,
 ): OnboardingPreviewPhase {
   if (phase === 'coming-alive') return 'thinking';
-  return 'ready';
+  if (phase === 'thinking' && responseReady) return 'ready';
+  return phase;
+}
+
+export type OnboardingReplyAction = 'ignore' | 'prompt-account' | 'submit';
+
+export function getAccountPromptOpenMode(keyboardVisible: boolean): 'after-keyboard-hide' | 'immediate' {
+  return keyboardVisible ? 'after-keyboard-hide' : 'immediate';
+}
+
+export function getOnboardingReplyAction(
+  canSend: boolean,
+  requiresAccount: boolean,
+): OnboardingReplyAction {
+  if (!canSend) return 'ignore';
+  return requiresAccount ? 'prompt-account' : 'submit';
 }
 
 export function getOnboardingGreeting(_allyName: string): string {
@@ -229,4 +220,12 @@ export function getVisibleOnboardingGreeting(
   characterCount: number,
 ): string {
   return greeting.slice(0, Math.max(0, characterCount));
+}
+
+export function getRosterPreview(greeting: string, maximumLength = 44): string {
+  const normalized = greeting.replace(/\s+/gu, ' ').trim();
+  if (!normalized) return 'Welcome to your Ally';
+  if (normalized.length <= maximumLength) return normalized;
+
+  return `${normalized.slice(0, Math.max(1, maximumLength - 1)).trimEnd()}…`;
 }
