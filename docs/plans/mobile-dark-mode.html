@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mobile dark mode plan</title>
+    <style>
+      :root { color-scheme: dark; --bg: #000; --surface: #161616; --text: #fff; --muted: #a0a0a0; --accent: #ff5800; --inactive: #202020; --line: #303030; }
+      * { box-sizing: border-box; }
+      body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.55 Arial, sans-serif; }
+      main { width: min(960px, calc(100% - 32px)); margin: 0 auto; padding: 56px 0 80px; }
+      h1, h2, h3 { line-height: 1.15; letter-spacing: -.03em; }
+      h1 { font-size: clamp(36px, 7vw, 64px); max-width: 760px; }
+      h2 { margin-top: 56px; font-size: 28px; }
+      h3 { margin-top: 32px; font-size: 20px; }
+      p, li { max-width: 720px; }
+      .lede { color: var(--muted); font-size: 20px; }
+      code { color: #ffb38a; font-family: ui-monospace, monospace; }
+      table { width: 100%; border-collapse: collapse; margin: 20px 0 28px; background: var(--surface); }
+      th, td { border-bottom: 1px solid var(--line); padding: 12px 14px; text-align: left; vertical-align: top; }
+      th { color: var(--muted); font-size: 13px; letter-spacing: .04em; text-transform: uppercase; }
+      .meta { color: var(--muted); }
+      .accent { color: var(--accent); }
+      @media (max-width: 640px) { main { padding-top: 32px; } table { display: block; overflow-x: auto; } th, td { min-width: 180px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="meta">Allies mobile · implementation plan</p>
+      <h1>Mobile dark mode</h1>
+      <p class="lede">Make the current Allies mobile experience follow the device light or dark mode while preserving selected Ally accent colors.</p>
+
+      <h2>Feature overview</h2>
+      <ul>
+        <li>Problem: Current mobile screens use fixed light colors.</li>
+        <li>Target users: Allies mobile users who use light or dark device mode.</li>
+        <li>Source docs: <code>docs/superpowers/specs/2026-09-03-mobile-dark-mode-design.md</code>, <code>ENGINEERING_STYLE.md</code>, and Allies mobile notes in Nabu.</li>
+        <li>Success outcome: All current mobile routes keep their hierarchy and selected Ally accents while specified surfaces, text, controls, and status-bar icons follow the device mode.</li>
+      </ul>
+
+      <h2>User stories</h2>
+      <ol>
+        <li>As a mobile user, I want the app to follow my device appearance, so that it feels consistent with the rest of my device.</li>
+        <li>As a mobile user, I want active actions to retain the selected Ally color, so that color selection still has meaning in dark mode.</li>
+        <li>As a maintainer, I want shared semantic theme tokens, so that future screens do not add separate light and dark color branches.</li>
+      </ol>
+      <p>Before coding, capture the complete porcelain status, including untracked files, in a local uncommitted review note. Record hashes or diffs for pre-existing out-of-scope tracked files, then compare both snapshots after implementation.</p>
+
+      <h2>Scope</h2>
+      <h3>In scope</h3>
+      <ul>
+        <li>Extend the existing <code>Colors</code> and <code>useTheme</code> boundary.</li>
+        <li>Apply the theme to current mobile routes and shared UI.</li>
+        <li>Keep enabled buttons on the selected Ally accent.</li>
+        <li>Use <code>#202020</code> for disabled or otherwise inactive button backgrounds in dark mode.</li>
+        <li>Theme onboarding inputs, chat composers, modal surfaces, text, controls, and monochrome icons.</li>
+        <li>Make the root status bar follow device mode.</li>
+        <li>Add a small theme contract test and update affected behavior tests.</li>
+      </ul>
+      <h3>Out of scope</h3>
+      <ul>
+        <li>Manual theme selection, new providers, styling libraries, or dependencies.</li>
+        <li>Changes to artwork, Ally colors, logos, provider logos, navigation, authentication, persistence, APIs, or splash artwork.</li>
+        <li>Restoring routes deleted by parallel work or editing unrelated dirty files.</li>
+      </ul>
+
+      <h2>Theme contract</h2>
+      <p>The existing theme modules remain the only theme boundary. Add semantic tokens and a small <code>getTheme(scheme)</code> resolver. Dark selects only when the scheme is <code>dark</code>; all other values use light. The existing reactive React Native hook provides live device updates.</p>
+      <table>
+        <thead><tr><th>Token/use</th><th>Light</th><th>Dark</th></tr></thead>
+        <tbody>
+          <tr><td>App background</td><td><code>#FFFFFF</code></td><td><code>#000000</code></td></tr>
+          <tr><td>Primary text</td><td><code>#121212</code></td><td><code>#FFFFFF</code></td></tr>
+          <tr><td>Back/control surface</td><td><code>#F3F3F3</code></td><td><code>#161616</code></td></tr>
+          <tr><td>Onboarding input</td><td><code>#F3F3F3</code></td><td><code>#161616</code></td></tr>
+          <tr><td>Chat input</td><td><code>#F3F3F3</code></td><td><code>#121212</code></td></tr>
+          <tr><td>Modal surface</td><td><code>#FFFFFF</code></td><td><code>#161616</code></td></tr>
+          <tr><td>Inactive/disabled button</td><td>Existing light values</td><td><code>#202020</code></td></tr>
+          <tr><td>Modal cancel button</td><td><code>#121212</code></td><td><code>#FFFFFF</code></td></tr>
+          <tr><td>Modal X icon</td><td><code>#FFFFFF</code></td><td><code>#121212</code></td></tr>
+        </tbody>
+      </table>
+      <p>All enabled buttons, including secondary actions, continue to use the selected Ally accent. The default is Allies orange; selecting another Ally color continues to update active buttons and the Sign in link. Primary text becomes white in dark mode. Supporting grey text and the account modal “By continuing” privacy/terms treatment remain unchanged. Google and ChatGPT option labels become white.</p>
+
+      <h2>Contracts and state</h2>
+      <table>
+        <thead><tr><th>Location</th><th>Symbol</th><th>Contract</th><th>Behavior</th></tr></thead>
+        <tbody>
+          <tr><td><code>constants/theme.ts</code></td><td><code>Colors</code></td><td>Light and dark semantic theme maps</td><td>Exact approved values; no side effects</td></tr>
+          <tr><td><code>constants/theme.ts</code></td><td><code>getTheme(scheme)</code></td><td><code>ColorSchemeName -&gt; Theme</code></td><td>Dark only for <code>dark</code>; all other values use light</td></tr>
+          <tr><td><code>hooks/use-theme.ts</code></td><td><code>useTheme()</code></td><td><code>(): Theme</code></td><td>Reactive device scheme to current theme</td></tr>
+          <tr><td><code>components/ui/primary-button.tsx</code></td><td><code>PrimaryButton</code></td><td>Existing props</td><td>Enabled uses <code>accentColor</code>; disabled uses the inactive theme surface</td></tr>
+        </tbody>
+      </table>
+      <p>State ownership stays local: React Native owns the device scheme, <code>useTheme</code> normalizes it, screens consume tokens, and onboarding flow owns the selected Ally accent. Loading, error, empty, permission, retry, cache, async, and network behavior do not change.</p>
+
+      <h2>Component behavior</h2>
+      <ul>
+        <li><code>PrimaryButton</code> keeps its animated accent behavior. Every enabled action uses <span class="accent">the selected Ally color</span>; disabled actions use the themed inactive surface.</li>
+        <li>The shared bottom sheet uses the modal surface token.</li>
+        <li>Back, search, settings, and modal-close icons use the active theme without duplicate assets.</li>
+        <li>One root status bar uses light icons in dark mode and dark icons in light mode.</li>
+        <li>No manual toggle or new dependency is added.</li>
+      </ul>
+
+      <h2>Implementation phases</h2>
+      <h3>Phase 1: Theme contract and shared controls</h3>
+      <ul>
+        <li>Extend <code>Colors</code>, add <code>getTheme</code>, and keep <code>useTheme</code> reactive.</li>
+        <li>Make the root status bar dynamic.</li>
+        <li>Update <code>PrimaryButton</code>, the bottom sheet, and onboarding progress.</li>
+        <li>Add the exact token contract test and update affected button/layout tests.</li>
+      </ul>
+      <p>Exit criteria: Token and button tests pass and no screen-level fixed status bar remains.</p>
+      <h3>Phase 2: Apply tokens to current screens</h3>
+      <ul>
+        <li>Theme welcome, onboarding shell/header/name/look/job/personality, preview, post-setup, Allies list, sign-in, missing-Ally, and mock conversation screens.</li>
+        <li>Pass the current accent into <code>OnboardingAlliesScreen</code>; keep orange as its default when no selected Ally color exists.</li>
+        <li>Theme back, search, settings, and modal X icon colors through the existing image/SVG paths.</li>
+        <li>Preserve Ally accents for active buttons, progress, links, swatches, send controls, and personality controls.</li>
+        <li>Pass the selected Ally accent to the enabled “I’ll do this later” action.</li>
+      </ul>
+      <p>Exit criteria: All current routes render with equivalent light-mode hierarchy and the specified dark-mode values.</p>
+
+      <h2>Files and contracts</h2>
+      <p>The theme boundary exposes <code>Colors</code>, <code>getTheme(scheme)</code>, and <code>useTheme(): Theme</code>. Dark is selected only for the <code>dark</code> scheme; all other values use light. <code>PrimaryButton</code> keeps its current props and uses <code>accentColor</code> while enabled, then the inactive theme surface when disabled.</p>
+      <p>Core files: <code>apps/mobile/src/constants/theme.ts</code>, <code>apps/mobile/src/constants/theme.test.ts</code>, <code>apps/mobile/src/hooks/use-theme.ts</code>, <code>apps/mobile/src/app/_layout.tsx</code>, <code>apps/mobile/src/components/ui/primary-button.tsx</code>, <code>apps/mobile/src/components/ui/bottom-sheet-modal.tsx</code>, <code>apps/mobile/src/features/onboarding/onboarding-motion.ts</code>, and <code>apps/mobile/src/features/onboarding/onboarding-layout.ts</code>.</p>
+      <p>Screen files: <code>onboarding-screen.tsx</code>, <code>onboarding-shell.tsx</code>, <code>onboarding-header.tsx</code>, <code>onboarding-progress.tsx</code>, <code>ally-name-screen.tsx</code>, <code>onboarding-look-screen.tsx</code>, <code>onboarding-job-screen.tsx</code>, <code>onboarding-personality-screen.tsx</code>, <code>onboarding-preview-screen.tsx</code>, <code>onboarding-post-setup.tsx</code>, <code>onboarding-allies-screen.tsx</code>, <code>mock-conversation-screen.tsx</code>, <code>sign-in.tsx</code>, and <code>allies/[allyId]/index.tsx</code>.</p>
+      <p>No API, transport, schema, persistence, authentication, or backend contract changes are planned.</p>
+      <p>State ownership stays local: React Native owns device scheme, <code>useTheme</code> normalizes it, screens consume tokens, and onboarding flow owns the selected Ally accent. No cache, async state, or network path changes.</p>
+
+      <h2>Acceptance criteria</h2>
+      <ol>
+        <li>Device light and dark changes update the current screen; unspecified mode uses light.</li>
+        <li>Dark backgrounds, inputs, modal, button, text, and icon colors match the approved values.</li>
+        <li>Selected Ally colors continue to own every enabled action; orange remains the default.</li>
+        <li><code>#202020</code> is used only for inactive or disabled button backgrounds.</li>
+        <li>One root status bar uses the correct icon color for each mode.</li>
+        <li>Supporting grey text and account-modal fine print remain unchanged.</li>
+        <li>Existing artwork, logos, provider logos, and navigation behavior remain unchanged.</li>
+        <li>Targeted tests, full tests, typecheck, lint, bundle/export, and <code>git diff --check</code> pass.</li>
+      </ol>
+
+      <h2>Test plan</h2>
+      <ul>
+        <li>Unit: exact theme tokens, unspecified fallback, selected accent preservation, inactive button colors, and existing layout behavior.</li>
+        <li>Regression: existing onboarding, preview, mock, modal, and cloud-client tests.</li>
+        <li>Manual: review every current route in both device modes, change mode while mounted, select a non-orange Ally color, inspect disabled/inactive buttons, and inspect the modal X/privacy treatment.</li>
+      </ul>
+      <p><code>bun run test:run -- apps/mobile/src/constants/theme.test.ts apps/mobile/src/features/onboarding/onboarding-motion.test.ts apps/mobile/src/features/onboarding/onboarding-layout.test.ts</code></p>
+      <p><code>bun --filter mobile typecheck</code> · <code>bun run lint:mobile</code> · <code>bun run test:run</code> · <code>bun run bundle:mobile</code> · <code>git diff --check</code></p>
+
+      <h2>Risks and mitigations</h2>
+      <ul>
+        <li>Fixed screen status bars could override the root: remove them and keep one owner.</li>
+        <li>Active Ally colors could be replaced by generic dark colors: preserve <code>accentColor</code> for every enabled action and test a non-orange accent.</li>
+        <li>Parallel dirty edits could be overwritten: patch current files in place and inspect exact paths.</li>
+        <li>SVG tinting could vary by platform: require runtime checks of every tinted icon on an Android emulator/device and an iOS simulator/device, and isolate any fallback to a small inline <code>react-native-svg</code> icon with a color prop.</li>
+        <li>Supporting grey text could be too weak on black: review both themes and keep primary copy white.</li>
+        <li>Unapproved dirty-worktree paths could be included: record the complete <code>git status --porcelain=v1 --untracked-files=all</code> snapshot, preserve hashes or diffs for pre-existing out-of-scope tracked files, compare both after implementation, and stage exact files or hunks.</li>
+      </ul>
+      <p class="meta">Rollback is limited to the focused theme changes. No persisted data or native schema changes are made.</p>
+    </main>
+  </body>
+</html>

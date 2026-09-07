@@ -5,7 +5,7 @@ import { getNativeLinkConfig } from './app.config';
 
 describe('mobile app config', () => {
   it('uses the next native runtime for the splash-screen build', () => {
-    expect(appConfig.expo.version).toBe('1.0.2');
+    expect(appConfig.expo.version).toBe('1.0.4');
   });
 
   it('uses the Allies brand for the native splash screen', () => {

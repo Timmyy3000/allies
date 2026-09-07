@@ -1,11 +1,8 @@
 # Allies mobile
 
-Expo / React Native client for Allies. The current mobile build is a self-contained
-product walkthrough: onboarding, account access, Ally creation, conversation,
-activity, settings, connections, and account screens use deterministic local data so
-the app can be reviewed like a finished product without external services. The real
-Cloud boundary remains isolated for later integration on branch
-`mobile/app-surface-foundation`.
+Expo / React Native client for Allies. The mobile product flow uses the shared Cloud
+contracts for onboarding, Ally creation, roster, conversations, and account data.
+The waitlist is deliberately web-only and is not part of the mobile application.
 
 This file is an agent handoff and a living mirror of the mobile implementation. The
 full implementation record is maintained in Nabu at:
@@ -29,12 +26,13 @@ Before changing code, an agent must read:
 6. The relevant product/specification notes for the flow being changed. For this
    onboarding slice, start with:
    - `projects/allies/product/creating-your-first-ally.md`
-   - `projects/allies/engineering/specs/waitlist/INT-009-frontend-handoff.md`
-   - `projects/allies/engineering/specs/waitlist/INT-009-responsive-waitlist-preview.md`
-   - `projects/allies/engineering/specs/waitlist/proposed-copy-and-experience.md`
    - `projects/allies/engineering/specs/interface/mobile-onboarding-implementation.md`
    - `projects/allies/engineering/specs/interface/INT-008-mobile-google-auth-and-account.md`
    - `projects/allies/engineering/specs/interface/AUTH-002-cloud-native-session-contract.md`
+   - `projects/allies/engineering/specs/conversation-and-streaming.md`
+
+Waitlist specifications are web-only reference material. Do not add a mobile waitlist
+route or call the waitlist API from this app.
 
 Use Nabu's native MCP tools first. Search before assuming that a product decision,
 asset, contract, or implementation note does not already exist. Never expose Nabu
@@ -89,44 +87,32 @@ a build when the current request has not authorized those actions.
 
 ## Current scope and boundary
 
-Implemented here is the complete local product loop:
+The mobile app now covers the real product path:
 
-`welcome -> name -> look -> job -> personality -> Ally response -> workspace -> conversation -> identity`
+`welcome -> name -> look -> job -> personality -> Cloud preview/reply -> Ally creation -> basics -> notifications -> Ally conversation`
 
-The onboarding screens keep their existing design and flow-local state. In the current
-proof-of-concept mode, account access, Ally creation, greeting generation, and message
-replies are local and deterministic. No API request, password, token, or external
-account is used by the running app.
+The durable signed-in surfaces are also connected:
 
-The signed-in app has these implemented destinations:
+`roster -> conversation history/send/retry/activity -> account/profile/avatar`
 
-- `/allies` — a seeded Ally workspace with a working create-Ally entry point;
-- `/allies/new` and `/allies/new/complete` — the full onboarding flow and completion
-  state;
-- `/allies/[allyId]` — a local conversation with a thinking state and deterministic
-  Ally response after each message;
-- `/allies/[allyId]/identity` — Ally name, job, personality, and appearance;
-- `/sign-in` and `/create-account` — working local Google and username/password paths;
-- `/account` — local profile, username, workspace, and account-access details;
-- `/activity` and `/activity/[item]` — result, waiting, approval, failure, and routine
-  states with usable navigation;
-- `/settings`, `/settings/[section]`, and `/settings/connection/[service]` — account
-  security, preferences, connected services, usage, privacy, and sessions;
-- `/allies/[allyId]/settings` and `/allies/[allyId]/settings/[section]` — Ally
-  identity, responsibilities, routines, connection access, and deletion surfaces.
+The router exposes `/`, `/sign-in`, `/auth/return`, `/auth/callback`, `/allies`, `/allies/new`,
+`/allies/new/complete`, `/allies/new/post-setup`, `/allies/[allyId]`, and `/account`.
+The existing native layout, onboarding shell, animations, carousels, and presentation
+remain platform-specific while the domain behavior follows the shared Cloud client.
 
-This build is intentionally a visual and interaction proof of concept. The mock state
-is in `src/features/mock/mock-app.tsx`; the mock screens are in
-`src/features/mock/mock-screens.tsx`. `MOCK_MODE` disables Cloud client creation at
-the provider boundary, so the active walkthrough cannot make accidental network
-requests. The Cloud implementation remains in place for a later, contract-backed
-switch. Mock actions navigate to the relevant screen but do not claim durable writes.
+The Cloud client is required for durable product behavior. If
+`EXPO_PUBLIC_CLOUD_API_URL` is not configured, the app shows an unavailable state and
+does not pretend that a local Ally or message was saved. The isolated files under
+`src/features/mock/` are fixtures and test helpers only; they are not a production
+runtime provider.
 
-## Cloud behavior parity
+The waitlist is intentionally excluded from mobile. Do not add a mobile waitlist
+screen, waitlist persistence, or `createWaitlistEntry`/`completeWaitlistEntry` calls.
 
-When `MOCK_MODE` is disabled, the mobile Cloud path follows the behavior in web
-PR #15 and the pinned Cloud contract used by that change. It does not reuse web
-routes or components.
+## Cloud-backed behavior parity
+
+The mobile Cloud path follows web PR #15 and the pinned Cloud contract used by that
+change. It does not reuse web routes or components.
 
 - Onboarding begins with `POST /api/v1/onboarding/attempts`. Mobile keeps the
   returned attempt token and greeting, requires the reply, then sends the exact
@@ -135,41 +121,49 @@ routes or components.
 - A saved create command keeps its idempotency key across retries. The key is
   reused for the same configuration and reply; a changed intent gets a new key.
   The saved command is encrypted and bound to the signed-in user and Workspace.
-- The Allies screen uses `GET /api/v1/workspaces/{workspace_id}/allies` as its
-  durable roster. The session-only ID index is only a compatibility fallback when
-  that collection cannot be loaded.
+- The durable roster uses `GET /api/v1/workspaces/{workspace_id}/allies` and remains
+  workspace-scoped. The previous session-only Ally index is not a second product data
+  model.
 - A message is saved before sending. Network, timeout, server, throttling, or
   malformed-response uncertainty keeps the message and its idempotency key for a
   retry. `replayed: true` is an accepted prior send and is deduplicated in the
   newest conversation page; it is not rendered as a second message.
 - Older conversation pages merge by message ID and sequence without replacing
   history after a send. A terminal send refetches the newest conversation and
-  activity snapshot. Activity polling stops when the screen blurs, the response
-  reaches a terminal state, a request fails, or the bounded two-minute window ends.
+  activity snapshot. Activity polling pauses on screen blur or app backgrounding.
+  Active execution continues beyond two minutes with a bounded polling interval;
+  terminal state or a non-recoverable error stops polling. Returning to the screen
+  reconciles durable history and signed activity replay without sending again.
 - Activity deltas are ordered by sequence, deduplicated, and grouped by turn. A
   terminal snapshot with a missing sequence keeps the partial response visible and
   reports that reconciliation is required. Authorization and response validation
   remain in the shared `@allies/cloud-client` boundary.
 
-The running product walkthrough still defaults to local mock mode so visual review
-does not require Cloud access. The mock path is an intentional mobile-only runtime
-choice; it does not change the real Cloud contract.
+The mobile implementation keeps the accepted visual direction and web design language.
+Native bearer transport, SecureStore, native navigation, scrolling, and presentation
+remain mobile-specific. Shared schemas, authorization, idempotency, retry semantics,
+activity projection, and error classification stay at the Cloud boundary.
 
-The current mobile onboarding implementation follows the accepted visual direction
-and web design language. Product and Cloud contracts remain the source of truth when
-real services are connected.
+The first meaningful composer edit sends the same content-free runtime intent as
+web through the authenticated shared client. It contains no draft text and cannot
+block sending. Native acceptance requires Cloud PR #28 to be deployed. Native uses
+polling and signed replay for incremental responses; web SSE remains opt-in and
+default-off. Mobile does not claim a background stream.
 
-## INT-008 native Google auth and personal account
+## Native Google sign-in
 
 The accepted implementation handoff is maintained in Nabu at
 `projects/allies/engineering/specs/interface/INT-008-mobile-google-auth-and-account.md`.
-The local implementation is deliberately thin around the shared Cloud client:
+The mobile `/sign-in` route now exposes the same Google-only passwordless entry action
+as the dedicated web sign-in route. The implementation remains thin around the shared
+Cloud client:
 
 - `src/features/auth/google-sign-in.ts` runs one in-memory PKCE S256 attempt through
   the system browser, verifies the returned state and exact redirect, and exchanges
   only the one-time Cloud code.
 - `src/lib/session/native-session-adapter.ts` owns access-token memory, serialized
-  refresh rotation, restore, revocation, logout uncertainty, and terminal cleanup.
+  refresh rotation, restore, revocation, logout uncertainty, terminal cleanup,
+  and generation-safe sign-in completion across provider remounts.
 - `src/lib/session/secure-session-store.ts` persists only the current opaque refresh
   token in Expo SecureStore. Access tokens, verifiers, state, exchange codes, URLs,
   and account DTOs are not persisted.
@@ -181,37 +175,46 @@ The local implementation is deliberately thin around the shared Cloud client:
   message, and activity routes used by the app surface. `POST
   /api/v1/onboarding/attempts` remains public. Native auth and direct object-storage
   requests remain cookie-free and bearer-free where required.
-- `src/app/sign-in.tsx`, `src/app/create-account.tsx`, `src/app/auth/return.tsx`, and
-  `src/app/account.tsx` provide public account entry, safe cold-return fallback, the
-  guarded account surface, profile-name editing, personal Workspace details, and
-  avatar controls.
-- `src/features/account/avatar-upload.ts` bounds avatar files at 10 MiB, hashes the
-  actual bytes, uses the exact signed upload URL/headers, and completes only after a
-  successful direct upload. It never adds a Cloud bearer to object storage.
+- `src/app/sign-in.tsx` owns the centered Google action, loading status, safe error
+  copy, and validated `returnTo` navigation.
+- `/auth/return` and `/auth/callback` broker native app-link callbacks to the same
+  active sign-in flow. The existing session provider owns that in-memory attempt,
+  so navigation from sign-in to the callback does not discard the PKCE verifier.
+  Process termination still requires starting sign-in again; callback secrets are
+  never persisted.
+- `src/lib/session/session-route.ts` protects the current Allies routes and rejects
+  deleted or unsafe return targets.
 
-In the current product walkthrough, Google sign-in, Google account creation, and
-username/password account access complete locally with no external request. The fields
-validate the minimum interaction needed for the walkthrough, but the app does not store
-or transmit the entered password. Settings exposes the same account choices at
-`/settings/account-security`. The existing native Google and Cloud session modules
-remain isolated behind `MOCK_MODE` and can be reconnected when their accepted contract
-is ready.
+The configured Cloud client enables native session restoration, route guarding, Google
+sign-in, profile updates, avatar upload, and the signed-in product surfaces. The
+current Cloud contract exposes Google as the native provider; mobile does not invent a
+username/password or ChatGPT credential transport. Account creation is completed by
+the Cloud Google flow before the pending Ally creation resumes.
+
+While native claimed links are pending, Expo Go can use the temporary manual
+completion mode by setting `EXPO_PUBLIC_NATIVE_AUTH_COMPLETION_MODE=manual_code`.
+The system browser shows the existing short-lived single-use Cloud exchange code;
+the app keeps the PKCE verifier in memory and accepts the code through the native
+text field, including the platform's built-in long-press paste action. The default
+is `redirect`, and invalid configuration fails closed. Manual mode is a temporary
+staging aid: Cloud migration, deployment, and redirect/manual callback smoke proof
+must precede enabling it in an environment. It is not a production rollout or a
+replacement for Android/iOS claimed-link acceptance.
 
 ### Local configuration
 
-No Cloud environment variables are required for the current walkthrough. `MOCK_MODE`
-in `src/features/mock/mock-app.tsx` is the single switch for this proof-of-concept
-build. When the real services are enabled, copy `apps/mobile/.env.example` to an
-ignored local environment file and replace the placeholder return URL with the exact
-HTTPS URL registered with Cloud and the mobile platform.
+Set `EXPO_PUBLIC_CLOUD_API_URL` for the real mobile product path. Copy
+`apps/mobile/.env.example` to an ignored local environment file and replace the
+placeholder return URL with the exact HTTPS URL registered with Cloud and the mobile
+platform. A missing Cloud URL is an explicit unavailable state, not a local mock.
 `app.config.ts` derives Android App Links and iOS Associated Domains from that same
 exact URL when it is supplied at build time. Complete the domain association and
 platform registration before device sign-in proof.
 
-The current mock-mode change is JavaScript-only and remains compatible with the
-existing `1.0.2` runtime. Later JavaScript-only account/UI changes can use the normal
-OTA path. Re-enabling native auth or changing native configuration still requires a
-new compatible EAS binary.
+The sign-in UI and client wiring are JavaScript changes, but changing the native
+return-link configuration still requires a compatible native build. Verify Cloud
+redirect allowlisting, hosted association files, and the generated entitlements on
+the device before calling native sign-in ready.
 
 ## EAS build and OTA workflow
 
@@ -240,8 +243,8 @@ Expo configuration. Commit those generated project-link fields; never replace th
 with a guessed ID or put an access token in the repository. Install the resulting APK
 on the Android device once.
 
-The current Android application ID is `com.daviddll.allies`. Treat it as permanent;
-changing it later creates a different Android application.
+The current Android application ID and iOS bundle identifier are `come.alliesai.alllies`.
+Changed by owner request on 2026-09-06; new native builds and matching app-link registrations are required. Existing builds retain their previous identity.
 
 ### Publishing an OTA UI update
 
@@ -270,35 +273,36 @@ native runtime already installed on the device.
 
 The `preview` channel is for device testing. Production releases should use a separate
 production build/channel and should not be published to `preview`. The EAS project is
-now linked and the first preview APK artifact is available for installation.
+now linked. The current `1.0.3` Android preview build is queued on EAS; the iOS
+preview build is waiting for Apple signing credentials.
 
 ### Current release metadata
 
-This is the local version state verified on 2026-08-29. Check EAS before making a
+This is the local version state verified on 2026-09-03. Check EAS before making a
 claim about the latest remote artifact or publish:
 
 | Item | Current value | Meaning |
 | --- | --- | --- |
-| App version | `1.0.2` | `expo.version`; this is also the runtime version because the app uses the `appVersion` policy. This change does not alter it. |
-| Package version | `1.0.2` | `apps/mobile/package.json` package metadata; it does not replace `expo.version`. |
+| App version | `1.0.4` | Local `expo.version`; this is also the runtime version because the app uses the `appVersion` policy. This does not claim a `1.0.4` binary or OTA has been published. |
+| Package version | `1.0.4` | Local `apps/mobile/package.json` package metadata; it does not replace `expo.version`. |
 | Expo SDK | SDK 57 (`expo ~57.0.9`; resolved app config `57.0.0`) | Native/runtime baseline for the current mobile app. |
 | React Native | `0.86.2` | Native runtime dependency. |
 | React | `19.2.3` | JavaScript runtime dependency. |
 | `expo-updates` | `~57.0.16` | SDK-compatible OTA client included in the preview native build. |
 | Reanimated | `4.5.1` | Existing motion runtime used by the onboarding UI. |
 | EAS CLI | `22.2.0` | CLI version used for local configuration/authentication checks; it is not an app runtime dependency. |
-| Android application ID | `com.daviddll.allies` | Permanent Android package identity for this app. |
+| Android application ID | `come.alliesai.alllies` | Current Android package identity; older builds used `com.daviddll.allies`. |
 | Previous preview build | `FINISHED` — EAS build `d0fc5e35-1a1c-4230-ac69-4078ac2e39cf` | [Android APK](https://expo.dev/artifacts/eas/VAcLE1_CJVuV_jvUH7FQLX5gyPewn_1dBcp8vXGZaqg.apk) for the superseded `1.0.0` runtime. |
 | Last completed preview build | `FINISHED` — EAS build `e076bfe1-2846-4872-9a06-a71f9e0c573e` | [Installable Android APK](https://expo.dev/artifacts/eas/EjDEimT7CWWGBHP2tC61OhOzqnh4-KGbHVMSf7YBkfA.apk) on the `preview` channel; this is the `1.0.1` binary and does not contain INT-008 native modules. |
 | Last completed build versions | App version `1.0.1`, runtime `1.0.1`, Android build version `2` | Values reported by the completed EAS build for commit `7b776e2`; `1.0.2` is the next required native runtime. |
 | Production profile | `production` channel | Profile exists; no production build or publish has been performed. |
 | EAS project link | Linked | `updates.url` and `extra.eas.projectId` are present in the Expo app config; credentials are not stored in the repository. |
 | EAS app version source | `remote` | Future Android build numbers are managed by EAS; `preview` and `production` profiles auto-increment them. |
-| Latest preview OTA | Published — update group `4c02e6c8-95aa-4dde-90da-f1c91a3c556c` | Commit `921de416829bd4474d8a144baec7909223608c56`; Android update `01a04aa6-755f-74b6-a34a-4f0282b4eb76`; iOS update `01a04aa6-755f-7c64-84f1-66773ee7530f`; message `Align mobile Cloud behavior with web`. |
-| Current change class | OTA published | The Cloud parity implementation uses JavaScript and native modules already present in the `1.0.2` runtime. |
+| Latest preview OTA | Published — update group `b77be82f-127c-46d1-ae29-50951e56c6b3` | Commit `e837aa3cef850c9f9c5a1bf9eeea8d9f15be1a28`; Android update `01a06818-ef6f-7161-be03-f52895136415`; iOS update `01a06818-ef6f-7fc3-ae06-41badd055435`; message `Mobile onboarding and Google sign-in`. |
+| Current change class | Local native-runtime changes after the last recorded preview | The tree declares app/runtime `1.0.4`. Remote `1.0.4` build and publish status is unverified; check EAS before making a release claim. |
 
 The preview APK includes `expo-updates`; installing a development build does not prove
-OTA is active. The `1.0.2` preview OTA above is published on the `preview` channel.
+OTA is active. The `1.0.3` preview OTA above is published on the `preview` channel.
 The installed app downloads it on launch and applies it after restart when the device
 has a compatible preview binary. After each APK or OTA release, record the commit SHA,
 build ID or update group, artifact URL when applicable, and EAS update channel/message
@@ -396,6 +400,16 @@ at the release boundary.
   Update group `4c02e6c8-95aa-4dde-90da-f1c91a3c556c`; Android update
   `01a04aa6-755f-74b6-a34a-4f0282b4eb76`; iOS update
   `01a04aa6-755f-7c64-84f1-66773ee7530f`; message `Align mobile Cloud behavior with web`.
+- **2026-09-03 — New Expo project preview release published:** commit `e837aa3cef850c9f9c5a1bf9eeea8d9f15be1a28`
+  was published to `@yourallies/allies` on the `preview` channel with runtime `1.0.3`.
+  Update group `b77be82f-127c-46d1-ae29-50951e56c6b3`; Android update
+  `01a06818-ef6f-7161-be03-f52895136415`; iOS update
+  `01a06818-ef6f-7fc3-ae06-41badd055435`; message `Mobile onboarding and Google sign-in`.
+  Android build `56ad0d37-162a-478d-8e0d-0075903eb010` is queued as build version `5`.
+- **2026-09-03 — iOS preview build blocked:** added the required
+  `ios.bundleIdentifier` in commit `ff99e57` and retried the `preview` build.
+  EAS has no Apple signing credentials suitable for internal distribution, so no
+  iOS build ID or artifact exists yet.
 
 ### GitHub merges and installed devices
 
@@ -433,16 +447,18 @@ every local edit. Native changes still require a new APK.
 ### Flow and state
 
 - `src/app/index.tsx` — public first-Ally onboarding entry point.
-- `src/app/_layout.tsx` — fonts, splash lifecycle, providers, and signed-in route
-  redirection.
-- `src/app/allies/index.tsx` — local Ally workspace in mock mode, with the Cloud
-  workspace implementation retained behind the mock boundary.
-- `src/app/allies/new/index.tsx` and `src/app/allies/new/complete.tsx` — reused
-  onboarding and the authenticated create boundary.
-- `src/app/allies/[allyId]/index.tsx` — local conversation, thinking state, response
-  delay, message composer, and the retained Cloud conversation implementation.
-- `src/app/allies/[allyId]/identity.tsx` — local Ally identity with a retained Cloud
-  identity implementation.
+- `src/app/_layout.tsx` — fonts, splash lifecycle, shared providers, and
+  configured-client session redirection.
+- `src/app/sign-in.tsx` and `src/app/auth/return.tsx` — Google-only sign-in and
+  native app-link return handling.
+- `src/app/allies/index.tsx` — workspace-scoped durable Ally roster and previews.
+- `src/app/allies/new/index.tsx` — the retained onboarding entry point.
+- `src/app/allies/new/complete.tsx` — resumes an encrypted pending creation after
+  native sign-in.
+- `src/app/allies/new/post-setup.tsx` — created-Ally basics and notification prompt.
+- `src/app/allies/[allyId]/index.tsx` — durable conversation history, sending,
+  retry, activity projection, and terminal reconciliation.
+- `src/app/account.tsx` — account profile, avatar upload, and sign-out surface.
 - `app.config.ts` — derives native App Links/Associated Domains from the exact
   registered HTTPS return URL when build-time configuration is present.
 - `src/lib/native-link-config.test.ts` — validates the native link allowlist shape
@@ -480,29 +496,18 @@ every local edit. Native changes still require a new APK.
 - `src/features/onboarding/onboarding-ally-preview.tsx` and
   `src/features/onboarding/ally-character.tsx` — reusable Ally artwork and
   selected-color rendering.
-- `src/app/sign-in.tsx`, `src/app/create-account.tsx`, `src/app/auth/return.tsx`, and
-  `src/app/account.tsx` — account entry, cold-return fallback, and the guarded personal
-  account surface.
-- `src/features/auth/account-access-screen.tsx` — shared Google and credential
-  presentation for returning and new users; both paths complete locally in mock mode.
-- `src/features/auth/` — in-memory PKCE/state flow and system-browser return parsing.
-- `src/features/account/` — profile validation, account queries, and signed avatar
-  upload lifecycle.
-- `src/features/allies/ally-session-index.tsx` — the minimal in-memory index of real
-  Ally IDs reached during the current app session.
-- `src/features/allies/ally-appearance.ts` — shared parser for the Cloud appearance
-  value used by Workspace, conversation, and identity surfaces.
-- `src/features/conversation/conversation-state.ts` — message-page merge rules,
-  immutable-message conflict checks, and active-execution polling decisions.
+- `src/features/auth/` — native Google PKCE flow and callback validation.
+- `src/features/account/` — profile validation, account queries, and avatar upload.
+- `src/features/allies/queries.ts` — roster, Ally, and conversation preview queries.
+- `src/features/conversation/conversation-state.ts` — immutable message/history
+  merging, status mapping, and activity projection helpers.
 - `src/lib/session/` — SecureStore refresh port and serialized native session adapter.
 - `src/lib/pending-command-store.ts` — AES-GCM encrypted, atomic pending create and
   send commands with seven-day expiry and account/Workspace binding.
 - `src/lib/cloud/native-cloud-client.ts` — shared Cloud transport with an explicit
   authenticated route allowlist.
-- `src/features/mock/mock-app.tsx` — the single local prototype state boundary for
-  account access, Ally creation, seeded messages, and delayed replies.
-- `src/features/mock/mock-screens.tsx` — finished product surfaces for the local Ally
-  workspace, conversation, account, identity, and completion states.
+- `src/features/mock/` — isolated fixtures and test helpers only; not a production
+  provider.
 
 ### Motion and reusable UI
 
@@ -528,10 +533,13 @@ every local edit. Native changes still require a new APK.
 - `assets/allies/fonts/OpenRunde-Medium.otf`
 - `assets/allies/fonts/OpenRunde-Semibold.otf`
 - `assets/allies/icons/back-chevron-icon.svg`
+- `assets/allies/icons/chatgpt-logo.svg`
+- `assets/allies/icons/google-logo.svg`
 - `assets/allies/icons/paint.svg`
 - `assets/allies/icons/placeholder-rolly.svg`
 - `assets/allies/icons/send.svg`
 - `assets/allies/icons/white-check.svg`
+- `assets/allies/icons/x-icon.svg`
 - `assets/allies/icons/allies-app-icon.png` — shared app icon and native splash mark.
 - `assets/allies/characters/` — SVG Ally idle/thinking artwork and reduced-motion
   variants.
@@ -553,7 +561,8 @@ every local edit. Native changes still require a new APK.
 
 ### Shared shell and progress
 
-- The top safe-area content starts 36px below the status-bar content baseline.
+- The top safe-area content starts 24px below the iOS safe-area edge and 36px
+  below it on other platforms.
 - Every onboarding step uses the same 40x40 back-button circle and the same progress
   ring position. The shell owns this chrome so screens do not independently place or
   refresh their own header assets.
@@ -626,9 +635,10 @@ every local edit. Native changes still require a new APK.
   chip gaps are 8px. The chip row can scroll horizontally, while its initial content
   alignment remains inside the editor inset.
 - The available personality chips are `Concise`, `Quirky`, `Analytical`, and `Funny`.
-- The editor surface is the neutral grey `#F3F3F3` in the current implementation;
-  any washed-out accent treatment must be made intentionally and reflected in both
-  this README and Nabu if the product direction changes again.
+- On supported iOS devices, the job and personality editor glass uses a subtle 4%
+  tint of the selected Ally color. Regular and unsupported-platform fallbacks keep
+  their existing neutral surfaces. The onboarding conversation composer uses the
+  same native-glass tint; standard conversations remain neutral.
 - Selecting `Concise` writes `I want you to be concise` into the editor. Additional
   selections append comma-separated traits, for example
   `I want you to be concise, quirky`. Removing a selection rebuilds the generated
@@ -640,11 +650,15 @@ every local edit. Native changes still require a new APK.
 
 ### Creation and first conversation surface
 
-- The running proof of concept generates a deterministic local greeting from the Ally
-  name and job, then creates the Ally in local state after the first reply.
-- After creation, the first user message is preserved in the conversation and the Ally
-  responds after a short thinking state. Later messages use the same deterministic
-  local response path.
+- The preview starts a Cloud onboarding attempt and preserves its token and greeting.
+  The user reply is required before the app sends the exact create payload. The
+  encrypted pending create command survives the Google sign-in redirect and resumes
+  with the same idempotency key.
+- Ally creation, roster reads, conversation reads, message sends, retries, and activity
+  snapshots all use the shared `@allies/cloud-client` schemas and error boundary.
+- The first user message is persisted before sending. Ambiguous acceptance retains the
+  same pending message and key; replayed acceptance is merged once. Terminal activity
+  refetches the newest conversation, while older pages remain intact.
 - `Coming alive....` uses a lightweight per-character wave. The letters move in a
   short staggered wave rather than appearing as a single unanimated label. Reduced
   motion renders the settled text directly.
@@ -674,9 +688,11 @@ every local edit. Native changes still require a new APK.
   16px line height and `-0.5px` letter spacing. It becomes less rounded as its
   content grows. Tapping outside it dismisses the keyboard. The send control uses
   the selected Ally color.
-- In mock mode, the conversation composer appends the message locally and schedules a
-  short deterministic response. The encrypted pending-command and polling code stays
-  behind the Cloud implementation boundary for later integration.
+- The conversation composer sends the exact message body through Cloud, keeps the
+  composer disabled while the latest execution is active, and exposes a retry action
+  for retryable message states. The native activity path uses bounded polling rather
+  than the web stream transport; ordering, deduplication, monotonic terminal states,
+  and permanent-gap reconciliation come from the shared projection.
 
 ## Motion contract
 
@@ -702,19 +718,32 @@ interaction. Every meaningful animation needs a reduced-motion path.
 
 ## Validation
 
-The latest completed local validation for the full mobile visual walkthrough was:
+The combined mobile/web integration validation was run on 2026-09-05:
 
 ```text
-  bun run test:run       # 58 test files, 344 tests passed
+bun run test:run       # 101 test files, 642 tests passed
 bun run typecheck      # cloud-client, web, and mobile passed
-bun run lint           # 0 errors; 8 pre-existing web warnings
+bun run lint           # mobile: 0 errors/warnings; web: 0 errors, 33 existing warnings
 bun run build:web      # passed
 bun run bundle:mobile  # Expo iOS export passed
-cd apps/mobile && bunx expo export --platform android --output-dir dist/android-mock-check
-bun run cloud:generate # generated the shared client from the pinned contract
-bun run cloud:verify   # pinned snapshot verification passed
-git diff --check       # passed before commit
+cd apps/mobile && bunx expo export --platform android --output-dir dist/android-cloud-parity-check
+git diff --check       # passed
 ```
+
+Real staging Google authorization, native token exchange, account, and roster reads
+passed through the native session adapter in an in-memory harness; that temporary
+session was revoked. This does not substitute for device SecureStore, claimed-link,
+or end-to-end native chat acceptance. A stopped-machine activation issue discovered
+during live first-Ally creation is fixed in reviewed Foundry PR #28. Deployment and
+device acceptance remain release gates; no OTA or native binary was published.
+
+The inherited web chat-frame reference suite reports 27 failures, 13 passes, and
+50 skips, matching the PR #26 owner's result. No reference baselines were updated.
+
+The committed September 5 OpenAPI pin was retrieved from staging and includes
+manual native authentication and durable assistant replies. Its SHA-256 is
+`2928bcdc3a5a5336cda6eff778c0ae2c3ab86106f545b930da8677106127775e`.
+Schema availability does not replace native device acceptance.
 
 Focused tests cover onboarding state, Cloud input conversion, route guards, encrypted
 pending commands, appearance parsing, session indexing, conversation page merging,
@@ -738,19 +767,41 @@ the configured splash needs the preview binary for proof.
   adding a dependency.
 - Keep user-facing copy, timing, spacing, and asset decisions in the owning feature
   modules with tests for stable values.
-- Keep `MOCK_MODE` as the one switch for the self-contained product walkthrough. Do
-  not scatter mock branches through individual controls or add a mock API client.
-- Keep Cloud creation, pending-command recovery, and managed conversation behind
-  their pinned contracts. When real services are enabled, replace the mock provider
-  boundary rather than duplicating screen composition.
+- Do not add production mock branches or a second API client. The isolated
+  `src/features/mock/` files are fixtures only.
+- Keep Cloud creation, pending-command recovery, roster, account, and conversation
+  behavior behind the pinned shared contracts. Native bearer transport and native
+  activity polling may differ from web transport, but domain outcomes must not.
+- Keep the mobile waitlist out of scope, even when working from web waitlist files.
 - Run mobile lint, typecheck, targeted tests, and the full test suite before handoff.
 - Update Nabu and this README together after meaningful changes, following the sync
   contract above.
 
 ## Nabu sync log
 
+- 2026-09-05 — `integration/mobile-web-parity` reunites the reviewed web PR #26
+  with the consolidated mobile app. Native auth lifetime, creation recovery,
+  foreground reconciliation, composing intents, and account-safe send/retry are
+  covered by the combined validation above. Cloud PR #28 and Foundry PR #28 are
+  separate backend changes. Delivery is through review branches; no OTA or binary
+  was published. Device and deployment acceptance remain open.
+
+- 2026-09-05 — Nabu mobile onboarding and AUTH-002 notes now record temporary
+  manual Google completion for Expo Go, cancellation-safe session persistence,
+  the candidate OpenAPI pin, and the separate staging release/device-validation
+  gate. Cloud PR #27 has passed its test/security CI. Mobile validation and
+  independent review cover expiry, blur, callback compatibility, and retry races.
+
 Keep this section short and current. It is for operational visibility, not a second
 decision log.
+
+- 2026-09-03 — The mobile working tree on `mobile/dev/screen-expansion` now uses the
+  shared Cloud contracts for onboarding, Ally creation, durable roster, conversation
+  history/send/retry/activity, and account/profile/avatar behavior. Native bearer
+  transport and polling remain platform-specific. The mobile waitlist remains out of
+  scope. Full tests (74 files/420 tests), typecheck, lint, web build, iOS export,
+  Android export, and diff checks passed. No commit, PR, or OTA was created in this
+  turn. The pre-existing Cloud OpenAPI metadata mismatch remains documented above.
 
 - 2026-08-21 — Nabu INT-008 spec, delivery ticket, and mobile handoff were
   synchronized with implementation commit `8d791a9`; the handoff records the

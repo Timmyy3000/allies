@@ -11,31 +11,49 @@ describe('native Google PKCE helpers', () => {
     expect(toBase64Url('a+b/c==')).toBe('a-b_c');
   });
 
-  it('encodes bytes without introducing unsafe URL characters', () => {
+  it('encodes bytes without unsafe URL characters', () => {
     expect(bytesToBase64Url(new Uint8Array([0xfb, 0xff, 0xef]))).toBe('-__v');
   });
 
-  it('accepts a successful return only when state matches', () => {
-    expect(
-      parseNativeAuthReturn('https://mobile.example/auth/return?code=cloud-code&state=state-example', 'state-example'),
-    ).toEqual({ status: 'success', code: 'cloud-code' });
+  it('accepts a successful return only when state and redirect match', () => {
+    expect(parseNativeAuthReturn(
+      'https://mobile.example/auth/return?code=cloud-code&state=state-example',
+      'state-example',
+      'https://mobile.example/auth/return',
+    )).toEqual({ status: 'success', code: 'cloud-code' });
   });
 
-  it('discards a return with a mismatched state before consuming its code', () => {
-    expect(
-      parseNativeAuthReturn('https://mobile.example/auth/return?code=cloud-code&state=wrong-state', 'state-example'),
-    ).toEqual({ status: 'error', reason: 'state-mismatch' });
+  it('rejects a mismatched state or redirect before consuming a code', () => {
+    expect(parseNativeAuthReturn(
+      'https://mobile.example/auth/return?code=cloud-code&state=wrong-state',
+      'state-example',
+      'https://mobile.example/auth/return',
+    )).toEqual({ status: 'error', reason: 'state-mismatch' });
+    expect(parseNativeAuthReturn(
+      'https://evil.example/auth/return?code=cloud-code&state=state-example',
+      'state-example',
+      'https://mobile.example/auth/return',
+    )).toEqual({ status: 'error', reason: 'invalid-return' });
   });
 
   it('treats provider cancellation as a normal retryable outcome', () => {
-    expect(
-      parseNativeAuthReturn('https://mobile.example/auth/return?error=access_denied&state=state-example', 'state-example'),
-    ).toEqual({ status: 'canceled' });
+    expect(parseNativeAuthReturn(
+      'https://mobile.example/auth/return?error=access_denied&state=state-example',
+      'state-example',
+      'https://mobile.example/auth/return',
+    )).toEqual({ status: 'canceled' });
   });
 
-  it('does not expose provider error details to the UI', () => {
-    expect(
-      parseNativeAuthReturn('https://mobile.example/auth/return?error=provider_secret&state=state-example', 'state-example'),
-    ).toEqual({ status: 'error', reason: 'flow-failed' });
+  it('rejects duplicate callback parameters without exposing provider details', () => {
+    expect(parseNativeAuthReturn(
+      'https://mobile.example/auth/return?code=one&code=two&state=state-example',
+      'state-example',
+      'https://mobile.example/auth/return',
+    )).toEqual({ status: 'error', reason: 'invalid-return' });
+    expect(parseNativeAuthReturn(
+      'https://mobile.example/auth/return?error=provider_secret&state=state-example',
+      'state-example',
+      'https://mobile.example/auth/return',
+    )).toEqual({ status: 'error', reason: 'flow-failed' });
   });
 });

@@ -45,6 +45,7 @@ const messageCommandSchema = z.object({
   conversationId: identitySchema,
   content: z.string().min(1).max(MAX_MESSAGE_LENGTH),
   idempotencyKey: idempotencyKeySchema,
+  retryMessageId: identitySchema.optional(),
   createdAt: timestampSchema,
   boundUserId: identitySchema,
   boundWorkspaceId: identitySchema,
@@ -76,6 +77,7 @@ export interface PendingMessageCommand {
   conversationId: string;
   content: string;
   idempotencyKey: string;
+  retryMessageId?: string;
   createdAt: string;
   boundUserId: string;
   boundWorkspaceId: string;

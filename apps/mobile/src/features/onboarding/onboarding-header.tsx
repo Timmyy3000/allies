@@ -1,9 +1,13 @@
 import { Image } from 'expo-image';
 import { type ReactNode } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
+import { LiquidGlassBackground } from '@/components/ui/liquid-glass-background';
+import { PressScale } from '@/components/ui/press-scale-view';
 import { OnboardingProgress } from './onboarding-progress';
+import { useTheme } from '@/hooks/use-theme';
 import {
+  ONBOARDING_HEADER_BUTTON_SIZE,
   ONBOARDING_HEADER_LINE_HEIGHT,
   ONBOARDING_HEADER_ROW_TO_ACCESSORY_GAP,
 } from './onboarding-layout';
@@ -16,6 +20,39 @@ type OnboardingHeaderProps = {
   titleAccessory?: ReactNode;
 };
 
+export function OnboardingBackButton({
+  accessibilityLabel = 'Go back',
+  onBack,
+}: {
+  accessibilityLabel?: string;
+  onBack: () => void;
+}) {
+  const theme = useTheme();
+
+  return (
+    <PressScale
+      accessibilityLabel={accessibilityLabel}
+      accessibilityRole="button"
+      hitSlop={8}
+      onPress={onBack}
+      pressableStyle={styles.backButtonPressable}
+      style={styles.backButton}>
+        <LiquidGlassBackground
+          borderRadius={ONBOARDING_HEADER_BUTTON_SIZE / 2}
+          contentStyle={styles.backButtonContent}
+          fallbackColor={theme.controlSurface}
+        >
+          <Image
+            accessibilityLabel="Back"
+            contentFit="contain"
+            source={require('@/assets/allies/icons/back-chevron-icon.svg')}
+            style={[styles.chevron, { tintColor: theme.icon }]}
+          />
+        </LiquidGlassBackground>
+    </PressScale>
+  );
+}
+
 export function OnboardingHeader({
   accentColor,
   onBack,
@@ -23,28 +60,17 @@ export function OnboardingHeader({
   title,
   titleAccessory,
 }: OnboardingHeaderProps) {
+  const theme = useTheme();
   return (
     <View style={styles.container}>
-      <Pressable
-        accessibilityLabel="Go back"
-        accessibilityRole="button"
-        hitSlop={8}
-        onPress={onBack}
-        style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}>
-        <Image
-          accessibilityLabel="Back"
-          contentFit="contain"
-          source={require('@/assets/allies/icons/back-chevron-icon.svg')}
-          style={styles.chevron}
-        />
-      </Pressable>
+      <OnboardingBackButton onBack={onBack} />
 
       <View style={styles.progress}>
         <OnboardingProgress accentColor={accentColor} progress={progress} />
       </View>
 
       {titleAccessory ? <View style={styles.titleAccessory}>{titleAccessory}</View> : null}
-      <Text style={[styles.title, titleAccessory ? styles.titleWithAccessory : undefined]}>
+      <Text style={[styles.title, { color: theme.primaryText }, titleAccessory ? styles.titleWithAccessory : undefined]}>
         {title}
       </Text>
     </View>
@@ -53,19 +79,22 @@ export function OnboardingHeader({
 
 const styles = StyleSheet.create({
   backButton: {
-    alignItems: 'center',
-    backgroundColor: '#F3F3F3',
-    borderRadius: 20,
-    height: 40,
-    justifyContent: 'center',
-    width: 40,
+    height: ONBOARDING_HEADER_BUTTON_SIZE,
+    width: ONBOARDING_HEADER_BUTTON_SIZE,
   },
-  backButtonPressed: {
-    opacity: 0.76,
+  backButtonPressable: {
+    alignItems: 'center',
+    borderRadius: ONBOARDING_HEADER_BUTTON_SIZE / 2,
+    flex: 1,
+    justifyContent: 'center',
+  },
+  backButtonContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   chevron: {
-    height: 14,
-    width: 8,
+    height: 18,
+    width: 10.3,
   },
   container: {
     position: 'relative',
@@ -76,7 +105,6 @@ const styles = StyleSheet.create({
     top: 0,
   },
   title: {
-    color: '#111111',
     fontFamily: 'OpenRundeSemibold',
     fontSize: 24,
     includeFontPadding: false,

@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mobile conversation screen layout and presence</title>
+    <style>
+      :root { color-scheme: light; font-family: Arial, sans-serif; line-height: 1.55; --ink: #171717; --muted: #666; --line: #e5e5e5; --orange: #ff5800; --soft: #fff4ee; }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: var(--ink); background: #fff; }
+      main { max-width: 900px; margin: 0 auto; padding: 56px 24px 88px; }
+      h1 { margin: 0 0 10px; font-size: 34px; line-height: 1.08; }
+      h2 { margin: 42px 0 12px; font-size: 22px; line-height: 1.2; }
+      h3 { margin: 28px 0 8px; font-size: 17px; line-height: 1.25; }
+      p, li { max-width: 72ch; }
+      .lede { color: var(--muted); }
+      .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 28px 0; }
+      .meta div { border-top: 2px solid var(--ink); padding-top: 8px; }
+      .meta dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      .meta dd { margin: 4px 0 0; }
+      .callout { padding: 16px 18px; border-left: 4px solid var(--orange); background: var(--soft); }
+      .callout p { margin: 0; }
+      .section { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 24px; }
+      ul, ol { padding-left: 22px; }
+      li + li { margin-top: 6px; }
+      table { width: 100%; border-collapse: collapse; margin: 14px 0 24px; font-size: 14px; }
+      th, td { border-bottom: 1px solid var(--line); padding: 10px 8px; text-align: left; vertical-align: top; }
+      th { font-weight: 700; }
+      code { font-family: Consolas, monospace; font-size: .92em; }
+      @media (max-width: 680px) { main { padding: 36px 18px 64px; } h1 { font-size: 29px; } .meta { grid-template-columns: 1fr; gap: 12px; } table { display: block; overflow-x: auto; } th, td { min-width: 170px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Mobile conversation screen layout and presence</h1>
+      <p class="lede">Align the logged-in conversation with onboarding, keep one Ally presence below the latest content, and preserve the latest view while the conversation or keyboard changes.</p>
+      <dl class="meta">
+        <div><dt>Platform</dt><dd>Expo SDK 57 / React Native</dd></div>
+        <div><dt>Runtime</dt><dd>Local mobile conversation prototype</dd></div>
+        <div><dt>Behavior</dt><dd>Follow latest content</dd></div>
+      </dl>
+      <div class="callout"><p><strong>Core constraint:</strong> this is a presentation-only change to the current mock route. Cloud transport and persisted conversation contracts remain unchanged.</p></div>
+
+      <h2>Requested outcome</h2>
+      <ul>
+        <li>Start logged-in conversation copy at the onboarding-equivalent vertical position.</li>
+        <li>Remove the visible Ally name and per-message blobs.</li>
+        <li>Keep one 33.6px blob below the latest user or Ally content.</li>
+        <li>Reuse the existing Thinking shimmer beside that same blob while replying.</li>
+        <li>Follow typewriter growth, new messages, keyboard layout changes, and composer focus while the user is near the end.</li>
+      </ul>
+
+      <h2>Implementation phases</h2>
+      <section class="section"><h3>1. Presentation model</h3><p>Reuse the onboarding spacing constants, remove the identity row and message-level Ally previews, and append one status-owned preview after the message list. Use the existing idle and thinking artwork states.</p></section>
+      <section class="section"><h3>2. Follow-latest behavior</h3><p>Track whether the user remains near the bottom. Schedule <code>scrollToEnd</code> after content-size, layout, message, typewriter, keyboard, send, and focus changes. Manual history scrolling disables the automatic follow until the user returns near the end.</p></section>
+      <section class="section"><h3>3. Proof</h3><p>Test the pure near-bottom geometry rule, then manually verify the single trailing preview and keyboard behavior on Android and iOS. Run the mobile lint, typecheck, bundle, full test suite, and diff checks.</p></section>
+
+      <h2>Acceptance criteria</h2>
+      <ol>
+        <li>The opening logged-in message starts at the onboarding-equivalent 78px inset below the safe-area top.</li>
+        <li>Manual device verification shows exactly one Ally preview and it follows all conversation messages.</li>
+        <li>The preview is 33.6px, left-aligned, idle when settled, and thinking while replying.</li>
+        <li>Thinking uses the existing shimmer and the same preview, without a duplicate blob.</li>
+        <li>New content follows only while the user is near the bottom.</li>
+        <li>The safe area, composer, mock send flow, and reduced-motion behavior remain intact.</li>
+      </ol>
+
+      <h2>Test commands</h2>
+      <ul>
+        <li><code>bun x vitest run apps/mobile/src/features/mock/mock-conversation-screen.test.ts apps/mobile/src/features/mock/mock-app.test.ts apps/mobile/src/features/onboarding/onboarding-preview.test.ts</code></li>
+        <li><code>bun run lint:mobile</code></li>
+        <li><code>bun --filter mobile typecheck</code></li>
+        <li><code>bun run bundle:mobile</code></li>
+        <li><code>bun run test:run</code></li>
+        <li><code>git diff --check</code></li>
+      </ul>
+    </main>
+  </body>
+</html>

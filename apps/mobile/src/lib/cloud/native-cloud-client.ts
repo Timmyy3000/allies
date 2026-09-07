@@ -5,15 +5,17 @@ import {
   type NativeAuthClient,
 } from '@allies/cloud-client';
 
-import type { MobileEnvironment } from '../env';
+import type { MobileEnvironment, NativeAuthCompletionMode } from '../env';
 import type { NativeSessionClient } from '../session/native-session-adapter';
 
 export interface MobileCloudClient extends NativeSessionClient {
   account: CloudClient;
   nativeAuthRedirectUri: string | null;
+  nativeAuthCompletionMode: NativeAuthCompletionMode;
 }
 
-export interface MobileCloudClientOptions extends MobileEnvironment {
+export interface MobileCloudClientOptions extends Omit<MobileEnvironment, 'nativeAuthCompletionMode'> {
+  nativeAuthCompletionMode?: NativeAuthCompletionMode;
   fetch?: typeof globalThis.fetch;
   timeoutMs?: number;
   maxJsonBytes?: number;
@@ -37,6 +39,7 @@ export function isAuthenticatedCloudRequest(request: Request): boolean {
     (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/allies\/[^/]+\/conversation$/u.test(pathname)) ||
     (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+$/u.test(pathname)) ||
     (method === 'GET' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/activities$/u.test(pathname)) ||
+    (method === 'POST' && /^\/api\/v1\/allies\/[^/]+\/runtime-intents$/u.test(pathname)) ||
     (method === 'POST' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/messages$/u.test(pathname)) ||
     (method === 'POST' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/messages\/[^/]+\/retry$/u.test(pathname)) ||
     (method === 'DELETE' && /^\/api\/v1\/workspaces\/[^/]+\/conversations\/[^/]+\/messages\/[^/]+$/u.test(pathname))
@@ -70,6 +73,7 @@ export function createMobileCloudClient(options: MobileCloudClientOptions): Mobi
     ...nativeAuth,
     account,
     nativeAuthRedirectUri: options.nativeAuthRedirectUri,
+    nativeAuthCompletionMode: options.nativeAuthCompletionMode ?? 'redirect',
     setAccessToken: (token) => {
       accessToken = token;
     },

@@ -9,7 +9,11 @@ import {
   type ReactNode,
 } from 'react';
 
-import type { AllyColorValue, AllyShape } from '@/features/onboarding/onboarding-state';
+import {
+  getOnboardingGreeting,
+  getRosterPreview,
+} from '../onboarding/onboarding-preview';
+import type { AllyColorValue, AllyShape } from '../onboarding/onboarding-state';
 
 export const MOCK_MODE = true;
 
@@ -18,45 +22,89 @@ export type MockAlly = {
   id: string;
   job: string;
   name: string;
+  online: boolean;
   personality: string;
+  preview: string;
   shape: AllyShape;
+  time: string;
+};
+
+export type MockAttachment = {
+  kind: 'file' | 'folder';
+  name: string;
+  uri: string;
 };
 
 export type MockMessage = {
+  attachments?: MockAttachment[];
   content: string;
   id: string;
   sender: 'assistant' | 'user';
 };
 
 type MockAppContextValue = {
-  account: { displayName: string; email: string; username: string; workspaceName: string };
-  activeAlly: MockAlly;
   allies: MockAlly[];
-  createAlly: (ally: Omit<MockAlly, 'id'>, firstMessage: string) => void;
+  cancelReply: (allyId: string) => void;
+  getConversation: (allyId: string) => MockMessage[];
   isMock: true;
-  isReplying: boolean;
-  messages: MockMessage[];
-  sendMessage: (message: string) => void;
-  signIn: () => void;
+  isReplying: (allyId: string) => boolean;
+  registerAlly: (ally: Omit<MockAlly, 'id' | 'online' | 'preview' | 'time'>) => string;
+  sendMessage: (allyId: string, message: string, attachments?: MockAttachment[]) => boolean;
 };
 
-const DEFAULT_ALLY: MockAlly = {
-  color: '#FD304F',
-  id: 'mock-ally',
-  job: 'Help me plan my work, stay organised, and follow through.',
-  name: 'Sally Morano',
-  personality: 'Concise, warm, and clear.',
-  shape: 'rolly',
+export const DEFAULT_MOCK_ALLIES: MockAlly[] = [
+  {
+    color: '#3446E9',
+    id: 'timi',
+    job: 'Keep my plans moving and make the next step clear.',
+    name: 'timi',
+    online: true,
+    personality: 'Practical and focused.',
+    preview: 'Think of me as your always-available part…',
+    shape: 'ghosty',
+    time: '12:20 PM',
+  },
+  {
+    color: '#FD304F',
+    id: 'mock-ally',
+    job: 'Help me make my day easier, more productive, and fun.',
+    name: 'Sally',
+    online: true,
+    personality: 'Warm, clear, and helpful.',
+    preview: 'Welcome! I am your ally, and I am thrilled t…',
+    shape: 'rolly',
+    time: '9:40 AM',
+  },
+];
+
+const DEFAULT_CONVERSATIONS: Record<string, MockMessage[]> = {
+  'mock-ally': [
+    { content: getOnboardingGreeting(''), id: 'mock-ally-welcome', sender: 'assistant' },
+  ],
+  timi: [
+    {
+      content: 'Think of me as your always-available partner for planning, organising, and getting things done.',
+      id: 'timi-welcome',
+      sender: 'assistant',
+    },
+  ],
 };
 
 const MockAppContext = createContext<MockAppContextValue | null>(null);
 
-export function getMockGreeting(name: string, job: string): string {
-  return `Hi, I’m ${name}. Here’s what I’m here to do: ${job}\n\nTell me what you want to tackle first, and we’ll turn it into a clear next step together.`;
+export function getMockGreeting(): string {
+  return getOnboardingGreeting('');
+}
+
+export function getMockPreviewText(message: string, attachments: MockAttachment[] = []): string {
+  const content = message.trim();
+  return content || (attachments.length === 1
+    ? attachments[0].name
+    : `${attachments.length} attachments`);
 }
 
 export function getMockReply(message: string): string {
-  const subject = message.trim().replace(/[.!?]+$/, '').toLowerCase();
+  const subject = message.trim().replace(/[.!?]+$/u, '').toLowerCase();
   if (subject.includes('tomorrow')) {
     return 'Absolutely. For tomorrow, let’s choose your three most important outcomes, put the hardest one first, and leave a little room for the unexpected.';
   }
@@ -64,68 +112,109 @@ export function getMockReply(message: string): string {
 }
 
 export function MockAppProvider({ children }: { children: ReactNode }) {
-  const [activeAlly, setActiveAlly] = useState(DEFAULT_ALLY);
-  const [allies, setAllies] = useState<MockAlly[]>([DEFAULT_ALLY]);
-  const [messages, setMessages] = useState<MockMessage[]>([
-    { content: getMockGreeting(DEFAULT_ALLY.name, DEFAULT_ALLY.job), id: 'welcome', sender: 'assistant' },
-  ]);
-  const [isReplying, setIsReplying] = useState(false);
-  const replyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [allies, setAllies] = useState(DEFAULT_MOCK_ALLIES);
+  const [conversations, setConversations] = useState(DEFAULT_CONVERSATIONS);
+  const [replyingAllyIds, setReplyingAllyIds] = useState<string[]>([]);
+  const replyingIdsRef = useRef(new Set<string>());
+  const replyTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+
+  const syncReplyingIds = useCallback(() => {
+    setReplyingAllyIds([...replyingIdsRef.current]);
+  }, []);
+
+  const cancelReply = useCallback((allyId: string) => {
+    const timer = replyTimersRef.current.get(allyId);
+    if (timer) clearTimeout(timer);
+    replyTimersRef.current.delete(allyId);
+    replyingIdsRef.current.delete(allyId);
+    syncReplyingIds();
+  }, [syncReplyingIds]);
 
   useEffect(() => () => {
-    if (replyTimer.current) clearTimeout(replyTimer.current);
+    replyTimersRef.current.forEach((timer) => clearTimeout(timer));
+    replyTimersRef.current.clear();
+    replyingIdsRef.current.clear();
   }, []);
 
-  const queueReply = useCallback((message: string) => {
-    if (replyTimer.current) clearTimeout(replyTimer.current);
-    setIsReplying(true);
-    replyTimer.current = setTimeout(() => {
-      setMessages((current) => [
-        ...current,
-        { content: getMockReply(message), id: `assistant-${Date.now()}`, sender: 'assistant' },
-      ]);
-      setIsReplying(false);
-    }, 900);
-  }, []);
-
-  const createAlly = useCallback((ally: Omit<MockAlly, 'id'>, firstMessage: string) => {
-    const nextAlly = { ...ally, id: 'mock-ally' };
-    const greeting = getMockGreeting(nextAlly.name, nextAlly.job);
-    setActiveAlly(nextAlly);
-    setAllies((current) => [nextAlly, ...current.filter((item) => item.id !== nextAlly.id)]);
-    setMessages([
-      { content: greeting, id: 'welcome', sender: 'assistant' },
-      { content: firstMessage, id: `user-${Date.now()}`, sender: 'user' },
-    ]);
-    queueReply(firstMessage);
-  }, [queueReply]);
-
-  const sendMessage = useCallback((message: string) => {
-    const content = message.trim();
-    if (!content || isReplying) return;
-    setMessages((current) => [
+  const registerAlly = useCallback((ally: Omit<MockAlly, 'id' | 'online' | 'preview' | 'time'>) => {
+    const id = `mock-${Date.now()}`;
+    const nextAlly: MockAlly = {
+      ...ally,
+      id,
+      online: true,
+      preview: getRosterPreview(getMockGreeting()),
+      time: '9:40 AM',
+    };
+    setAllies((current) => [nextAlly, ...current]);
+    setConversations((current) => ({
       ...current,
-      { content, id: `user-${Date.now()}`, sender: 'user' },
-    ]);
-    queueReply(content);
-  }, [isReplying, queueReply]);
+      [id]: [{ content: getMockGreeting(), id: `${id}-welcome`, sender: 'assistant' }],
+    }));
+    return id;
+  }, []);
 
+  const sendMessage = useCallback((allyId: string, message: string, attachments: MockAttachment[] = []) => {
+    const content = message.trim();
+    if ((!content && attachments.length === 0) || replyingIdsRef.current.has(allyId)) return false;
+    const previewText = getMockPreviewText(content, attachments);
+
+    replyingIdsRef.current.add(allyId);
+    syncReplyingIds();
+    setConversations((current) => ({
+      ...current,
+      [allyId]: [
+        ...(current[allyId] ?? []),
+        {
+          attachments: attachments.length > 0 ? attachments : undefined,
+          content,
+          id: `${allyId}-user-${Date.now()}`,
+          sender: 'user',
+        },
+      ],
+    }));
+    setAllies((current) => current.map((ally) => ally.id === allyId
+      ? { ...ally, preview: getRosterPreview(previewText), time: 'Now' }
+      : ally));
+
+    let timer: ReturnType<typeof setTimeout>;
+    timer = setTimeout(() => {
+      if (replyTimersRef.current.get(allyId) !== timer) return;
+      replyTimersRef.current.delete(allyId);
+      replyingIdsRef.current.delete(allyId);
+      const reply = getMockReply(content);
+      setConversations((current) => ({
+        ...current,
+        [allyId]: [
+          ...(current[allyId] ?? []),
+          { content: reply, id: `${allyId}-assistant-${Date.now()}`, sender: 'assistant' },
+        ],
+      }));
+      setAllies((current) => current.map((ally) => ally.id === allyId
+        ? { ...ally, preview: getRosterPreview(reply), time: 'Now' }
+        : ally));
+      syncReplyingIds();
+    }, 850);
+    replyTimersRef.current.set(allyId, timer);
+    return true;
+  }, [syncReplyingIds]);
+
+  const getConversation = useCallback(
+    (allyId: string) => conversations[allyId] ?? [],
+    [conversations],
+  );
+  const isReplying = useCallback(
+    (allyId: string) => replyingAllyIds.includes(allyId),
+    [replyingAllyIds],
+  );
   const value = useMemo<MockAppContextValue>(() => ({
-    account: {
-      displayName: 'David',
-      email: 'david@allies.app',
-      username: 'daviddll',
-      workspaceName: 'David’s Workspace',
-    },
-    activeAlly,
     allies,
-    createAlly,
+    cancelReply,
+    getConversation,
     isMock: MOCK_MODE,
     isReplying,
-    messages,
+    registerAlly,
     sendMessage,
-    signIn: () => undefined,
-  }), [activeAlly, allies, createAlly, isReplying, messages, sendMessage]);
+  }), [allies, cancelReply, getConversation, isReplying, registerAlly, sendMessage]);
 
   return <MockAppContext.Provider value={value}>{children}</MockAppContext.Provider>;
 }

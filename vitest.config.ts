@@ -67,7 +67,7 @@ export default defineConfig({
               },
             },
           },
-          include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
+          include: ["*.test.ts", "src/**/*.test.ts", "src/**/*.test.tsx"],
         },
       },
       {
