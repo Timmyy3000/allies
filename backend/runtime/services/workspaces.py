@@ -8,12 +8,14 @@ Foundry processes.
 
 from __future__ import annotations
 
+import math
 import random
 import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import timedelta
+from email.utils import parsedate_to_datetime
 from typing import Any
 from uuid import UUID
 
@@ -76,6 +78,7 @@ PHASE_DEADLINE_SECONDS = 120
 MAX_ATTEMPTS = 5
 BACKOFF_SECONDS = (0.5, 1.0, 2.0, 4.0)
 STOP_POLL_SECONDS = 0.05
+START_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
 HEALTH_POLL_SECONDS = 1.0
 REQUIRED_CONTAINERS = frozenset(("hermes", "allies-runtime"))
 
@@ -1005,26 +1008,55 @@ class WorkspaceLifecycle:
     def _start_machine_if_needed(
         self, app_name: str, machine_id: str, deadline: float
     ) -> None:
-        machine = self._inspect_machine_by_id(app_name, machine_id)
-        if machine is None:
-            raise ProviderNotFoundError("workspace Machine was not found")
-        if machine.state is MachineState.STARTED:
-            return
-        if machine.state is MachineState.DESTROYED:
-            raise ProviderNotFoundError("workspace Machine was destroyed")
-        if machine.state not in (MachineState.CREATED, MachineState.STOPPED):
-            machine = self._wait_machine_ready_to_start(app_name, machine_id, deadline)
+        attempt = 0
+        while time.monotonic() < deadline:
+            machine = self._inspect_machine_by_id(app_name, machine_id)
+            if machine is None or machine.state is MachineState.DESTROYED:
+                raise ProviderNotFoundError(
+                    "workspace Machine was not found or destroyed"
+                )
             if machine.state is MachineState.STARTED:
                 return
-        while True:
+            if machine.state not in (MachineState.CREATED, MachineState.STOPPED):
+                machine = self._wait_machine_ready_to_start(
+                    app_name, machine_id, deadline
+                )
+                if machine.state is MachineState.STARTED:
+                    return
+            if time.monotonic() >= deadline:
+                break
             try:
                 self.provider.start_machine(app_name, machine_id)
-                break
-            except ProviderRetryableError:
+            except ProviderRetryableError as exc:
+                delay = START_BACKOFF_SECONDS[
+                    min(attempt, len(START_BACKOFF_SECONDS) - 1)
+                ]
+                attempt += 1
+                if self.jitter:
+                    delay += random.random() * delay * 0.25
+                retry_after = exc.details.get("retry_after", "")
+                try:
+                    provider_delay = float(retry_after)
+                except (TypeError, ValueError):
+                    try:
+                        provider_delay = (
+                            parsedate_to_datetime(retry_after) - self.clock()
+                        ).total_seconds()
+                    except (TypeError, ValueError, OverflowError):
+                        provider_delay = 0.0
+                if math.isfinite(provider_delay):
+                    delay = max(delay, provider_delay)
+                remaining = deadline - time.monotonic()
+                if remaining > 0:
+                    self.sleep(min(delay, remaining))
                 if time.monotonic() >= deadline:
                     raise
-                self.sleep(STOP_POLL_SECONDS)
-        self._wait_machine_started(app_name, machine_id, deadline)
+                continue
+            self._wait_machine_started(app_name, machine_id, deadline)
+            return
+        raise ProviderTimeoutError(
+            "workspace Machine start deadline expired", operation="start_machine"
+        )
 
     def _wait_machine_ready_to_start(
         self, app_name: str, machine_id: str, deadline: float
@@ -1039,7 +1071,9 @@ class WorkspaceLifecycle:
                     state="stopped",
                 )
             except ProviderTimeoutError:
-                continue
+                machine = self._inspect_machine_by_id(app_name, machine_id)
+                if machine is None:
+                    raise ProviderNotFoundError("workspace Machine was not found")
             if machine.state in (MachineState.STOPPED, MachineState.STARTED):
                 return machine
             if machine.state is MachineState.DESTROYED:
