@@ -4,23 +4,30 @@ import type { NativeSessionState } from './native-session-adapter';
 
 export type SessionRouteAction = { type: 'replace'; path: string };
 
-function isProtectedPath(pathname: string): boolean {
-  return pathname === '/account'
-    || pathname === '/activity'
-    || pathname.startsWith('/activity/')
-    || pathname === '/allies'
-    || pathname.startsWith('/allies/')
-    || pathname === '/settings'
-    || pathname.startsWith('/settings/');
+function isCurrentAlliesPath(pathname: string): boolean {
+  return pathname === '/allies'
+    || pathname === '/account'
+    || pathname === '/allies/new'
+    || pathname === '/allies/new/complete'
+    || pathname === '/allies/new/post-setup'
+    || /^\/allies\/[^/]+$/u.test(pathname);
 }
 
 function isAccountEntryPath(pathname: string): boolean {
-  return pathname === '/sign-in' || pathname === '/create-account';
+  return pathname === '/sign-in';
+}
+
+function isAuthReturnPath(pathname: string): boolean {
+  return pathname === '/auth/return' || pathname === '/auth/callback';
 }
 
 function isSafeSignedInReturnTo(value: unknown): value is string {
   const path = parseSafeReturnPath(value);
-  return path !== null && isProtectedPath(path);
+  return path !== null && isCurrentAlliesPath(path);
+}
+
+export function selectMobileReturnTo(value: unknown): string {
+  return isSafeSignedInReturnTo(value) ? value : '/allies';
 }
 
 export function getSessionRouteAction(
@@ -33,7 +40,8 @@ export function getSessionRouteAction(
   }
 
   if (status === 'signed-out') {
-    return isProtectedPath(pathname)
+    if (pathname === '/account') return { type: 'replace', path: '/' };
+    return isCurrentAlliesPath(pathname)
       ? { type: 'replace', path: `/sign-in?returnTo=${encodeURIComponent(pathname)}` }
       : null;
   }
@@ -42,9 +50,10 @@ export function getSessionRouteAction(
     return pathname === '/' || isAccountEntryPath(pathname) ? { type: 'replace', path: '/allies' } : null;
   }
 
-  if (pathname === '/') return { type: 'replace', path: '/allies' };
-  if (isAccountEntryPath(pathname) || pathname === '/auth/return') {
-    return { type: 'replace', path: isSafeSignedInReturnTo(returnTo) ? (returnTo as string) : '/allies' };
+  if (pathname === '/') return { type: 'replace', path: selectMobileReturnTo(returnTo) };
+  if (isAccountEntryPath(pathname) || isAuthReturnPath(pathname)) {
+    if (isAuthReturnPath(pathname) && returnTo === undefined) return null;
+    return { type: 'replace', path: selectMobileReturnTo(returnTo) };
   }
 
   return null;

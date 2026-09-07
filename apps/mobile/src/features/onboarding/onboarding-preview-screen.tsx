@@ -1,76 +1,60 @@
-import { StatusBar } from 'expo-status-bar';
 import { Image } from 'expo-image';
-import { useEffect, useMemo, useState } from 'react';
+import * as WebBrowser from 'expo-web-browser';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  KeyboardAvoidingView,
-  Platform,
+  Keyboard,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
-  type LayoutChangeEvent,
+  type EmitterSubscription,
 } from 'react-native';
 import Animated, {
   cancelAnimation,
   Easing,
-  FadeIn,
-  interpolate,
-  runOnJS,
   useAnimatedStyle,
   useReducedMotion,
   useSharedValue,
-  withRepeat,
-  withSpring,
+  withSequence,
   withTiming,
-  type SharedValue,
 } from 'react-native-reanimated';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { ShinyText } from '@/components/ui/shiny-text';
-import { useAnimatedColor } from '@/components/ui/use-animated-color';
+import { BottomSheetModal } from '@/components/ui/bottom-sheet-modal';
+import { BOTTOM_SHEET_ANIMATION_DURATION_MS } from '@/components/ui/bottom-sheet-motion';
+import { LiquidGlassBackground } from '@/components/ui/liquid-glass-background';
+import { PressScale } from '@/components/ui/press-scale-view';
+import { ProviderButton } from '@/components/ui/provider-button';
+import { useTheme } from '@/hooks/use-theme';
 
-import { OnboardingAllyPreview } from './onboarding-ally-preview';
-import { ONBOARDING_TOP_PADDING } from './onboarding-layout';
-import { OnboardingTypewriterText } from './onboarding-typewriter-text';
 import {
-  ONBOARDING_COMING_ALIVE_WAVE_AMPLITUDE,
-  ONBOARDING_COMING_ALIVE_WAVE_DURATION_MS,
-  ONBOARDING_COMING_ALIVE_WAVE_STEP_MS,
+  ConversationLayout,
+  ConversationMessage,
+  ConversationThinkingRow,
+  type ConversationAlly,
+} from '../conversation/conversation-layout';
+import { OnboardingAllyPreview } from './onboarding-ally-preview';
+import {
+  ONBOARDING_COMING_ALIVE_SQUISH_DURATION_MS,
+  getOnboardingComingAliveSquishTransform,
 } from './onboarding-motion';
 import {
-  ONBOARDING_PREVIEW_AVATAR_HANDOFF_SPRING,
-  ONBOARDING_PREVIEW_BODY_TEXT_BOLD_STYLE,
-  ONBOARDING_PREVIEW_BODY_TEXT_STYLE,
-  ONBOARDING_PREVIEW_COMPOSER_INITIAL_BORDER_RADIUS,
-  ONBOARDING_PREVIEW_COMPOSER_TEXT_STYLE,
-  ONBOARDING_PREVIEW_HEADER_AVATAR_SIZE,
-  ONBOARDING_PREVIEW_HEADER_NAME_GAP,
-  ONBOARDING_PREVIEW_HEADER_NAME_TEXT_STYLE,
-  ONBOARDING_PREVIEW_NAME_CHAR_INTERVAL_MS,
-  ONBOARDING_PREVIEW_GREETING_TOP_GAP,
-  ONBOARDING_PREVIEW_THINKING_SHINE_DURATION_MS,
-  ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE,
-  getOnboardingAllyHandoffTransform,
   getNextOnboardingPreviewPhase,
-  getOnboardingGreetingRevealStep,
-  getVisibleOnboardingGreeting,
+  getAccountPromptOpenMode,
+  getOnboardingReplyAction,
   ONBOARDING_PREVIEW_ENTRANCE_DELAY_MS,
-  ONBOARDING_PREVIEW_GREETING_CHAR_INTERVAL_MS,
-  ONBOARDING_PREVIEW_THINKING_DELAY_MS,
-  type OnboardingAvatarLayout,
   type OnboardingPreviewPhase,
 } from './onboarding-preview';
 import type { AllyColorValue, AllyShape } from './onboarding-state';
 
-const HERO_SIZE = 164;
-const COMPOSER_MIN_HEIGHT = 48;
-const COMPOSER_MAX_HEIGHT = 96;
-const PREVIEW_EASING = [0.32, 0.72, 0, 1] as const;
+const HERO_SIZE = 64;
 const COMING_ALIVE_TEXT = 'Coming alive....';
-const CONVERSATION_HORIZONTAL_PADDING = 20;
-const THINKING_LABEL_EXIT_DURATION_MS = 180;
+const PRIVACY_URL = 'https://yourallies.io/privacy';
+const TERMS_URL = 'https://yourallies.io/terms';
+
+function openLegalPage(url: string): void {
+  void WebBrowser.openBrowserAsync(url).catch(() => undefined);
+}
 
 type OnboardingPreviewScreenProps = {
   allyName: string;
@@ -79,99 +63,74 @@ type OnboardingPreviewScreenProps = {
   greeting: string;
   initialReply?: string;
   isSubmitting?: boolean;
+  onBack: () => void;
+  onAccountContinue?: (draft: string) => void | Promise<void>;
   onCancelPending?: () => void | Promise<void>;
   onReplySubmit: (reply: string) => boolean | Promise<boolean>;
+  requiresAccount?: boolean;
   retryPending?: boolean;
   statusMessage?: string | null;
 };
 
-type WavyTextProps = {
+type ComingAliveAllyProps = {
+  allyName: string;
+  allyShape: AllyShape;
   reducedMotion: boolean;
-  text: string;
+  selectedColor: AllyColorValue | null;
 };
 
-type WavyCharacterProps = {
-  character: string;
-  index: number;
-  reducedMotion: boolean;
-  waveProgress: SharedValue<number>;
-};
-
-function WavyText({ reducedMotion, text }: WavyTextProps) {
-  const waveProgress = useSharedValue(0);
+function ComingAliveAlly({
+  allyName,
+  allyShape,
+  reducedMotion,
+  selectedColor,
+}: ComingAliveAllyProps) {
+  const squishProgress = useSharedValue(0);
 
   useEffect(() => {
-    cancelAnimation(waveProgress);
+    cancelAnimation(squishProgress);
+    squishProgress.value = 0;
 
     if (reducedMotion) {
-      waveProgress.value = 0;
+      squishProgress.value = 1;
       return;
     }
 
-    waveProgress.value = withRepeat(
+    squishProgress.value = withSequence(
+      withTiming(0.18, { duration: 70, easing: Easing.out(Easing.cubic) }),
+      withTiming(0.6, { duration: 160, easing: Easing.out(Easing.quad) }),
+      withTiming(0.82, { duration: 270, easing: Easing.in(Easing.quad) }),
       withTiming(1, {
-        duration: ONBOARDING_COMING_ALIVE_WAVE_DURATION_MS,
-        easing: Easing.linear,
+        duration: ONBOARDING_COMING_ALIVE_SQUISH_DURATION_MS - 70 - 160 - 270,
+        easing: Easing.out(Easing.cubic),
       }),
-      -1,
-      false,
     );
 
-    return () => cancelAnimation(waveProgress);
-  }, [reducedMotion, waveProgress]);
+    return () => cancelAnimation(squishProgress);
+  }, [reducedMotion, squishProgress]);
 
-  return (
-    <View
-      accessible
-      accessibilityLabel={text}
-      style={styles.comingAliveLabel}>
-      {Array.from(text).map((character, index) => (
-        <WavyCharacter
-          character={character === ' ' ? '\u00a0' : character}
-          index={index}
-          key={`${character}-${index}`}
-          reducedMotion={reducedMotion}
-          waveProgress={waveProgress}
-        />
-      ))}
-    </View>
-  );
-}
-
-function WavyCharacter({
-  character,
-  index,
-  reducedMotion,
-  waveProgress,
-}: WavyCharacterProps) {
   const animatedStyle = useAnimatedStyle(() => {
-    if (reducedMotion) {
-      return { transform: [{ translateY: 0 }] };
-    }
-
-    const delayedProgress =
-      (waveProgress.value -
-        (index * ONBOARDING_COMING_ALIVE_WAVE_STEP_MS) /
-          ONBOARDING_COMING_ALIVE_WAVE_DURATION_MS +
-        1) %
-      1;
-    const wave =
-      delayedProgress <= 0.5
-        ? delayedProgress * 2
-        : (1 - delayedProgress) * 2;
+    const transform = getOnboardingComingAliveSquishTransform(squishProgress.value);
 
     return {
-      transform: [{ translateY: -wave * ONBOARDING_COMING_ALIVE_WAVE_AMPLITUDE }],
+      transform: [
+        { translateY: transform.translateY },
+        { scaleX: transform.scaleX },
+        { scaleY: transform.scaleY },
+      ],
     };
-  }, [index, reducedMotion, waveProgress]);
+  });
 
   return (
-    <Animated.Text
-      accessibilityElementsHidden
-      accessible={false}
-      style={[styles.comingAliveCharacter, animatedStyle]}>
-      {character}
-    </Animated.Text>
+    <Animated.View style={[styles.comingAliveHero, animatedStyle]}>
+      <OnboardingAllyPreview
+        accessibilityLabel={`${allyName || 'Your'} Ally coming alive`}
+        artworkScale={0.86}
+        color={selectedColor}
+        identity={allyShape}
+        size={HERO_SIZE}
+      />
+    </Animated.View>
   );
 }
 
@@ -181,12 +140,16 @@ export function OnboardingPreviewScreen({
   greeting,
   initialReply,
   isSubmitting = false,
+  onBack,
+  onAccountContinue,
   onCancelPending,
   onReplySubmit,
+  requiresAccount = false,
   retryPending = false,
   selectedColor,
   statusMessage,
 }: OnboardingPreviewScreenProps) {
+  const theme = useTheme();
   const [phase, setPhase] = useState<OnboardingPreviewPhase>('coming-alive');
   const reducedMotion = useReducedMotion();
 
@@ -200,37 +163,33 @@ export function OnboardingPreviewScreen({
   }, [reducedMotion]);
 
   useEffect(() => {
-    if (phase !== 'thinking') return;
+    if (!((phase === 'thinking' && greeting) || (phase === 'ready' && !greeting))) return undefined;
 
-    const timer = setTimeout(
-      () => setPhase(getNextOnboardingPreviewPhase('thinking')),
-      reducedMotion ? 0 : ONBOARDING_PREVIEW_THINKING_DELAY_MS,
-    );
+    const timer = setTimeout(() => {
+      setPhase(
+        phase === 'thinking'
+          ? getNextOnboardingPreviewPhase(phase, true)
+          : 'thinking',
+      );
+    }, 0);
 
     return () => clearTimeout(timer);
-  }, [phase, reducedMotion]);
+  }, [greeting, phase]);
 
   if (phase === 'coming-alive') {
     return (
-      <View style={styles.root}>
-        <StatusBar style="dark" />
+      <View
+        style={[styles.root, { backgroundColor: theme.appBackground }]}
+      >
         <SafeAreaView edges={['top', 'bottom']} style={styles.comingAliveSafeArea}>
           <View style={styles.comingAliveContent}>
-            <Animated.View
-              entering={
-                reducedMotion
-                  ? undefined
-                  : FadeIn.duration(260).easing(Easing.bezier(...PREVIEW_EASING))
-              }>
-              <OnboardingAllyPreview
-                accessibilityLabel={`${allyName || 'Your'} Ally coming alive`}
-                artworkScale={0.86}
-                color={selectedColor}
-                identity={allyShape}
-                size={HERO_SIZE}
-              />
-            </Animated.View>
-            <WavyText reducedMotion={Boolean(reducedMotion)} text={COMING_ALIVE_TEXT} />
+            <ComingAliveAlly
+              allyName={allyName}
+              allyShape={allyShape}
+              reducedMotion={Boolean(reducedMotion)}
+              selectedColor={selectedColor}
+            />
+            <Text style={[styles.comingAliveText, { color: theme.primaryText }]}>{COMING_ALIVE_TEXT}</Text>
           </View>
         </SafeAreaView>
       </View>
@@ -241,13 +200,16 @@ export function OnboardingPreviewScreen({
     <ConversationPreview
       allyName={allyName}
       allyShape={allyShape}
+      onBack={onBack}
       phase={phase}
       selectedColor={selectedColor}
       greeting={greeting}
       initialReply={initialReply}
       isSubmitting={isSubmitting}
+      onAccountContinue={onAccountContinue}
       onCancelPending={onCancelPending}
       onReplySubmit={onReplySubmit}
+      requiresAccount={requiresAccount}
       retryPending={retryPending}
       statusMessage={statusMessage}
     />
@@ -264,350 +226,267 @@ function ConversationPreview({
   greeting,
   initialReply,
   isSubmitting,
+  onBack,
+  onAccountContinue,
   onCancelPending,
   onReplySubmit,
   phase,
+  requiresAccount,
   retryPending,
   selectedColor,
   statusMessage,
 }: ConversationPreviewProps) {
-  const { bottom: bottomInset } = useSafeAreaInsets();
+  const theme = useTheme();
   const reducedMotion = useReducedMotion();
   const [draft, setDraft] = useState(initialReply ?? '');
-  const [composerHeight, setComposerHeight] = useState(COMPOSER_MIN_HEIGHT);
+  const [composerHeight, setComposerHeight] = useState(48);
+  const [greetingFinished, setGreetingFinished] = useState(false);
   const [replySubmitted, setReplySubmitted] = useState(false);
-  const [headerAvatarLayout, setHeaderAvatarLayout] = useState<OnboardingAvatarLayout | null>(null);
-  const [thinkingAvatarLayout, setThinkingAvatarLayout] = useState<OnboardingAvatarLayout | null>(null);
-  const [avatarSettledState, setAvatarSettledState] = useState(false);
-  const [visibleGreetingLength, setVisibleGreetingLength] = useState(0);
   const displayName = allyName || 'Your Ally';
-  const [visibleNameLength, setVisibleNameLength] = useState(0);
   const accentColor = selectedColor ?? '#FF5800';
   const isThinking = phase === 'thinking';
-  const avatarSettled = reducedMotion && phase === 'ready' ? true : avatarSettledState;
-  const shouldRevealName = phase === 'ready' && avatarSettled;
-  const nameRevealComplete = Boolean(reducedMotion) || visibleNameLength >= displayName.length;
-  const shouldRevealGreeting = shouldRevealName && nameRevealComplete;
+  const shouldRevealGreeting = phase === 'ready' && Boolean(greeting);
   const canSend = phase === 'ready'
     && Boolean(draft.trim())
     && !replySubmitted
     && !isSubmitting;
-  const displayedGreetingLength = reducedMotion ? greeting.length : visibleGreetingLength;
-  const displayedName = reducedMotion
-    ? displayName
-    : getVisibleOnboardingGreeting(displayName, visibleNameLength);
-  const avatarHandoffProgress = useSharedValue(0);
-  const thinkingLabelOpacity = useSharedValue(isThinking ? 1 : 0);
-  const avatarHandoffTarget = useMemo(() => {
-    if (!headerAvatarLayout || !thinkingAvatarLayout) {
-      return { scale: 1, translateX: 0, translateY: 0 };
+  const [accountPromptVisible, setAccountPromptVisible] = useState(false);
+  const accountPromptKeyboardSubscription = useRef<EmitterSubscription | null>(null);
+  const accountTransitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const replyAction = getOnboardingReplyAction(canSend, Boolean(requiresAccount));
+  const handleGreetingComplete = useCallback(() => setGreetingFinished(true), []);
+
+  useEffect(() => () => {
+    accountPromptKeyboardSubscription.current?.remove();
+    if (accountTransitionTimer.current) {
+      clearTimeout(accountTransitionTimer.current);
+      accountTransitionTimer.current = null;
     }
-
-    return getOnboardingAllyHandoffTransform(
-      thinkingAvatarLayout,
-      phase === 'ready' ? headerAvatarLayout : thinkingAvatarLayout,
-    );
-  }, [headerAvatarLayout, phase, thinkingAvatarLayout]);
-  const animatedSendColor = useAnimatedColor(canSend ? accentColor : '#A8A8A8');
-  const sendBackgroundStyle = useAnimatedStyle(() => ({
-    backgroundColor: animatedSendColor.value,
-  }));
-  const avatarHandoffStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateX: interpolate(
-          avatarHandoffProgress.value,
-          [0, 1],
-          [0, avatarHandoffTarget.translateX],
-        ),
-      },
-      {
-        translateY: interpolate(
-          avatarHandoffProgress.value,
-          [0, 1],
-          [0, avatarHandoffTarget.translateY],
-        ),
-      },
-      {
-        scale: interpolate(
-          avatarHandoffProgress.value,
-          [0, 1],
-          [1, avatarHandoffTarget.scale],
-        ),
-      },
-    ],
-  }), [avatarHandoffTarget]);
-  const thinkingLabelOpacityStyle = useAnimatedStyle(() => ({
-    opacity: thinkingLabelOpacity.value,
-  }));
-
-  const captureHeaderAvatarLayout = ({
-    nativeEvent: { layout },
-  }: LayoutChangeEvent) => {
-    setHeaderAvatarLayout({
-      height: ONBOARDING_PREVIEW_HEADER_AVATAR_SIZE,
-      width: ONBOARDING_PREVIEW_HEADER_AVATAR_SIZE,
-      x: layout.x + CONVERSATION_HORIZONTAL_PADDING,
-      y: layout.y,
-    });
-  };
-  const captureThinkingAvatarLayout = ({
-    nativeEvent: { layout },
-  }: LayoutChangeEvent) => {
-    setThinkingAvatarLayout({
-      height: ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE,
-      width: ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE,
-      x: layout.x + CONVERSATION_HORIZONTAL_PADDING,
-      y: layout.y,
-    });
-  };
-
-  useEffect(() => {
-    cancelAnimation(thinkingLabelOpacity);
-
-    if (reducedMotion) {
-      thinkingLabelOpacity.set(isThinking ? 1 : 0);
-      return;
-    }
-
-    thinkingLabelOpacity.set(
-      withTiming(isThinking ? 1 : 0, {
-        duration: THINKING_LABEL_EXIT_DURATION_MS,
-        easing: Easing.out(Easing.cubic),
-      }),
-    );
-
-    return () => cancelAnimation(thinkingLabelOpacity);
-  }, [isThinking, reducedMotion, thinkingLabelOpacity]);
-
-  useEffect(() => {
-    if (!headerAvatarLayout || !thinkingAvatarLayout || avatarSettledState) return;
-
-    cancelAnimation(avatarHandoffProgress);
-
-    if (phase !== 'ready') {
-      avatarHandoffProgress.set(0);
-      return;
-    }
-
-    if (reducedMotion) {
-      avatarHandoffProgress.set(1);
-      return;
-    }
-
-    avatarHandoffProgress.set(
-      withSpring(
-        1,
-        ONBOARDING_PREVIEW_AVATAR_HANDOFF_SPRING,
-        (finished) => {
-          'worklet';
-          if (finished) runOnJS(setAvatarSettledState)(true);
-        },
-      ),
-    );
-
-    return () => {
-      cancelAnimation(avatarHandoffProgress);
-    };
-  }, [
-    avatarHandoffProgress,
-    avatarSettledState,
-    headerAvatarLayout,
-    phase,
-    reducedMotion,
-    thinkingAvatarLayout,
-  ]);
-
-  useEffect(() => {
-    if (phase !== 'ready' || !avatarSettled || reducedMotion) return;
-
-    let nextLength = 0;
-    const interval = setInterval(() => {
-      nextLength = Math.min(displayName.length, nextLength + 1);
-      setVisibleNameLength(nextLength);
-
-      if (nextLength === displayName.length) clearInterval(interval);
-    }, ONBOARDING_PREVIEW_NAME_CHAR_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [avatarSettled, displayName, phase, reducedMotion]);
-
-  useEffect(() => {
-    if (!shouldRevealGreeting || reducedMotion) return;
-
-    let nextLength = 0;
-    const revealStep = getOnboardingGreetingRevealStep(greeting.length);
-    const interval = setInterval(() => {
-      nextLength = Math.min(greeting.length, nextLength + revealStep);
-      setVisibleGreetingLength(nextLength);
-
-      if (nextLength === greeting.length) clearInterval(interval);
-    }, ONBOARDING_PREVIEW_GREETING_CHAR_INTERVAL_MS);
-
-    return () => clearInterval(interval);
-  }, [greeting, reducedMotion, shouldRevealGreeting]);
+  }, []);
 
   const handleDraftChange = (value: string) => {
     setDraft(value);
     if (replySubmitted) setReplySubmitted(false);
   };
 
+  const openAccountPrompt = () => {
+    accountPromptKeyboardSubscription.current?.remove();
+    accountPromptKeyboardSubscription.current = null;
+
+    const open = () => {
+      accountPromptKeyboardSubscription.current?.remove();
+      accountPromptKeyboardSubscription.current = null;
+      setAccountPromptVisible(true);
+    };
+
+    if (getAccountPromptOpenMode(Keyboard.isVisible()) === 'immediate') {
+      open();
+      return;
+    }
+
+    accountPromptKeyboardSubscription.current = Keyboard.addListener('keyboardDidHide', open);
+    Keyboard.dismiss();
+  };
+
   const handleSend = async () => {
-    if (!canSend) return;
+    if (replyAction === 'ignore') return;
+    if (replyAction === 'prompt-account') {
+      openAccountPrompt();
+      return;
+    }
+    Keyboard.dismiss();
     setReplySubmitted(true);
     const accepted = await onReplySubmit(draft);
     if (!accepted) setReplySubmitted(false);
   };
 
+  const continueAfterAccount = () => {
+    setAccountPromptVisible(false);
+    if (!onAccountContinue) return;
+
+    if (accountTransitionTimer.current) {
+      clearTimeout(accountTransitionTimer.current);
+      accountTransitionTimer.current = null;
+    }
+    if (reducedMotion) {
+      void onAccountContinue(draft);
+      return;
+    }
+
+    accountTransitionTimer.current = setTimeout(() => {
+      accountTransitionTimer.current = null;
+      void onAccountContinue(draft);
+    }, BOTTOM_SHEET_ANIMATION_DURATION_MS);
+  };
+
+  const conversationAlly: ConversationAlly = {
+    color: accentColor,
+    name: displayName,
+    shape: allyShape,
+  };
+
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      style={styles.root}>
-      <StatusBar style="dark" />
-      <SafeAreaView edges={['top', 'bottom']} style={styles.conversationSafeArea}>
-        <View style={styles.conversationContent}>
-          <View onLayout={captureHeaderAvatarLayout} style={styles.conversationHeader}>
-            <View style={styles.conversationAvatarSlot} />
-            {shouldRevealName && displayedName ? (
-              <Text
-                accessibilityLabel={displayName}
-                numberOfLines={1}
-                style={styles.conversationName}>
-                {displayedName}
-              </Text>
-            ) : null}
-          </View>
+    <>
+      <ConversationLayout
+        active={isThinking && !statusMessage}
+        ally={conversationAlly}
+        canSend={canSend}
+        composerHeight={composerHeight}
+        draft={draft}
+        editable={!replySubmitted && !isSubmitting && !retryPending}
+        focusComposer={greetingFinished}
+        headerMode="onboarding"
+        onBack={onBack}
+        onChangeDraft={handleDraftChange}
+        onComposerHeightChange={setComposerHeight}
+        onSend={() => void handleSend()}
+        placeholder={`Ask ${displayName}`}
+      >
+        {shouldRevealGreeting ? (
+          <ConversationMessage
+            ally={conversationAlly}
+            key="onboarding-greeting"
+            message={{ content: greeting, id: 'onboarding-greeting', sender: 'assistant' }}
+            onRevealComplete={handleGreetingComplete}
+            reducedMotion={Boolean(reducedMotion)}
+          />
+        ) : null}
+        {!statusMessage ? (
+          <ConversationThinkingRow ally={conversationAlly} key="onboarding-ally-status" reducedMotion={Boolean(reducedMotion)} thinking={isThinking} />
+        ) : null}
+        {statusMessage ? <Text style={styles.statusMessage}>{statusMessage}</Text> : null}
+        {retryPending && onCancelPending ? (
+          <Pressable accessibilityRole="button" onPress={() => void onCancelPending()} style={styles.cancelPending}>
+            <Text style={styles.cancelPendingText}>Cancel saved creation</Text>
+          </Pressable>
+        ) : null}
+      </ConversationLayout>
 
-          <ScrollView
-            contentContainerStyle={styles.greetingContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            style={styles.greetingScroll}>
-            {shouldRevealGreeting ? (
-              <OnboardingTypewriterText
-                boldStyle={styles.greetingTextBold}
-                characterCount={displayedGreetingLength}
-                greeting={greeting}
-                style={styles.greetingText}
-              />
-            ) : null}
-          </ScrollView>
-
-          {statusMessage ? <Text style={styles.statusMessage}>{statusMessage}</Text> : null}
-          {retryPending && onCancelPending ? (
-            <Pressable accessibilityRole="button" onPress={() => void onCancelPending()} style={styles.cancelPending}>
-              <Text style={styles.cancelPendingText}>Cancel saved creation</Text>
-            </Pressable>
-          ) : null}
-
-          <View onLayout={captureThinkingAvatarLayout} style={styles.thinkingStatus}>
-            <View style={styles.thinkingAvatarSlot} />
-            <Animated.View style={thinkingLabelOpacityStyle}>
-              <ShinyText
-                accessibilityLabel="Thinking"
-                color={accentColor}
-                paused={!isThinking}
-                shineColor="#FFFFFF"
-                speed={ONBOARDING_PREVIEW_THINKING_SHINE_DURATION_MS / 1000}
-                style={styles.thinkingLabel}>
-                Thinking
-              </ShinyText>
-            </Animated.View>
-          </View>
-
-          <View
-            style={[
-              styles.composerRow,
-              { paddingBottom: Math.max(12, bottomInset > 0 ? 8 : 12) },
-            ]}>
-            <View
-              style={[
-                styles.composer,
-                {
-                  borderRadius:
-                    composerHeight > COMPOSER_MIN_HEIGHT
-                      ? 18
-                      : ONBOARDING_PREVIEW_COMPOSER_INITIAL_BORDER_RADIUS,
-                  height: composerHeight,
-                },
-              ]}>
-              <TextInput
-                accessibilityLabel="Reply to your Ally"
-                autoCapitalize="sentences"
-                autoCorrect
-                editable={!replySubmitted && !isSubmitting && !retryPending}
-                maxLength={4000}
-                multiline
-                onChangeText={handleDraftChange}
-                onContentSizeChange={({ nativeEvent }) =>
-                  setComposerHeight(
-                    Math.min(
-                      COMPOSER_MAX_HEIGHT,
-                      Math.max(COMPOSER_MIN_HEIGHT, nativeEvent.contentSize.height + 16),
-                    ),
-                  )
-                }
-                placeholder={`Reply ${allyName || 'your Ally'}`}
-                placeholderTextColor="#A8A8A8"
-                selectionColor={accentColor}
-                style={styles.composerInput}
-                textAlignVertical="center"
-                value={draft}
-              />
-              <Pressable
-                accessibilityLabel="Send reply"
-                accessibilityRole="button"
-                accessibilityState={{ disabled: !canSend }}
-                disabled={!canSend}
-                onPress={handleSend}
-                style={({ pressed }) => [styles.sendButton, pressed && styles.sendButtonPressed]}>
-                <Animated.View
-                  pointerEvents="none"
-                  style={[StyleSheet.absoluteFill, styles.sendBackground, sendBackgroundStyle]}
-                />
-                <Image
-                  accessibilityLabel=""
-                  contentFit="contain"
-                  source={require('@/assets/allies/icons/send.svg')}
-                  style={styles.sendIcon}
-                />
-              </Pressable>
-            </View>
-          </View>
-
-          {thinkingAvatarLayout ? (
-            <Animated.View
-              pointerEvents="none"
-              style={[
-                styles.avatarHandoff,
-                {
-                  height: thinkingAvatarLayout.height,
-                  left: thinkingAvatarLayout.x,
-                  top: thinkingAvatarLayout.y,
-                  width: thinkingAvatarLayout.width,
-                },
-                avatarHandoffStyle,
-              ]}>
+      <BottomSheetModal
+        accessibilityLabel="Close account creation"
+        onClose={() => setAccountPromptVisible(false)}
+        visible={accountPromptVisible}>
+        <View style={styles.accountPromptContent}>
+          <View style={styles.accountPromptHeader}>
+            <View style={styles.accountPromptAllyContainer}>
               <OnboardingAllyPreview
-                accessibilityLabel={
-                  phase === 'ready' && avatarSettled
-                    ? `${allyName || 'Your'} Ally`
-                    : 'Ally thinking'
-                }
+                accessibilityLabel={`${allyName || 'Your'} Ally`}
                 color={selectedColor}
                 identity={allyShape}
-                size={ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE}
-                state={phase === 'ready' && avatarSettled ? 'idle' : 'thinking'}
+                size={48}
               />
-            </Animated.View>
-          ) : null}
+            </View>
+            <PressScale
+              accessibilityLabel="Close account creation"
+              accessibilityRole="button"
+              onPress={() => setAccountPromptVisible(false)}
+              pressableStyle={styles.accountPromptClosePressable}
+              style={styles.accountPromptClose}>
+              <LiquidGlassBackground
+                borderRadius={999}
+                fallbackColor={theme.modalCancelSurface}
+                invertColorScheme
+              />
+              <Image
+                accessibilityLabel=""
+                contentFit="contain"
+                source={require('@/assets/allies/icons/x-icon.svg')}
+                style={[styles.accountPromptCloseIcon, { tintColor: theme.modalCancelIcon }]}
+              />
+            </PressScale>
+          </View>
+
+          <Text style={[styles.accountPromptTitle, { color: theme.primaryText }]}>Create your{ '\n' }account</Text>
+          <Text style={[styles.accountPromptDescription, { color: theme.primaryText }]}>
+            {displayName} has been saved but you need to set up an account to use it.
+          </Text>
+
+          <View style={styles.accountPromptOptions}>
+            <ProviderButton
+              accessibilityLabel="Continue with Google"
+              icon={require('@/assets/allies/icons/google-logo.svg')}
+              label="Continue with Google"
+              onPress={continueAfterAccount}
+            />
+          </View>
+
+          <Text style={styles.accountPromptFinePrint}>
+            By continuing, you agree to our{' '}
+            <Text accessibilityRole="link" onPress={() => openLegalPage(TERMS_URL)} style={styles.accountPromptLink}>Terms of Service</Text>{' '}
+            and have read our{' '}
+            <Text accessibilityRole="link" onPress={() => openLegalPage(PRIVACY_URL)} style={styles.accountPromptLink}>Privacy Policy</Text>
+          </Text>
         </View>
-      </SafeAreaView>
-    </KeyboardAvoidingView>
+      </BottomSheetModal>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
+  accountPromptAllyContainer: {
+    alignItems: 'flex-start',
+    height: 64,
+    justifyContent: 'center',
+    marginTop: 12,
+    width: 64,
+  },
+  accountPromptClose: {
+    height: 36,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+    width: 36,
+  },
+  accountPromptClosePressable: {
+    alignItems: 'center',
+    borderRadius: 999,
+    flex: 1,
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  accountPromptCloseIcon: {
+    height: 10.5,
+    width: 10.5,
+  },
+  accountPromptDescription: {
+    fontFamily: 'OpenRundeMedium',
+    fontSize: 16,
+    letterSpacing: -0.5,
+    lineHeight: 20,
+    marginTop: 12,
+  },
+  accountPromptFinePrint: {
+    color: '#A0A0A0',
+    fontFamily: 'OpenRundeMedium',
+    fontSize: 14,
+    letterSpacing: -0.5,
+    lineHeight: 14,
+    marginTop: 24,
+    textAlign: 'center',
+  },
+  accountPromptHeader: {
+    height: 76,
+    position: 'relative',
+  },
+  accountPromptLink: {
+    textDecorationLine: 'underline',
+  },
+  accountPromptOptions: {
+    gap: 12,
+    marginTop: 24,
+  },
+  accountPromptContent: {
+    paddingHorizontal: 20,
+    paddingTop: 24,
+  },
+  accountPromptTitle: {
+    fontFamily: 'OpenRundeSemibold',
+    fontSize: 24,
+    includeFontPadding: true,
+    letterSpacing: -1,
+    lineHeight: 24,
+    marginTop: 12,
+  },
   cancelPending: {
     alignSelf: 'center',
     paddingHorizontal: 16,
@@ -618,147 +497,36 @@ const styles = StyleSheet.create({
     fontFamily: 'OpenRundeSemibold',
     fontSize: 13,
   },
-  avatarHandoff: {
-    position: 'absolute',
-    zIndex: 2,
-  },
   comingAliveContent: {
     alignItems: 'center',
     flex: 1,
-    gap: 28,
+    gap: 18,
     justifyContent: 'center',
-    paddingBottom: 22,
-    paddingHorizontal: 20,
+    paddingHorizontal: 14,
   },
-  comingAliveCharacter: {
-    color: '#121212',
+  comingAliveHero: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  comingAliveText: {
     fontFamily: 'OpenRundeSemibold',
-    fontSize: 18,
-    includeFontPadding: false,
-    letterSpacing: -0.55,
+    fontSize: 24,
+    letterSpacing: -1,
     lineHeight: 24,
-  },
-  comingAliveLabel: {
-    alignItems: 'baseline',
-    flexDirection: 'row',
-    justifyContent: 'center',
-    minHeight: 32,
+    textAlign: 'center',
   },
   comingAliveSafeArea: {
     flex: 1,
   },
-  composer: {
-    alignItems: 'center',
-    backgroundColor: '#F3F3F3',
-    flexDirection: 'row',
-    overflow: 'hidden',
-    paddingLeft: 14,
-    paddingRight: 6,
-    width: '100%',
-  },
-  composerInput: {
-    color: '#121212',
-    ...ONBOARDING_PREVIEW_COMPOSER_TEXT_STYLE,
-    flex: 1,
-    includeFontPadding: false,
-    maxHeight: COMPOSER_MAX_HEIGHT - 8,
-    paddingHorizontal: 0,
-    paddingVertical: 8,
-  },
-  composerRow: {
-    paddingHorizontal: CONVERSATION_HORIZONTAL_PADDING,
-  },
-  conversationHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: ONBOARDING_PREVIEW_HEADER_NAME_GAP,
-    minHeight: ONBOARDING_PREVIEW_HEADER_AVATAR_SIZE,
-    paddingHorizontal: CONVERSATION_HORIZONTAL_PADDING,
-  },
-  conversationAvatarSlot: {
-    height: ONBOARDING_PREVIEW_HEADER_AVATAR_SIZE,
-    width: ONBOARDING_PREVIEW_HEADER_AVATAR_SIZE,
-  },
-  conversationName: {
-    color: '#121212',
-    flexShrink: 1,
-    ...ONBOARDING_PREVIEW_HEADER_NAME_TEXT_STYLE,
-  },
-  conversationContent: {
-    flex: 1,
-    paddingTop: ONBOARDING_TOP_PADDING,
-  },
-  conversationSafeArea: {
-    flex: 1,
-  },
-  greetingContent: {
-    flexGrow: 1,
-    paddingBottom: 20,
-    paddingHorizontal: CONVERSATION_HORIZONTAL_PADDING,
-    paddingTop: ONBOARDING_PREVIEW_GREETING_TOP_GAP,
-  },
-  greetingScroll: {
-    flex: 1,
-  },
-  greetingText: {
-    color: '#121212',
-    ...ONBOARDING_PREVIEW_BODY_TEXT_STYLE,
-    includeFontPadding: false,
-  },
-  greetingTextBold: {
-    ...ONBOARDING_PREVIEW_BODY_TEXT_BOLD_STYLE,
-    includeFontPadding: false,
-  },
   root: {
-    backgroundColor: '#FFFFFF',
     flex: 1,
-  },
-  sendBackground: {
-    borderRadius: 999,
-  },
-  sendButton: {
-    alignItems: 'center',
-    borderRadius: 999,
-    height: 36,
-    justifyContent: 'center',
-    overflow: 'hidden',
-    position: 'relative',
-    width: 36,
-  },
-  sendButtonPressed: {
-    opacity: 0.84,
-    transform: [{ scale: 0.96 }],
-  },
-  sendIcon: {
-    height: 18,
-    width: 18,
   },
   statusMessage: {
     color: '#606060',
     fontFamily: 'OpenRundeMedium',
     fontSize: 14,
     lineHeight: 19,
-    paddingHorizontal: CONVERSATION_HORIZONTAL_PADDING,
     paddingBottom: 8,
     textAlign: 'center',
-  },
-  thinkingLabel: {
-    fontFamily: 'OpenRundeSemibold',
-    fontSize: 14,
-    includeFontPadding: false,
-    letterSpacing: -0.35,
-    lineHeight: 18,
-  },
-  thinkingStatus: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    minHeight: ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE,
-    paddingHorizontal: 20,
-    paddingBottom: 16,
-  },
-  thinkingAvatarSlot: {
-    height: ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE,
-    width: ONBOARDING_PREVIEW_THINKING_AVATAR_SIZE,
   },
 });

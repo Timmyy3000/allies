@@ -8,9 +8,9 @@ export type OnboardingChromeConfig = {
 export type OnboardingHeaderAllyVariant = 'none' | 'placeholder' | 'selected';
 
 export function getOnboardingChrome(
-  step: Exclude<OnboardingStep, 'welcome'>,
+  step: Exclude<OnboardingStep, 'welcome' | 'basics' | 'notifications'>,
 ): OnboardingChromeConfig {
-  const titles: Record<Exclude<OnboardingStep, 'welcome'>, string> = {
+  const titles: Record<Exclude<OnboardingStep, 'welcome' | 'basics' | 'notifications'>, string> = {
     job: 'What is my\njob description?',
     look: 'What should I\nlook like?',
     name: 'What do you want\nto name your ally?',
@@ -25,7 +25,7 @@ export function getOnboardingChrome(
 }
 
 export function getOnboardingHeaderAllyVariant(
-  step: Exclude<OnboardingStep, 'welcome'>,
+  step: Exclude<OnboardingStep, 'welcome' | 'basics' | 'notifications'>,
 ): OnboardingHeaderAllyVariant {
   if (step === 'name') return 'none';
   if (step === 'look') return 'placeholder';
@@ -35,7 +35,7 @@ export function getOnboardingHeaderAllyVariant(
 export function isOnboardingFooterDisabled(
   step: OnboardingStep,
   canContinue: boolean,
-  personalityHelpOpen: boolean,
+  helpOpen: boolean,
 ) {
-  return !canContinue || (step === 'personality' && personalityHelpOpen);
+  return !canContinue || ((step === 'job' || step === 'personality') && helpOpen);
 }

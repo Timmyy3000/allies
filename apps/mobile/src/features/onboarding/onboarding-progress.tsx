@@ -9,13 +9,12 @@ import Animated, {
 import Svg, { Circle } from 'react-native-svg';
 
 import { useAnimatedColor } from '@/components/ui/use-animated-color';
+import { useTheme } from '@/hooks/use-theme';
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 const DEFAULT_SIZE = 40;
 const STROKE_WIDTH = 4;
-const TRACK_COLOR = '#F3F3F3';
-
 type OnboardingProgressProps = {
   accentColor: string;
   progress: number;
@@ -31,6 +30,7 @@ export function OnboardingProgress({
   progress,
   size = DEFAULT_SIZE,
 }: OnboardingProgressProps) {
+  const theme = useTheme();
   const reducedMotion = useReducedMotion();
   const progressValue = useSharedValue(clampProgress(progress));
   const radius = (size - STROKE_WIDTH) / 2;
@@ -70,7 +70,7 @@ export function OnboardingProgress({
           cy={center}
           fill="none"
           r={radius}
-          stroke={TRACK_COLOR}
+          stroke={theme.progressTrack}
           strokeWidth={STROKE_WIDTH}
         />
         <AnimatedCircle

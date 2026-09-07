@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -8,9 +10,11 @@ import {
   ONBOARDING_COLOR_TRANSITION_EASING,
   ONBOARDING_CHECKMARK_POP_INITIAL_SCALE,
   ONBOARDING_CHECKMARK_POP_SPRING,
-  ONBOARDING_COMING_ALIVE_WAVE_AMPLITUDE,
-  ONBOARDING_COMING_ALIVE_WAVE_DURATION_MS,
-  ONBOARDING_COMING_ALIVE_WAVE_STEP_MS,
+  ONBOARDING_COMING_ALIVE_SQUISH_DURATION_MS,
+  ONBOARDING_BASICS_BOUNCE_CYCLE_MS,
+  ONBOARDING_BASICS_BOUNCE_LIFT,
+  ONBOARDING_EDITOR_HEIGHT,
+  ONBOARDING_EDITOR_KEYBOARD_HEIGHT_SCALE,
   ONBOARDING_LOOK_SWIPE_HINT_INTERVAL_MS,
   WELCOME_CTA_LABEL,
   getColorTransitionDuration,
@@ -18,7 +22,14 @@ import {
   getOnboardingCheckmarkPopInitialScale,
   getPrimaryButtonColor,
   getOnboardingLookSwipeHintOffsets,
+  getOnboardingComingAliveSquishTransform,
+  getOnboardingPersonalitySelectorOffset,
 } from './onboarding-motion';
+
+const motionSource = readFileSync(
+  fileURLToPath(new URL('./onboarding-motion.ts', import.meta.url)),
+  'utf8',
+);
 
 describe('onboarding polish contract', () => {
   it('uses relationship-first welcome copy', () => {
@@ -34,9 +45,19 @@ describe('onboarding polish contract', () => {
     expect(ALLY_NAME_CARET_BLINK_INTERVAL_MS).toBe(500);
   });
 
-  it('uses the accent only when the primary button is enabled', () => {
-    expect(getPrimaryButtonColor('#FF5800', false)).toBe('#FF5800');
-    expect(getPrimaryButtonColor('#FF5800', true)).toBe('#D9D9D9');
+  it('shrinks the keyboard editor to half its resting height', () => {
+    expect(ONBOARDING_EDITOR_HEIGHT).toBe(250);
+    expect(ONBOARDING_EDITOR_HEIGHT * ONBOARDING_EDITOR_KEYBOARD_HEIGHT_SCALE).toBe(125);
+  });
+
+  it('moves the personality selector from closed to 295px open with keyboard progress', () => {
+    expect(getOnboardingPersonalitySelectorOffset(0)).toBe(0);
+    expect(getOnboardingPersonalitySelectorOffset(1)).toBe(295);
+  });
+
+  it('uses the selected accent while active and the theme color while disabled', () => {
+    expect(getPrimaryButtonColor('#3446E9', false, '#202020')).toBe('#3446E9');
+    expect(getPrimaryButtonColor('#3446E9', true, '#202020')).toBe('#202020');
   });
 
   it('uses a fast eased transition and disables it for reduced motion', () => {
@@ -57,14 +78,44 @@ describe('onboarding polish contract', () => {
     expect(getOnboardingCheckmarkPopInitialScale(true)).toBe(1);
   });
 
-  it('keeps the coming-alive wave aligned with the web motion contract', () => {
-    expect(ONBOARDING_COMING_ALIVE_WAVE_DURATION_MS).toBe(1350);
-    expect(ONBOARDING_COMING_ALIVE_WAVE_STEP_MS).toBe(70);
-    expect(ONBOARDING_COMING_ALIVE_WAVE_AMPLITUDE).toBe(4);
+  it('keeps the basics Ally bounce short and grounded', () => {
+    expect(ONBOARDING_BASICS_BOUNCE_CYCLE_MS).toBe(720);
+    expect(ONBOARDING_BASICS_BOUNCE_LIFT).toBe(18);
+  });
+
+  it('does not retain the full-screen welcome-to-name handoff constants', () => {
+    expect(motionSource).not.toContain('ONBOARDING_SCREEN_EXIT_DURATION_MS');
+    expect(motionSource).not.toContain('ONBOARDING_SCREEN_ENTER_DELAY_MS');
+    expect(motionSource).not.toContain('ONBOARDING_SCREEN_ENTER_DURATION_MS');
+    expect(motionSource).not.toContain('ONBOARDING_SCREEN_ENTER_EASING');
+    expect(motionSource).not.toContain('ONBOARDING_SCREEN_EXIT_EASING');
+  });
+
+  it('uses one finite coming-alive squish that settles at identity', () => {
+    expect(ONBOARDING_COMING_ALIVE_SQUISH_DURATION_MS).toBe(599);
+    expect(getOnboardingComingAliveSquishTransform(0)).toEqual({
+      scaleX: 1,
+      scaleY: 1,
+      translateY: 0,
+    });
+    expect(getOnboardingComingAliveSquishTransform(0.6)).toEqual({
+      scaleX: 0.94,
+      scaleY: 1.08,
+      translateY: -18,
+    });
+    expect(getOnboardingComingAliveSquishTransform(1)).toEqual({
+      scaleX: 1,
+      scaleY: 1,
+      translateY: 0,
+    });
   });
 
   it('derives a washed-out surface from the active Ally color', () => {
     expect(getMutedOnboardingColor('#A3F06F')).toBe('rgba(163, 240, 111, 0.12)');
+  });
+
+  it('accepts an explicit opacity for a washed-out Ally color', () => {
+    expect(getMutedOnboardingColor('#A3F06F', 0.04)).toBe('rgba(163, 240, 111, 0.04)');
   });
 
   it('nudges the look carousel left and returns to its original offset', () => {

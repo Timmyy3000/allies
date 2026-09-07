@@ -1,6 +1,6 @@
-import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { useCallback } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   cancelAnimation,
@@ -12,6 +12,7 @@ import {
 } from 'react-native-reanimated';
 
 import { PrimaryButton } from '@/components/ui/primary-button';
+import { useTheme } from '@/hooks/use-theme';
 
 import { AlliesLogo } from './allies-logo';
 import { AllyCharacter } from './ally-character';
@@ -29,34 +30,35 @@ type OnboardingScreenProps = {
 const LOGO_WIDTH = 100;
 const LOGO_HEIGHT = LOGO_WIDTH * (86 / 89);
 const SIGN_IN_BOTTOM_OFFSET = 60;
-
 export default function OnboardingScreen({
   accentColor = DEFAULT_ONBOARDING_ACCENT,
   onStart,
   onSignIn,
 }: OnboardingScreenProps) {
+  const theme = useTheme();
   const { bottom: bottomInset } = useSafeAreaInsets();
   const reducedMotion = useReducedMotion();
   const idleProgress = useSharedValue(0);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     if (reducedMotion) {
-      idleProgress.value = 0;
+      idleProgress.set(0);
       return;
     }
 
-    idleProgress.value = withRepeat(
+    idleProgress.set(withRepeat(
       withTiming(1, { duration: ALLY_IDLE_PERIOD_MS, easing: Easing.linear }),
       -1,
       false,
-    );
+    ));
 
     return () => cancelAnimation(idleProgress);
-  }, [idleProgress, reducedMotion]);
+  }, [idleProgress, reducedMotion]));
 
   return (
-    <View style={styles.root}>
-      <StatusBar style="dark" />
+    <View
+      style={[styles.root, { backgroundColor: theme.appBackground }]}
+    >
 
       <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
         <View style={styles.visualArea}>
@@ -76,15 +78,20 @@ export default function OnboardingScreen({
           ]}>
           <PrimaryButton
             accentColor={accentColor}
+            bottomMargin={0}
             label={WELCOME_CTA_LABEL}
             onPress={onStart}
           />
 
           <View style={styles.signInRow}>
-            <Text style={styles.signInPrompt}>Not new to this?</Text>
-            <Pressable accessibilityRole="link" onPress={onSignIn} style={styles.signInButton}>
-              <Text style={[styles.signIn, { color: accentColor }]}>Sign in</Text>
-            </Pressable>
+            <Text style={[styles.signInText, { color: theme.primaryText }]}>Not new to this?{' '}
+              <Text
+                accessibilityRole="link"
+                onPress={onSignIn}
+                style={{ color: accentColor }}>
+                Sign in
+              </Text>
+            </Text>
           </View>
         </View>
       </SafeAreaView>
@@ -111,32 +118,22 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   root: {
-    backgroundColor: '#FFFFFF',
     flex: 1,
     position: 'relative',
   },
   safeArea: {
     flex: 1,
   },
-  signIn: {
-    fontFamily: 'OpenRundeSemibold',
-  },
-  signInButton: {
-    minHeight: 20,
-    paddingLeft: 4,
-  },
-  signInPrompt: {
-    color: '#111111',
-    fontFamily: 'OpenRundeSemibold',
-    fontSize: 16,
-    letterSpacing: -0.7,
-    lineHeight: 20,
-    textAlign: 'center',
-  },
   signInRow: {
     alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'center',
+    marginTop: 24,
+  },
+  signInText: {
+    fontFamily: 'OpenRundeSemibold',
+    fontSize: 16,
+    includeFontPadding: true,
+    letterSpacing: -0.7,
+    lineHeight: 16,
   },
   visualArea: {
     flex: 1,

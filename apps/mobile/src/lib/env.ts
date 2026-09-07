@@ -1,8 +1,11 @@
 import { parsePublicCloudUrl } from '@allies/cloud-client';
 
+export type NativeAuthCompletionMode = 'redirect' | 'manual_code';
+
 export interface MobileEnvironment {
   cloudApiUrl: string;
   nativeAuthRedirectUri: string | null;
+  nativeAuthCompletionMode: NativeAuthCompletionMode;
 }
 
 function parseNativeAuthRedirectUri(value: unknown): string | null {
@@ -24,13 +27,23 @@ function parseNativeAuthRedirectUri(value: unknown): string | null {
   return value;
 }
 
+function parseNativeAuthCompletionMode(value: unknown): NativeAuthCompletionMode {
+  if (value === undefined || value === null || (typeof value === 'string' && value.trim() === '')) {
+    return 'redirect';
+  }
+  if (value === 'redirect' || value === 'manual_code') return value;
+  throw new Error('Native auth completion mode must be redirect or manual_code');
+}
+
 export function parseMobileEnvironment(
   value: unknown,
   nativeAuthRedirectUri?: unknown,
+  nativeAuthCompletionMode?: unknown,
 ): Readonly<MobileEnvironment> {
   return Object.freeze({
     cloudApiUrl: value === undefined ? 'https://cloud.invalid' : parsePublicCloudUrl(value),
     nativeAuthRedirectUri: parseNativeAuthRedirectUri(nativeAuthRedirectUri),
+    nativeAuthCompletionMode: parseNativeAuthCompletionMode(nativeAuthCompletionMode),
   });
 }
 
@@ -38,5 +51,6 @@ export function getMobileEnvironment(): Readonly<MobileEnvironment> {
   return parseMobileEnvironment(
     process.env.EXPO_PUBLIC_CLOUD_API_URL,
     process.env.EXPO_PUBLIC_NATIVE_AUTH_REDIRECT_URI,
+    process.env.EXPO_PUBLIC_NATIVE_AUTH_COMPLETION_MODE,
   );
 }

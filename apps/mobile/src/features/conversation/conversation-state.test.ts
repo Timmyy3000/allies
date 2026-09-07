@@ -1,169 +1,473 @@
 import { describe, expect, it } from 'vitest';
-import type { MessageViewModel } from '@allies/cloud-client';
 
 import {
-  createConversationScrollIntent,
+  activityStateForMessage,
+  findLatestConversationUserMessage,
+  hasPermanentMobileActivityGap,
+  hasMobileActivityReplayGap,
   insertAcceptedMessage,
-  isActivityPollingAllowed,
-  isMessageTerminal,
+  getMobileActivityPollingInterval,
+  isMobileActivityPollErrorRecoverable,
+  isMobileActivityTerminalForMessage,
+  isMessageExecutionActive,
+  isMobileActivityPollingAllowed,
+  loadMobileActivityReplay,
+  mergeConversationAssistantReplies,
   mergeConversationMessages,
+  projectMobileActivity,
+  projectMobileActivityForMessage,
   queuedConversationMessages,
+  refreshMobileConversationHistory,
   replaceNewestConversationPage,
-  shouldKeepPendingMessage,
+  selectMobileConversationReplies,
+  shouldContinueMobileActivityPolling,
+  shouldRetryMobileActivityReplay,
 } from './conversation-state';
+import { EMPTY_ACTIVITY_PROJECTION, type AssistantReplyViewModel, type ConversationViewModel, type MessageViewModel } from '@allies/cloud-client';
 
-const message = (id: string, sequence: number, content = id) => ({
-  id,
-  sender: (id === 'ally-message' ? 'assistant' : 'user') as MessageViewModel['sender'],
-  content,
+const message = (overrides: Partial<{
+  id: string;
+  sender: 'user' | 'assistant';
+  content: string;
+  sequence: number;
+  status: 'queued' | 'in_progress' | 'awaiting_action' | 'completed' | 'failed' | 'stopped';
+}> = {}) => ({
+  id: overrides.id ?? 'message-1',
+  sender: overrides.sender ?? 'assistant',
+  content: overrides.content ?? 'Hello',
+  sequence: overrides.sequence ?? 1,
+  status: overrides.status ?? 'completed',
+  createdAt: '2026-01-01T00:00:00Z',
+  retryable: false,
+});
+
+const activity = (sequence: number, text: string, state: 'running' | 'completed' = 'running') => ({
+  id: `activity-${sequence}`,
+  messageId: 'message-2',
   sequence,
-  status: 'completed' as MessageViewModel['status'],
-  createdAt: '2026-08-28T00:00:00.000Z',
-}) satisfies MessageViewModel;
+  conversationTurnOrdinal: 1,
+  kind: 'assistant_delta' as const,
+  text,
+  state,
+  createdAt: '2026-01-01T00:00:00Z',
+});
 
-describe('conversation state', () => {
-  it('uses the complete Cloud queue even beyond the history page and releases only correlated progress', () => {
-    const head: MessageViewModel = { ...message('head', 2), status: 'queued', queueState: 'claimed' };
-    const tail: MessageViewModel = { ...message('tail', 3), status: 'queued', queueState: 'unclaimed' };
+describe('mobile conversation state', () => {
+  it('keeps newer pages and older pages in one ordered set without duplicates', () => {
+    const pages = [
+      { id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-2', sequence: 2, content: 'new' })], assistantReplies: [], nextCursor: 'older' },
+      { id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-1', sequence: 1 }), message({ id: 'message-2', sequence: 2, content: 'new' })], assistantReplies: [], nextCursor: null },
+    ];
+
+    expect(mergeConversationMessages(pages).map((item) => item.id)).toEqual(['message-1', 'message-2']);
+  });
+
+  it('inserts accepted messages into the newest page without losing history', () => {
+    const pages = [{ id: 'conversation', allyId: 'ally', messages: [message()], assistantReplies: [], nextCursor: 'older' }];
+
+    expect(insertAcceptedMessage(pages, message({ id: 'message-2', sequence: 2, sender: 'user', content: 'Question' }))[0].messages)
+      .toEqual([
+        message(),
+        message({ id: 'message-2', sequence: 2, sender: 'user', content: 'Question' }),
+      ]);
+  });
+
+  it('correlates the terminal refresh with a newly accepted highest-sequence user turn', () => {
+    const previousUser = message({ id: 'previous-user', sequence: 1, sender: 'user', content: 'Earlier' });
+    const acceptedUser = message({ id: 'accepted-user', sequence: 2, sender: 'user', content: 'Latest' });
+    const pages = [{
+      id: 'conversation',
+      allyId: 'ally',
+      messages: [previousUser],
+      assistantReplies: [],
+      nextCursor: 'older',
+    }];
+    const cachedPages = insertAcceptedMessage(pages, acceptedUser);
+    const latest = findLatestConversationUserMessage(cachedPages[0].messages);
+    const terminalSnapshot = {
+      conversationId: 'conversation',
+      activities: [{ ...activity(2, 'done', 'completed'), messageId: acceptedUser.id }],
+      assistantReply: null,
+      state: 'completed' as const,
+      lastContiguousSequence: 2,
+      latestSequence: 2,
+    };
+
+    expect(latest?.id).toBe(acceptedUser.id);
+    expect(isMobileActivityTerminalForMessage(terminalSnapshot, latest?.id)).toBe(true);
+  });
+
+  it('uses the authoritative newest page when a refetch supersedes local message copies', () => {
+    const pages = [{ id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-2', sequence: 2, sender: 'user' })], assistantReplies: [], nextCursor: 'older' }];
+    const newest = { id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-1', sequence: 1 })], assistantReplies: [], nextCursor: 'older' };
+
+    expect(replaceNewestConversationPage(pages, newest)[0]?.messages.map((item) => item.id))
+      .toEqual(['message-1']);
+  });
+
+  it('uses the complete Cloud queue and releases only the correlated active message', () => {
+    const head = { ...message({ id: 'head', sequence: 2, sender: 'user', status: 'queued' }), queueState: 'claimed' as const } satisfies MessageViewModel;
+    const tail = { ...message({ id: 'tail', sequence: 3, sender: 'user', status: 'queued' }), queueState: 'unclaimed' as const } satisfies MessageViewModel;
     const page = { id: 'conversation', allyId: 'ally', assistantReplies: [], messages: [tail], queue: [head, tail], nextCursor: 'older' };
-    const projection = { turns: [], seenSequences: [], lastContiguousSequence: 0, state: 'queued' as const };
+    const projection = { ...EMPTY_ACTIVITY_PROJECTION, state: 'queued' as const };
+
     expect(queuedConversationMessages([page], projection)).toEqual([head, tail]);
     expect(queuedConversationMessages([page], { ...projection, state: 'running', activeMessageId: head.id })).toEqual([tail]);
-    expect(queuedConversationMessages([page], { ...projection, state: 'running', activeMessageId: 'foreign-head' })).toEqual([head, tail]);
     expect(mergeConversationMessages([page])).toEqual([head, tail]);
   });
 
-  it('removes a Cloud-deleted tail from queue and every cached copy without resurrecting its content', () => {
-    const tail: MessageViewModel = { ...message('tail', 3, 'Private queued text'), status: 'queued', queueState: 'unclaimed' };
-    const page = { id: 'conversation', allyId: 'ally', assistantReplies: [], messages: [tail], queue: [tail], nextCursor: 'older' };
-    const deleted: MessageViewModel = { ...tail, content: '', status: 'stopped', queueState: null, deletedAt: '2026-09-06T12:00:00Z' };
-    const pages = insertAcceptedMessage([page, page], deleted);
+  it('keeps a Cloud deletion tombstone from resurrecting queued text', () => {
+    const tail = { ...message({ id: 'tail', sequence: 3, sender: 'user', content: 'Private text', status: 'queued' }), queueState: 'unclaimed' as const } satisfies MessageViewModel;
+    const page = { id: 'conversation', allyId: 'ally', assistantReplies: [], messages: [tail], queue: [tail], nextCursor: null };
+    const deleted = { ...tail, content: '', status: 'stopped' as const, queueState: null, deletedAt: '2026-09-06T12:00:00Z' } satisfies MessageViewModel;
+    const pages = insertAcceptedMessage([page], deleted);
+
     expect(pages[0].queue).toEqual([]);
     expect(mergeConversationMessages(pages)).toEqual([]);
     expect(mergeConversationMessages(insertAcceptedMessage(pages, tail))).toEqual([]);
-    const staleRefresh = replaceNewestConversationPage(pages, page);
-    expect(staleRefresh[0].queue).toEqual([]);
-    expect(mergeConversationMessages(staleRefresh)).toEqual([]);
-    const remoteDeleted = replaceNewestConversationPage([page, page], { ...page, messages: [deleted], queue: [] });
-    const afterEviction = replaceNewestConversationPage(remoteDeleted, {
-      ...page, messages: [message('later', 60)], queue: [],
+  });
+
+  it('projects out-of-order activities and exposes a permanent terminal gap', () => {
+    const running = projectMobileActivity(EMPTY_ACTIVITY_PROJECTION, {
+      conversationId: 'conversation',
+      activities: [activity(2, 'world')],
+      state: 'running',
+      lastContiguousSequence: 0,
+      lastContiguousActivitySequence: 0,
     });
-    expect(mergeConversationMessages(afterEviction)).toEqual([message('later', 60)]);
-    expect(mergeConversationMessages([{ ...page, messages: [], queue: [] }, page])).toEqual([]);
+    const terminal = projectMobileActivity(running, {
+      conversationId: 'conversation',
+      activities: [activity(1, 'Hello', 'completed')],
+      state: 'completed',
+      lastContiguousSequence: 1,
+      lastContiguousActivitySequence: 1,
+    });
+
+    expect(terminal.turns[0]?.assistantText).toBe('Helloworld');
+    expect(hasPermanentMobileActivityGap(terminal)).toBe(false);
+    expect(isMobileActivityPollingAllowed({ focused: true, state: 'running', startedAt: 0, now: 1 })).toBe(true);
+    expect(isMobileActivityPollingAllowed({ focused: true, state: 'completed', startedAt: 0, now: 1 })).toBe(false);
+    expect(isMobileActivityPollingAllowed({ focused: true, state: 'running', startedAt: 0, now: 119_999 })).toBe(true);
+    expect(isMobileActivityPollingAllowed({ focused: true, state: 'running', startedAt: 0, now: 120_000 })).toBe(true);
+    expect(getMobileActivityPollingInterval({ focused: true, state: 'running', startedAt: 0, now: 120_001 })).toBe(6_000);
+    expect(getMobileActivityPollingInterval({ focused: true, state: 'running', startedAt: 0, now: 240_001 })).toBe(12_000);
+    expect(getMobileActivityPollingInterval({ focused: true, state: 'running', startedAt: 0, now: 600_000 })).toBe(15_000);
+    expect(isMobileActivityPollErrorRecoverable({ kind: 'network' })).toBe(true);
+    expect(isMobileActivityPollErrorRecoverable({ kind: 'contract' })).toBe(false);
+    expect(isMobileActivityPollErrorRecoverable(null)).toBe(true);
+    expect(shouldContinueMobileActivityPolling({ focused: true, state: null, knownExecutionActive: true })).toBe(true);
+    expect(shouldContinueMobileActivityPolling({ focused: true, state: null, knownExecutionActive: false })).toBe(false);
   });
 
-  it('deduplicates immutable messages and sorts them by sequence', () => {
-    const messages = mergeConversationMessages([
-      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('ally-message', 2), message('user-message', 1)], nextCursor: 'older' },
-      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('user-message', 1)], nextCursor: null },
+  it('maps accepted message statuses to the activity polling state', () => {
+    expect(activityStateForMessage('queued')).toBe('queued');
+    expect(activityStateForMessage('in_progress')).toBe('running');
+    expect(activityStateForMessage('completed')).toBe('completed');
+    expect(isMessageExecutionActive('queued')).toBe(true);
+    expect(isMessageExecutionActive('completed')).toBe(false);
+  });
+
+  it('treats a terminal snapshot as authoritative only for its latest user turn', async () => {
+    const previousUserId = 'previous-user';
+    const latestUserId = 'latest-user';
+    const terminalSnapshot = {
+      conversationId: 'conversation',
+      activities: [{ ...activity(2, 'done', 'completed'), messageId: previousUserId }],
+      assistantReply: null,
+      state: 'completed' as const,
+      lastContiguousSequence: 2,
+      latestSequence: 2,
+    };
+
+    expect(isMobileActivityTerminalForMessage(terminalSnapshot, previousUserId)).toBe(true);
+    expect(isMobileActivityTerminalForMessage(terminalSnapshot, latestUserId)).toBe(false);
+    expect(shouldContinueMobileActivityPolling({
+      focused: true,
+      state: isMobileActivityTerminalForMessage(terminalSnapshot, latestUserId) ? terminalSnapshot.state : 'running',
+      knownExecutionActive: true,
+    })).toBe(true);
+  });
+
+  it('ignores a previous turn terminal snapshot after accepting a newer turn', () => {
+    const previousUserId = 'previous-user';
+    const latestUserId = 'latest-user';
+    const staleFailed = {
+      conversationId: 'conversation',
+      activities: [{ ...activity(1, 'failed'), messageId: previousUserId, state: 'failed' as const }],
+      assistantReply: null,
+      state: 'failed' as const,
+      lastContiguousSequence: 1,
+    };
+    const acceptedProjection = {
+      ...projectMobileActivity(EMPTY_ACTIVITY_PROJECTION, staleFailed),
+      state: 'running' as const,
+    };
+
+    const afterStale = projectMobileActivityForMessage(acceptedProjection, staleFailed, latestUserId);
+    expect(afterStale.state).toBe('running');
+    expect(hasPermanentMobileActivityGap(afterStale)).toBe(false);
+    expect(afterStale.turns[0]?.assistantText).toBe('failed');
+
+    const latestCompleted = {
+      conversationId: 'conversation',
+      activities: [{ ...activity(2, 'done', 'completed'), messageId: latestUserId, conversationTurnOrdinal: 2 }],
+      assistantReply: null,
+      state: 'completed' as const,
+      lastContiguousSequence: 2,
+    };
+    const afterLatest = projectMobileActivityForMessage(afterStale, latestCompleted, latestUserId);
+    expect(afterLatest.state).toBe('completed');
+    expect(afterLatest.turns.map((turn) => turn.messageId)).toEqual([previousUserId, latestUserId]);
+  });
+
+  it('falls back to a history refetch when terminal convergence refresh fails', async () => {
+    const calls: string[] = [];
+    await refreshMobileConversationHistory(
+      async () => {
+        calls.push('newest');
+        throw new Error('temporary failure');
+      },
+      async () => {
+        calls.push('history');
+      },
+    );
+
+    expect(calls).toEqual(['newest', 'history']);
+  });
+
+  it('does not skip a cold replay prefix when Cloud metadata points at a high water mark', () => {
+    const tail = projectMobileActivity(EMPTY_ACTIVITY_PROJECTION, {
+      conversationId: 'conversation',
+      activities: [activity(2, 'world')],
+      state: 'running',
+      lastContiguousSequence: 762,
+      lastContiguousActivitySequence: 762,
+      oldestSequence: 2,
+      latestSequence: 762,
+    });
+    const origin = projectMobileActivity(tail, {
+      conversationId: 'conversation',
+      activities: [activity(1, 'Hello', 'completed')],
+      state: 'completed',
+      lastContiguousSequence: 762,
+      lastContiguousActivitySequence: 762,
+    });
+
+    expect(origin.turns[0]?.assistantText).toBe('Helloworld');
+    expect(hasPermanentMobileActivityGap(origin)).toBe(false);
+  });
+
+  it('keeps projecting more than 200 events received after cold hydration', () => {
+    const hydrated = projectMobileActivity(EMPTY_ACTIVITY_PROJECTION, {
+      conversationId: 'conversation',
+      activities: [activity(1, 'a')],
+      state: 'running',
+      lastContiguousSequence: 1,
+      lastContiguousActivitySequence: 1,
+      oldestSequence: 1,
+      latestSequence: 1,
+    });
+    const followup = Array.from({ length: 201 }, (_, index) => activity(index + 2, 'b'));
+    const projected = projectMobileActivity(hydrated, {
+      conversationId: 'conversation',
+      activities: followup,
+      state: 'running',
+      lastContiguousSequence: 999,
+      lastContiguousActivitySequence: 999,
+      oldestSequence: 2,
+      latestSequence: 202,
+    });
+
+    expect(projected.lastContiguousSequence).toBe(202);
+    expect(projected.turns[0]?.assistantText).toBe(`a${'b'.repeat(201)}`);
+  });
+
+  it('loads every signed replay page beyond the 200 row live tail', async () => {
+    const requests: { limit: number; cursor?: string; replay: true }[] = [];
+    const pages = [
+      { conversationId: 'conversation', activities: [], state: 'running' as const, lastContiguousSequence: 0, nextCursor: 'cursor-2' },
+      { conversationId: 'conversation', activities: [], state: 'completed' as const, lastContiguousSequence: 201, nextCursor: null },
+    ];
+    const loaded = await loadMobileActivityReplay(async (options) => {
+      requests.push(options);
+      return pages.shift()!;
+    });
+
+    expect(loaded).toHaveLength(2);
+    expect(requests).toEqual([
+      { limit: 200, replay: true },
+      { limit: 200, cursor: 'cursor-2', replay: true },
     ]);
-
-    expect(messages.map(({ id }) => id)).toEqual(['user-message', 'ally-message']);
   });
 
-  it('rejects conflicting copies of one immutable message ID', () => {
-    expect(() => mergeConversationMessages([
-      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('same', 1, 'first')], nextCursor: null },
-      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('same', 1, 'different')], nextCursor: null },
-    ])).toThrow('Conflicting message copies');
+  it('starts a replay catch-up from the prior signed resume cursor', async () => {
+    const requests: { limit: number; cursor?: string; replay: true }[] = [];
+    const loaded = await loadMobileActivityReplay(async (options) => {
+      requests.push(options);
+      return {
+        conversationId: 'conversation',
+        activities: [],
+        state: 'running' as const,
+        lastContiguousSequence: 202,
+        resumeCursor: 'cursor-next',
+        nextCursor: null,
+      };
+    }, undefined, 'cursor-origin');
+
+    expect(loaded).toHaveLength(1);
+    expect(requests).toEqual([{ limit: 200, cursor: 'cursor-origin', replay: true }]);
   });
 
-  it('keeps the newest-page copy when mutable message status differs', () => {
-    const newest: MessageViewModel = { ...message('same', 1), status: 'completed' };
-    const older: MessageViewModel = { ...message('same', 1), status: 'queued' };
+  it('rehydrates from origin once when a catch-up cursor expires', async () => {
+    const requests: { limit: number; cursor?: string; replay: true }[] = [];
+    let callCount = 0;
+    await expect(loadMobileActivityReplay(async (options) => {
+      requests.push(options);
+      callCount += 1;
+      if (callCount === 1) throw { kind: 'activity-cursor-expired' };
+      return {
+        conversationId: 'conversation',
+        activities: [],
+        state: 'completed' as const,
+        lastContiguousSequence: 202,
+        resumeCursor: 'cursor-origin-new',
+        nextCursor: null,
+      };
+    }, undefined, 'cursor-origin')).resolves.toHaveLength(1);
 
-    expect(mergeConversationMessages([
-      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [newest], nextCursor: 'older' },
-      { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [older], nextCursor: null },
-    ])).toEqual([newest]);
-  });
-
-  it('updates only the newest page while preserving manually loaded history', () => {
-    const newest = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('new', 3)], nextCursor: 'older' };
-    const oldNewest = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('old-new', 2)], nextCursor: 'older' };
-    const older = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('old', 1)], nextCursor: null };
-
-    expect(replaceNewestConversationPage([oldNewest, older], newest)).toEqual([newest, older]);
-    expect(insertAcceptedMessage([oldNewest, older], message('accepted', 3))).toEqual([
-      { ...oldNewest, messages: [message('accepted', 3), ...oldNewest.messages] },
-      older,
+    expect(requests).toEqual([
+      { limit: 200, cursor: 'cursor-origin', replay: true },
+      { limit: 200, replay: true },
     ]);
   });
 
-  it('rejects a conflicting accepted-message collision', () => {
-    const page = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('same', 1, 'old')], nextCursor: null };
-
-    expect(() => insertAcceptedMessage([page], message('same', 1, 'new'))).toThrow('Conflicting message copies');
+  it('retries an expired replay cursor once and surfaces retention gaps', () => {
+    expect(shouldRetryMobileActivityReplay(0, { kind: 'activity-cursor-expired' })).toBe(true);
+    expect(shouldRetryMobileActivityReplay(1, { kind: 'activity-cursor-expired' })).toBe(false);
+    expect(shouldRetryMobileActivityReplay(0, { kind: 'activity-cursor-gap' })).toBe(false);
+    expect(hasMobileActivityReplayGap([{
+      conversationId: 'conversation',
+      activities: [],
+      state: 'completed',
+      lastContiguousSequence: 0,
+      oldestSequence: 4,
+      retentionGap: true,
+    }])).toBe(true);
   });
 
-  it('does not duplicate a replayed acceptance already present in the newest page', () => {
-    const page = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('same', 1)], nextCursor: null };
+  it('renders one durable reply or one activity turn for each user source', () => {
+    const user = message({ id: 'user-2', sender: 'user', sequence: 2, content: 'Question' });
+    const legacyAssistant = message({ id: 'assistant-2', sender: 'assistant', sequence: 3, content: 'Legacy response' });
+    const page: ConversationViewModel = {
+      id: 'conversation',
+      allyId: 'ally',
+      messages: [user, legacyAssistant],
+      assistantReplies: [],
+      nextCursor: null,
+    };
+    const turn = { assistantText: 'Live response', messageId: user.id, state: 'completed' as const, turnOrdinal: 2 };
+    const reply: AssistantReplyViewModel = {
+      id: 'reply-2',
+      sourceMessageId: user.id,
+      conversationTurnOrdinal: 2,
+      content: 'Durable response',
+      status: 'completed',
+      hasFullPrefix: true,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:01Z',
+    };
 
-    expect(insertAcceptedMessage([page], message('same', 1))).toEqual([page]);
+    const durable = selectMobileConversationReplies(
+      page.messages,
+      [turn],
+      mergeConversationAssistantReplies([{ ...page, assistantReplies: [reply] }]),
+    );
+    expect(durable.inlineBySourceMessageId.get(user.id)).toMatchObject({ kind: 'durable' });
+    expect(durable.remainingTurns).toEqual([]);
+    expect(durable.suppressedAssistantMessageIds).toContain(legacyAssistant.id);
+
+    const activityOnly = selectMobileConversationReplies(
+      [user],
+      [turn],
+      [],
+    );
+    expect(activityOnly.inlineBySourceMessageId.get(user.id)).toMatchObject({ kind: 'activity' });
+    expect(activityOnly.remainingTurns).toEqual([]);
   });
 
-  it('moves a replayed acceptance out of an older page without dropping that page', () => {
-    const newest = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('new', 3)], nextCursor: 'older' };
-    const older = { id: 'conversation', allyId: 'ally-1', assistantReplies: [], messages: [message('same', 1)], nextCursor: null };
+  it('preserves a truncated durable prefix and terminal status in the durable render selection', () => {
+    const reply: AssistantReplyViewModel = {
+      id: 'reply-truncated',
+      sourceMessageId: 'user-truncated',
+      conversationTurnOrdinal: 5,
+      content: 'Durable prefix',
+      status: 'completed',
+      hasFullPrefix: true,
+      isTruncated: true,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:01Z',
+    };
+    const selection = selectMobileConversationReplies([
+      message({ id: 'user-truncated', sender: 'user', sequence: 5, content: 'Question' }),
+    ], [], [reply]);
+    const selected = selection.inlineBySourceMessageId.get(reply.sourceMessageId);
 
-    expect(insertAcceptedMessage([newest, older], message('same', 1))).toEqual([
-      { ...newest, messages: [message('same', 1), message('new', 3)] },
-      { ...older, messages: [] },
-    ]);
+    expect(selected).toMatchObject({
+      kind: 'durable',
+      reply: { content: reply.content, status: reply.status, isTruncated: true },
+    });
+    expect(selection.remainingReplies).toEqual([]);
+    expect(selection.remainingTurns).toEqual([]);
+    for (const copies of [[reply, { ...reply, isTruncated: false }], [{ ...reply, isTruncated: false }, reply]]) {
+      expect(mergeConversationAssistantReplies([], copies)[0]?.isTruncated).toBe(true);
+    }
   });
 
-  it.each([
-    ['queued', true],
-    ['in_progress', true],
-    ['running', true],
-    ['awaiting_action', true],
-    ['completed', false],
-    ['failed', false],
-    ['stopped', false],
-    ['unknown', false],
-  ] as const)('allows polling only for active state %s', (state, expected) => {
-    expect(isActivityPollingAllowed({ focused: true, state, startedAt: 0, now: 1_000 })).toBe(expected);
+  it('keeps a terminal durable reply ahead of a delayed running snapshot at the same timestamp', () => {
+    const user = message({ id: 'user-3', sender: 'user', sequence: 3, content: 'Question' });
+    const terminal: AssistantReplyViewModel = {
+      id: 'reply-terminal',
+      sourceMessageId: user.id,
+      conversationTurnOrdinal: 3,
+      content: 'Done',
+      status: 'completed',
+      hasFullPrefix: true,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:02Z',
+    };
+    const delayedRunning: AssistantReplyViewModel = {
+      ...terminal,
+      id: 'reply-running',
+      content: 'Delayed running prefix with more text',
+      status: 'in_progress',
+    };
+
+    expect(mergeConversationAssistantReplies([
+      { id: 'conversation', allyId: 'ally', messages: [user], assistantReplies: [terminal], nextCursor: null },
+    ], delayedRunning)).toEqual([terminal]);
   });
 
-  it.each([
-    ['queued', false],
-    ['in_progress', false],
-    ['awaiting_action', false],
-    ['completed', true],
-    ['failed', true],
-    ['stopped', true],
-  ] as const)('identifies terminal accepted message state %s', (status, expected) => {
-    expect(isMessageTerminal(status)).toBe(expected);
-  });
+  it('keeps rollout suffix replies as a fallback behind activity text', () => {
+    const user = message({ id: 'user-4', sender: 'user', sequence: 4, content: 'Question' });
+    const turn = { assistantText: 'Activity prefix', messageId: user.id, state: 'completed' as const, turnOrdinal: 4 };
+    const suffix: AssistantReplyViewModel = {
+      id: 'reply-suffix',
+      sourceMessageId: user.id,
+      conversationTurnOrdinal: 4,
+      content: 'Suffix only',
+      status: 'completed',
+      hasFullPrefix: false,
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:01Z',
+    };
 
-  it('stops polling after two minutes or when the screen is blurred', () => {
-    expect(isActivityPollingAllowed({ focused: true, state: 'running', startedAt: 0, now: 120_000 })).toBe(false);
-    expect(isActivityPollingAllowed({ focused: false, state: 'running', startedAt: 0, now: 1_000 })).toBe(false);
-  });
+    const selection = selectMobileConversationReplies([user], [turn], [suffix]);
+    expect(selection.inlineBySourceMessageId.get(user.id)).toMatchObject({ kind: 'activity' });
+    expect(selection.remainingReplies).toEqual([]);
 
-  it.each([
-    ['network', true],
-    ['timeout', true],
-    ['server', true],
-    ['throttled', true],
-    ['contract', true],
-    ['validation', false],
-    ['unauthorized', false],
-  ] as const)('keeps a pending message after a %s outcome: %s', (kind, expected) => {
-    expect(shouldKeepPendingMessage({ kind })).toBe(expected);
-  });
-
-  it('scrolls to latest content initially and after new activity, but preserves position for older history', () => {
-    const intent = createConversationScrollIntent();
-
-    expect(intent.consumeLatest()).toBe(true);
-    expect(intent.consumeLatest()).toBe(false);
-
-    intent.requestLatest();
-    expect(intent.consumeLatest()).toBe(true);
-
-    intent.requestLatest();
-    intent.preservePosition();
-    expect(intent.consumeLatest()).toBe(false);
+    const fullPrefix = { ...suffix, id: 'reply-full', content: 'Full prefix', hasFullPrefix: true };
+    expect(mergeConversationAssistantReplies([
+      { id: 'conversation', allyId: 'ally', messages: [user], assistantReplies: [suffix], nextCursor: null },
+    ], fullPrefix)).toEqual([fullPrefix]);
   });
 });

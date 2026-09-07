@@ -21,6 +21,7 @@ describe('createMobileCloudClient', () => {
     ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/allies/ally/conversation'],
     ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation'],
     ['GET', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/activities'],
+    ['POST', 'https://cloud.example.com/api/v1/allies/ally/runtime-intents'],
     ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/messages'],
     ['POST', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/messages/message/retry'],
     ['DELETE', 'https://cloud.example.com/api/v1/workspaces/workspace/conversations/conversation/messages/message'],
@@ -52,6 +53,40 @@ describe('createMobileCloudClient', () => {
 
     client.setAccessToken('access-example');
     await expect(client.getCurrentAccount()).resolves.toMatchObject({ userId: 'usr_example' });
+  });
+
+  it('uses the bearer path for the strict content-free runtime intent', async () => {
+    const idempotencyKey = '00000000-0000-4000-8000-000000000001';
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      expect(request.credentials).toBe('omit');
+      expect(request.headers.get('authorization')).toBe('Bearer access-example');
+      expect(new URL(request.url).pathname).toBe('/api/v1/allies/ally_example/runtime-intents');
+      expect(request.method).toBe('POST');
+      expect(request.headers.get('Idempotency-Key')).toBe(idempotencyKey);
+      expect(await request.clone().json()).toEqual({
+        intent: 'composing_started',
+        occurred_at: '2026-09-04T12:00:00.000Z',
+      });
+      return Response.json({
+        status: 'success',
+        message: 'Runtime intent accepted',
+        data: { status: 'waking' },
+      }, { status: 202 });
+    });
+    const client = createMobileCloudClient({
+      cloudApiUrl: 'https://cloud.example.com',
+      nativeAuthRedirectUri: 'https://mobile.example/auth/return',
+      fetch,
+    });
+
+    client.setAccessToken('access-example');
+    await expect(client.account.requestRuntimeIntent(
+      'ally_example',
+      '2026-09-04T12:00:00.000Z',
+      idempotencyKey,
+    )).resolves.toEqual({ status: 'waking' });
+    expect(fetch).toHaveBeenCalledOnce();
   });
 
   it('does not attach bearer credentials to native auth requests', async () => {

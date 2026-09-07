@@ -1,16 +1,11 @@
-import {
-  type AccountViewModel,
-  type AvatarViewModel,
-  type CloudError,
-  type ProfileViewModel,
-  type WorkspaceViewModel,
+import type {
+  AccountViewModel,
+  AvatarViewModel,
+  CloudError,
+  ProfileViewModel,
+  WorkspaceViewModel,
 } from '@allies/cloud-client';
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-  type UseQueryResult,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
 import { useNativeSession } from '@/lib/session/session-context';
 
@@ -26,25 +21,18 @@ function accountUnavailable(): CloudError {
   return { kind: 'client', code: 'account_unavailable' };
 }
 
-function useAccountRequest<T>(request: () => Promise<T>, enabled: boolean): UseQueryResult<T, CloudError> {
-  return useQuery({
-    queryKey: accountKeys.current,
-    queryFn: request,
-    enabled,
-  });
-}
-
 export function useCurrentAccount(): UseQueryResult<AccountViewModel, CloudError> {
   const session = useNativeSession();
   const enabled = session.status === 'signed-in' && Boolean(session.accountClient && session.adapter);
 
-  return useAccountRequest(
-    () => {
+  return useQuery({
+    queryKey: accountKeys.current,
+    enabled,
+    queryFn: () => {
       if (!session.accountClient || !session.adapter) return Promise.reject(accountUnavailable());
       return session.adapter.withRefresh(() => session.accountClient!.getCurrentAccount());
     },
-    enabled,
-  );
+  });
 }
 
 export function useWorkspace(workspaceId: string): UseQueryResult<WorkspaceViewModel, CloudError> {
@@ -53,11 +41,11 @@ export function useWorkspace(workspaceId: string): UseQueryResult<WorkspaceViewM
 
   return useQuery({
     queryKey: accountKeys.workspace(workspaceId),
+    enabled,
     queryFn: () => {
       if (!session.accountClient || !session.adapter) return Promise.reject(accountUnavailable());
       return session.adapter.withRefresh(() => session.accountClient!.getWorkspace(workspaceId));
     },
-    enabled,
   });
 }
 
@@ -83,11 +71,11 @@ export function useAvatar(): UseQueryResult<AvatarViewModel, CloudError> {
 
   return useQuery({
     queryKey: accountKeys.avatar,
+    enabled,
     queryFn: () => {
       if (!session.accountClient || !session.adapter) return Promise.reject(accountUnavailable());
       return session.adapter.withRefresh(() => session.accountClient!.getAvatarRead());
     },
-    enabled,
   });
 }
 

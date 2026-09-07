@@ -10,6 +10,7 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { useAnimatedColor } from '@/components/ui/use-animated-color';
+import { useTheme } from '@/hooks/use-theme';
 
 import {
   ONBOARDING_COLOR_TRANSITION_EASING,
@@ -63,8 +64,10 @@ type OnboardingAllyPreviewProps = {
   color: string | null;
   identity: AllyShape;
   size: number;
+  shellSize?: number;
   state?: OnboardingAllyAnimationState;
   artworkScale?: number;
+  allowDownscaling?: boolean;
 };
 
 export function OnboardingAllyPreview({
@@ -72,11 +75,14 @@ export function OnboardingAllyPreview({
   color,
   identity,
   size,
+  shellSize,
   state = 'idle',
   artworkScale,
+  allowDownscaling,
 }: OnboardingAllyPreviewProps) {
+  const theme = useTheme();
   const effectiveArtworkScale = artworkScale ?? (color ? 0.86 : 1);
-  const animatedShellColor = useAnimatedColor(color ?? '#FFFFFF');
+  const animatedShellColor = useAnimatedColor(color ?? theme.appBackground);
   const reducedMotion = useReducedMotion();
   const animatedArtworkScale = useSharedValue(effectiveArtworkScale);
 
@@ -101,9 +107,10 @@ export function OnboardingAllyPreview({
     <Animated.View
       accessible
       accessibilityLabel={accessibilityLabel}
-      style={[styles.shell, { height: size, width: size }, shellStyle]}>
-      <Animated.View style={[styles.artworkLayer, artworkStyle]}>
+      style={[styles.shell, { height: shellSize ?? size, width: shellSize ?? size }, shellStyle]}>
+      <Animated.View style={[{ height: size, width: size }, artworkStyle]}>
         <Image
+          allowDownscaling={allowDownscaling}
           contentFit="contain"
           source={source}
           style={styles.artwork}
@@ -115,10 +122,6 @@ export function OnboardingAllyPreview({
 
 const styles = StyleSheet.create({
   artwork: {
-    height: '100%',
-    width: '100%',
-  },
-  artworkLayer: {
     height: '100%',
     width: '100%',
   },

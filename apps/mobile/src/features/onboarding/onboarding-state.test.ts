@@ -40,6 +40,8 @@ describe('onboarding state', () => {
   });
 
   it('moves one step backward without storing progress separately', () => {
+    expect(getPreviousOnboardingStep('notifications')).toBe('basics');
+    expect(getPreviousOnboardingStep('basics')).toBe('preview');
     expect(getPreviousOnboardingStep('preview')).toBe('personality');
     expect(getPreviousOnboardingStep('personality')).toBe('job');
     expect(getPreviousOnboardingStep('job')).toBe('look');
@@ -108,6 +110,15 @@ describe('onboarding state', () => {
         personalities: ['Concise'],
       }),
     ).toBe('preview');
+    expect(
+      getNextOnboardingStep('preview', INITIAL_ONBOARDING_FLOW),
+    ).toBe('basics');
+    expect(
+      getNextOnboardingStep('basics', INITIAL_ONBOARDING_FLOW),
+    ).toBe('notifications');
+    expect(
+      getNextOnboardingStep('notifications', INITIAL_ONBOARDING_FLOW),
+    ).toBe('notifications');
   });
 
   it('builds the personality note from the selected traits in selection order', () => {
