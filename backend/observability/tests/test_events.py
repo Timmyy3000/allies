@@ -263,5 +263,11 @@ def test_fixture_declares_the_python_contract():
         "task.failed",
         "task.retried",
     }.issubset(set(fixture["events"]))
-    event = build_event("http.request")
+    event = build_event(
+        "runtime.operation.succeeded",
+        operation="readiness.hint_received",
+        workspace_id="11111111-1111-4111-8111-111111111111",
+        resource_id="22222222-2222-4222-8222-222222222222",
+    )
     assert set(fixture["required"]).issubset(event)
+    assert set(event) <= set(fixture["required"]) | set(fixture["optional"])

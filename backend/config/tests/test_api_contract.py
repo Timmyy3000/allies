@@ -88,6 +88,7 @@ def test_error_responses_publish_safe_route_examples():
                     elif path in {
                         "/api/v1/onboarding/attempts",
                         "/api/v1/workspaces/{workspace_id}/allies",
+                        "/api/v1/onboarding/runtime-intents",
                     }:
                         if "examples" in content:
                             examples = content["examples"]
