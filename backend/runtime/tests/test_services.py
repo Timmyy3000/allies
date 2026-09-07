@@ -176,6 +176,34 @@ def test_concurrent_execution_exact_retries_share_one_execution(workspace, profi
     )
 
 
+def test_execution_profile_lookup_retries_transient_lock(
+    workspace, profiles, monkeypatch
+):
+    lookup = RuntimeProfile.objects.only("workspace_id")
+    original_get = lookup.get
+    calls = []
+
+    def get_profile(**kwargs):
+        calls.append(kwargs)
+        if len(calls) == 1:
+            raise OperationalError("database table is locked: runtime_workspace")
+        return original_get(**kwargs)
+
+    monkeypatch.setattr(lookup, "get", get_profile)
+    monkeypatch.setattr(RuntimeProfile.objects, "only", lambda *_: lookup)
+    execution = create_execution(
+        workspace.id, profiles[0].id, "lookup-lock", {"message": "same"}
+    )
+    assert calls == [{"pk": profiles[0].id}, {"pk": profiles[0].id}]
+    assert execution.profile_id == profiles[0].id
+    assert (
+        Execution.objects.filter(
+            workspace=workspace, idempotency_key="lookup-lock"
+        ).count()
+        == 1
+    )
+
+
 @pytest.mark.django_db(transaction=True)
 def test_concurrent_first_executions_reserve_one_conversation(workspace, profiles):
     barrier = Barrier(2)

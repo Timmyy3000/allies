@@ -46,7 +46,9 @@ def create_execution(
     )
     payload_digest = digest_payload(payload)
     try:
-        profile = RuntimeProfile.objects.select_related("workspace").get(pk=profile_id)
+        profile = run_with_sqlite_lock_retry(
+            lambda: RuntimeProfile.objects.only("workspace_id").get(pk=profile_id)
+        )
     except RuntimeProfile.DoesNotExist as exc:
         raise RuntimeValidationError("profile does not exist") from exc
     if profile.workspace_id != workspace_id:

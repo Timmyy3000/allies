@@ -4,3 +4,6 @@
 # Deterministic non-secret Fly file-secret names in FND-008 provider tests.
 05bd8fe46655d31775a9ad7d4651bcc582f64528:backend/runtime/tests/test_fly_provider.py:generic-api-key:94
 3c55aaa29bb5d43a51b37825db64d793fe717e13:backend/runtime/tests/test_fly_provider.py:generic-api-key:39
+
+# Verified ordinary test-plan prose in the merged alpha stack, not a credential.
+6654f9abcc552c454c0c6d03f4ca3f13a7c82c2f:docs/plans/alpha-speed-and-ready-pool.md:generic-api-key:507

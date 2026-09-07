@@ -78,6 +78,7 @@ def test_close_terminates_worker_and_rejects_later_offers():
 
 
 def test_stdout_write_isolated_from_event_caller(monkeypatch):
+    monkeypatch.setattr(events, "_error_rate_limiter", events._ErrorRateLimiter())
     started = threading.Event()
     release = threading.Event()
 
