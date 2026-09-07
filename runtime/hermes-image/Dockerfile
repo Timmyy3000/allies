@@ -69,4 +69,5 @@ RUN /opt/hermes/.venv/bin/python -c \
      assert p.name == "allies_mnemosyne"; \
      assert p.get_tool_schemas() == []'
 
-USER hermes
+# Upstream initializes mounted storage as root, then drops service privileges.
+USER root
