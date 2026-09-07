@@ -80,7 +80,7 @@ class WorkspaceActivationReceipt(BaseModel):
 class RuntimeIntentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    intent: StrictStr = Field(pattern=r"^composing_started$")
+    intent: StrictStr = Field(pattern=r"^(composing_started|ally_creation_started)$")
     received_at: AwareDatetime
 
 
@@ -93,6 +93,21 @@ class RuntimeIntentReceipt(BaseModel):
             r"rate_limited|failed)$"
         )
     )
+
+
+class ProfileReadinessHint(BaseModel):
+    """Content-free, authenticated readiness signal received from Foundry."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: StrictInt = Field(ge=1, le=1)
+    hint_id: UUID
+    workspace_id: UUID
+    ally_ref: UUID
+    runtime_profile_id: UUID
+    generation: StrictInt = Field(ge=1)
+    receipt_id: UUID
+    occurred_at: AwareDatetime
 
 
 class _NoRedirect(HTTPRedirectHandler):

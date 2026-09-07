@@ -34,6 +34,7 @@ def rejected_operation(db):
         lease_expires_at=timezone.now() + timedelta(minutes=1),
         last_attempt_at=timezone.now(),
         completed_at=timezone.now(),
+        readiness_hint_received_at=timezone.now() - timedelta(hours=2),
         expires_at=timezone.now() + timedelta(hours=1),
     )
 
@@ -72,6 +73,7 @@ def test_confirm_requeues_once_without_changing_identity(rejected_operation, cap
     assert rejected_operation.completed_at is None
     assert rejected_operation.lease_expires_at is None
     assert rejected_operation.last_attempt_at is None
+    assert rejected_operation.readiness_hint_received_at is None
     assert rejected_operation.expires_at > timezone.now()
     assert rejected_operation.id == original["id"]
     assert rejected_operation.binding_id == original["binding_id"]

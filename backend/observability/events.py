@@ -59,6 +59,9 @@ EVENT_NAMES = frozenset(
         "task.failed",
         "task.retried",
         "chat.rate_limited",
+        "runtime.operation.started",
+        "runtime.operation.succeeded",
+        "runtime.operation.failed",
     }
 )
 
@@ -106,6 +109,9 @@ _ALLOWED_FIELDS = frozenset(
         "retry_count",
         "reason",
         "sampled",
+        "operation",
+        "workspace_id",
+        "resource_id",
     }
 )
 _SENSITIVE_KEYS = frozenset(
@@ -182,6 +188,9 @@ class WideEventV1(TypedDict):
     retry_count: NotRequired[int | None]
     reason: NotRequired[str | None]
     sampled: bool
+    operation: NotRequired[str | None]
+    workspace_id: NotRequired[str | None]
+    resource_id: NotRequired[str | None]
 
 
 class RateLimitEventV1(TypedDict):
@@ -365,6 +374,10 @@ def _safe_outcome(value: object, event_name: str) -> str:
         return value.lower()[:32]
     if event_name == "http.request":
         return "success"
+    if event_name == "runtime.operation.succeeded":
+        return "success"
+    if event_name == "runtime.operation.failed":
+        return "error"
     if event_name.endswith("started"):
         return "started"
     if event_name.endswith("retried"):
@@ -456,7 +469,10 @@ def build_event(kind: str, **fields: object) -> WideEvent:
         if field not in fields:
             continue
         value = fields[field]
-        if field in {"request_id", "correlation_id", "task_id"}:
+        if field in {"workspace_id", "resource_id"}:
+            candidate = normalize_request_id(value)
+            value = identifier_digest(candidate) if candidate else None
+        elif field in {"request_id", "correlation_id", "task_id"}:
             value = normalize_identifier(value, digest_opaque=field != "request_id")
         elif field in {"status_code", "retry_count"}:
             try:
@@ -522,6 +538,8 @@ def _sample_success_event(
 def should_sample(
     event: Mapping[str, object], *, sampling_key: object | None = None
 ) -> bool:
+    if str(event.get("event", "")).startswith("runtime.operation."):
+        return True
     if event.get("event") in {"task.failed", "task.retried"}:
         return True
     if event.get("event") == "task.started":

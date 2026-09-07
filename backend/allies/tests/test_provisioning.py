@@ -69,6 +69,116 @@ def foundry_activation(monkeypatch):
 
 
 @pytest.mark.django_db
+def test_ready_timing_is_emitted_only_after_commit(
+    operation, monkeypatch, django_capture_on_commit_callbacks
+):
+    events = []
+    monkeypatch.setattr(
+        "allies.services.provisioning.emit_event",
+        lambda kind, **fields: events.append((kind, fields)),
+    )
+    monkeypatch.setattr(
+        "allies.services.provisioning.provision_profile",
+        lambda request: ProfileProvisioningReceipt(
+            version=1,
+            binding_id=request.binding_id,
+            operation_id=request.operation_id,
+            request_fingerprint=request.request_fingerprint,
+            status="active",
+            evidence_digest="c" * 64,
+        ),
+    )
+    monkeypatch.setattr(
+        "chat.services.conversations.activate_onboarding_reply", lambda **kwargs: None
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dispatch_due_provisioning().succeeded == 1
+        assert not any(
+            fields["operation"] == "provisioning.ready_committed_wall"
+            for _, fields in events
+        )
+    ready = [
+        fields
+        for _, fields in events
+        if fields["operation"] == "provisioning.ready_committed_wall"
+    ]
+    assert len(ready) == 1
+    assert ready[0]["correlation_id"] == str(operation.pk)
+    assert ready[0]["duration_ms"] >= 0
+
+
+@pytest.mark.django_db
+def test_repair_does_not_emit_ready_timing(
+    operation, monkeypatch, django_capture_on_commit_callbacks
+):
+    events = []
+    monkeypatch.setattr(
+        "allies.services.provisioning.emit_event",
+        lambda kind, **fields: events.append(fields),
+    )
+    monkeypatch.setattr(
+        "allies.services.provisioning.provision_profile",
+        lambda request: ProfileProvisioningReceipt(
+            version=1,
+            binding_id=request.binding_id,
+            operation_id=request.operation_id,
+            request_fingerprint=request.request_fingerprint,
+            status="active",
+            evidence_digest="c" * 64,
+        ),
+    )
+
+    def unavailable(**kwargs):
+        raise OnboardingHandoffRepairRequired("handoff unavailable")
+
+    monkeypatch.setattr(
+        "chat.services.conversations.activate_onboarding_reply", unavailable
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        assert dispatch_due_provisioning().repair_required == 1
+    assert not any(
+        event["operation"] == "provisioning.ready_committed_wall" for event in events
+    )
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("pending", [True, False])
+def test_reconcile_timing_pairs_terminal_outcome(operation, monkeypatch, pending):
+    events = []
+    monkeypatch.setattr(
+        "allies.services.timing.emit_event",
+        lambda kind, **fields: events.append((kind, fields)),
+    )
+    monkeypatch.setattr(
+        "allies.services.provisioning.provision_profile",
+        lambda request: ProfileProvisioningReceipt(
+            version=1,
+            binding_id=request.binding_id,
+            operation_id=request.operation_id,
+            request_fingerprint=request.request_fingerprint,
+            status="pending" if pending else "active",
+            evidence_digest="c" * 64,
+        ),
+    )
+    monkeypatch.setattr(
+        "chat.services.conversations.activate_onboarding_reply", lambda **kwargs: None
+    )
+    dispatch_due_provisioning()
+    spans = [
+        (kind, fields)
+        for kind, fields in events
+        if fields["operation"] == "provisioning.reconcile"
+    ]
+    assert [kind for kind, _ in spans] == [
+        "runtime.operation.started",
+        "runtime.operation.succeeded",
+    ]
+    assert spans[1][1]["outcome"] == ("deferred" if pending else "succeeded")
+    assert spans[1][1]["correlation_id"] == str(operation.pk)
+    assert spans[1][1]["duration_ms"] >= 0
+
+
+@pytest.mark.django_db
 def test_active_receipt_binds_ally_and_dispatches_onboarding_reply(
     monkeypatch, operation, settings
 ):
@@ -369,6 +479,192 @@ def test_pending_receipt_defers_and_expired_lease_recovers(monkeypatch, operatio
     assert operation.status == ProvisioningStatus.RETRYABLE
     assert operation.attempt_count == 1
     assert operation.lease_expires_at is None
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    ("prior_attempts", "expected_delay"),
+    [(0, 2), (1, 4), (2, 8), (3, None)],
+)
+def test_pending_receipt_has_only_three_bounded_follow_ups(
+    monkeypatch, operation, prior_attempts, expected_delay
+):
+    operation.status = (
+        ProvisioningStatus.PENDING
+        if prior_attempts == 0
+        else ProvisioningStatus.RETRYABLE
+    )
+    operation.attempt_count = prior_attempts
+    operation.next_attempt_at = timezone.now() - timedelta(seconds=1)
+    operation.save(
+        update_fields=("status", "attempt_count", "next_attempt_at", "updated_at")
+    )
+    monkeypatch.setattr(
+        "allies.services.provisioning.provision_profile",
+        lambda request: ProfileProvisioningReceipt(
+            version=1,
+            binding_id=request.binding_id,
+            operation_id=request.operation_id,
+            request_fingerprint=request.request_fingerprint,
+            status="pending",
+            evidence_digest="d" * 64,
+        ),
+    )
+
+    report = dispatch_due_provisioning(now=timezone.now())
+
+    operation.refresh_from_db()
+    assert report.deferred == 1
+    assert report.follow_up_delays == (
+        (expected_delay,) if expected_delay is not None else ()
+    )
+    assert operation.attempt_count == prior_attempts + 1
+    assert operation.status == ProvisioningStatus.RETRYABLE
+    assert operation.safe_error_code == "materialization_pending"
+
+
+@pytest.mark.django_db
+def test_pending_batch_reports_each_distinct_follow_up_delay(monkeypatch, operation):
+    for index, prior_attempts in ((1, 1), (2, 2)):
+        ally = Ally.objects.create(
+            workspace=operation.workspace,
+            name=f"Mira {index}",
+            job="Study partner",
+            personality="Calm",
+            appearance_catalog_version="v1",
+            appearance_key="sunrise",
+        )
+        binding = AllyBinding.objects.create(ally=ally)
+        ProvisioningOperation.objects.create(
+            binding=binding,
+            workspace=operation.workspace,
+            user=operation.user,
+            api_idempotency_key_digest=f"{index:064x}",
+            content_fingerprint=f"{index + 10:064x}",
+            status=ProvisioningStatus.RETRYABLE,
+            attempt_count=prior_attempts,
+            next_attempt_at=timezone.now() - timedelta(seconds=1),
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+    monkeypatch.setattr(
+        "allies.services.provisioning.provision_profile",
+        lambda request: ProfileProvisioningReceipt(
+            version=1,
+            binding_id=request.binding_id,
+            operation_id=request.operation_id,
+            request_fingerprint=request.request_fingerprint,
+            status="pending",
+            evidence_digest="d" * 64,
+        ),
+    )
+
+    report = dispatch_due_provisioning(now=timezone.now(), limit=3)
+
+    assert report.as_dict() == {
+        "claimed": 3,
+        "succeeded": 0,
+        "deferred": 3,
+        "failed": 0,
+        "repair_required": 0,
+    }
+    assert report.follow_up_delays == (2, 4, 8)
+    assert list(
+        ProvisioningOperation.objects.filter(safe_error_code="materialization_pending")
+        .values_list("attempt_count", flat=True)
+        .order_by("attempt_count")
+    ) == [1, 2, 3]
+
+
+@pytest.mark.django_db
+def test_pending_next_attempt_uses_time_after_foundry_io(monkeypatch, operation):
+    claim_started = timezone.now()
+    after_receipt = claim_started + timedelta(seconds=5)
+    current_time = claim_started
+
+    def provision(request):
+        nonlocal current_time
+        current_time = after_receipt
+        return ProfileProvisioningReceipt(
+            version=1,
+            binding_id=request.binding_id,
+            operation_id=request.operation_id,
+            request_fingerprint=request.request_fingerprint,
+            status="pending",
+            evidence_digest="d" * 64,
+        )
+
+    monkeypatch.setattr(
+        "allies.services.provisioning.timezone.now", lambda: current_time
+    )
+    monkeypatch.setattr("allies.services.provisioning.provision_profile", provision)
+
+    report = dispatch_due_provisioning(now=claim_started)
+
+    operation.refresh_from_db()
+    assert report.follow_up_delays == (2,)
+    assert operation.last_attempt_at == claim_started
+    assert operation.next_attempt_at == after_receipt + timedelta(seconds=2)
+
+
+@pytest.mark.django_db
+def test_success_completion_uses_time_after_onboarding_handoff(monkeypatch, operation):
+    ensure_default_conversation(
+        ally=operation.binding.ally,
+        greeting="Hello",
+        reply="Start here",
+    )
+    claim_started = timezone.now()
+    after_handoff = claim_started + timedelta(seconds=7)
+    handoffs = []
+    current_time = claim_started
+
+    def handoff(*, ally):
+        nonlocal current_time
+        handoffs.append(ally.pk)
+        current_time = after_handoff
+
+    monkeypatch.setattr(
+        "allies.services.provisioning.provision_profile",
+        lambda request: ProfileProvisioningReceipt(
+            version=1,
+            binding_id=request.binding_id,
+            operation_id=request.operation_id,
+            request_fingerprint=request.request_fingerprint,
+            status="active",
+            evidence_digest="a" * 64,
+        ),
+    )
+    monkeypatch.setattr(
+        "chat.services.conversations.activate_onboarding_reply",
+        handoff,
+    )
+    monkeypatch.setattr(
+        "allies.services.provisioning.timezone.now", lambda: current_time
+    )
+
+    report = dispatch_due_provisioning(now=claim_started)
+
+    operation.refresh_from_db()
+    assert report.succeeded == 1
+    assert handoffs == [operation.binding.ally_id]
+    assert operation.last_attempt_at == claim_started
+    assert operation.completed_at == after_handoff
+
+
+@pytest.mark.django_db
+def test_retryable_foundry_failure_does_not_request_follow_up(monkeypatch, operation):
+    monkeypatch.setattr(
+        "allies.services.provisioning.provision_profile",
+        lambda _request: (_ for _ in ()).throw(ProvisioningRetryable()),
+    )
+
+    report = dispatch_due_provisioning(now=timezone.now())
+
+    operation.refresh_from_db()
+    assert report.deferred == 1
+    assert report.follow_up_delays == ()
+    assert operation.status == ProvisioningStatus.RETRYABLE
+    assert operation.safe_error_code == "foundry_retryable"
 
 
 @pytest.mark.django_db

@@ -289,6 +289,7 @@ class ProvisioningOperation(models.Model):
     expires_at = models.DateTimeField(default=default_operation_expiry)
     last_attempt_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
+    readiness_hint_received_at = models.DateTimeField(null=True, blank=True)
     safe_error_code = models.CharField(max_length=64, blank=True)
     receipt_digest = models.CharField(
         max_length=DIGEST_LENGTH,
