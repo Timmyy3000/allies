@@ -1,12 +1,24 @@
-import { useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref, type UIEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode, type Ref, type UIEvent } from "react";
 import Link from "next/link";
 
 import { AllyAvatar, type AllyShape } from "../../components/ally-avatar";
 import { ShinyText } from "../../components/text-animations/shiny-text";
 
 import styles from "./conversation-frame.module.css";
+import { useIsMobileHome } from "./use-is-mobile-home";
 
 export type FrameAvatar = ReactNode;
+
+export function readableAccentForeground(accent: string) {
+  const hex = accent.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
+  if (!hex) return "#ffffff";
+  const luminance = hex.slice(1).reduce((sum, channel, index) => {
+    const value = Number.parseInt(channel, 16) / 255;
+    const linear = value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+    return sum + linear * [0.2126, 0.7152, 0.0722][index];
+  }, 0);
+  return luminance > 0.179 ? "#000000" : "#ffffff";
+}
 
 export function ConversationShell({
   accent,
@@ -14,25 +26,29 @@ export function ConversationShell({
   className = "",
   safeArea,
   scrolled = false,
+  shellRef,
 }: {
   accent: string;
   children: ReactNode;
   className?: string;
   safeArea?: { top?: string; bottom?: string };
   scrolled?: boolean;
+  shellRef?: Ref<HTMLDivElement>;
 }) {
   const style = {
     "--chat-accent": accent,
+    "--chat-on-accent": readableAccentForeground(accent),
     ...(safeArea?.top ? { "--chat-safe-top": safeArea.top } : {}),
     ...(safeArea?.bottom ? { "--chat-safe-bottom": safeArea.bottom } : {}),
   } as CSSProperties;
   return (
     <div
+      ref={shellRef}
       className={`${styles.frameShell} ${className}`}
       data-testid="conversation-frame-shell"
       style={style}
     >
-      {scrolled ? <div className={styles.frameScrollBlur} data-testid="conversation-frame-scroll-blur" aria-hidden="true" /> : null}
+      <div className={`${styles.frameScrollBlur} ${scrolled ? "" : styles.frameDesktopFade}`} data-testid="conversation-frame-scroll-blur" aria-hidden="true" />
       {children}
     </div>
   );
@@ -46,6 +62,7 @@ export function ConversationHeader({
   homeHref = "/home",
   settingsHref = "/account",
   sleeping = false,
+  statusContent,
 }: {
   name: string;
   subtitle: string;
@@ -54,6 +71,7 @@ export function ConversationHeader({
   homeHref?: string;
   settingsHref?: string;
   sleeping?: boolean;
+  statusContent?: ReactNode;
 }) {
   return (
     <header className={`${styles.frameHeader} ${sleeping ? styles.frameHeaderSleeping : ""}`}>
@@ -65,17 +83,17 @@ export function ConversationHeader({
         <h1>{name}</h1>
         <p>{subtitle}</p>
       </div>
-      {sleeping ? (
+      {statusContent ?? (sleeping ? (
         <div className={styles.frameSleepingStatus} data-testid="ally-sleeping-status">
           <span className={styles.frameSleepingAvatar}>{sleepingAvatar ?? avatar}</span>
           <span>{name} is asleep</span>
         </div>
-      ) : null}
+      ) : null)}
       <Link className={`${styles.frameIconHit} ${styles.frameSettingsMobile}`} href={settingsHref} aria-label="Account settings">
         <SettingsIcon />
       </Link>
-      <span className={styles.frameSettingsDesktop}>
-        <SettingsIcon />
+        <span className={styles.frameSettingsDesktop}>
+          <FrameIcon name="settings-desktop" className={styles.frameSettingsIcon} />
         <span>{name} settings</span>
       </span>
     </header>
@@ -93,8 +111,19 @@ export function ConversationCanvas({
   canvasRef?: Ref<HTMLDivElement>;
   className?: string;
 }) {
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+  }, []);
+  const handleScroll = (event: UIEvent<HTMLDivElement>) => {
+    const canvas = event.currentTarget;
+    canvas.dataset.scrolling = "true";
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => { delete canvas.dataset.scrolling; }, 1100);
+    onScroll?.(event);
+  };
   return (
-    <div ref={canvasRef} className={`${styles.frameCanvas} ${className}`} onScroll={onScroll} data-testid="conversation-frame-canvas">
+    <div ref={canvasRef} className={`${styles.frameCanvas} ${className}`} onScroll={handleScroll} data-testid="conversation-frame-canvas">
       {children}
     </div>
   );
@@ -240,13 +269,13 @@ export function ActivityDisclosure({
     >
       <summary>
         <span className={styles.frameActivityChevron} aria-hidden="true"><ChevronIcon /></span>
-        <span>{label}</span>
+        <ShinyText color="var(--chat-accent)">{label}</ShinyText>
       </summary>
       <div className={styles.frameActivityEntries}>
         {entries.map((entry) => (
           <div className={`${styles.frameActivityEntry} ${entry.tone === "accent" ? styles.frameActivityAccent : entry.tone === "muted" ? styles.frameActivityMuted : ""}`} key={entry.id}>
             <span className={styles.frameActivityDot} aria-hidden="true" />
-            <span>{entry.text}</span>
+            <ShinyText color="var(--chat-accent)">{entry.text}</ShinyText>
           </div>
         ))}
       </div>
@@ -304,7 +333,44 @@ export function ConversationComposer({
   onCompositionStart?: () => void;
   onCompositionEnd?: (value: string) => void;
 }) {
+  const isMobileHome = useIsMobileHome();
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const previewRef = useRef<HTMLDialogElement>(null);
+  const [pasteError, setPasteError] = useState("");
+  const isLarge = (text: string) => text.length >= 2_000 || text.split("\n").length >= 20;
+  const splitDraft = (text: string) => ({ source: text, prompt: isLarge(text) ? "" : text, paste: isLarge(text) ? text : "" });
+  const [parts, setParts] = useState(() => splitDraft(value));
+  let draft = parts;
+  if (parts.source !== value) {
+    draft = splitDraft(value);
+    setParts(draft);
+  }
+  const compact = Boolean(draft.paste);
+  const updateParts = (prompt: string, paste: string) => {
+    const combined = prompt && paste ? `${prompt}\n\n${paste}` : prompt || paste;
+    if (combined.length > 16_000) {
+      setPasteError("Your prompt and pasted text together can contain up to 16,000 characters.");
+      return;
+    }
+    setPasteError("");
+    setParts({ source: combined, prompt, paste });
+    onChange(combined);
+  };
+  const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
+    const field = event.currentTarget;
+    const pasted = event.clipboardData.getData("text/plain");
+    if (value.length - (field.selectionEnd - field.selectionStart) + pasted.length > 16_000) {
+      event.preventDefault();
+      setPasteError("This paste is too long. Messages can contain up to 16,000 characters; your draft has not changed.");
+    } else {
+      setPasteError("");
+      if (field.id === "ally-message" && isLarge(pasted)) {
+        event.preventDefault();
+        const prompt = draft.prompt.slice(0, field.selectionStart) + draft.prompt.slice(field.selectionEnd);
+        updateParts(prompt, draft.paste ? `${draft.paste}\n\n${pasted}` : pasted);
+      }
+    }
+  };
   const hasText = Boolean(value.trim());
   const [expanded, setExpanded] = useState(value.includes("\n") || value.length > 48);
 
@@ -314,45 +380,82 @@ export function ConversationComposer({
     field.style.height = "auto";
     const nextHeight = Math.min(field.scrollHeight, 83);
     field.style.height = `${nextHeight}px`;
-    setExpanded(value.includes("\n") || value.length > 48 || nextHeight > 36);
-  }, [value]);
+    const lineHeight = Number.parseFloat(getComputedStyle(field).lineHeight) || 18.2;
+    setExpanded(Boolean(value) && (value.includes("\n") || value.length > 48 || nextHeight > lineHeight + 19));
+  }, [value, compact]);
 
   return (
+    <>
     <div
       className={styles.frameComposer}
       data-testid="conversation-composer"
-      data-expanded={expanded ? "true" : "false"}
+      data-expanded={compact || expanded ? "true" : "false"}
+      data-has-paste={compact ? "true" : undefined}
     >
       <label className={styles.frameSrOnly} htmlFor="ally-message">Message {allyName}</label>
       <span className={styles.frameComposerPlus} aria-hidden="true">
         <img src="/home/chat/plus.svg" alt="" width={13} height={13} />
       </span>
+      <div className={styles.frameComposerContent}>
+      {compact ? <div className={styles.framePasteCard}><button
+        type="button"
+        className={styles.framePastedText}
+        disabled={disabled}
+        onClick={() => previewRef.current?.showModal()}
+        aria-label="Edit pasted text"
+      >
+        <span aria-hidden="true">≡</span>
+        <span><strong>Pasted text</strong><small>{draft.paste.length.toLocaleString()} characters · Click to edit</small></span>
+      </button><button type="button" className={styles.frameRemovePaste} aria-label="Remove pasted text" disabled={disabled} onClick={() => updateParts(draft.prompt, "")}><TrashIcon /></button></div> : null}
       <textarea
         ref={fieldRef}
         id="ally-message"
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
+        value={draft.prompt}
+        onChange={(event) => updateParts(event.target.value, draft.paste)}
+        onPaste={handlePaste}
         onCompositionStart={onCompositionStart}
         onCompositionEnd={(event) => onCompositionEnd?.(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing) return;
-          if (event.key === "Enter" && !event.shiftKey) {
+          if (!isMobileHome && event.key === "Enter" && !event.shiftKey) {
             event.preventDefault();
             onSubmit();
           }
         }}
-        placeholder={placeholder}
+        placeholder={compact ? "Add a message…" : placeholder}
         rows={1}
         maxLength={16_000}
         disabled={disabled}
         aria-busy={sending}
       />
+      </div>
       <button type="button" aria-label="Send message" onClick={onSubmit} disabled={disabled || !hasText}>
         {hasText
           ? <img src="/home/chat/send.svg" alt="" width={16} height={16} />
           : <MicIcon />}
       </button>
     </div>
+    {pasteError ? <p role="alert" className={styles.frameComposerError}>{pasteError}</p> : null}
+    <dialog ref={previewRef} className={styles.framePasteDialog} aria-label="Edit pasted text">
+      <div className={styles.framePasteHeading}>
+        <h2>Pasted text</h2>
+        <button type="button" onClick={() => previewRef.current?.close()} aria-label="Close pasted text">×</button>
+      </div>
+      <p>Edit your text before sending it to {allyName}.</p>
+      <textarea
+        aria-label="Pasted text content"
+        value={draft.paste}
+        disabled={disabled}
+        maxLength={16_000}
+        onPaste={handlePaste}
+        onChange={(event) => updateParts(draft.prompt, event.target.value)}
+        onCompositionStart={onCompositionStart}
+        onCompositionEnd={(event) => onCompositionEnd?.(event.currentTarget.value)}
+      />
+      {pasteError ? <p role="alert">{pasteError}</p> : null}
+      <footer><span>{value.length.toLocaleString()} / 16,000</span><button type="button" onClick={() => previewRef.current?.close()}>Done</button></footer>
+    </dialog>
+    </>
   );
 }
 
@@ -627,7 +730,7 @@ function MinusIcon() {
 }
 
 function TrashIcon() {
-  return <FrameIcon name="trash" />;
+  return <svg aria-hidden="true" focusable="false" viewBox="0 0 18 18"><use href="/ally/icons/chat-queue-trash.svg#icon" /></svg>;
 }
 
 function CloseIcon() {
@@ -646,7 +749,7 @@ function StoreIcon() {
   return <FrameIcon name="store" />;
 }
 
-type FrameIconName = "back" | "settings" | "send" | "mic" | "plus" | "minus" | "trash" | "close" | "chevron" | "calendar" | "store";
+type FrameIconName = "back" | "settings" | "settings-desktop" | "send" | "mic" | "plus" | "minus" | "trash" | "close" | "chevron" | "calendar" | "store";
 
 function FrameIcon({ name, className = "" }: { name: FrameIconName; className?: string }) {
   return (

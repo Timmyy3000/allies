@@ -27,7 +27,7 @@ function player(initial = 'idle', reduced = false, phase = 0) {
     state: () => window.document.body.dataset.state,
     svg: () => window.document.querySelector('svg'),
     running: () => Boolean(callback),
-    request(state: string, reduced = false, paused = false) { window.eval(`setAllyPlayback(${JSON.stringify({ state, reduced, paused })})`); },
+    request(state: string, reduced = false, paused = false, skipWakeTransition = false) { window.eval(`setAllyPlayback(${JSON.stringify({ state, reduced, paused, skipWakeTransition })})`); },
     run(ms: number) {
       for (let i = 0; i <= ms; i += 10) { now += 10; const next = callback; callback = undefined; next?.(now); }
     },
@@ -57,6 +57,14 @@ describe('approved Ally playback lifecycle', () => {
     const p = player('sleeping'); p.run(1900); p.request('idle');
     expect(p.state()).toBe('waking');
     p.request('thinking'); p.run(1850); expect(p.state()).toBe('thinking');
+  });
+  test('can use idle motion immediately while the conversation waits for readiness', () => {
+    const p = player('sleeping');
+    p.request('idle', false, false, true);
+    expect(p.state()).toBe('idle');
+    p.run(2000);
+    expect(p.state()).toBe('idle');
+    expect(p.running()).toBe(true);
   });
   test('latest request cancels a pending sleep without restarting idle', () => {
     const p = player(); const svg = p.svg();

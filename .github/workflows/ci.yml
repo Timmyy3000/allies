@@ -3,6 +3,14 @@ name: CI
 on:
   pull_request:
     branches: [dev, staging, prod, prod-fastlane, web/feat/chat-frames]
+  workflow_dispatch:
+    inputs:
+      visual_snapshots:
+        description: Compare the approved screenshot baselines
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 4 * * 1'
   workflow_call:
     inputs:
       ref:
@@ -41,6 +49,17 @@ jobs:
           bun-version: 1.2.20
       - name: Install dependencies
         run: bun install --frozen-lockfile
+      - name: Select validation scope
+        id: scope
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_FULL: ${{ github.event_name != 'pull_request' || github.base_ref != 'dev' }}
+        run: |
+          if [ "$CI_FULL" != "true" ] && git show "$CI_BASE_SHA:scripts/ci-scope.ts" > "$RUNNER_TEMP/ci-scope.ts"; then
+            bun "$RUNNER_TEMP/ci-scope.ts" >> "$GITHUB_OUTPUT"
+          else
+            printf 'web=true\nmobile=true\nbrowsers=true\nmotion=true\n' >> "$GITHUB_OUTPUT"
+          fi
       - name: Verify pinned Cloud contract
         run: bun run cloud:check
       - name: Type check workspaces
@@ -50,14 +69,42 @@ jobs:
       - name: Lint web and mobile
         run: bun run lint
       - name: Build web
+        if: steps.scope.outputs.web == 'true'
         run: bun run build:web
       - name: Install pinned Playwright browsers
-        run: bun --cwd apps/web playwright install --with-deps chromium webkit firefox
+        if: steps.scope.outputs.web == 'true'
+        env:
+          FULL_BROWSERS: ${{ steps.scope.outputs.browsers }}
+          MOTION: ${{ steps.scope.outputs.motion }}
+        run: |
+          browsers="chromium"
+          if [ "$FULL_BROWSERS" = "true" ]; then browsers="$browsers webkit firefox"
+          elif [ "$MOTION" = "true" ]; then browsers="$browsers webkit"; fi
+          bun --cwd apps/web playwright install --with-deps $browsers
+      - name: Verify production Home flows
+        id: home_smoke
+        if: steps.scope.outputs.web == 'true'
+        run: bun run --cwd apps/web test:home-smoke
+      - name: Upload Home smoke failure evidence
+        if: ${{ failure() && steps.home_smoke.outcome == 'failure' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: home-smoke-failure
+          path: apps/web/test-results/home-smoke
+          if-no-files-found: warn
+          retention-days: 7
       - name: Verify Ally SVG playback in Chromium and WebKit
+        if: steps.scope.outputs.motion == 'true'
         run: bun run --cwd apps/web test:ally-motion
       - name: Run chat frame regression tests
         id: chat_frames
-        run: bun run test:chat-frames
+        if: steps.scope.outputs.web == 'true'
+        env:
+          FULL_BROWSERS: ${{ steps.scope.outputs.browsers }}
+          CHAT_FRAME_RASTER: ${{ github.event_name == 'workflow_dispatch' && inputs.visual_snapshots && 'true' || 'false' }}
+        run: |
+          if [ "$FULL_BROWSERS" = "true" ]; then bun run test:chat-frames
+          else bun run test:chat-frames --project=chat-chromium; fi
       - name: Validate chat frame artifacts
         if: ${{ always() && steps.chat_frames.outcome != 'skipped' }}
         working-directory: apps/web
@@ -82,4 +129,5 @@ jobs:
           if-no-files-found: error
           retention-days: 30
       - name: Export mobile iOS bundle
+        if: steps.scope.outputs.mobile == 'true'
         run: bun run bundle:mobile

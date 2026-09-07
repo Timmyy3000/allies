@@ -5,7 +5,6 @@ import {
   useContext,
   useEffect,
   useId,
-  useLayoutEffect,
   useRef,
   useState,
   useCallback,
@@ -18,6 +17,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AllyAvatar } from "@/components/ally-avatar";
 import { captureWaitlistEvent } from "@/lib/analytics/waitlist";
+import { useSession } from "@/lib/session/session-context";
+import { googleSignInErrorMessage } from "@/lib/session/sign-in-errors";
 import {
   AnimatedCopy,
   type AllyAnimationState,
@@ -28,7 +29,6 @@ import {
 } from "./animated-copy";
 import OnboardingFlow from "./make-ally";
 import OnboardingDrawer from "./onboarding-drawer";
-import { readOnboardingResume } from "../_store/onboarding-resume";
 import { useOnboardingStore } from "../_store/onboarding-store";
 
 const DESKTOP_ART_W = 1512;
@@ -113,36 +113,23 @@ export default function Onboarding({
   presentation = "route",
   exitHref = "/",
   onExit,
-  resumeAfterAuth = false,
 }: {
   waitlistEnabled?: boolean;
   ctaHref?: string;
   presentation?: "route" | "drawer";
   exitHref?: string;
   onExit?: () => void;
-  resumeAfterAuth?: boolean;
 }) {
   const step = useOnboardingStore((state) => state.step);
   const goTo = useOnboardingStore((state) => state.goTo);
-  const hydrate = useOnboardingStore((state) => state.hydrate);
-  const [drawerOpen, setDrawerOpen] = useState(resumeAfterAuth);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const isDrawerPresentation = presentation === "drawer";
   const router = useRouter();
-  const resumeApplied = useRef(false);
 
   const openDrawer = useCallback(() => {
     setDrawerOpen(true);
     goTo("name");
   }, [goTo]);
-
-  useLayoutEffect(() => {
-    if (!resumeAfterAuth || resumeApplied.current) return;
-    resumeApplied.current = true;
-    const snapshot = readOnboardingResume();
-    if (snapshot) hydrate(snapshot);
-    goTo("preview");
-    setDrawerOpen(true);
-  }, [goTo, hydrate, resumeAfterAuth]);
 
   const closeDrawer = useCallback(() => {
     setDrawerOpen(false);
@@ -175,29 +162,14 @@ export default function Onboarding({
         <DesktopOnboarding
           ctaHref={ctaHref}
           onOpenOnboarding={isDrawerPresentation ? openDrawer : undefined}
-          startStoryComplete={resumeAfterAuth}
         />
       </div>
       <div className="min-[1024px]:hidden">
         <MobileOnboarding
           ctaHref={ctaHref}
           onOpenOnboarding={openDrawer}
-          startStoryComplete={resumeAfterAuth}
         />
       </div>
-      <nav
-        className="onboarding-legal-nav"
-        aria-label="Legal"
-        data-testid="homepage-legal-nav"
-        inert={isDrawerPresentation && drawerOpen && step !== "welcome"}
-      >
-        <Link href="/privacy" data-testid="homepage-privacy-link">
-          Privacy
-        </Link>
-        <Link href="/terms" data-testid="homepage-terms-link">
-          Terms
-        </Link>
-      </nav>
       {isDrawerPresentation ? (
         <OnboardingDrawer
           open={drawerOpen && step !== "welcome"}
@@ -262,16 +234,20 @@ function FollowAlly({
   state,
   hideCursor = false,
   artworkScale = STORY_ALLY_ARTWORK_SCALE,
+  scale = 1,
 }: {
   ally: AllyKind;
   state: AllyAnimationState;
   hideCursor?: boolean;
   artworkScale?: number;
+  scale?: number;
 }) {
   return (
     <div
       style={{
         pointerEvents: "none",
+        transform: "scale(" + scale + ")",
+        transformOrigin: "top left",
         zIndex: 2,
         width: 60,
         height: 58,
@@ -354,7 +330,7 @@ function DesktopOnboarding({
   return (
     <div
       ref={hostRef}
-      className="relative h-[100dvh] w-full overflow-hidden bg-[#fff]"
+      className="relative h-[100dvh] w-full overflow-hidden bg-canvas"
     >
       <div
         className="absolute top-0 origin-top-left"
@@ -364,7 +340,7 @@ function DesktopOnboarding({
           left: artboardOffsetLeft,
           transform: `scale(${scale})`,
           borderRadius: "10px 10px 0px 0px",
-          backgroundColor: "#fff",
+          backgroundColor: "var(--canvas)",
           overflow: "visible",
         }}
       >
@@ -377,7 +353,7 @@ function DesktopOnboarding({
             fontWeight: 600,
             fontStretch: "100%",
             letterSpacing: -0.5,
-            color: "#121212",
+            color: "var(--text-primary)",
             left: 387,
             top: 208,
             width: 739,
@@ -414,14 +390,15 @@ function DesktopOnboarding({
             />
           ) : null}
         </div>
-        <FollowUs />
+        <LandingFooter />
+        <GoogleSignInButton />
         {skipVisible && !storyDone ? (
           <SkipStoryButton
             onClick={() => {
               setSkipVisible(false);
               setSkipRequest((current) => current + 1);
             }}
-            style={{ left: 1126, top: 864 }}
+            style={{ right: "calc(100% - 1126px)", top: 800 }}
           />
         ) : null}
         <LogoMark />
@@ -451,25 +428,29 @@ function MobileOnboarding({
     <IconSizeContext.Provider value={16}>
       <div
         ref={hostRef}
-        className="fixed inset-0 h-[100dvh] w-full overflow-hidden overscroll-none bg-[#fff]"
+        className="relative min-h-[100dvh] w-full bg-canvas"
+        style={{ overflowX: "clip" }}
       >
         <div
-          className="absolute inset-0"
+          className="relative min-h-[100dvh]"
           style={{
             width: "100%",
-            height: "100%",
-            backgroundColor: "#fff",
-            overflow: "hidden",
+            minHeight: "100dvh",
+            backgroundColor: "var(--canvas)",
+            overflow: "visible",
+            boxSizing: "border-box",
+            paddingTop: MOBILE_COPY_TOP,
           }}
         >
           {/* device chrome stripped — status bar + home indicator */}
           <div
-            className="text"
+            className="text landing-story-copy"
             style={{
               left: 20,
-              top: MOBILE_COPY_TOP,
+              position: "relative",
+              overflow: "visible",
+              paddingBottom: 24,
               width: `min(${MOBILE_COPY_WIDTH}px, calc(100% - 40px))`,
-              position: "absolute",
               display: "flex",
               flexDirection: "column",
               alignItems: "flex-start",
@@ -479,7 +460,7 @@ function MobileOnboarding({
               fontWeight: 600,
               fontStretch: "100%",
               letterSpacing: -0.47,
-              color: "#121212",
+              color: "var(--text-primary)",
             }}
           >
             <AnimatedCopy
@@ -500,6 +481,7 @@ function MobileOnboarding({
               renderActor={(ally, state, options) => (
                 <FollowAlly
                   ally={ally}
+                  scale={0.72}
                   state={state}
                   hideCursor={options?.hideCursor}
                 />
@@ -520,19 +502,11 @@ function MobileOnboarding({
                 setSkipVisible(false);
                 setSkipRequest((current) => current + 1);
               }}
-              style={{ bottom: 20, left: 20 }}
+              style={{ bottom: 76, right: 20 }}
             />
           ) : null}
-          <FollowUs
-            top={MOBILE_HEADER_TOP + 3}
-            right={20.4}
-            left="auto"
-            columnGap={6}
-            fontSize={16}
-            letterSpacing={-0.7}
-            iconWidth={14.7}
-            iconHeight={15}
-          />
+          <LandingFooter />
+          <GoogleSignInButton />
           <LogoMark left={20} top={MOBILE_HEADER_TOP} />
         </div>
       </div>
@@ -567,7 +541,7 @@ function SkipStoryButton({
         columnGap: 6,
         border: 0,
         background: "transparent",
-        color: "#757575",
+        color: "var(--text-secondary)",
         cursor: "pointer",
         fontFamily: "inherit",
         fontSize: 16,
@@ -579,7 +553,7 @@ function SkipStoryButton({
       }}
     >
       <span>Skip</span>
-      <Image src="/ally/icons/skip.svg" alt="" width={18} height={18} />
+      <Image src="/ally/icons/skip.svg" alt="" width={18} height={18} style={{ filter: "var(--mono-icon-filter)" }} />
     </motion.button>
   );
 }
@@ -691,7 +665,7 @@ function IconWord({
 }
 
 const RED = "#fd304f";
-const BLUE = "#3446e9";
+const BLUE = "var(--story-blue)";
 const YELLOW = "#E9B43A";
 const GREEN = "#12c25b";
 
@@ -724,7 +698,7 @@ const ICON_ACCENT_FILTERS: Record<IconAccent, string> = {
 const DESKTOP_PARAGRAPHS: CopyParagraph[] = [
   {
     ally: null,
-    color: "#121212",
+    color: "var(--text-primary)",
     parts: [{ type: "text", text: "We’re your allies" }],
   },
   {
@@ -833,7 +807,7 @@ const DESKTOP_PARAGRAPHS: CopyParagraph[] = [
       {
         type: "icon",
         word: "together",
-        color: "#121212",
+        color: "var(--text-primary)",
         icon: <AvatarCluster />,
       },
       { type: "text", text: "." },
@@ -844,7 +818,7 @@ const DESKTOP_PARAGRAPHS: CopyParagraph[] = [
 const MOBILE_PARAGRAPHS: CopyParagraph[] = [
   {
     ally: null,
-    color: "#121212",
+    color: "var(--text-primary)",
     parts: [{ type: "text", text: "Hi, we’re your allies" }],
   },
   {
@@ -1584,7 +1558,55 @@ function ShopIcon() {
   );
 }
 
+function GoogleSignInButton() {
+  const { client, runCloudOperation } = useSession();
+  const pending = useRef(false);
+  const errorId = useId();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const signIn = async () => {
+    if (pending.current) return;
+    pending.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      const url = await runCloudOperation(
+        (signal) => client.beginSignIn("/home", signal),
+        { csrf: true },
+      );
+      window.location.assign(url);
+    } catch (cause) {
+      pending.current = false;
+      setBusy(false);
+      setError(googleSignInErrorMessage(cause));
+    }
+  };
+
+  return (
+    <>
+    <button type="button" onClick={() => void signIn()} disabled={busy} aria-busy={busy} aria-describedby={error ? errorId : undefined} className="landing-google-sign-in" aria-label="Continue with Google" title={busy ? "Opening Google…" : "Continue with Google"}>
+      <Image src="/ally/icons/auth-google.svg" alt="" width={24} height={24} />
+    </button>
+    {error ? <p id={errorId} role="alert" className="landing-google-error">{error}</p> : null}
+    </>
+  );
+}
+
+function LandingFooter() {
+  return (
+    <footer className="landing-footer">
+      <FollowUs inline />
+      <nav className="onboarding-legal-nav" aria-label="Legal" data-testid="homepage-legal-nav">
+        <Link href="/privacy" data-testid="homepage-privacy-link">Privacy</Link>
+        <Link href="/terms" data-testid="homepage-terms-link">Terms</Link>
+      </nav>
+    </footer>
+  );
+}
+
 function FollowUs({
+  inline = false,
   left = 387,
   top = 875,
   right,
@@ -1594,6 +1616,7 @@ function FollowUs({
   iconWidth = 17.6,
   iconHeight = 18,
 }: {
+  inline?: boolean;
   left?: number | "auto";
   top?: number;
   right?: number;
@@ -1622,7 +1645,7 @@ function FollowUs({
         right,
         top,
         width: "min-content",
-        position: "absolute",
+        position: inline ? "static" : "absolute",
         color: "inherit",
         cursor: "pointer",
         textDecoration: "none",
@@ -1633,11 +1656,11 @@ function FollowUs({
         style={{
           display: "inline",
           textAlign: "left",
-          fontSize,
+          fontSize: inline ? "inherit" : fontSize,
           fontWeight: 600,
           fontStretch: "100%",
           letterSpacing,
-          color: "#757575",
+          color: "var(--text-secondary)",
           width: "max-content",
           position: "relative",
           flexShrink: 0,
@@ -1675,7 +1698,7 @@ function FollowUs({
         >
           <path
             d="M10.4767 7.6179L17.0302 0H15.4772L9.7869 6.6145 5.242 0H0L6.8727 10.0023 0 17.9908H1.553L7.5622 11.0056 12.3619 17.9908H17.6039L10.4763 7.6179H10.4767ZM8.3496 10.0904L7.6533 9.0944 2.1126 1.1691H4.498L8.9694 7.5651 9.6657 8.5611 15.4779 16.8748H13.0926L8.3496 10.0908V10.0904Z"
-            style={{ fillRule: "nonzero", fill: "#757575" }}
+            style={{ fillRule: "nonzero", fill: "var(--text-secondary)" }}
           />
         </svg>
       </div>
@@ -1694,10 +1717,13 @@ function LogoMark({
 
   return (
     <div
+      className="landing-logo-mark"
       style={{
         display: "flex",
         flexDirection: "row",
         columnGap: 8.6,
+        transform: "scale(var(--landing-logo-scale, 1.25))",
+        transformOrigin: "top left",
         alignItems: "center",
         justifyContent: "flex-start",
         left,

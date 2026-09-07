@@ -8,8 +8,8 @@ import {
   useReducedMotion,
 } from "motion/react";
 import Image from "next/image";
+import { Streamdown } from "streamdown";
 import {
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -17,7 +17,6 @@ import {
   type CSSProperties,
 } from "react";
 
-import { useRouter } from "next/navigation";
 
 import { Artboard } from "@/components/artboard";
 import { AllyAvatar, type AllyShape } from "@/components/ally-avatar";
@@ -25,41 +24,28 @@ import { getAccentPalette } from "@/components/next-button";
 import { ShinyText } from "@/components/text-animations/shiny-text";
 import { captureWaitlistEvent } from "@/lib/analytics/waitlist";
 import {
-  OnboardingAuthResumeContext,
-  clearOnboardingResume,
   writeOnboardingResume,
 } from "../_store/onboarding-resume";
 import { useOnboardingStore } from "../_store/onboarding-store";
+import { AuthWelcome } from "./auth-welcome";
+import { saveOnboardingHandoff } from "../../../lib/allies/onboarding-handoff";
 import { WaitlistMappingError } from "../../../lib/waitlist/catalog";
 import {
   serializeOnboardingConfiguration,
   useAllyPreviewFlow,
   waitlistGreetingFingerprint,
 } from "../../../lib/waitlist/flow";
-import { AllowNotifications } from "./allow-notifications";
 import { AuthOverlay } from "./auth-overlay";
-import { AuthWelcome } from "./auth-welcome";
 import {
   ONBOARDING_ALLY_LAYOUT_ID,
   PersistentAllyAvatar,
 } from "./persistent-ally";
 
-const AUTH_WELCOME_HOLD_MS = 3_000;
-type AuthGate = "closed" | "overlay" | "welcome" | "notifications" | "done";
-
-function localPreviewGreeting(allyName: string) {
-  const who = allyName.trim() || "your ally";
-  return [
-    `Welcome! I am ${who}, and I am thrilled to help you make your day easier, more productive, and fun. Think of me as your always-available partner for brainstorming, writing, learning, and organising.`,
-    "No task is too big or too small, and I am constantly learning new ways to assist you better. Let us collaborate and build something great together.",
-  ].join("\n\n");
-}
+type AuthGate = "closed" | "overlay";
 
 const HERO_SHELL_SIZE = 164.2;
-const PREVIEW_SHELL_SIZE = 24;
-const THINKING_SHELL_SIZE = 28;
+const THINKING_SHELL_SIZE = 36;
 const THINKING_HOLD_MS = 900;
-const GREETING_CHAR_INTERVAL_MS = 18;
 const COMPLETION_BUTTON_COLOR = "#fd304f";
 const COMPLETION_CURSOR_EASE_MS = 1000;
 const COMPLETION_CURSOR_MAX_SPEED_DEG_PER_SEC = 90;
@@ -348,18 +334,7 @@ function WavyText({ text }: { text: string }) {
   );
 }
 
-async function requestBrowserNotifications() {
-  if (typeof Notification === "undefined" || Notification.permission !== "default") {
-    return;
-  }
-  try {
-    await Notification.requestPermission();
-  } catch {
-    return;
-  }
-}
-
-export function WaitlistPreviewScreen() {
+export function WaitlistPreviewScreen({ welcomeName }: { welcomeName?: string } = {}) {
   const name = useOnboardingStore((state) => state.name);
   const shape = useOnboardingStore((state) => state.shape);
   const color = useOnboardingStore((state) => state.color);
@@ -367,20 +342,13 @@ export function WaitlistPreviewScreen() {
   const personalities = useOnboardingStore((state) => state.personalities);
   const personalityNote = useOnboardingStore((state) => state.personalityNote);
   const personalityRaw = useOnboardingStore((state) => state.personalityRaw);
-  const router = useRouter();
-  const resumeAfterGoogle = useContext(OnboardingAuthResumeContext);
-  const [phase, setPhase] = useState<PreviewPhase>(resumeAfterGoogle ? "ready" : "coming-alive");
+  const [phase, setPhase] = useState<PreviewPhase>("coming-alive");
   const [thinkingStartedAt, setThinkingStartedAt] = useState<number | null>(null);
   const [canRevealGreeting, setCanRevealGreeting] = useState(false);
-  const [visibleGreeting, setVisibleGreeting] = useState({ source: "", text: "" });
   const [replyDraft, setReplyDraft] = useState<string | null>(null);
-  const [authGate, setAuthGate] = useState<AuthGate>(resumeAfterGoogle ? "welcome" : "closed");
+  const [authGate, setAuthGate] = useState<AuthGate>("closed");
   const prefersReducedMotion = useReducedMotion() ?? false;
 
-  if (resumeAfterGoogle && (phase !== "ready" || authGate !== "welcome")) {
-    setPhase("ready");
-    setAuthGate("welcome");
-  }
   const savedConfigurationRef = useRef<string | null>(null);
   const failedConfigurationRef = useRef<string | null>(null);
   const {
@@ -518,53 +486,25 @@ export function WaitlistPreviewScreen() {
   const displayPhase =
     phase === "thinking" && canRevealGreeting ? "ready" : phase;
   const cloudGreeting = greetingIsCurrent ? snapshot?.greeting?.text ?? "" : "";
-  const greetingText =
-    cloudGreeting ||
-    (displayPhase === "ready" ? localPreviewGreeting(name) : "");
+  const greetingText = cloudGreeting;
+  const [revealedGreeting, setRevealedGreeting] = useState("");
   const shouldShowGreeting = displayPhase === "ready" && Boolean(greetingText);
-  const renderedGreeting =
-    visibleGreeting.source === greetingText ? visibleGreeting.text : "";
+  const revealGreeting = shouldShowGreeting && !prefersReducedMotion && revealedGreeting !== greetingText;
+  useEffect(() => {
+    if (!shouldShowGreeting) return;
+    const timer = window.setTimeout(() => setRevealedGreeting(greetingText), 2800);
+    return () => window.clearTimeout(timer);
+  }, [greetingText, shouldShowGreeting]);
   const joinedEmail = completionMode === "waitlist" ? snapshot?.join?.email ?? null : null;
   const palette = getAccentPalette(color);
   const { accent } = palette;
 
-  useEffect(() => {
-    if (!shouldShowGreeting || !greetingText) return;
-    if (prefersReducedMotion) {
-      const timer = window.setTimeout(
-        () => setVisibleGreeting({ source: greetingText, text: greetingText }),
-        0,
-      );
-      return () => window.clearTimeout(timer);
-    }
 
-    let characterIndex = 0;
-    const timer = window.setInterval(() => {
-      characterIndex = Math.min(characterIndex + 1, greetingText.length);
-      setVisibleGreeting({
-        source: greetingText,
-        text: greetingText.slice(0, characterIndex),
-      });
-      if (characterIndex === greetingText.length) window.clearInterval(timer);
-    }, GREETING_CHAR_INTERVAL_MS);
-
-    return () => window.clearInterval(timer);
-  }, [greetingText, prefersReducedMotion, shouldShowGreeting]);
-
-  useEffect(() => {
-    if (authGate !== "welcome") return;
-    const hold = prefersReducedMotion ? 0 : AUTH_WELCOME_HOLD_MS;
-    const timer = window.setTimeout(() => setAuthGate("notifications"), hold);
-    return () => window.clearTimeout(timer);
-  }, [authGate, prefersReducedMotion]);
 
   const openAuthGate = () => {
     if (
       completionMode === "authenticated" ||
-      phase === "coming-alive" ||
-      authGate === "welcome" ||
-      authGate === "notifications" ||
-      authGate === "done"
+      phase === "coming-alive"
     ) {
       return;
     }
@@ -572,6 +512,19 @@ export function WaitlistPreviewScreen() {
   };
 
   const persistOnboardingResume = () => {
+    if (!snapshot?.onboardingAttempt || !configuration.payload || !replyText.trim() || !greetingIsCurrent) {
+      throw new Error("Wait for your Ally’s greeting and write a reply before signing in.");
+    }
+    const payload = configuration.payload;
+    saveOnboardingHandoff({
+      name: payload.name,
+      job: payload.job,
+      personality: payload.personality ?? "",
+      appearanceCatalogVersion: payload.appearance_catalog_version,
+      appearanceKey: payload.appearance_key,
+      onboardingAttempt: snapshot.onboardingAttempt,
+      reply: replyText.trim(),
+    });
     writeOnboardingResume({
       name,
       shape,
@@ -583,12 +536,8 @@ export function WaitlistPreviewScreen() {
     });
   };
 
-  const goToHome = () => {
-    clearOnboardingResume();
-    router.replace("/home");
-  };
-
   if (phase === "coming-alive") {
+    if (welcomeName !== undefined) return <AuthWelcome name={welcomeName} shape={shape} color={accent} />;
     return (
       <Artboard>
         <div
@@ -617,25 +566,7 @@ export function WaitlistPreviewScreen() {
     );
   }
 
-  if (authGate === "welcome") {
-    return <AuthWelcome name={name} shape={shape} color={accent} />;
-  }
-
-  if (authGate === "notifications") {
-    return (
-      <AllowNotifications
-        shape={shape}
-        color={accent}
-        onLater={goToHome}
-        onAllow={async () => {
-          await requestBrowserNotifications();
-          goToHome();
-        }}
-      />
-    );
-  }
-
-  if (joinedEmail || authGate === "done") {
+  if (joinedEmail) {
     return (
       <Artboard>
         <motion.main
@@ -683,49 +614,9 @@ export function WaitlistPreviewScreen() {
       <div
         data-testid="waitlist-preview"
         className="ph-no-capture onboarding-page onboarding-overlay-host"
+        style={{ "--chat-accent": accent } as CSSProperties}
       >
-        <header
-          className="waitlist-preview-header"
-        >
-          <AnimatePresence initial={false}>
-            {shouldShowGreeting ? (
-              <motion.div
-                key="conversation-identity"
-                className="waitlist-preview-identity"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.18, ease: "easeOut" }}
-              >
-                <PersistentAllyAvatar
-                  shape={shape}
-                  color={accent}
-                  state="idle"
-                  size={PREVIEW_SHELL_SIZE}
-                  layoutId={ONBOARDING_ALLY_LAYOUT_ID}
-                  layoutMode="full"
-                  motionMode="system"
-                  label={`${name || "Your"} Ally`}
-                />
-                <motion.h1
-                  initial={{ opacity: 0, x: -4 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: 0.08, duration: 0.2, ease: "easeOut" }}
-                  style={{
-                    margin: 0,
-                    color: "#121212",
-                    fontSize: 14,
-                    fontWeight: 600,
-                    letterSpacing: -0.45,
-                    lineHeight: "18px",
-                  }}
-                >
-                  {name || "Your Ally"}
-                </motion.h1>
-              </motion.div>
-            ) : null}
-          </AnimatePresence>
-        </header>
+
 
         <main
           className="waitlist-preview-main"
@@ -739,7 +630,7 @@ export function WaitlistPreviewScreen() {
                 exit={{ opacity: 0, y: -6 }}
                 transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
                 style={{
-                  color: "#121212",
+                  color: "var(--text-primary)",
                   fontSize: 16,
                   fontWeight: 500,
                   letterSpacing: -0.48,
@@ -747,7 +638,7 @@ export function WaitlistPreviewScreen() {
                   whiteSpace: "pre-wrap",
                 }}
               >
-                {renderedGreeting}
+                <Streamdown mode={revealGreeting ? "streaming" : "static"} animated={revealGreeting ? { animation: "blurIn", sep: "word", duration: 180, stagger: 24, maxBacklogMs: 2400 } : false} isAnimating={revealGreeting} tableMaxHeight="none">{greetingText}</Streamdown>
               </motion.article>
             ) : (
               <motion.div
@@ -755,7 +646,7 @@ export function WaitlistPreviewScreen() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                style={{ minHeight: 90 }}
+                style={{ minHeight: 0 }}
               />
             )}
           </AnimatePresence>
@@ -773,19 +664,13 @@ export function WaitlistPreviewScreen() {
               {message}
             </p>
           ) : null}
-        </main>
-
-        <div
-          className="waitlist-preview-footer"
-        >
           <div
-            className="waitlist-preview-status-row"
+            className={`waitlist-preview-status-row${!shouldShowGreeting ? " waitlist-preview-status-waiting" : ""}`}
           >
             <AnimatePresence initial={false} mode="popLayout">
-              {!shouldShowGreeting ? (
                 <motion.div
                   key="thinking-status"
-                  data-testid="thinking-status"
+                  data-testid={shouldShowGreeting || message ? "ally-presence" : "thinking-status"}
                   aria-live="polite"
                   className="waitlist-preview-status"
                   initial={{ opacity: 1 }}
@@ -797,17 +682,16 @@ export function WaitlistPreviewScreen() {
                   <PersistentAllyAvatar
                     shape={shape}
                     color={accent}
-                    state="thinking"
+                    state={shouldShowGreeting || message ? "idle" : "thinking"}
                     size={THINKING_SHELL_SIZE}
                     layoutId={ONBOARDING_ALLY_LAYOUT_ID}
                     layoutMode="full"
                     motionMode="system"
                   />
-                  <ShinyText color={accent} shineColor="#ffffff">
+                  {!shouldShowGreeting && !message ? <ShinyText color={accent} shineColor="#ffffff">
                     Thinking
-                  </ShinyText>
+                  </ShinyText> : null}
                 </motion.div>
-              ) : null}
             </AnimatePresence>
             {lastAction ? (
               <button
@@ -824,6 +708,12 @@ export function WaitlistPreviewScreen() {
             ) : null}
           </div>
 
+
+        </main>
+
+        <div
+          className="waitlist-preview-footer"
+        >
           <form
             className="waitlist-preview-composer"
             onSubmit={(event) => {
@@ -833,7 +723,7 @@ export function WaitlistPreviewScreen() {
                   void recordReply(replyText.trim()).catch(() => undefined);
                 }
               } else {
-                openAuthGate();
+                if (!isBusy && replyText.trim() && greetingIsCurrent && cloudGreeting) openAuthGate();
               }
             }}
           >
@@ -841,10 +731,8 @@ export function WaitlistPreviewScreen() {
             aria-label="Reply to your Ally"
             data-testid="waitlist-reply"
             value={replyText}
-            onFocus={openAuthGate}
             onChange={(event) => {
               setReplyDraft(event.target.value);
-              openAuthGate();
             }}
             placeholder={`Reply ${name || "your Ally"}`}
             maxLength={4000}
@@ -853,7 +741,7 @@ export function WaitlistPreviewScreen() {
           <button
             type="submit"
             aria-label="Send reply"
-            disabled={completionMode === "authenticated" && (isBusy || !replyText.trim() || !greetingIsCurrent || !cloudGreeting)}
+            disabled={isBusy || !replyText.trim() || !greetingIsCurrent || !cloudGreeting}
             className="waitlist-preview-send"
             style={{
               background: replyText.trim() ? accent : "#a8a8a8",
@@ -872,9 +760,6 @@ export function WaitlistPreviewScreen() {
               color={accent}
               onClose={() => setAuthGate("closed")}
               onPrepareGoogleSignIn={persistOnboardingResume}
-              onSignUp={(provider) => {
-                if (provider === "chatgpt") setAuthGate("welcome");
-              }}
             />
           ) : null}
         </AnimatePresence>

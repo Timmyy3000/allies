@@ -49,6 +49,21 @@ function productionGraph(): string[] {
 }
 
 describe("production conversation frame boundary", () => {
+  it("serves desktop shell imagery from existing local public assets", () => {
+    const shell = readFileSync(resolve(homeDirectory, "_exact/dashboard-ui-push-exact.tsx"), "utf8");
+    const sources = [...shell.matchAll(/src="([^"]+)"/g)].map((match) => match[1]);
+    expect(sources.filter((source) => source.startsWith("/home/desktop-dashboard/"))).toHaveLength(7);
+    for (const source of sources) {
+      expect(source).toMatch(/^\/(?!\/)/);
+      expect(existsSync(resolve(repositoryRoot, "apps/web/public", source.slice(1)))).toBe(true);
+      if (source.startsWith("/home/desktop-dashboard/")) {
+        const svg = readFileSync(resolve(repositoryRoot, "apps/web/public", source.slice(1)), "utf8");
+        expect(svg.trim()).toMatch(/^<svg\b/);
+        expect(svg).not.toMatch(/<script\b|<foreignObject\b|\bon\w+\s*=|(?:href|src)\s*=\s*["'](?!#)|url\(\s*["']?(?!#)/i);
+      }
+    }
+  });
+
   it("does not reach synthetic debug modules, assets, or private source files", () => {
     const graph = productionGraph();
     expect(graph.length).toBeGreaterThan(3);

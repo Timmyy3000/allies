@@ -16,8 +16,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
   const [csrf] = useState(createCloudCsrfTokenOwner);
   const [cloudClient] = useState(() =>
     createCloudClient({
-      // No request is made while the waitlist is disabled; this fallback keeps
-      // the shared client constructible for the public static story.
+      // Keep the public story renderable when Cloud is not configured.
       baseUrl: environment.cloudApiUrl ?? "https://cloud.invalid",
       prepareRequest: (request) => prepareBrowserCloudRequest(request, csrf),
     }),

@@ -203,7 +203,8 @@ export function readActivityStream(options: ActivityStreamOptions): ActivityStre
         options.onError?.(error instanceof ActivityStreamError ? error : new ActivityStreamError("activity stream failed"));
       }
     } finally {
-      if (reader) void reader.cancel();
+      // An aborted response can also reject cancellation of its reader.
+      if (reader) void reader.cancel().catch(() => undefined);
       if (idleTimer) clearTimeout(idleTimer);
       if (!closed) controller.abort();
       options.signal?.removeEventListener("abort", abort);

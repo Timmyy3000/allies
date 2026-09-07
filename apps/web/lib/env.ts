@@ -67,3 +67,7 @@ export function getWebEnvironment(): Readonly<WebEnvironment> {
 export function getActivitySseEnabled(): boolean {
   return process.env.NEXT_PUBLIC_ACTIVITY_SSE_ENABLED === "true";
 }
+
+export function getCreationWakeEnabled(): boolean {
+  return process.env.NEXT_PUBLIC_CREATION_WAKE_ENABLED === "true";
+}

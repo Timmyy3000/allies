@@ -196,6 +196,33 @@ describe("createCloudClient", () => {
     expect(fetch).toHaveBeenCalledOnce();
   });
 
+  it("sends a workspace creation intent without Ally draft content", async () => {
+    const idempotencyKey = "00000000-0000-4000-8000-000000000002";
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      expect(new URL(request.url).pathname).toBe("/api/v1/onboarding/runtime-intents");
+      expect(request.method).toBe("POST");
+      expect(request.headers.get("Idempotency-Key")).toBe(idempotencyKey);
+      expect(await request.clone().json()).toEqual({
+        version: 1,
+        intent: "ally_creation_started",
+        occurred_at: "2026-09-04T12:00:00.000Z",
+      });
+      return Response.json({
+        status: "success",
+        message: "Runtime intent accepted",
+        data: { status: "waking" },
+      }, { status: 202 });
+    });
+    const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch });
+
+    await expect(client.requestWorkspaceRuntimeIntent(
+      "2026-09-04T12:00:00.000Z",
+      idempotencyKey,
+    )).resolves.toEqual({ status: "waking" });
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
   it("rejects malformed runtime-intent input and response before exposing it", async () => {
     const idempotencyKey = "00000000-0000-4000-8000-000000000001";
     const fetch = vi.fn(async () => Response.json({

@@ -496,6 +496,27 @@ export function createCloudClient(options: CloudClientOptions) {
       );
     },
 
+    async requestWorkspaceRuntimeIntent(
+      occurredAt: string,
+      idempotencyKey: string,
+      signal?: AbortSignal,
+    ): Promise<RuntimeIntentViewModel> {
+      rejectPreAborted(signal);
+      const timestamp = parseInput(runtimeIntentOccurredAtSchema, occurredAt);
+      const key = parseInput(runtimeIntentIdempotencyKeySchema, idempotencyKey);
+      return unwrap(
+        api.POST("/api/v1/onboarding/runtime-intents", {
+          params: { header: { "Idempotency-Key": key } },
+          body: { version: 1, intent: "ally_creation_started", occurred_at: timestamp },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => ({
+          status: successEnvelope(runtimeIntentResponseSchema).parse(data).data.status,
+        }),
+        [200, 202],
+      );
+    },
+
     async beginOnboarding(input: AllySeedInput, signal?: AbortSignal): Promise<OnboardingAttemptViewModel> {
       rejectPreAborted(signal);
       const seed = toAllySeedRequest(parseInput(allySeedInputSchema, input));

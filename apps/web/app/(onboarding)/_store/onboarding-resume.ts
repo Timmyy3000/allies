@@ -1,8 +1,4 @@
-import { createContext } from "react";
-
 import { ALLY_SHAPES, type AllyShape } from "../../../components/ally-avatar";
-
-export const OnboardingAuthResumeContext = createContext(false);
 
 export const ONBOARDING_GOOGLE_RETURN_TO = "/";
 export const ONBOARDING_RESUME_STORAGE_KEY = "allies.onboarding.resume.v1";
