@@ -504,7 +504,7 @@ Hint publishing and pool maintenance operate on bounded indexed batches with the
 
 ### Detailed Unit Test Cases
 
-Happy path, bad identity/input, auth boundaries, duplicate/retry behavior, lease races, stale generation/release, transaction rollback, restart recovery, caps, fallback, and terminal assignment are enumerated in the repository sections of the Test Plan. Concurrency cases run on PostgreSQL; provider failures use strict fakes plus the bounded real-Fly proof.
+The repository sections of the Test Plan enumerate successful requests, invalid inputs, authorization checks, repeated requests, retries, lease races, stale generations, rollback, restart recovery, caps, fallback, and terminal assignment. Concurrency cases run on PostgreSQL; provider failures use strict fakes plus the bounded real-Fly proof.
 
 ### Security and isolation
 

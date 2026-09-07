@@ -108,6 +108,9 @@ def test_event_implementation_conforms_to_shared_contract():
 
 
 def test_critical_timing_start_and_terminal_survive_zero_success_sampling(monkeypatch):
+    monkeypatch.setattr(
+        events_module, "_error_rate_limiter", events_module._ErrorRateLimiter()
+    )
     captured = []
     monkeypatch.setattr(
         events_module,
