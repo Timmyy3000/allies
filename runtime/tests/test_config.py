@@ -50,6 +50,9 @@ def test_settings_accept_validated_foundry_runtime_connection():
         {"FOUNDRY_ORIGIN": "https://user:secret@foundry.example.com"},
         {"FOUNDRY_ORIGIN": "https://foundry.example.com/api"},
         {"FOUNDRY_RUNTIME_CREDENTIAL_REF": "runtime-secret"},
+        {"FOUNDRY_ORIGIN": "https://foundry.example.com:invalid"},
+        {"HERMES_ORIGIN": "http://127.0.0.1:invalid"},
+        {"VOLUME_MARKER_PATH": "/opt/data/../outside"},
     ],
 )
 def test_settings_reject_unsafe_values(env):

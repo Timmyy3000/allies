@@ -268,6 +268,87 @@ def test_emit_runtime_event_drops_sampled_success(monkeypatch):
     assert observability.event_counters()["events_sampled_out"] == before + 1
 
 
+def test_runtime_operation_span_pairs_monotonic_duration_and_context(monkeypatch):
+    events = []
+    ticks = iter((10.0, 10.25))
+    monkeypatch.setattr(observability, "emit_runtime_event", events.append)
+    monkeypatch.setenv("ALLIES_OBSERVABILITY_DIGEST_KEY", "runtime-test-key")
+
+    with observability.observe_runtime_operation(
+        "profile_materialization",
+        clock=lambda: next(ticks),
+        correlation_id="boot-1",
+        workspace_id="workspace-1",
+        profile_id="profile-1",
+        generation=7,
+        runtime_start_epoch=12,
+    ):
+        pass
+
+    assert [event["event"] for event in events] == [
+        "runtime.operation.started",
+        "runtime.operation.succeeded",
+    ]
+    assert events[1]["duration_ms"] == 250.0
+    assert events[0]["correlation_id"] == "boot-1"
+    assert events[1]["generation"] == 7
+    assert events[1]["runtime_start_epoch"] == 12
+    assert events[1]["workspace_id"].startswith("id_")
+    assert events[1]["profile_id"].startswith("id_")
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "startup.setup",
+        "startup.composition",
+        "startup.hermes_readiness",
+        "worker.initialization",
+        "profile.reconciliation_fetch",
+        "profile.reconciliation_retry_wait",
+        "profile_reconciliation",
+        "profile_materialization",
+        "profile.local_materialization",
+        "profile.materialization_receipt",
+        "readiness.hermes_health",
+        "readiness.publication",
+    ],
+)
+def test_critical_runtime_operation_survives_success_sampling_zero(
+    monkeypatch, operation
+):
+    captured = []
+    monkeypatch.setattr(
+        observability,
+        "_offer_stdout",
+        lambda envelope, **_kwargs: captured.append(json.loads(envelope)) or True,
+    )
+    observability.configure_runtime_observability(
+        config=WideEventSettings(enabled=True, success_sample_rate=0.0)
+    )
+
+    with observability.observe_runtime_operation(operation, correlation_id="boot-1"):
+        pass
+
+    assert [event["event"] for event in captured] == [
+        "runtime.operation.started",
+        "runtime.operation.succeeded",
+    ]
+
+
+def test_runtime_operation_observability_failure_cannot_mask_original_error(monkeypatch):
+    def broken_build_event(*_args, **_kwargs):
+        raise RuntimeError("observability failed")
+
+    monkeypatch.setattr(observability, "build_event", broken_build_event)
+
+    with (
+        pytest.raises(ValueError, match="original"),
+        observability.observe_runtime_operation("startup.setup"),
+    ):
+        raise ValueError("original")
+
+
 def test_error_rate_limit_drops_client_flood_but_retains_server_evidence(monkeypatch):
     monkeypatch.setattr(
         observability,

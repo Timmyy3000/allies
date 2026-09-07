@@ -35,7 +35,11 @@ from .hermes import (
     stable_session_identifiers,
     validate_stream_message,
 )
-from .observability import build_event, emit_runtime_event
+from .observability import (
+    build_event,
+    emit_runtime_event,
+    observe_runtime_operation,
+)
 
 MAX_CLAIM_SLOTS = 8
 # Sequence 100001 is reserved for the single terminal event emitted when the
@@ -242,6 +246,7 @@ class RuntimeReconciliationSnapshot:
     runtime_start_epoch: int | None
     profiles: tuple[ProfileDesiredState, ...]
     activity_revision: int = 0
+    workspace_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -690,6 +695,9 @@ class FoundryClient:
         generation = payload.get("machine_generation")
         runtime_start_epoch = payload.get("runtime_start_epoch")
         activity_revision = payload.get("activity_revision", 0)
+        workspace_id = payload.get("workspace_id")
+        if not isinstance(workspace_id, str) or not workspace_id:
+            workspace_id = None
         if (
             not isinstance(rows, list)
             or isinstance(generation, bool)
@@ -726,6 +734,7 @@ class FoundryClient:
             runtime_start_epoch=runtime_start_epoch,
             profiles=tuple(_profile_desired_state(row, generation) for row in rows),
             activity_revision=activity_revision,
+            workspace_id=workspace_id,
         )
         self.last_reconciliation_snapshot = snapshot
         return snapshot
@@ -1229,6 +1238,22 @@ class FoundryWorker:
     def ambiguous_claim_ids(self) -> tuple[str, ...]:
         return tuple(self._ambiguous_claims)
 
+    def _observability_context(self) -> dict[str, object]:
+        fields: dict[str, object] = {"correlation_id": self.boot_id}
+        snapshot = getattr(self.foundry, "last_reconciliation_snapshot", None)
+        if snapshot is None:
+            return fields
+        workspace_id = getattr(snapshot, "workspace_id", None)
+        if workspace_id is not None:
+            fields["workspace_id"] = workspace_id
+        generation = getattr(snapshot, "machine_generation", None)
+        if generation is not None:
+            fields["generation"] = generation
+        runtime_start_epoch = getattr(snapshot, "runtime_start_epoch", None)
+        if runtime_start_epoch is not None:
+            fields["runtime_start_epoch"] = runtime_start_epoch
+        return fields
+
     async def stop(self) -> None:
         self._stopping = True
         self._fast_polls_remaining = 0
@@ -1642,6 +1667,7 @@ class FoundryWorker:
                 "worker.started",
                 operation="worker_loop",
                 outcome="started",
+                **self._observability_context(),
             )
         )
         try:
@@ -1658,6 +1684,8 @@ class FoundryWorker:
                     duration_ms=(time.monotonic() - started_at) * 1000,
                     outcome="error",
                     error_type=type(error).__name__,
+                    error_code=getattr(error, "code", None),
+                    **self._observability_context(),
                 )
             )
             raise
@@ -1667,6 +1695,7 @@ class FoundryWorker:
                 operation="worker_loop",
                 duration_ms=(time.monotonic() - started_at) * 1000,
                 outcome="success",
+                **self._observability_context(),
             )
         )
         return results
@@ -1699,11 +1728,25 @@ class FoundryWorker:
         idle_backoff = initial_idle_delay
         poll_delay = initial_idle_delay
         retry_pending = False
-        while not self._stopping:
-            if await self._reconcile_profiles_or_wait(
-                force=True, retry_delay=poll_delay
-            ):
-                break
+        initialized = False
+        with observe_runtime_operation(
+            "worker.initialization",
+            **self._observability_context(),
+        ) as initialization:
+            while not self._stopping:
+                if await self._reconcile_profiles_or_wait(
+                    force=True, retry_delay=poll_delay
+                ):
+                    initialization.update(**self._observability_context())
+                    initialized = True
+                    break
+            if not initialized:
+                initialization.update(
+                    outcome="error",
+                    error_type="WorkerStopped",
+                    error_code="worker_stopped",
+                    reason_code="stopped",
+                )
         while not self._stopping and (max_turns is None or len(results) < max_turns):
             if not await self._reconcile_profiles_or_wait(retry_delay=poll_delay):
                 continue
@@ -1851,10 +1894,18 @@ class FoundryWorker:
                     "runtime.operation.retried",
                     operation="profile_reconciliation",
                     outcome="retry",
+                    retry_count=self._profile_reconciliation_retry_attempts,
                     error_type=type(error).__name__,
+                    error_code=getattr(error, "code", None),
+                    **self._observability_context(),
                 )
             )
-            await asyncio.sleep(bounded_delay)
+            with observe_runtime_operation(
+                "profile.reconciliation_retry_wait",
+                retry_count=self._profile_reconciliation_retry_attempts,
+                **self._observability_context(),
+            ):
+                await asyncio.sleep(bounded_delay)
             return False
         self._profile_reconciliation_retry_attempts = 0
         return True
@@ -1943,25 +1994,39 @@ class FoundryWorker:
             )
         ):
             try:
-                hermes_ready = await self._hermes_ready()
+                with observe_runtime_operation(
+                    "readiness.hermes_health",
+                    **self._observability_context(),
+                ) as health_operation:
+                    hermes_ready = await self._hermes_ready()
+                    if not hermes_ready:
+                        health_operation.update(
+                            outcome="error",
+                            error_type="HermesNotReady",
+                            error_code="hermes_not_ready",
+                            reason_code="not_ready",
+                        )
+                        raise ServiceUnavailableError(
+                            "Hermes is not ready for a runtime receipt",
+                            status=503,
+                            code="HERMES_NOT_READY",
+                        )
             except HermesError as error:
                 raise ServiceUnavailableError(
                     "Hermes is not ready for a runtime receipt",
                     status=503,
                     code="HERMES_NOT_READY",
                 ) from error
-            if not hermes_ready:
-                raise ServiceUnavailableError(
-                    "Hermes is not ready for a runtime receipt",
-                    status=503,
-                    code="HERMES_NOT_READY",
-                )
             try:
-                await self.foundry.report_readiness(
-                    boot_id=self.boot_id,
-                    reconciled_generation=snapshot.machine_generation,
-                    runtime_start_epoch=snapshot.runtime_start_epoch,
-                )
+                with observe_runtime_operation(
+                    "readiness.publication",
+                    **self._observability_context(),
+                ):
+                    await self.foundry.report_readiness(
+                        boot_id=self.boot_id,
+                        reconciled_generation=snapshot.machine_generation,
+                        runtime_start_epoch=snapshot.runtime_start_epoch,
+                    )
             except FencedError as error:
                 self._profiles_reconciled = False
                 raise NotReadyError(

@@ -13,7 +13,8 @@ import sys
 import threading
 import time
 from collections import deque
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from typing import Any, Protocol
 
@@ -74,6 +75,8 @@ _FIELDS = frozenset(
         "operation",
         "provider",
         "workspace_id",
+        "generation",
+        "runtime_start_epoch",
         "execution_id",
         "attempt_id",
         "lease_id",
@@ -88,6 +91,22 @@ _FIELDS = frozenset(
         "retry_count",
         "sampled",
         "truncated",
+    }
+)
+_CRITICAL_RUNTIME_OPERATIONS = frozenset(
+    {
+        "startup.setup",
+        "startup.composition",
+        "startup.hermes_readiness",
+        "worker.initialization",
+        "profile_reconciliation",
+        "profile.reconciliation_fetch",
+        "profile.reconciliation_retry_wait",
+        "profile_materialization",
+        "profile.local_materialization",
+        "profile.materialization_receipt",
+        "readiness.hermes_health",
+        "readiness.publication",
     }
 )
 
@@ -134,6 +153,8 @@ def _value(name: str, value: object) -> object | None:
         return _identifier_digest(value)
     if name in {"request_id", "correlation_id"}:
         return _identifier(value)
+    if name in {"generation", "runtime_start_epoch"}:
+        return value if type(value) is int and 0 <= value <= 1_000_000_000 else None
     if name == "method":
         return value.strip().upper()[:16] if isinstance(value, str) else None
     if name == "error_type":
@@ -399,7 +420,8 @@ def _always_emit(event: Mapping[str, object], config: WideEventSettings) -> bool
     outcome = event.get("outcome")
     duration = event.get("duration_ms")
     return (
-        outcome in {"error", "failed", "retry", "cancelled"}
+        event.get("operation") in _CRITICAL_RUNTIME_OPERATIONS
+        or outcome in {"error", "failed", "retry", "cancelled"}
         or str(event.get("event", "")).endswith((".failed", ".retried"))
         or (isinstance(duration, (int, float)) and duration >= config.slow_ms)
     )
@@ -437,6 +459,59 @@ def emit_runtime_event(event: Mapping[str, object]) -> None:
         _COUNTERS.increment("events_dropped")
 
 
+def _emit_runtime_operation(
+    operation: str, suffix: str, fields: Mapping[str, object]
+) -> None:
+    try:
+        event_fields = {"operation": operation, **fields}
+        emit_runtime_event(
+            build_event(f"runtime.operation.{suffix}", **event_fields)
+        )
+    except Exception:  # noqa: BLE001 - observability never changes runtime work
+        return
+
+
+@contextmanager
+def observe_runtime_operation(
+    operation: str,
+    *,
+    clock: Any = time.monotonic,
+    **fields: object,
+) -> Iterator[dict[str, object]]:
+    """Emit one bounded start/terminal pair without affecting the operation."""
+
+    mutable_fields = dict(fields)
+    try:
+        started_at: float | None = float(clock())
+    except Exception:  # noqa: BLE001 - timing must never affect runtime work
+        started_at = None
+    _emit_runtime_operation(
+        operation, "started", {**mutable_fields, "outcome": "started"}
+    )
+    try:
+        yield mutable_fields
+    except BaseException as error:
+        mutable_fields.update(
+            outcome="error",
+            error_type=type(error).__name__,
+            error_code=getattr(error, "code", None),
+        )
+        raise
+    finally:
+        try:
+            duration_ms = (
+                max(0.0, (float(clock()) - started_at) * 1000.0)
+                if started_at is not None
+                else None
+            )
+        except Exception:  # noqa: BLE001 - timing must never affect runtime work
+            duration_ms = None
+        mutable_fields.setdefault("outcome", "success")
+        mutable_fields["duration_ms"] = duration_ms
+        suffix = "succeeded" if mutable_fields["outcome"] == "success" else "failed"
+        _emit_runtime_operation(operation, suffix, mutable_fields)
+
+
 __all__ = [
     "ALLOWED_EVENT_NAMES",
     "EventCounters",
@@ -445,5 +520,6 @@ __all__ = [
     "configure_runtime_observability",
     "emit_runtime_event",
     "event_counters",
+    "observe_runtime_operation",
     "serialize_event",
 ]

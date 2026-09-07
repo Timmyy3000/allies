@@ -80,6 +80,8 @@ _FIELD_NAMES = frozenset(
         "provider_resource_id",
         "resource_id",
         "profile_id",
+        "generation",
+        "runtime_start_epoch",
         "session_id",
         "run_id",
         "task_name",
@@ -216,6 +218,8 @@ def _field_value(name: str, value: object) -> object | None:
         "run_id",
     }:
         return identifier_fingerprint(value)
+    if name in {"generation", "runtime_start_epoch"}:
+        return value if type(value) is int and 0 <= value <= 1_000_000_000 else None
     if name in {"request_id", "correlation_id"}:
         return _safe_identifier(value)
     if name in {"error_type"}:
@@ -249,7 +253,15 @@ def _field_value(name: str, value: object) -> object | None:
         return value if isinstance(value, bool) else None
     if name in {"schema_version"}:
         return 1
-    if name in {"occurred_at", "service", "process", "environment", "revision", "message", "outcome"}:
+    if name in {
+        "occurred_at",
+        "service",
+        "process",
+        "environment",
+        "revision",
+        "message",
+        "outcome",
+    }:
         return _redact_text(value) if isinstance(value, str) else None
     return _safe_nested(value)
 
@@ -271,7 +283,9 @@ def build_event(kind: str, **fields: object) -> dict[str, object]:
 
     if kind not in ALLOWED_EVENT_NAMES:
         raise ValueError("event name is not allowlisted")
-    environment = os.getenv("ALLIES_ENVIRONMENT", os.getenv("DJANGO_ENVIRONMENT", "development"))
+    environment = os.getenv(
+        "ALLIES_ENVIRONMENT", os.getenv("DJANGO_ENVIRONMENT", "development")
+    )
     revision = os.getenv("ALLIES_REVISION", "unknown")
     base: dict[str, object] = {
         "schema_version": 1,
@@ -293,7 +307,9 @@ def build_event(kind: str, **fields: object) -> dict[str, object]:
     return base
 
 
-def serialize_event(event: Mapping[str, object], *, max_bytes: int | None = None) -> bytes:
+def serialize_event(
+    event: Mapping[str, object], *, max_bytes: int | None = None
+) -> bytes:
     """Serialize and deterministically bound one event as UTF-8 JSON."""
 
     limit = max_bytes or _config().max_bytes or DEFAULT_MAX_EVENT_BYTES
@@ -309,7 +325,9 @@ def serialize_event(event: Mapping[str, object], *, max_bytes: int | None = None
     safe.setdefault("schema_version", 1)
     safe.setdefault("occurred_at", _now())
     safe.setdefault("outcome", "unknown")
-    raw = json.dumps(safe, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    raw = json.dumps(
+        safe, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
     if len(raw) <= limit:
         return raw
     # Drop optional high-cardinality fields before applying a final string cap.
@@ -324,14 +342,18 @@ def serialize_event(event: Mapping[str, object], *, max_bytes: int | None = None
         "lease_id",
     ):
         safe.pop(name, None)
-        raw = json.dumps(safe, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        raw = json.dumps(
+            safe, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
         if len(raw) <= limit:
             return raw
     # Required metadata is retained even when the configured bound is tight.
     for name in ("environment", "service", "process", "occurred_at"):
         if isinstance(safe.get(name), str):
             safe[name] = str(safe[name])[:32]
-    raw = json.dumps(safe, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    raw = json.dumps(
+        safe, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
     if len(raw) > limit:
         raise ValueError("wide event exceeds configured byte bound")
     return raw
@@ -373,6 +395,30 @@ _MAX_SERVER_ERROR_EVENTS = 64
 _MAX_SUCCESS_EVENTS = 1024
 _MAX_LIFECYCLE_EVENTS = 256
 _MAX_OTHER_HTTP_EVENTS = 128
+
+# Keep critical readiness stages through sampling so fast healthy paths remain observable.
+CRITICAL_TIMING_OPERATIONS = frozenset(
+    {
+        "runtime.intent",
+        "runtime.wake",
+        "runtime.wake.machine_start_request",
+        "runtime.wake.machine_started_observation",
+        "runtime.wake.machine_state_observation",
+        "runtime.wake.request_to_attempt_end_wall",
+        "runtime.wake.queue_wait_wall",
+        "runtime.wake.retry_scheduled",
+        "runtime.readiness_receipt",
+        "runtime.readiness.scheduled_to_commit_wall",
+        "runtime.profile_materialization_receipt",
+        "readiness.hint_send",
+        "workspace.machine_start_request",
+        "workspace.machine_started_observation",
+        "workspace.provision.machine_start",
+        "workspace.provision.machine_health",
+        "workspace.replace.machine_start",
+        "workspace.replace.machine_health",
+    }
+)
 
 
 class _ErrorRateLimiter:
@@ -470,11 +516,14 @@ def event_counters() -> dict[str, int]:
     return _counters.snapshot()
 
 
-def _always_sample(event: Mapping[str, object], config: FoundryObservabilitySettings) -> bool:
+def _always_sample(
+    event: Mapping[str, object], config: FoundryObservabilitySettings
+) -> bool:
     outcome = event.get("outcome")
     duration = event.get("duration_ms")
     return (
-        outcome in {"error", "failed", "retry", "cancelled"}
+        event.get("operation") in CRITICAL_TIMING_OPERATIONS
+        or outcome in {"error", "failed", "retry", "cancelled"}
         or str(event.get("event", "")).endswith((".failed", ".retried"))
         or (isinstance(duration, (int, float)) and duration >= config.slow_ms)
     )
@@ -532,11 +581,17 @@ def identifier_fingerprint(value: object) -> str | None:
     key = os.getenv("ALLIES_OBSERVABILITY_DIGEST_KEY") or os.getenv("DJANGO_SECRET_KEY")
     if safe is None or not key:
         return None
-    return "id_" + hmac.new(key.encode("utf-8"), safe.encode("utf-8"), hashlib.sha256).hexdigest()[:24]
+    return (
+        "id_"
+        + hmac.new(
+            key.encode("utf-8"), safe.encode("utf-8"), hashlib.sha256
+        ).hexdigest()[:24]
+    )
 
 
 __all__ = [
     "ALLOWED_EVENT_NAMES",
+    "CRITICAL_TIMING_OPERATIONS",
     "EventCounters",
     "build_event",
     "emit_event",

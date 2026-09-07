@@ -112,8 +112,15 @@ def register(api: NinjaExtraAPI) -> None:
             idempotency_key = request.headers.get("Idempotency-Key", "")
             if not idempotency_key:
                 raise RuntimeValidationError("Idempotency-Key is required")
+            try:
+                UUID(idempotency_key)
+            except ValueError as exc:
+                raise RuntimeValidationError("Idempotency-Key must be a UUID") from exc
+            workspace = Workspace.objects.filter(tenant_ref=str(workspace_id)).first()
+            if workspace is None:
+                return JsonResponse({"status": "first_provision_required"}, status=200)
             receipt = request_runtime_intent(
-                workspace_id,
+                workspace.id,
                 payload.intent,
                 idempotency_key,
                 payload.received_at,

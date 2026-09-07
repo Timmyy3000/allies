@@ -6,6 +6,7 @@ from urllib.error import URLError
 from uuid import UUID, uuid4
 
 import pytest
+from django.test import TestCase
 from django.utils import timezone
 
 import runtime.services.profiles as profile_service
@@ -350,6 +351,61 @@ def test_hint_http_disables_redirects_before_sending_bearer(settings, monkeypatc
     assert opener.requests[0][0].headers["Authorization"] == "Bearer " + "s" * 32
 
 
+def test_hint_timing_uses_receipt_bridge_and_marks_http_failure(settings, monkeypatch):
+    _configure_hints(settings)
+    captured = []
+    monkeypatch.setattr(
+        hint_service,
+        "emit_event",
+        lambda event, **_kwargs: captured.append(event),
+    )
+    opener = _Opener([_Response(503, b'{"code":"temporary"}')])
+    monkeypatch.setattr(hint_service, "build_opener", lambda _handler: opener)
+    claim = _claim()
+
+    assert hint_service._post_hint_to_cloud(claim) == (503, "temporary")
+    assert captured[0]["event"] == "runtime.operation.started"
+    assert captured[0]["request_id"] == str(claim.hint_id)
+    assert captured[0]["correlation_id"] == str(claim.receipt_id)
+    assert captured[-1]["event"] == "runtime.operation.failed"
+    assert captured[-1]["operation"] == "readiness.hint_send"
+    assert captured[-1]["status_code"] == 503
+    assert captured[-1]["outcome"] == "error"
+
+
+def test_materialization_timing_pairs_profile_and_operation_ids(
+    materialization_context, monkeypatch
+):
+    monkeypatch.setenv("ALLIES_OBSERVABILITY_DIGEST_KEY", "test-digest")
+    captured = []
+    monkeypatch.setattr(
+        profile_service,
+        "emit_event",
+        lambda event, **_kwargs: captured.append(event),
+    )
+    operation_id = uuid4()
+
+    with TestCase.captureOnCommitCallbacks(execute=True):
+        _accept_receipt(materialization_context, operation_id=operation_id)
+
+    started = [
+        event
+        for event in captured
+        if event["event"] == "runtime.operation.started"
+        and event["operation"] == "runtime.profile_materialization_receipt"
+    ][-1]
+    terminal = [
+        event
+        for event in captured
+        if event["event"] == "runtime.operation.succeeded"
+        and event["operation"] == "runtime.profile_materialization_receipt"
+    ][-1]
+    assert started["profile_id"] == terminal["profile_id"]
+    assert started["profile_id"].startswith("id_")
+    assert started["correlation_id"] == str(operation_id)
+    assert terminal["correlation_id"] == str(operation_id)
+
+
 def test_feature_off_does_not_claim_or_post_hints(
     materialization_context, settings, monkeypatch
 ):
@@ -370,3 +426,26 @@ def test_feature_off_does_not_claim_or_post_hints(
     assert delivery.state == ProvisioningHintDeliveryState.PENDING
     assert delivery.delivery_attempts == 0
     assert posted == []
+
+
+def test_delivery_timestamp_records_acknowledgement_after_http(
+    materialization_context, settings, monkeypatch
+):
+    _configure_hints(settings)
+    _accept_receipt(materialization_context)
+    started = timezone.now()
+    acknowledged = started + timedelta(seconds=2)
+    clock = [started]
+    monkeypatch.setattr(hint_service.timezone, "now", lambda: clock[0])
+
+    def post(_claim):
+        clock[0] = acknowledged
+        return 202, ""
+
+    monkeypatch.setattr(hint_service, "_post_hint_to_cloud", post)
+    report = publish_due_profile_readiness_hints(limit=1)
+    delivery = ProvisioningHintDelivery.objects.get(
+        runtime_profile_id=materialization_context[1]
+    )
+    assert report.delivered == 1
+    assert delivery.delivered_at == acknowledged

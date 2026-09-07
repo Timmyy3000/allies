@@ -55,7 +55,9 @@ def test_tenant_identifier_is_omitted_without_digest_key(monkeypatch):
 
 
 def test_serialized_event_respects_byte_bound():
-    event = build_event("runtime.operation.failed", operation="profile_turn", error_type="RuntimeError")
+    event = build_event(
+        "runtime.operation.failed", operation="profile_turn", error_type="RuntimeError"
+    )
 
     encoded = serialize_event(event, max_bytes=512)
 
@@ -88,7 +90,10 @@ def test_event_implementation_conforms_to_shared_contract():
     assert MAX_WIDE_EVENT_BYTES == contract["limits"]["max_event_bytes"]
 
     event = build_event(
-        "task.started",
+        "runtime.operation.started",
+        operation="runtime.readiness_receipt",
+        generation=3,
+        runtime_start_epoch=4,
         task_name="runtime.tasks.profile_turn",
         task_id="task_123",
         queue="default",
@@ -97,6 +102,41 @@ def test_event_implementation_conforms_to_shared_contract():
     encoded = json.loads(serialize_event(event))
     assert set(contract["required"]) <= set(encoded)
     assert set(encoded) <= set(contract["required"]) | set(contract["optional"])
+    for field in ("generation", "runtime_start_epoch"):
+        assert contract["limits"]["runtime_counter_min"] <= encoded[field]
+        assert encoded[field] <= contract["limits"]["runtime_counter_max"]
+
+
+def test_critical_timing_start_and_terminal_survive_zero_success_sampling(monkeypatch):
+    captured = []
+    monkeypatch.setattr(
+        events_module,
+        "_offer_stdout",
+        lambda envelope, **_kwargs: (
+            captured.append(envelope) or SimpleNamespace(accepted=True)
+        ),
+    )
+    config = events_module.FoundryObservabilitySettings(success_sample_rate=0)
+
+    for event_name in (
+        "runtime.operation.started",
+        "runtime.operation.succeeded",
+    ):
+        event = build_event(
+            event_name,
+            operation="runtime.readiness_receipt",
+            request_id="boot_123",
+            generation=3,
+            runtime_start_epoch=4,
+            outcome="started" if event_name.endswith("started") else "ready",
+        )
+        events_module.emit_event(event, config=config, random_value=1.0)
+
+    assert len(captured) == 2
+    assert all(
+        json.loads(envelope)["operation"] == "runtime.readiness_receipt"
+        for envelope in captured
+    )
 
 
 def test_middleware_emits_request_event_and_propagates_request_id(monkeypatch):
@@ -213,9 +253,9 @@ def test_middleware_replaces_invalid_or_oversized_request_id(monkeypatch, suppli
         lambda event, **kwargs: captured.append(event),
     )
 
-    response = WideEventMiddleware(
-        lambda _request: HttpResponse(status=200)
-    )(RequestFactory().get("/healthz", HTTP_X_REQUEST_ID=supplied))
+    response = WideEventMiddleware(lambda _request: HttpResponse(status=200))(
+        RequestFactory().get("/healthz", HTTP_X_REQUEST_ID=supplied)
+    )
 
     generated = response["X-Request-ID"]
     assert generated != supplied
@@ -255,16 +295,16 @@ def test_middleware_maps_framework_errors_to_client_status(
 def test_error_rate_limit_drops_client_flood_but_retains_server_evidence(
     monkeypatch,
 ):
-    monkeypatch.setattr(events_module, "_error_rate_limiter", events_module._ErrorRateLimiter())
+    monkeypatch.setattr(
+        events_module, "_error_rate_limiter", events_module._ErrorRateLimiter()
+    )
     config = events_module.FoundryObservabilitySettings(success_sample_rate=1)
     before_dropped = events_module.event_counters()["events_dropped"]
     before_emitted = events_module.event_counters()["events_emitted"]
 
     for _ in range(events_module._MAX_CLIENT_ERROR_EVENTS + 4):
         events_module.emit_event(
-            events_module.build_event(
-                "http.request", status_code=401, outcome="error"
-            ),
+            events_module.build_event("http.request", status_code=401, outcome="error"),
             config=config,
         )
     events_module.emit_event(
@@ -278,7 +318,9 @@ def test_error_rate_limit_drops_client_flood_but_retains_server_evidence(
 
 
 def test_error_rate_limiter_bounds_successful_http_flood(monkeypatch):
-    monkeypatch.setattr(events_module, "_error_rate_limiter", events_module._ErrorRateLimiter())
+    monkeypatch.setattr(
+        events_module, "_error_rate_limiter", events_module._ErrorRateLimiter()
+    )
     monkeypatch.setattr(
         events_module,
         "_offer_stdout",
@@ -301,7 +343,9 @@ def test_error_rate_limiter_bounds_successful_http_flood(monkeypatch):
 
 
 def test_error_rate_limiter_bounds_lifecycle_flood(monkeypatch):
-    monkeypatch.setattr(events_module, "_error_rate_limiter", events_module._ErrorRateLimiter())
+    monkeypatch.setattr(
+        events_module, "_error_rate_limiter", events_module._ErrorRateLimiter()
+    )
     monkeypatch.setattr(
         events_module,
         "_offer_stdout",
@@ -325,7 +369,9 @@ def test_error_rate_limiter_bounds_lifecycle_flood(monkeypatch):
 
 @pytest.mark.parametrize("status_code", [101, 302])
 def test_error_rate_limiter_bounds_other_http_status_flood(monkeypatch, status_code):
-    monkeypatch.setattr(events_module, "_error_rate_limiter", events_module._ErrorRateLimiter())
+    monkeypatch.setattr(
+        events_module, "_error_rate_limiter", events_module._ErrorRateLimiter()
+    )
     monkeypatch.setattr(
         events_module,
         "_offer_stdout",

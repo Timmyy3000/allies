@@ -258,6 +258,151 @@ class Workspace(models.Model):
         return self.tenant_ref
 
 
+class ReadyWorkspaceBundleState(models.TextChoices):
+    PREPARING = "preparing", "Preparing"
+    READY = "ready", "Ready"
+    ASSIGNED = "assigned", "Assigned"
+    EVICTING = "evicting", "Evicting"
+    EVICTED = "evicted", "Evicted"
+    FAILED = "failed", "Failed"
+
+
+READY_POOL_MAX_ATTEMPTS = 5
+
+
+class ReadyWorkspaceBundle(models.Model):
+    """A complete, unassigned runtime bundle reserved for permanent transfer."""
+
+    MAX_ATTEMPTS = READY_POOL_MAX_ATTEMPTS
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.OneToOneField(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="ready_workspace_bundle",
+    )
+    state = models.CharField(
+        max_length=16,
+        choices=ReadyWorkspaceBundleState,
+        default=ReadyWorkspaceBundleState.PREPARING,
+    )
+    region = models.CharField(max_length=64)
+    release_fingerprint = models.CharField(max_length=255)
+    blank_volume_ref = models.CharField(max_length=255, null=True, blank=True)
+    config_version = models.PositiveIntegerField(default=1)
+    attempt_count = models.PositiveSmallIntegerField(default=0)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    phase_claim_owner = models.CharField(max_length=128, null=True, blank=True)
+    phase_claim_until = models.DateTimeField(null=True, blank=True)
+    ready_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    last_health_at = models.DateTimeField(null=True, blank=True)
+    assigned_at = models.DateTimeField(null=True, blank=True)
+    safe_error_code = models.CharField(max_length=64, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.CheckConstraint(
+                condition=Q(state__in=ReadyWorkspaceBundleState.values),
+                name="ready_pool_bundle_state_valid",
+            ),
+            models.CheckConstraint(
+                condition=~Q(region=""),
+                name="ready_pool_bundle_region_nonempty",
+            ),
+            models.CheckConstraint(
+                condition=~Q(release_fingerprint=""),
+                name="ready_pool_bundle_release_nonempty",
+            ),
+            models.CheckConstraint(
+                condition=Q(config_version__gt=0),
+                name="ready_pool_bundle_config_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(attempt_count__gte=0)
+                & Q(attempt_count__lte=READY_POOL_MAX_ATTEMPTS),
+                name="ready_pool_bundle_attempts_bounded",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(phase_claim_owner__isnull=True, phase_claim_until__isnull=True)
+                    | Q(
+                        phase_claim_owner__isnull=False, phase_claim_until__isnull=False
+                    )
+                ),
+                name="ready_pool_bundle_claim_consistent",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        state=ReadyWorkspaceBundleState.ASSIGNED,
+                        assigned_at__isnull=False,
+                    )
+                    | (
+                        ~Q(state=ReadyWorkspaceBundleState.ASSIGNED)
+                        & Q(assigned_at__isnull=True)
+                    )
+                ),
+                name="ready_pool_bundle_assignment_timestamp",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(state=ReadyWorkspaceBundleState.READY)
+                    | (
+                        Q(ready_at__isnull=False)
+                        & Q(expires_at__isnull=False)
+                        & Q(last_health_at__isnull=False)
+                    )
+                ),
+                name="ready_pool_bundle_ready_evidence",
+            ),
+        ]
+        indexes: ClassVar = [
+            models.Index(
+                fields=["state", "region", "release_fingerprint"],
+                name="ready_pool_bundle_ready_idx",
+            ),
+            models.Index(
+                fields=["state", "next_attempt_at"],
+                name="ready_pool_bundle_due_idx",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.region or not self.region.strip():
+            raise RuntimeValidationError("pool bundle region is required")
+        if not self.release_fingerprint or not self.release_fingerprint.strip():
+            raise RuntimeValidationError("pool bundle release fingerprint is required")
+        if self.config_version <= 0:
+            raise RuntimeValidationError("pool bundle config version must be positive")
+        if not 0 <= self.attempt_count <= self.MAX_ATTEMPTS:
+            raise RuntimeValidationError(
+                "pool bundle attempts exceed the bounded budget"
+            )
+        if (
+            self.state == ReadyWorkspaceBundleState.ASSIGNED
+            and self.assigned_at is None
+        ):
+            raise RuntimeValidationError("assigned pool bundle requires assigned_at")
+        if self.safe_error_code and not re.fullmatch(
+            r"[a-z][a-z0-9_-]{0,63}", self.safe_error_code
+        ):
+            raise RuntimeValidationError("pool bundle error code is invalid")
+        if not self._state.adding:
+            try:
+                previous_state = type(self).objects.only("state").get(pk=self.pk).state
+            except type(self).DoesNotExist:
+                previous_state = None
+            if (
+                previous_state == ReadyWorkspaceBundleState.ASSIGNED
+                and self.state != ReadyWorkspaceBundleState.ASSIGNED
+            ):
+                raise RuntimeConflictError("assigned pool bundles are terminal")
+        return super().save(*args, **kwargs)
+
+
 class RuntimeIntent(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(

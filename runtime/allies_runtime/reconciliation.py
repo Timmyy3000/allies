@@ -14,6 +14,7 @@ from .foundry import (
     ProfileReceipt,
     RepairRequiredError,
 )
+from .observability import observe_runtime_operation
 from .profile_store import (
     DEFAULT_MEMORY_MODE,
     DEFAULT_MEMORY_POLICY_VERSION,
@@ -39,84 +40,158 @@ class ReconciliationReport:
 class ProfileReconciler:
     """Run profile reconciliation before a worker is allowed to claim work."""
 
-    def __init__(self, foundry: FoundryClient, store: ProfileStore) -> None:
+    def __init__(
+        self,
+        foundry: FoundryClient,
+        store: ProfileStore,
+        *,
+        correlation_id: str | None = None,
+    ) -> None:
         self.foundry = foundry
         self.store = store
+        self.correlation_id = correlation_id
 
     async def reconcile(self) -> ReconciliationReport:
-        desired = await self.foundry.reconcile_profiles()
-        materialized: list[ProfileReceipt] = []
-        cleaned: list[ProfileReceipt] = []
-        blocked: list[str] = []
-        for profile in desired:
-            if profile.cleanup_operation_id and profile.lifecycle_state in {
-                "cleanup_pending",
-                "deprovisioned",
-            }:
-                receipt = await self._cleanup(profile)
+        with observe_runtime_operation(
+            "profile_reconciliation",
+            **self._context_fields(),
+        ) as operation:
+            with observe_runtime_operation(
+                "profile.reconciliation_fetch",
+                **self._context_fields(),
+            ) as fetch:
+                desired = await self.foundry.reconcile_profiles()
+                fetch.update(**self._context_fields())
+            operation.update(**self._context_fields())
+            materialized: list[ProfileReceipt] = []
+            cleaned: list[ProfileReceipt] = []
+            blocked: list[str] = []
+            for profile in desired:
+                if profile.cleanup_operation_id and profile.lifecycle_state in {
+                    "cleanup_pending",
+                    "deprovisioned",
+                }:
+                    receipt = await self._cleanup(profile)
+                    if receipt is None:
+                        blocked.append(profile.profile_id)
+                    else:
+                        cleaned.append(receipt)
+                    continue
+                if profile.lifecycle_state not in {"pending", "active"}:
+                    blocked.append(profile.profile_id)
+                    continue
+                if (
+                    profile.materialized_generation == profile.machine_generation
+                    and profile.materialization_operation_id
+                    and profile.materialization_receipt_id
+                ):
+                    continue
+                receipt = await self._materialize(profile)
                 if receipt is None:
                     blocked.append(profile.profile_id)
                 else:
-                    cleaned.append(receipt)
-                continue
-            if profile.lifecycle_state not in {"pending", "active"}:
-                blocked.append(profile.profile_id)
-                continue
-            if (
-                profile.materialized_generation == profile.machine_generation
-                and profile.materialization_operation_id
-                and profile.materialization_receipt_id
-            ):
-                continue
-            receipt = await self._materialize(profile)
-            if receipt is None:
-                blocked.append(profile.profile_id)
-            else:
-                materialized.append(receipt)
-        if blocked:
-            raise ProfileReconciliationBlocked(
-                "one or more Hermes profiles require repair"
-            )
-        return ReconciliationReport(tuple(materialized), tuple(cleaned), ())
+                    materialized.append(receipt)
+            if blocked:
+                raise ProfileReconciliationBlocked(
+                    "one or more Hermes profiles require repair"
+                )
+            return ReconciliationReport(tuple(materialized), tuple(cleaned), ())
 
     async def _materialize(self, profile: ProfileDesiredState) -> ProfileReceipt | None:
-        operation_id = profile.materialization_operation_id or str(
-            uuid5(
-                NAMESPACE_URL,
-                "allies-foundry:profile-materialize:"
-                f"{profile.profile_id}:{profile.lifecycle_epoch}:"
-                f"{profile.machine_generation}:{profile.seed_fingerprint}",
+        with observe_runtime_operation(
+            "profile_materialization",
+            **self._context_fields(profile),
+        ) as operation:
+            operation_id = profile.materialization_operation_id or str(
+                uuid5(
+                    NAMESPACE_URL,
+                    "allies-foundry:profile-materialize:"
+                    f"{profile.profile_id}:{profile.lifecycle_epoch}:"
+                    f"{profile.machine_generation}:{profile.seed_fingerprint}",
+                )
             )
-        )
-        seed = _runtime_seed(profile, operation_id)
-        store_receipt = await asyncio.to_thread(self.store.materialize, seed)
-        if store_receipt.status not in {
-            ProfileProvisionStatus.CREATED,
-            ProfileProvisionStatus.EXISTING,
-        }:
-            return None
-        try:
-            return await self.foundry.materialization_receipt(
-                profile.profile_id,
-                operation_id=operation_id,
-                lifecycle_epoch=profile.lifecycle_epoch,
-                materialized_generation=profile.machine_generation,
-                seed_fingerprint=store_receipt.seed_fingerprint
-                or profile.seed_fingerprint,
-                result_code=store_receipt.result_code,
-            )
-        except (FencedError, RepairRequiredError):
-            # Cleanup may have fenced the snapshot after the local publish.
-            # Re-read the authority and compensate immediately so a stale
-            # materialization cannot remain on the volume until restart.
-            latest = await self.foundry.reconcile_profiles()
-            current = next(
-                (item for item in latest if item.profile_id == profile.profile_id),
-                None,
-            )
-            if current is not None and current.cleanup_operation_id:
-                await self._cleanup(current)
-            return None
+            seed = _runtime_seed(profile, operation_id)
+            with observe_runtime_operation(
+                "profile.local_materialization",
+                request_id=operation_id,
+                **self._context_fields(profile),
+            ) as local_operation:
+                store_receipt = await asyncio.to_thread(self.store.materialize, seed)
+                if store_receipt.status not in {
+                    ProfileProvisionStatus.CREATED,
+                    ProfileProvisionStatus.EXISTING,
+                }:
+                    failure = {
+                        "outcome": "error",
+                        "error_type": "ProfileMaterializationError",
+                        "error_code": getattr(store_receipt, "repair_code", None)
+                        or "materialization_failed",
+                        "reason_code": "repair_required",
+                    }
+                    local_operation.update(**failure)
+                    operation.update(**failure)
+                    return None
+            try:
+                with observe_runtime_operation(
+                    "profile.materialization_receipt",
+                    request_id=operation_id,
+                    **self._context_fields(profile),
+                ):
+                    return await self.foundry.materialization_receipt(
+                        profile.profile_id,
+                        operation_id=operation_id,
+                        lifecycle_epoch=profile.lifecycle_epoch,
+                        materialized_generation=profile.machine_generation,
+                        seed_fingerprint=store_receipt.seed_fingerprint
+                        or profile.seed_fingerprint,
+                        result_code=store_receipt.result_code,
+                    )
+            except (FencedError, RepairRequiredError) as error:
+                # Cleanup may have fenced the snapshot after the local publish.
+                # Re-read the authority and compensate immediately so a stale
+                # materialization cannot remain on the volume until restart.
+                operation.update(
+                    outcome="error",
+                    error_type=type(error).__name__,
+                    error_code=getattr(error, "code", None),
+                    reason_code="fenced",
+                )
+                with observe_runtime_operation(
+                    "profile.reconciliation_fetch",
+                    **self._context_fields(profile),
+                ) as fetch:
+                    latest = await self.foundry.reconcile_profiles()
+                    fetch.update(**self._context_fields(profile))
+                current = next(
+                    (item for item in latest if item.profile_id == profile.profile_id),
+                    None,
+                )
+                if current is not None and current.cleanup_operation_id:
+                    await self._cleanup(current)
+                return None
+
+    def _context_fields(
+        self, profile: ProfileDesiredState | None = None
+    ) -> dict[str, object]:
+        snapshot = getattr(self.foundry, "last_reconciliation_snapshot", None)
+        fields: dict[str, object] = {}
+        if self.correlation_id is not None:
+            fields["correlation_id"] = self.correlation_id
+        profile_id = getattr(profile, "profile_id", None)
+        if profile_id is not None:
+            fields["profile_id"] = profile_id
+        workspace_id = getattr(snapshot, "workspace_id", None)
+        if workspace_id is not None:
+            fields["workspace_id"] = workspace_id
+        generation = getattr(snapshot, "machine_generation", None)
+        if generation is None and profile is not None:
+            generation = profile.machine_generation
+        if generation is not None:
+            fields["generation"] = generation
+        runtime_start_epoch = getattr(snapshot, "runtime_start_epoch", None)
+        if runtime_start_epoch is not None:
+            fields["runtime_start_epoch"] = runtime_start_epoch
+        return fields
 
     async def _cleanup(self, profile: ProfileDesiredState) -> ProfileReceipt | None:
         if profile.cleanup_operation_id is None or not profile.cleanup_request_digest:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -8,6 +9,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
+from observability.events import emit_event
 from runtime.exceptions import (
     RuntimeConflictError,
     RuntimeFencedError,
@@ -24,6 +26,7 @@ from runtime.models import (
 
 from .retry import run_with_sqlite_lock_retry
 from .runtime_auth import RuntimeContext
+from .timing import emit_timing_event
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,30 +45,88 @@ def accept_runtime_readiness(
     *,
     now: datetime | None = None,
 ) -> RuntimeReadinessReceipt:
-    boot = _uuid(boot_id, "boot_id")
-    if (
-        isinstance(reconciled_generation, bool)
-        or not isinstance(reconciled_generation, int)
-        or reconciled_generation <= 0
-    ):
-        raise RuntimeValidationError("reconciled_generation must be positive")
-    if (
-        isinstance(runtime_start_epoch, bool)
-        or not isinstance(runtime_start_epoch, int)
-        or runtime_start_epoch < 0
-    ):
-        raise RuntimeValidationError("runtime_start_epoch must be nonnegative")
-    observed_at = _aware(now or timezone.now())
-
-    return run_with_sqlite_lock_retry(
-        lambda: _accept_runtime_readiness_once(
-            context,
-            boot,
-            reconciled_generation,
-            runtime_start_epoch,
-            observed_at,
-        )
+    started_at = time.monotonic()
+    timing: dict[str, object] = {}
+    _emit_readiness_timing(
+        "runtime.operation.started",
+        operation="runtime.readiness_receipt",
+        workspace_id=getattr(context, "workspace_id", None),
+        request_id=boot_id,
+        outcome="started",
     )
+    boot: UUID | None = None
+    try:
+        boot = _uuid(boot_id, "boot_id")
+        if (
+            isinstance(reconciled_generation, bool)
+            or not isinstance(reconciled_generation, int)
+            or reconciled_generation <= 0
+        ):
+            raise RuntimeValidationError("reconciled_generation must be positive")
+        if (
+            isinstance(runtime_start_epoch, bool)
+            or not isinstance(runtime_start_epoch, int)
+            or runtime_start_epoch < 0
+        ):
+            raise RuntimeValidationError("runtime_start_epoch must be nonnegative")
+        observed_at = _aware(now or timezone.now())
+        receipt = run_with_sqlite_lock_retry(
+            lambda: _accept_runtime_readiness_once(
+                context,
+                boot,
+                reconciled_generation,
+                runtime_start_epoch,
+                observed_at,
+                timing=timing,
+            )
+        )
+    except BaseException as error:
+        _emit_readiness_timing(
+            "runtime.operation.failed",
+            operation="runtime.readiness_receipt",
+            workspace_id=getattr(context, "workspace_id", None),
+            request_id=boot or None,
+            correlation_id=timing.get("operation_id"),
+            duration_ms=(time.monotonic() - started_at) * 1000,
+            outcome="error",
+            error_type=type(error).__name__,
+            error_code=getattr(error, "code", None),
+        )
+        raise
+
+    def emit_committed() -> None:
+        committed_at = timezone.now()
+        _emit_readiness_timing(
+            "runtime.operation.succeeded",
+            operation="runtime.readiness_receipt",
+            workspace_id=getattr(context, "workspace_id", None),
+            request_id=boot,
+            correlation_id=timing.get("operation_id"),
+            duration_ms=(time.monotonic() - started_at) * 1000,
+            outcome=receipt.status,
+            generation=receipt.generation,
+            runtime_start_epoch=receipt.runtime_start_epoch,
+        )
+        requested_at = timing.get("requested_at")
+        if isinstance(requested_at, datetime):
+            _emit_readiness_timing(
+                "runtime.operation.succeeded",
+                operation="runtime.readiness.scheduled_to_commit_wall",
+                workspace_id=getattr(context, "workspace_id", None),
+                request_id=boot,
+                correlation_id=timing.get("operation_id"),
+                duration_ms=max(
+                    0.0,
+                    (committed_at - requested_at).total_seconds() * 1000,
+                ),
+                outcome=receipt.status,
+                generation=receipt.generation,
+                runtime_start_epoch=receipt.runtime_start_epoch,
+                reason_code="wall_clock",
+            )
+
+    transaction.on_commit(emit_committed)
+    return receipt
 
 
 @transaction.atomic
@@ -75,6 +136,8 @@ def _accept_runtime_readiness_once(
     reconciled_generation: int,
     runtime_start_epoch: int,
     observed_at: datetime,
+    *,
+    timing: dict[str, object] | None = None,
 ) -> RuntimeReadinessReceipt:
     workspace = (
         Workspace.objects.select_for_update().filter(pk=context.workspace_id).first()
@@ -107,6 +170,9 @@ def _accept_runtime_readiness_once(
     )
     if accepting_start and boot_replaced:
         raise RuntimeConflictError("runtime boot was replaced")
+    if timing is not None and accepting_start:
+        timing["operation_id"] = workspace.runtime_operation_id
+        timing["requested_at"] = workspace.runtime_operation_requested_at
 
     workspace.ready_generation = reconciled_generation
     workspace.ready_start_epoch = runtime_start_epoch
@@ -221,6 +287,17 @@ def _aware(value: datetime) -> datetime:
     if timezone.is_naive(value):
         raise RuntimeValidationError("timestamps must include a timezone")
     return value
+
+
+def _emit_readiness_timing(event_name: str, **fields: object) -> None:
+    """Emit a bounded readiness event without affecting receipt handling."""
+
+    emit_timing_event(
+        event_name,
+        emitter=emit_event,
+        identifier_names=("workspace_id", "request_id", "correlation_id"),
+        **fields,
+    )
 
 
 __all__ = [

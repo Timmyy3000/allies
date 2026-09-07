@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import secrets
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
@@ -11,7 +12,7 @@ from django.db import transaction
 from django.db.models import Case, Exists, IntegerField, OuterRef, Value, When
 from django.utils import timezone
 
-from observability.events import build_event, emit_event
+from observability.events import emit_event
 from runtime.exceptions import RuntimeConflictError
 from runtime.models import (
     IN_FLIGHT_PROVISIONING_PHASES,
@@ -38,6 +39,7 @@ from runtime.providers import (
 
 from .runtime_provider import runtime_power_provider
 from .runtime_readiness import advance_runtime_start_epoch_locked
+from .timing import emit_timing_event, observed_timing_phase
 
 OPERATION_CLAIM_SECONDS = 60
 EXECUTION_WAKE_RETRY_SECONDS = 5
@@ -296,18 +298,102 @@ def _process_wake_claim(
     provider: Any,
     now: datetime,
 ) -> RuntimePowerReport:
+    started_at = time.monotonic()
     workspace: Workspace | None = None
+    requested_at: datetime | None = None
+    provider_started_observed = False
+    runtime_start_epoch: int | None = None
+    _emit_wake_event(
+        "runtime.operation.started",
+        claim,
+        "started",
+        started_at=None,
+        operation="runtime.wake",
+    )
+
+    def finish(
+        event_name: str,
+        outcome: str,
+        **fields: Any,
+    ) -> None:
+        _emit_wake_event(
+            event_name,
+            claim,
+            outcome,
+            started_at=started_at,
+            workspace=workspace,
+            operation="runtime.wake",
+            **fields,
+        )
+        if requested_at is None:
+            return
+        _emit_wake_event(
+            "runtime.operation.succeeded"
+            if event_name == "runtime.operation.succeeded"
+            else "runtime.operation.failed",
+            claim,
+            outcome,
+            started_at=None,
+            workspace=workspace,
+            operation="runtime.wake.request_to_attempt_end_wall",
+            duration_ms=max(
+                0.0,
+                (timezone.now() - requested_at).total_seconds() * 1000,
+            ),
+            reason_code="wall_clock",
+        )
+
     try:
         workspace = Workspace.objects.get(pk=claim.workspace_id)
-        machine = _inspect_machine(provider, workspace)
-        _verify_machine_binding(workspace, machine)
+        requested_at = workspace.runtime_operation_requested_at
+        if requested_at is not None:
+            _emit_wake_event(
+                "runtime.operation.succeeded",
+                claim,
+                "measured",
+                started_at=None,
+                workspace=workspace,
+                operation="runtime.wake.queue_wait_wall",
+                duration_ms=max(
+                    0.0,
+                    (timezone.now() - requested_at).total_seconds() * 1000,
+                ),
+                reason_code="wall_clock",
+            )
+        with observed_timing_phase(
+            "runtime.wake.machine_state_observation",
+            workspace.id,
+            emitter=emit_event,
+            correlation_id=claim.operation_id,
+            provider_resource_id=workspace.machine_ref,
+        ) as observation:
+            machine = _inspect_machine(provider, workspace)
+            _verify_machine_binding(workspace, machine)
+            observation.update(
+                provider_resource_id=machine.id,
+                outcome="observed",
+                reason_code=machine.state.lower(),
+            )
+            provider_started_observed = machine.state is MachineState.STARTED
         from .runtime_releases import release_on_wake
 
         if release_on_wake(workspace, machine, claim, provider):
+            finish(
+                "runtime.operation.succeeded",
+                "awaiting_readiness",
+                reason_code="release_reconcile",
+            )
             return RuntimePowerReport(started=1, awaiting_readiness=1)
-        _prepare_start(claim, now)
+        runtime_start_epoch = _prepare_start(claim, now)
         if machine.state is MachineState.STARTED:
             _mark_awaiting_readiness(claim)
+            finish(
+                "runtime.operation.succeeded",
+                "awaiting_readiness",
+                reason_code="provider_started_observed",
+                generation=workspace.machine_generation,
+                runtime_start_epoch=runtime_start_epoch,
+            )
             return RuntimePowerReport(awaiting_readiness=1)
         if machine.state is not MachineState.STOPPED:
             _mark_operation_failed(
@@ -316,10 +402,26 @@ def _process_wake_claim(
                 retry_execution=machine.state
                 in {MachineState.CREATED, MachineState.UNKNOWN},
             )
+            finish(
+                "runtime.operation.failed",
+                "error",
+                error_type="ProviderStateError",
+                reason_code="machine_state_unstartable",
+                generation=workspace.machine_generation,
+                runtime_start_epoch=runtime_start_epoch,
+            )
             return RuntimePowerReport(failed=1)
         try:
-            with provider_workspace_context(workspace.id):
-                provider.start_machine(workspace.fly_app_ref, workspace.machine_ref)
+            with observed_timing_phase(
+                "runtime.wake.machine_start_request",
+                workspace.id,
+                emitter=emit_event,
+                correlation_id=claim.operation_id,
+                provider_resource_id=workspace.machine_ref,
+            ) as request_phase:
+                with provider_workspace_context(workspace.id):
+                    provider.start_machine(workspace.fly_app_ref, workspace.machine_ref)
+                request_phase["outcome"] = "provider_acknowledged"
         except ProviderError as exc:
             if not exc.uncertain:
                 _mark_operation_failed(
@@ -327,14 +429,55 @@ def _process_wake_claim(
                     now=now,
                     retry_execution=exc.retryable or exc.uncertain,
                 )
+                finish(
+                    "runtime.operation.failed",
+                    "error",
+                    error_type=type(exc).__name__,
+                    error_code=getattr(exc, "code", None),
+                )
                 return RuntimePowerReport(failed=1)
-            inspected = _inspect_machine(provider, workspace)
+            with observed_timing_phase(
+                "runtime.wake.machine_started_observation",
+                workspace.id,
+                emitter=emit_event,
+                correlation_id=claim.operation_id,
+                provider_resource_id=workspace.machine_ref,
+            ) as observation:
+                inspected = _inspect_machine(provider, workspace)
+                if inspected is not None and inspected.state is MachineState.STARTED:
+                    observation.update(
+                        provider_resource_id=inspected.id,
+                        outcome="observed",
+                        reason_code="uncertain_start_reconciled",
+                    )
+                else:
+                    observation.update(
+                        event_name="runtime.operation.failed",
+                        outcome="error",
+                        reason_code="machine_not_started",
+                    )
             if inspected is None or inspected.state is not MachineState.STARTED:
                 _mark_operation_failed(claim, now=now, retry_execution=True)
+                finish(
+                    "runtime.operation.failed",
+                    "error",
+                    error_type=type(exc).__name__,
+                    error_code=getattr(exc, "code", None),
+                    reason_code="uncertain_start_unobserved",
+                )
                 return RuntimePowerReport(failed=1)
+            provider_started_observed = True
         _mark_awaiting_readiness(claim)
-        _emit_power_event(
-            "runtime.operation.succeeded", workspace, "awaiting_readiness"
+        finish(
+            "runtime.operation.succeeded",
+            "awaiting_readiness",
+            reason_code=(
+                "provider_started_observed"
+                if provider_started_observed
+                else "provider_start_acknowledged"
+            ),
+            generation=workspace.machine_generation,
+            runtime_start_epoch=runtime_start_epoch,
         )
         return RuntimePowerReport(started=1, awaiting_readiness=1)
     except ProviderError as exc:
@@ -343,20 +486,40 @@ def _process_wake_claim(
             now=now,
             retry_execution=exc.retryable or exc.uncertain,
         )
+        finish(
+            "runtime.operation.failed",
+            "error",
+            error_type=type(exc).__name__,
+            error_code=getattr(exc, "code", None),
+        )
         return RuntimePowerReport(failed=1)
-    except (RuntimeConflictError, Workspace.DoesNotExist):
+    except (RuntimeConflictError, Workspace.DoesNotExist) as exc:
         _mark_operation_failed(claim, now=now)
+        finish(
+            "runtime.operation.failed",
+            "error",
+            error_type=type(exc).__name__,
+            error_code=getattr(exc, "code", None),
+        )
         return RuntimePowerReport(failed=1)
     except Exception as exc:  # noqa: BLE001 - maintenance must keep iterating
         _mark_operation_failed(claim, now=now)
-        if workspace is not None:
-            _emit_power_event(
-                "runtime.operation.failed",
-                workspace,
-                "error",
-                error_type=type(exc).__name__,
-            )
+        finish(
+            "runtime.operation.failed",
+            "error",
+            error_type=type(exc).__name__,
+            error_code=getattr(exc, "code", None),
+        )
         return RuntimePowerReport(failed=1)
+    except BaseException as exc:
+        # Close timing before preserving interruption propagation.
+        finish(
+            "runtime.operation.failed",
+            "error",
+            error_type=type(exc).__name__,
+            error_code=getattr(exc, "code", None),
+        )
+        raise
 
 
 def _process_stop_claim(
@@ -615,9 +778,9 @@ def _same_expired_claim(
 
 
 @transaction.atomic
-def _prepare_start(claim: _OperationClaim, now: datetime) -> None:
+def _prepare_start(claim: _OperationClaim, now: datetime) -> int:
     workspace = _owned_operation(claim, RuntimeOperationState.STARTING)
-    advance_runtime_start_epoch_locked(workspace)
+    runtime_start_epoch = advance_runtime_start_epoch_locked(workspace)
     if claim.trigger == RuntimeOperationTrigger.SPECULATIVE:
         workspace.last_speculative_start_at = now
     workspace.save(
@@ -632,6 +795,7 @@ def _prepare_start(claim: _OperationClaim, now: datetime) -> None:
             "updated_at",
         ]
     )
+    return runtime_start_epoch
 
 
 @transaction.atomic
@@ -770,6 +934,22 @@ def _mark_operation_failed_locked(
                 "updated_at",
             ]
         )
+        if operation_id is not None:
+            next_operation_id = workspace.runtime_operation_id
+            scheduled_retry_count = workspace.runtime_operation_retry_count
+
+            def emit_retry_bridge() -> None:
+                _emit_power_event(
+                    "runtime.operation.retried",
+                    workspace,
+                    "scheduled",
+                    operation="runtime.wake.retry_scheduled",
+                    request_id=str(operation_id),
+                    correlation_id=str(next_operation_id),
+                    retry_count=scheduled_retry_count,
+                )
+
+            transaction.on_commit(emit_retry_bridge)
         return
     if clear_keep_warm:
         workspace.speculative_keep_warm_until = None
@@ -1013,20 +1193,60 @@ def _merge(left: RuntimePowerReport, right: RuntimePowerReport) -> RuntimePowerR
 
 
 def _emit_power_event(
-    event_name: str, workspace: Workspace, outcome: str, **fields: Any
-):
-    try:
-        emit_event(
-            build_event(
-                event_name,
-                operation="runtime_power",
-                workspace_id=str(workspace.id),
-                outcome=outcome,
-                **fields,
-            )
-        )
-    except Exception:  # noqa: BLE001 - observability cannot block maintenance
-        return
+    event_name: str,
+    workspace: Workspace | None,
+    outcome: str,
+    *,
+    operation: str = "runtime_power",
+    workspace_id: UUID | str | None = None,
+    **fields: Any,
+) -> None:
+    safe_workspace_id = (
+        str(workspace.id)
+        if workspace is not None
+        else str(workspace_id)
+        if workspace_id is not None
+        else None
+    )
+    emit_timing_event(
+        event_name,
+        emitter=emit_event,
+        identifier_names=(
+            "workspace_id",
+            "provider_resource_id",
+            "correlation_id",
+        ),
+        operation=operation,
+        workspace_id=safe_workspace_id,
+        outcome=outcome,
+        **fields,
+    )
+
+
+def _emit_wake_event(
+    event_name: str,
+    claim: _OperationClaim,
+    outcome: str,
+    *,
+    started_at: float | None,
+    workspace: Workspace | None = None,
+    operation: str,
+    duration_ms: float | None = None,
+    **fields: Any,
+) -> None:
+    if started_at is not None and duration_ms is None:
+        duration_ms = (time.monotonic() - started_at) * 1000
+    if duration_ms is not None:
+        fields["duration_ms"] = duration_ms
+    _emit_power_event(
+        event_name,
+        workspace,
+        outcome,
+        operation=operation,
+        workspace_id=claim.workspace_id,
+        correlation_id=str(claim.operation_id),
+        **fields,
+    )
 
 
 __all__ = [

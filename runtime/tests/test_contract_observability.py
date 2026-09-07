@@ -16,7 +16,10 @@ def test_runtime_event_implementation_conforms_to_shared_contract():
     assert observability.DEFAULT_MAX_EVENT_BYTES == contract["limits"]["max_event_bytes"]
 
     event = observability.build_event(
-        "task.succeeded",
+        "runtime.operation.succeeded",
+        operation="readiness.publication",
+        generation=3,
+        runtime_start_epoch=4,
         task_name="runtime.tasks.profile_turn",
         task_id="task_123",
         queue="default",
@@ -25,3 +28,6 @@ def test_runtime_event_implementation_conforms_to_shared_contract():
     encoded = json.loads(observability.serialize_event(event))
     assert set(contract["required"]) <= set(encoded)
     assert set(encoded) <= set(contract["required"]) | set(contract["optional"])
+    for field in ("generation", "runtime_start_epoch"):
+        assert contract["limits"]["runtime_counter_min"] <= encoded[field]
+        assert encoded[field] <= contract["limits"]["runtime_counter_max"]

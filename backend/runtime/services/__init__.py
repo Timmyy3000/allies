@@ -24,6 +24,11 @@ from .provisioning_hints import (
     mark_provisioning_hint_delivery,
     publish_due_profile_readiness_hints,
 )
+from .ready_pool import (
+    assign_ready_workspace,
+    is_canonical_cloud_workspace_ref,
+    mark_ready_bundle_evicting,
+)
 from .runtime_intents import (
     RuntimeIntentReceipt,
     cleanup_runtime_intents,
@@ -70,6 +75,7 @@ __all__ = [
     "accept_runtime_readiness",
     "advance_workspace_activity",
     "append_event",
+    "assign_ready_workspace",
     "authorize_attempt_mutation",
     "bind_conversation",
     "claim_event_deliveries",
@@ -84,8 +90,10 @@ __all__ = [
     "enqueue_event_delivery",
     "ensure_provisioning_hint_delivery",
     "ensure_workspace",
+    "is_canonical_cloud_workspace_ref",
     "mark_event_delivery",
     "mark_provisioning_hint_delivery",
+    "mark_ready_bundle_evicting",
     "process_runtime_wakes",
     "publish_due_profile_readiness_hints",
     "publish_pending_event_deliveries",
