@@ -44,6 +44,7 @@ class ImageProvider(FakeProvider):
     wrong_image = False
 
     def ensure_machine(self, spec):
+        self.last_machine_spec = spec
         if self.fail_create and spec.ownership.generation > 1:
             raise ProviderRetryableError("image pull unavailable")
         machine = super().ensure_machine(spec)
@@ -107,6 +108,22 @@ def ready(workspace):
         uuid4(),
         workspace.machine_generation,
         workspace.runtime_start_epoch,
+    )
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+def test_release_propagates_optional_activity_wait_setting(
+    release_setup, settings, enabled
+):
+    workspace, provider, _ = release_setup
+    settings.ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED = enabled
+    assert wake(workspace, provider).awaiting_readiness == 1
+    runtime = next(
+        c for c in provider.last_machine_spec.containers if c.name == "allies-runtime"
+    )
+    assert (
+        runtime.environment["ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED"]
+        == str(enabled).lower()
     )
 
 

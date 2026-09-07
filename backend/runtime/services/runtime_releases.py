@@ -9,6 +9,7 @@ from datetime import timedelta
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
@@ -186,6 +187,7 @@ def reconcile_workspace_release(
                 hermes_key_secret_name="ALLIES_FND008_HERMES_KEY",
                 provider_key_secret_name="ALLIES_FND008_OPENAI_KEY",
             ),
+            activity_wait_enabled=settings.ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED,
         )
         WorkspaceLifecycle(provider, jitter=False).replace_machine(
             workspace.id,

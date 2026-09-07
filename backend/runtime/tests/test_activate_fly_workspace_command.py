@@ -295,9 +295,14 @@ def test_active_generation_must_have_a_ready_recorded_machine(monkeypatch):
 
 
 @pytest.mark.django_db
-def test_fresh_activation_stays_pending_until_runtime_readiness_receipt(monkeypatch):
+@pytest.mark.parametrize("reserved", [False, True])
+def test_fresh_activation_stays_pending_until_runtime_readiness_receipt(
+    monkeypatch, reserved
+):
+    from runtime.management.commands.activate_fly_workspace import Command
+
     configure_activation(monkeypatch)
-    tenant_ref = uuid4()
+    tenant_ref = f"pool:{uuid4()}" if reserved else str(uuid4())
     workspace = Workspace.objects.create(tenant_ref=str(tenant_ref))
     provider = CommandProvider()
     patch_command_dependencies(
@@ -307,9 +312,13 @@ def test_fresh_activation_stays_pending_until_runtime_readiness_receipt(monkeypa
     )
 
     with pytest.raises(ActivationCommandError, match="readiness receipt is pending"):
-        call_command("activate_fly_workspace", str(tenant_ref))
+        if reserved:
+            Command().activate_registered_workspace(workspace.id)
+        else:
+            call_command("activate_fly_workspace", tenant_ref)
 
     workspace.refresh_from_db()
+    assert workspace.tenant_ref == tenant_ref
     assert workspace.provisioning_phase == WorkspaceProvisioningPhase.IDLE
     assert workspace.machine_generation == 1
     assert workspace.runtime_operation_state == RuntimeOperationState.AWAITING_READINESS
