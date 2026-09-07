@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
+from uuid import uuid4
 
 from .composition import RuntimeComposition, compose_runtime, run_worker
 from .config import CredentialReference, SettingsError, load_settings
@@ -22,6 +23,7 @@ from .hermes import (
     UnixSocketCredentialResolver,
     test_credential_for_reference,
 )
+from .observability import observe_runtime_operation
 from .smoke import run_smoke_sync
 
 _HERMES_STARTUP_GRACE_SECONDS = 60.0
@@ -39,16 +41,23 @@ def worker_entrypoint(
     max_turns: int | None = None,
     idle_cycles: int | None = 1,
     idle_delay: float = 0.0,
+    boot_id: str | None = None,
 ) -> int:
     """Run the production worker through the explicit composition boundary."""
 
-    composition: RuntimeComposition = compose_runtime(
-        settings,
-        foundry,
-        credential_resolver,
-        hermes=hermes,
-        api_key_factory=api_key_factory,
-    )
+    boot_id = boot_id or str(uuid4())
+    with observe_runtime_operation(
+        "startup.composition",
+        correlation_id=boot_id,
+    ):
+        composition: RuntimeComposition = compose_runtime(
+            settings,
+            foundry,
+            credential_resolver,
+            hermes=hermes,
+            api_key_factory=api_key_factory,
+            boot_id=boot_id,
+        )
     try:
         asyncio.run(
             run_worker(
@@ -119,28 +128,46 @@ def runtime_entrypoint(
     """Probe Hermes, compose the production worker, and poll until fenced."""
 
     values = dict(os.environ) if env is None else dict(env)
-    if not values.get("HERMES_CREDENTIAL_REF"):
-        return 1
-    try:
-        settings = load_settings(values)
-        if credential_resolver is None:
-            credential_resolver = _default_credential_resolver(
-                settings.credential_ref, values
+    boot_id = str(uuid4())
+    with observe_runtime_operation("startup.setup", correlation_id=boot_id) as setup:
+        if not values.get("HERMES_CREDENTIAL_REF"):
+            setup.update(
+                outcome="error",
+                error_type="SettingsError",
+                error_code="missing_credential_ref",
+                reason_code="configuration",
             )
-        resolve_foundry = foundry_credential_resolver or file_credential_for_reference
-        runtime_token = resolve_foundry(settings.foundry_credential_ref)
-        foundry = foundry_factory(
-            base_url=settings.foundry_origin,
-            runtime_token=runtime_token,
-        )
-        readiness_client = hermes or HermesClient(settings, credential_resolver)
-    except (OSError, SettingsError, TypeError, ValueError):
-        return 1
-    deadline = time.monotonic() + _HERMES_STARTUP_GRACE_SECONDS
-    while not asyncio.run(probe_readiness(readiness_client)):
-        if time.monotonic() >= deadline:
             return 1
-        time.sleep(0.25)
+        try:
+            settings = load_settings(values)
+            if credential_resolver is None:
+                credential_resolver = _default_credential_resolver(
+                    settings.credential_ref, values
+                )
+            resolve_foundry = (
+                foundry_credential_resolver or file_credential_for_reference
+            )
+            runtime_token = resolve_foundry(settings.foundry_credential_ref)
+            foundry = foundry_factory(
+                base_url=settings.foundry_origin,
+                runtime_token=runtime_token,
+            )
+            readiness_client = hermes or HermesClient(settings, credential_resolver)
+        except (OSError, SettingsError, TypeError, ValueError) as error:
+            setup.update(
+                outcome="error",
+                error_type=type(error).__name__,
+                error_code=getattr(error, "code", None),
+                reason_code="configuration",
+            )
+            return 1
+    deadline = time.monotonic() + _HERMES_STARTUP_GRACE_SECONDS
+    if not _wait_for_hermes_readiness(
+        readiness_client,
+        deadline=deadline,
+        correlation_id=boot_id,
+    ):
+        return 1
     return worker_entrypoint(
         settings=settings,
         foundry=foundry,
@@ -149,6 +176,7 @@ def runtime_entrypoint(
         # An explicitly injected client remains available for tests/integrations.
         hermes=hermes,
         idle_cycles=idle_cycles,
+        boot_id=boot_id,
     )
 
 
@@ -178,6 +206,35 @@ async def probe_readiness(client: Any) -> bool:
     )
 
 
+def _wait_for_hermes_readiness(
+    client: Any,
+    *,
+    deadline: float,
+    correlation_id: str,
+) -> bool:
+    """Poll Hermes within the existing deadline and emit one aggregate span."""
+
+    with observe_runtime_operation(
+        "startup.hermes_readiness",
+        correlation_id=correlation_id,
+    ) as operation:
+        retries = 0
+        while not asyncio.run(probe_readiness(client)):
+            retries += 1
+            if time.monotonic() >= deadline:
+                operation.update(
+                    outcome="error",
+                    error_type="TimeoutError",
+                    error_code="hermes_startup_timeout",
+                    reason_code="timeout",
+                    retry_count=retries,
+                )
+                return False
+            time.sleep(0.25)
+        operation.update(retry_count=retries)
+        return True
+
+
 def serve(
     *, client: Any | None = None, credential_resolver: Callable[..., Any] | None = None
 ) -> int:
@@ -189,19 +246,33 @@ def serve(
     claiming readiness.
     """
 
+    boot_id = str(uuid4())
     if client is None:
-        if not os.environ.get("HERMES_CREDENTIAL_REF"):
-            return 1
-        try:
-            if credential_resolver is None:
-                reference = CredentialReference(os.environ["HERMES_CREDENTIAL_REF"])
-                credential_resolver = _default_credential_resolver(
-                    reference, dict(os.environ)
+        with observe_runtime_operation("startup.setup", correlation_id=boot_id) as setup:
+            if not os.environ.get("HERMES_CREDENTIAL_REF"):
+                setup.update(
+                    outcome="error",
+                    error_type="SettingsError",
+                    error_code="missing_credential_ref",
+                    reason_code="configuration",
                 )
-            settings = load_settings(dict(os.environ))
-            client = HermesClient(settings, credential_resolver)
-        except (SettingsError, ValueError, TypeError):
-            return 1
+                return 1
+            try:
+                if credential_resolver is None:
+                    reference = CredentialReference(os.environ["HERMES_CREDENTIAL_REF"])
+                    credential_resolver = _default_credential_resolver(
+                        reference, dict(os.environ)
+                    )
+                settings = load_settings(dict(os.environ))
+                client = HermesClient(settings, credential_resolver)
+            except (SettingsError, ValueError, TypeError) as error:
+                setup.update(
+                    outcome="error",
+                    error_type=type(error).__name__,
+                    error_code=getattr(error, "code", None),
+                    reason_code="configuration",
+                )
+                return 1
     # The proof-only temporary-profile bootstrap runs after the Machine has
     # started. Keep PID 1 alive, but unready, during that bounded handoff so
     # the bootstrap can install the matching Hermes key/profile before the
@@ -212,10 +283,12 @@ def serve(
         _HERMES_STARTUP_GRACE_SECONDS if reference.startswith("test://fnd004/") else 0.0
     )
     try:
-        while not asyncio.run(probe_readiness(client)):
-            if time.monotonic() >= deadline:
-                return 1
-            time.sleep(0.25)
+        if not _wait_for_hermes_readiness(
+            client,
+            deadline=deadline,
+            correlation_id=boot_id,
+        ):
+            return 1
     except KeyboardInterrupt:
         return 0
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
+from uuid import UUID, uuid4
 
 from .config import CredentialReference, RuntimeSettings
 from .foundry import (
@@ -38,6 +39,7 @@ def compose_runtime(
     hermes: Any | None = None,
     api_key_factory: Callable[[], str] | None = None,
     profile_reconcile_interval: float = DEFAULT_PROFILE_RECONCILE_INTERVAL,
+    boot_id: str | UUID | None = None,
 ) -> RuntimeComposition:
     """Build the production worker graph from validated runtime seams.
 
@@ -53,6 +55,7 @@ def compose_runtime(
         raise TypeError("credential resolver must be callable")
 
     configure_runtime_observability(config=settings.wide_events)
+    correlation_id = str(boot_id or uuid4())
 
     def resolve_profile_credential(reference: str) -> str:
         return credential_resolver(CredentialReference(reference))
@@ -71,7 +74,11 @@ def compose_runtime(
             profile_credential_resolver=profile_store.read_api_key,
         )
     )
-    profile_reconciler = ProfileReconciler(foundry, profile_store)
+    profile_reconciler = ProfileReconciler(
+        foundry,
+        profile_store,
+        correlation_id=correlation_id,
+    )
     worker = FoundryWorker(
         foundry,
         hermes_client,
@@ -80,6 +87,7 @@ def compose_runtime(
         profile_reconcile_interval=profile_reconcile_interval,
         activity_wait_enabled=settings.activity_wait_enabled,
         activity_wait_seconds=settings.activity_wait_seconds,
+        boot_id=correlation_id,
     )
     return RuntimeComposition(
         settings=settings,

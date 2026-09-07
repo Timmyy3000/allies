@@ -116,6 +116,7 @@ async def test_client_reconciliation_snapshot_and_readiness_receipt():
                 "version": 1,
                 "machine_generation": 7,
                 "runtime_start_epoch": 12,
+                "workspace_id": {"unexpected": "metadata"},
                 "profiles": [],
             },
         },
@@ -138,6 +139,7 @@ async def test_client_reconciliation_snapshot_and_readiness_receipt():
     )
 
     assert snapshot.runtime_start_epoch == 12
+    assert snapshot.workspace_id is None
     assert receipt["status"] == "ready"
     assert transport.calls[1][3] == {
         "boot_id": "00000000-0000-4000-8000-000000000009",
@@ -967,6 +969,10 @@ async def test_profile_reconciliation_retry_uses_bounded_exponential_backoff(
 ):
     worker = FoundryWorker(object(), object(), profile_reconciler=object())
     delays: list[float] = []
+    events = []
+    monkeypatch.setattr(
+        "allies_runtime.observability.emit_runtime_event", events.append
+    )
 
     async def fail_reconciliation(*, force=False):
         raise ServiceUnavailableError("temporarily unavailable")
@@ -981,6 +987,15 @@ async def test_profile_reconciliation_retry_uses_bounded_exponential_backoff(
         assert not await worker._reconcile_profiles_or_wait(retry_delay=1.0)
 
     assert delays == [1.0, 2.0, 4.0, 5.0, 5.0]
+    waits = [
+        event
+        for event in events
+        if event.get("operation") == "profile.reconciliation_retry_wait"
+    ]
+    assert len(waits) == 10
+    assert [event["retry_count"] for event in waits[1::2]] == [1, 2, 3, 4, 5]
+    assert all(event["correlation_id"] == worker.boot_id for event in waits)
+    assert all(event["duration_ms"] >= 0 for event in waits[1::2])
 
 
 @pytest.mark.asyncio

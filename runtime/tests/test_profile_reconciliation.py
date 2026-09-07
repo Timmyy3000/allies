@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from allies_runtime import observability
 from allies_runtime.foundry import (
     FoundryClient,
     FoundryError,
@@ -151,7 +152,7 @@ async def test_foundry_client_rejects_malformed_profile_response():
 
 @pytest.mark.asyncio
 async def test_profile_reconciler_materializes_then_acknowledges_store_receipt(
-    tmp_path,
+    tmp_path, monkeypatch
 ):
     seed = ProfileSeed(
         foundry_profile_id="12345678-1234-5678-1234-567812345678",
@@ -218,12 +219,16 @@ async def test_profile_reconciler_materializes_then_acknowledges_store_receipt(
             )
 
     foundry = FakeFoundry()
+    events = []
+    monkeypatch.setattr(observability, "emit_runtime_event", events.append)
     store = ProfileStore(
         tmp_path / "volume",
         api_key_factory=lambda: "profile-local-key-0123456789",
         credential_resolver={"vault://providers/ally-a": "secret"},
     )
-    report = await ProfileReconciler(foundry, store).reconcile()
+    report = await ProfileReconciler(
+        foundry, store, correlation_id="boot-1"
+    ).reconcile()
     assert len(report.materialized) == 1
     assert foundry.receipts[0][1]["seed_fingerprint"] == seed.fingerprint
     profile_config = (
@@ -231,6 +236,30 @@ async def test_profile_reconciler_materializes_then_acknowledges_store_receipt(
     ).read_text(encoding="utf-8")
     assert 'provider: "allies_mnemosyne"' in profile_config
     assert 'mode: "context_only"' in profile_config
+    materialization_events = [
+        event
+        for event in events
+        if event.get("operation") == "profile_materialization"
+    ]
+    assert [event["event"] for event in materialization_events] == [
+        "runtime.operation.started",
+        "runtime.operation.succeeded",
+    ]
+    assert all(event["correlation_id"] == "boot-1" for event in materialization_events)
+    assert materialization_events[1]["generation"] == 3
+    for operation_name in (
+        "profile.local_materialization",
+        "profile.materialization_receipt",
+    ):
+        child_events = [
+            event for event in events if event.get("operation") == operation_name
+        ]
+        assert [event["event"] for event in child_events] == [
+            "runtime.operation.started",
+            "runtime.operation.succeeded",
+        ]
+        assert child_events[0]["request_id"] == child_events[1]["request_id"]
+        assert child_events[0]["correlation_id"] == "boot-1"
 
 
 class StaticFoundry:
@@ -496,7 +525,9 @@ async def test_foundry_worker_retries_lost_profile_reconciliation_response():
 
 
 @pytest.mark.asyncio
-async def test_profile_reconciler_blocks_repair_state_and_store_failures():
+async def test_profile_reconciler_blocks_repair_state_and_store_failures(monkeypatch):
+    events = []
+    monkeypatch.setattr(observability, "emit_runtime_event", events.append)
     repair_profile = await parsed_profile(lifecycle_state="repair_required")
     with pytest.raises(ProfileReconciliationBlocked):
         await ProfileReconciler(StaticFoundry([repair_profile]), object()).reconcile()
@@ -509,8 +540,20 @@ async def test_profile_reconciler_blocks_repair_state_and_store_failures():
 
     with pytest.raises(ProfileReconciliationBlocked):
         await ProfileReconciler(
-            StaticFoundry([pending_profile]), BrokenStore()
+            StaticFoundry([pending_profile]), BrokenStore(), correlation_id="boot-1"
         ).reconcile()
+
+    local_events = [
+        event
+        for event in events
+        if event.get("operation") == "profile.local_materialization"
+    ]
+    assert [event["event"] for event in local_events] == [
+        "runtime.operation.started",
+        "runtime.operation.failed",
+    ]
+    assert local_events[1]["error_code"] == "materialization_failed"
+    assert local_events[1]["reason_code"] == "repair_required"
 
 
 @pytest.mark.asyncio

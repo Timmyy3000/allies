@@ -36,6 +36,19 @@ def run_settings_probe(**overrides):
         "ALLIES_FLY_API_BASE_URL",
         "ALLIES_RUNTIME_IDLE_STOP_ENABLED",
         "ALLIES_RUNTIME_POWER_PROOF_ENABLED",
+        "ALLIES_RUNTIME_READINESS_HINT_ENABLED",
+        "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED",
+        "ALLIES_RUNTIME_ACTIVITY_WAIT_SECONDS",
+        "ALLIES_RUNTIME_ACTIVITY_WAIT_MAX_WAITERS",
+        "READY_WORKSPACE_POOL_TARGET",
+        "READY_WORKSPACE_POOL_REGION",
+        "READY_WORKSPACE_POOL_RELEASE_FINGERPRINT",
+        "READY_WORKSPACE_POOL_CONFIG_VERSION",
+        "READY_WORKSPACE_POOL_MAX_PREPARING",
+        "READY_WORKSPACE_POOL_MAX_ATTEMPTS",
+        "READY_WORKSPACE_POOL_READY_TTL_SECONDS",
+        "READY_WORKSPACE_POOL_HEALTH_FRESHNESS_SECONDS",
+        "READY_WORKSPACE_POOL_PHASE_CLAIM_SECONDS",
         "ALLIES_RUNTIME_KEEP_WARM_SECONDS",
         "ALLIES_RUNTIME_INTENT_TTL_SECONDS",
         "ALLIES_RUNTIME_INTENT_RETENTION_SECONDS",
@@ -244,6 +257,37 @@ def test_runtime_intent_retention_cannot_end_before_eligibility():
 
     assert result.returncode != 0
     assert "ALLIES_RUNTIME_INTENT_RETENTION_SECONDS" in result.stderr
+
+
+def test_ready_workspace_pool_is_disabled_by_target_zero():
+    result = run_settings_probe(DJANGO_DEBUG="true", READY_WORKSPACE_POOL_TARGET="0")
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_ready_workspace_pool_requires_region_and_release_when_enabled():
+    missing_region = run_settings_probe(
+        DJANGO_DEBUG="true",
+        READY_WORKSPACE_POOL_TARGET="1",
+        READY_WORKSPACE_POOL_RELEASE_FINGERPRINT="release-v1",
+    )
+    missing_release = run_settings_probe(
+        DJANGO_DEBUG="true",
+        READY_WORKSPACE_POOL_TARGET="1",
+        READY_WORKSPACE_POOL_REGION="ams",
+    )
+    valid = run_settings_probe(
+        DJANGO_DEBUG="true",
+        READY_WORKSPACE_POOL_TARGET="1",
+        READY_WORKSPACE_POOL_REGION="ams",
+        READY_WORKSPACE_POOL_RELEASE_FINGERPRINT="release-v1",
+    )
+
+    assert missing_region.returncode != 0
+    assert "READY_WORKSPACE_POOL_REGION" in missing_region.stderr
+    assert missing_release.returncode != 0
+    assert "READY_WORKSPACE_POOL_RELEASE_FINGERPRINT" in missing_release.stderr
+    assert valid.returncode == 0, valid.stderr
 
 
 @pytest.mark.parametrize(

@@ -267,11 +267,13 @@ def test_runtime_entrypoint_retries_hermes_during_startup(monkeypatch):
     states = iter((False, True))
     sleeps = []
     worker_calls = []
+    events = []
 
     async def readiness(_client):
         return next(states)
 
     monkeypatch.setattr(__main__, "probe_readiness", readiness)
+    monkeypatch.setattr(observability, "emit_runtime_event", events.append)
     monkeypatch.setattr(__main__.time, "sleep", sleeps.append)
     monkeypatch.setattr(
         __main__,
@@ -297,6 +299,17 @@ def test_runtime_entrypoint_retries_hermes_during_startup(monkeypatch):
     assert result == 0
     assert sleeps == [0.25]
     assert len(worker_calls) == 1
+    readiness_events = [
+        event
+        for event in events
+        if event.get("operation") == "startup.hermes_readiness"
+    ]
+    assert [event["event"] for event in readiness_events] == [
+        "runtime.operation.started",
+        "runtime.operation.succeeded",
+    ]
+    assert readiness_events[1]["retry_count"] == 1
+    assert readiness_events[0]["correlation_id"] == readiness_events[1]["correlation_id"]
 
 
 def test_runtime_entrypoint_does_not_reuse_global_readiness_client_for_worker(

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from urllib.error import HTTPError, URLError
@@ -14,6 +15,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from observability.events import emit_event
 from runtime.exceptions import RuntimeConflictError, RuntimeValidationError
 from runtime.models import (
     ProvisioningHintDelivery,
@@ -33,6 +35,7 @@ from .event_delivery import (
     _safe_response_code,
     _validated_cloud_url,
 )
+from .timing import emit_timing_event
 
 MAX_HINT_DELIVERY_BATCH = 1
 HINT_DELIVERY_LEASE_SECONDS = DELIVERY_LEASE_SECONDS
@@ -53,6 +56,7 @@ class ProvisioningHintClaim:
     receipt_id: UUID
     occurred_at: datetime
     attempt: int
+    foundry_workspace_id: UUID | None = None
 
     def payload(self) -> dict[str, object]:
         return {
@@ -219,6 +223,7 @@ def claim_provisioning_hint_deliveries(
                     receipt_id=row.receipt_id,
                     occurred_at=row.occurred_at,
                     attempt=row.delivery_attempts,
+                    foundry_workspace_id=row.workspace_id,
                 )
             )
     return tuple(claims)
@@ -287,12 +292,13 @@ def publish_due_profile_readiness_hints(
     delivered = deferred = exhausted = 0
     for claim in claims:
         status, code = _post_hint_to_cloud(claim)
+        completed_at = now if now is not None else timezone.now()
         if status == 202:
             marked = mark_provisioning_hint_delivery(
                 claim.delivery_id,
                 attempt=claim.attempt,
                 success=True,
-                now=observed_at,
+                now=completed_at,
             )
             delivered += int(marked is not None)
             deferred += int(marked is None)
@@ -306,7 +312,7 @@ def publish_due_profile_readiness_hints(
             success=False,
             safe_error_code=code or "hint_delivery_unavailable",
             terminal=terminal,
-            now=observed_at,
+            now=completed_at,
         )
         if marked is None:
             deferred += 1
@@ -318,6 +324,46 @@ def publish_due_profile_readiness_hints(
 
 
 def _post_hint_to_cloud(claim: ProvisioningHintClaim) -> tuple[int, str]:
+    started_at = time.monotonic()
+    identity = {
+        "operation": "readiness.hint_send",
+        "request_id": str(claim.hint_id),
+        "correlation_id": claim.receipt_id,
+        "workspace_id": claim.foundry_workspace_id,
+        "profile_id": claim.runtime_profile_id,
+        "generation": claim.generation,
+        "retry_count": max(0, claim.attempt - 1),
+        "provider": "cloud",
+    }
+    _emit_hint_timing("runtime.operation.started", **identity, outcome="started")
+    try:
+        status, code = _post_hint_to_cloud_once(claim)
+    except BaseException as error:
+        _emit_hint_timing(
+            "runtime.operation.failed",
+            **identity,
+            duration_ms=(time.monotonic() - started_at) * 1000,
+            outcome="error",
+            error_type=type(error).__name__,
+            error_code=getattr(error, "code", None),
+        )
+        raise
+    _emit_hint_timing(
+        (
+            "runtime.operation.succeeded"
+            if status == 202
+            else "runtime.operation.failed"
+        ),
+        **identity,
+        duration_ms=(time.monotonic() - started_at) * 1000,
+        status_code=status,
+        outcome="accepted" if status == 202 else "error",
+        error_code=None if status == 202 else code or "hint_delivery_unavailable",
+    )
+    return status, code
+
+
+def _post_hint_to_cloud_once(claim: ProvisioningHintClaim) -> tuple[int, str]:
     if not getattr(settings, "ALLIES_RUNTIME_READINESS_HINT_ENABLED", False):
         return 503, "hint_delivery_disabled"
     base_url = _validated_cloud_url(getattr(settings, "ALLIES_CLOUD_URL", None))
@@ -364,6 +410,22 @@ def _post_hint_to_cloud(claim: ProvisioningHintClaim) -> tuple[int, str]:
         return int(exc.code), _safe_response_code(response_body)
     except (TimeoutError, URLError, OSError):
         return 503, "hint_delivery_unavailable"
+
+
+def _emit_hint_timing(event_name: str, **fields: object) -> None:
+    """Emit one bounded hint delivery event without affecting delivery state."""
+
+    emit_timing_event(
+        event_name,
+        emitter=emit_event,
+        identifier_names=(
+            "workspace_id",
+            "profile_id",
+            "request_id",
+            "correlation_id",
+        ),
+        **fields,
+    )
 
 
 __all__ = [

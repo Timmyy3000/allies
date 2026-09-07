@@ -78,6 +78,26 @@ def env_positive_int(name: str, default: int, *, maximum: int = 86400) -> int:
     return value
 
 
+def env_nonnegative_int(name: str, default: int, *, maximum: int = 86400) -> int:
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw)
+    except ValueError as exc:
+        raise ImproperlyConfigured(f"{name} must be a nonnegative integer") from exc
+    if not 0 <= value <= maximum:
+        raise ImproperlyConfigured(f"{name} must be between 0 and {maximum}")
+    return value
+
+
+def _required_pool_text(name: str, *, max_length: int) -> str:
+    value = os.getenv(name, "").strip()
+    if not value or len(value) > max_length or "\x00" in value or "\r" in value:
+        raise ImproperlyConfigured(f"{name} is required when the ready pool is enabled")
+    return value
+
+
 DEBUG = env_bool("DJANGO_DEBUG", default=False)
 database_url = os.getenv("DATABASE_URL")
 
@@ -100,6 +120,40 @@ ALLIES_RUNTIME_ACTIVITY_WAIT_MAX_WAITERS = env_positive_int(
     "ALLIES_RUNTIME_ACTIVITY_WAIT_MAX_WAITERS", 8, maximum=8
 )
 
+READY_WORKSPACE_POOL_TARGET = env_nonnegative_int(
+    "READY_WORKSPACE_POOL_TARGET", 0, maximum=8
+)
+READY_WORKSPACE_POOL_REGION = os.getenv("READY_WORKSPACE_POOL_REGION", "").strip()
+READY_WORKSPACE_POOL_RELEASE_FINGERPRINT = os.getenv(
+    "READY_WORKSPACE_POOL_RELEASE_FINGERPRINT", ""
+).strip()
+READY_WORKSPACE_POOL_MAX_PREPARING = env_positive_int(
+    "READY_WORKSPACE_POOL_MAX_PREPARING", 1, maximum=1
+)
+READY_WORKSPACE_POOL_MAX_ATTEMPTS = env_positive_int(
+    "READY_WORKSPACE_POOL_MAX_ATTEMPTS", 5, maximum=5
+)
+READY_WORKSPACE_POOL_READY_TTL_SECONDS = env_positive_int(
+    "READY_WORKSPACE_POOL_READY_TTL_SECONDS", 900
+)
+READY_WORKSPACE_POOL_HEALTH_FRESHNESS_SECONDS = env_positive_int(
+    "READY_WORKSPACE_POOL_HEALTH_FRESHNESS_SECONDS", 60
+)
+READY_WORKSPACE_POOL_PHASE_CLAIM_SECONDS = env_positive_int(
+    "READY_WORKSPACE_POOL_PHASE_CLAIM_SECONDS", 60, maximum=3600
+)
+
+if READY_WORKSPACE_POOL_TARGET:
+    READY_WORKSPACE_POOL_REGION = _required_pool_text(
+        "READY_WORKSPACE_POOL_REGION", max_length=64
+    )
+    READY_WORKSPACE_POOL_RELEASE_FINGERPRINT = _required_pool_text(
+        "READY_WORKSPACE_POOL_RELEASE_FINGERPRINT", max_length=255
+    )
+
+READY_WORKSPACE_POOL_CONFIG_VERSION = env_positive_int(
+    "READY_WORKSPACE_POOL_CONFIG_VERSION", 1, maximum=2**31 - 1
+)
 ALLIES_FLY_API_BASE_URL = os.getenv("ALLIES_FLY_API_BASE_URL")
 if ALLIES_FLY_API_BASE_URL:
     try:

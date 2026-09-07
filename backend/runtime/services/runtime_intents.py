@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID, uuid4
@@ -8,6 +9,7 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from observability.events import emit_event
 from runtime.exceptions import (
     RuntimeConflictError,
     RuntimeIdempotencyConflictError,
@@ -27,6 +29,7 @@ from runtime.models import (
 
 from .retry import run_with_sqlite_lock_retry
 from .runtime_readiness import is_runtime_ready
+from .timing import emit_timing_event
 
 WORKSPACE_INTENT_LIMIT = 30
 WORKSPACE_INTENT_PERIOD_SECONDS = 60
@@ -50,20 +53,56 @@ def request_runtime_intent(
 ) -> RuntimeIntentReceipt:
     workspace_uuid = _uuid(workspace_id, "workspace_id")
     key = _uuid(idempotency_key, "idempotency_key")
-    try:
-        intent_type = RuntimeIntentType(intent)
-    except (TypeError, ValueError) as exc:
-        raise RuntimeValidationError("intent is not supported") from exc
-    if not isinstance(received_at, datetime) or timezone.is_naive(received_at):
-        raise RuntimeValidationError("received_at must include a timezone")
-    observed_at = now or timezone.now()
-    if timezone.is_naive(observed_at):
-        raise RuntimeValidationError("now must include a timezone")
-    return run_with_sqlite_lock_retry(
-        lambda: _request_runtime_intent_once(
-            workspace_uuid, key, intent_type, received_at, observed_at
-        )
+    started_at = time.monotonic()
+    _emit_intent_timing(
+        "runtime.operation.started",
+        operation="runtime.intent",
+        workspace_id=workspace_uuid,
+        request_id=key,
+        outcome="started",
     )
+    try:
+        try:
+            intent_type = RuntimeIntentType(intent)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeValidationError("intent is not supported") from exc
+        if not isinstance(received_at, datetime) or timezone.is_naive(received_at):
+            raise RuntimeValidationError("received_at must include a timezone")
+        observed_at = now or timezone.now()
+        if timezone.is_naive(observed_at):
+            raise RuntimeValidationError("now must include a timezone")
+        receipt = run_with_sqlite_lock_retry(
+            lambda: _request_runtime_intent_once(
+                workspace_uuid, key, intent_type, received_at, observed_at
+            )
+        )
+    except BaseException as error:
+        _emit_intent_timing(
+            "runtime.operation.failed",
+            operation="runtime.intent",
+            workspace_id=workspace_uuid or workspace_id,
+            request_id=key,
+            duration_ms=(time.monotonic() - started_at) * 1000,
+            outcome="error",
+            error_type=type(error).__name__,
+            error_code=getattr(error, "code", None),
+        )
+        raise
+
+    def emit_committed() -> None:
+        _emit_intent_timing(
+            "runtime.operation.succeeded",
+            operation="runtime.intent",
+            workspace_id=workspace_uuid,
+            request_id=key,
+            correlation_id=receipt.operation_id,
+            duration_ms=(time.monotonic() - started_at) * 1000,
+            outcome=receipt.status,
+            reason_code="replayed" if receipt.replayed else None,
+        )
+
+    transaction.on_commit(emit_committed)
+    return receipt
 
 
 @transaction.atomic
@@ -516,6 +555,17 @@ def _uuid(value: UUID | str, name: str) -> UUID:
         return value if isinstance(value, UUID) else UUID(str(value))
     except (TypeError, ValueError) as exc:
         raise RuntimeValidationError(f"{name} must be a UUID") from exc
+
+
+def _emit_intent_timing(event_name: str, **fields: object) -> None:
+    """Emit a bounded intent event without affecting intent persistence."""
+
+    emit_timing_event(
+        event_name,
+        emitter=emit_event,
+        identifier_names=("workspace_id", "request_id", "correlation_id"),
+        **fields,
+    )
 
 
 __all__ = [

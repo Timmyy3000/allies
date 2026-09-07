@@ -377,13 +377,15 @@ def test_foundry_file_credential_resolver_rejects_unsafe_content(
 
 
 def test_runtime_entrypoint_fails_before_worker_when_hermes_is_unready(monkeypatch):
-    from allies_runtime import __main__
+    from allies_runtime import __main__, observability
 
     class Unready:
         async def health_detailed(self):
             raise RuntimeError("private readiness detail")
 
     worker_calls = []
+    events = []
+    monkeypatch.setattr(observability, "emit_runtime_event", events.append)
     monkeypatch.setattr(
         __main__, "worker_entrypoint", lambda **kwargs: worker_calls.append(kwargs)
     )
@@ -404,3 +406,13 @@ def test_runtime_entrypoint_fails_before_worker_when_hermes_is_unready(monkeypat
 
     assert result == 1
     assert worker_calls == []
+    timeout = [
+        event
+        for event in events
+        if event.get("operation") == "startup.hermes_readiness"
+        and event.get("event") == "runtime.operation.failed"
+    ]
+    assert len(timeout) == 1
+    assert timeout[0]["reason_code"] == "timeout"
+    assert timeout[0]["error_code"] == "hermes_startup_timeout"
+    assert timeout[0]["retry_count"] == 1
