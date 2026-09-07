@@ -56,3 +56,15 @@ class RuntimeIdempotencyConflictError(RuntimeConflictError):
     """A replay identifier was reused with different content."""
 
     code = "IDEMPOTENCY_CONFLICT"
+
+
+class ActivityWaitUnavailable(RuntimeConflictError):
+    """The optional PostgreSQL activity wait cannot be served."""
+
+    code = "ACTIVITY_WAIT_UNAVAILABLE"
+
+
+class ActivityWaitSaturated(RuntimeConflictError):
+    """The bounded per-process activity waiter capacity is full."""
+
+    code = "ACTIVITY_WAIT_SATURATED"

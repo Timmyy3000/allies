@@ -50,8 +50,10 @@ def request_runtime_intent(
 ) -> RuntimeIntentReceipt:
     workspace_uuid = _uuid(workspace_id, "workspace_id")
     key = _uuid(idempotency_key, "idempotency_key")
-    if intent != RuntimeIntentType.COMPOSING_STARTED:
-        raise RuntimeValidationError("intent is not supported")
+    try:
+        intent_type = RuntimeIntentType(intent)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeValidationError("intent is not supported") from exc
     if not isinstance(received_at, datetime) or timezone.is_naive(received_at):
         raise RuntimeValidationError("received_at must include a timezone")
     observed_at = now or timezone.now()
@@ -59,7 +61,7 @@ def request_runtime_intent(
         raise RuntimeValidationError("now must include a timezone")
     return run_with_sqlite_lock_retry(
         lambda: _request_runtime_intent_once(
-            workspace_uuid, key, received_at, observed_at
+            workspace_uuid, key, intent_type, received_at, observed_at
         )
     )
 
@@ -68,6 +70,7 @@ def request_runtime_intent(
 def _request_runtime_intent_once(
     workspace_id: UUID,
     idempotency_key: UUID,
+    intent_type: RuntimeIntentType,
     received_at: datetime,
     now: datetime,
 ) -> RuntimeIntentReceipt:
@@ -81,7 +84,7 @@ def _request_runtime_intent_once(
         .first()
     )
     if existing is not None:
-        if existing.intent_type != RuntimeIntentType.COMPOSING_STARTED:
+        if existing.intent_type != intent_type:
             raise RuntimeIdempotencyConflictError(
                 "idempotency key already identifies a different intent"
             )
@@ -112,6 +115,7 @@ def _request_runtime_intent_once(
             delete_after,
             RuntimeIntentOutcome.FAILED,
             None,
+            intent_type=intent_type,
         )
 
     window_start = now - timedelta(seconds=WORKSPACE_INTENT_PERIOD_SECONDS)
@@ -130,6 +134,7 @@ def _request_runtime_intent_once(
             delete_after,
             RuntimeIntentOutcome.RATE_LIMITED,
             None,
+            intent_type=intent_type,
         )
 
     if is_runtime_ready(workspace, now=now):
@@ -143,6 +148,7 @@ def _request_runtime_intent_once(
             delete_after,
             RuntimeIntentOutcome.ALREADY_READY,
             None,
+            intent_type=intent_type,
         )
 
     if workspace.provisioning_phase in IN_FLIGHT_PROVISIONING_PHASES:
@@ -154,6 +160,7 @@ def _request_runtime_intent_once(
             delete_after,
             RuntimeIntentOutcome.FAILED,
             None,
+            intent_type=intent_type,
         )
 
     if not _has_existing_binding(workspace):
@@ -165,6 +172,7 @@ def _request_runtime_intent_once(
             delete_after,
             RuntimeIntentOutcome.FIRST_PROVISION_REQUIRED,
             None,
+            intent_type=intent_type,
         )
 
     if workspace.runtime_operation_state != RuntimeOperationState.IDLE:
@@ -201,6 +209,7 @@ def _request_runtime_intent_once(
             delete_after,
             RuntimeIntentOutcome.WAKING,
             operation_id,
+            intent_type=intent_type,
         )
 
     cooldown_seconds = getattr(
@@ -217,6 +226,7 @@ def _request_runtime_intent_once(
             delete_after,
             RuntimeIntentOutcome.RATE_LIMITED,
             None,
+            intent_type=intent_type,
         )
 
     operation_id = uuid4()
@@ -245,6 +255,7 @@ def _request_runtime_intent_once(
         delete_after,
         RuntimeIntentOutcome.WAKING,
         operation_id,
+        intent_type=intent_type,
     )
 
 
@@ -341,9 +352,8 @@ def request_activation_recovery_wake(
         for value in (observed_app_ref, observed_machine_ref)
     ):
         raise RuntimeValidationError("observed provider references are required")
-    if (
-        observed_volume_ref is not None
-        and (not isinstance(observed_volume_ref, str) or not observed_volume_ref)
+    if observed_volume_ref is not None and (
+        not isinstance(observed_volume_ref, str) or not observed_volume_ref
     ):
         raise RuntimeValidationError("observed_volume_ref must be non-empty")
     if (
@@ -464,12 +474,14 @@ def _create_intent(
     delete_after: datetime,
     outcome: str,
     operation_id: UUID | None,
+    *,
+    intent_type: RuntimeIntentType = RuntimeIntentType.COMPOSING_STARTED,
 ) -> RuntimeIntentReceipt:
     try:
         RuntimeIntent.objects.create(
             workspace=workspace,
             idempotency_key=idempotency_key,
-            intent_type=RuntimeIntentType.COMPOSING_STARTED,
+            intent_type=intent_type,
             received_at=received_at,
             expires_at=expires_at,
             delete_after=delete_after,

@@ -41,6 +41,8 @@ from runtime.models import (
 )
 from runtime.profile_keys import derive_hermes_profile_key
 
+from .activity import advance_workspace_activity
+from .provisioning_hints import ensure_provisioning_hint_delivery
 from .retry import run_with_sqlite_lock_retry
 from .runtime_auth import RuntimeContext
 from .validation import digest_payload, validate_nonempty
@@ -186,6 +188,7 @@ def ensure_runtime_profile(
                         "updated_at",
                     ]
                 )
+                advance_workspace_activity(workspace)
             return ProfileProvisioningReceipt(
                 profile.id,
                 profile.hermes_profile_key,
@@ -221,6 +224,7 @@ def ensure_runtime_profile(
             raise RuntimeConflictError(
                 "profile identity conflicts with existing state"
             ) from exc
+        advance_workspace_activity(workspace)
         return ProfileProvisioningReceipt(
             profile.id,
             profile.hermes_profile_key,
@@ -316,6 +320,7 @@ def accept_materialization_receipt(
                 raise RuntimeIdempotencyConflictError(
                     "materialization operation conflicts with stored receipt"
                 )
+            ensure_provisioning_hint_delivery(workspace, profile)
             return _materialization_receipt(profile)
         if profile.seed_fingerprint != seed_fingerprint:
             raise RuntimeConflictError(
@@ -340,6 +345,7 @@ def accept_materialization_receipt(
                 "updated_at",
             ]
         )
+        ensure_provisioning_hint_delivery(workspace, profile)
         return _materialization_receipt(profile)
 
     return run_with_sqlite_lock_retry(accept_once)
@@ -429,6 +435,7 @@ def request_profile_cleanup(
                 "updated_at",
             ]
         )
+        advance_workspace_activity(workspace)
         return _cleanup_receipt(profile, active_lease_count=len(active_leases))
 
     return run_with_sqlite_lock_retry(request_once)
@@ -535,6 +542,7 @@ def accept_cleanup_receipt(
                     "updated_at",
                 ]
             )
+            advance_workspace_activity(workspace)
             return _cleanup_receipt(profile, deleted=True)
         if result_code == "repair_required" or expired:
             _fence_profile_leases(profile.id)
@@ -553,6 +561,7 @@ def accept_cleanup_receipt(
                     "updated_at",
                 ]
             )
+            advance_workspace_activity(workspace)
             return _cleanup_receipt(profile, deleted=False, active_lease_count=0)
         profile.cleanup_retry_after = min(
             profile.cleanup_expires_at
@@ -592,6 +601,14 @@ def expire_profile_cleanups(
 
     @transaction.atomic
     def expire_once(profile_id: UUID) -> ProfileReconciliationReceipt | None:
+        profile_workspace = (
+            RuntimeProfile.objects.filter(pk=profile_id)
+            .values_list("workspace_id", flat=True)
+            .first()
+        )
+        if profile_workspace is None:
+            return None
+        workspace = Workspace.objects.select_for_update().get(pk=profile_workspace)
         profile = RuntimeProfile.objects.select_for_update().get(pk=profile_id)
         if (
             profile.lifecycle_state != RuntimeProfileLifecycleState.CLEANUP_PENDING
@@ -615,6 +632,7 @@ def expire_profile_cleanups(
                 "updated_at",
             ]
         )
+        advance_workspace_activity(workspace)
         return _cleanup_receipt(profile, deleted=False, active_lease_count=0)
 
     for profile_id in profile_ids:
