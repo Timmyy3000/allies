@@ -46,6 +46,7 @@ from runtime.services.workspaces import (
     ReplacementProofPrecondition,
     WorkspaceLifecycle,
     WorkspaceSpec,
+    _observed_phase,
 )
 
 _CREDENTIAL_REF = "file:///run/secrets/foundry-runtime-token"
@@ -61,6 +62,35 @@ _FLY_CLI_TIMEOUT_SECONDS = 15
 _FLY_DEPLOY_TIMEOUT_SECONDS = 180
 _CLEANUP_TIMEOUT_SECONDS = 30
 _CLEANUP_POLL_SECONDS = 1
+_BOOTSTRAP_SLEEP_SECONDS = 1800
+_BOOTSTRAP_KILL_SIGNAL = "SIGTERM"
+_BOOTSTRAP_KILL_TIMEOUT = "5s"
+
+
+def _fly_cli_operation(args: tuple[str, ...]) -> str:
+    if args[:1] == ("deploy",):
+        return "fly.release_bootstrap"
+    if args[:2] == ("secrets", "import"):
+        return "fly.secret_stage"
+    if args[:2] == ("secrets", "deploy"):
+        return "fly.secret_deploy"
+    if args[:2] == ("secrets", "unset"):
+        return "fly.secret_cleanup"
+    if args[:2] == ("secrets", "list"):
+        return "fly.secret_list"
+    if args[:2] == ("machine", "list"):
+        return "fly.machine_list"
+    if args[:2] == ("machine", "stop"):
+        return "fly.bootstrap_machine_stop"
+    return "fly.command"
+
+
+def _fly_cli_app_ref(args: tuple[str, ...]) -> str | None:
+    try:
+        index = args.index("--app")
+    except ValueError:
+        return None
+    return args[index + 1] if index + 1 < len(args) else None
 
 
 class ProofSecretStore(Protocol):
@@ -137,47 +167,61 @@ class FlyCliSecretStore:
             raise ValueError("Fly release bootstrap identifiers are invalid")
         if not re.fullmatch(r"[^@\s]+@sha256:[0-9a-f]{64}", image, re.IGNORECASE):
             raise ValueError("Fly release bootstrap image must use an immutable digest")
-        descriptor, config_path = tempfile.mkstemp(suffix=".toml")
-        try:
-            with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as config:
-                config.write(
-                    f'app = "{app_ref}"\n'
-                    f'primary_region = "{region}"\n\n'
-                    "[build]\n"
-                    f'image = "{image}"\n\n'
-                    "[experimental]\n"
-                    'entrypoint = ["/bin/sh", "-c", "sleep 1800"]\n\n'
-                    "[[vm]]\n"
-                    'memory = "256mb"\n'
-                    'cpu_kind = "shared"\n'
-                    "cpus = 1\n"
+        with _observed_phase(
+            "proof.release_bootstrap",
+            provider="fly",
+            provider_resource_id=app_ref,
+        ):
+            descriptor, config_path = tempfile.mkstemp(suffix=".toml")
+            try:
+                with os.fdopen(
+                    descriptor, "w", encoding="utf-8", newline="\n"
+                ) as config:
+                    config.write(
+                        f'app = "{app_ref}"\n'
+                        f'primary_region = "{region}"\n\n'
+                        f'kill_signal = "{_BOOTSTRAP_KILL_SIGNAL}"\n'
+                        f'kill_timeout = "{_BOOTSTRAP_KILL_TIMEOUT}"\n\n'
+                        "[build]\n"
+                        f'image = "{image}"\n\n'
+                        "[experimental]\n"
+                        f'entrypoint = ["/bin/sleep", "{_BOOTSTRAP_SLEEP_SECONDS}"]\n\n'
+                        "[[vm]]\n"
+                        'memory = "256mb"\n'
+                        'cpu_kind = "shared"\n'
+                        "cpus = 1\n"
+                    )
+                self._run(
+                    (
+                        "deploy",
+                        "--config",
+                        config_path,
+                        "--app",
+                        app_ref,
+                        "--ha=false",
+                        "--yes",
+                    ),
+                    timeout_seconds=_FLY_DEPLOY_TIMEOUT_SECONDS,
                 )
-            self._run(
-                (
-                    "deploy",
-                    "--config",
-                    config_path,
-                    "--app",
-                    app_ref,
-                    "--ha=false",
-                    "--yes",
-                ),
-                timeout_seconds=_FLY_DEPLOY_TIMEOUT_SECONDS,
-            )
-            release = self._release_metadata(app_ref)
-            self._stop_bootstrap_machine(app_ref, release)
-            return release
-        finally:
-            Path(config_path).unlink(missing_ok=True)
+                release = self._release_metadata(app_ref)
+                self._stop_bootstrap_machine(app_ref, release)
+                return release
+            finally:
+                Path(config_path).unlink(missing_ok=True)
 
     def deploy(self, app_ref: str) -> tuple[str, str]:
         """Promote secrets staged after the app's first release."""
 
-        self._run(
-            ("secrets", "deploy", "--app", app_ref),
-            timeout_seconds=_FLY_DEPLOY_TIMEOUT_SECONDS,
-        )
-        return self._release_metadata(app_ref)
+        with _observed_phase(
+            "proof.secret_deploy",
+            provider="fly",
+            provider_resource_id=app_ref,
+        ):
+            self._run(
+                ("secrets", "deploy", "--app", app_ref),
+                timeout_seconds=_FLY_DEPLOY_TIMEOUT_SECONDS,
+            )
+            return self._release_metadata(app_ref)
 
     def _release_metadata(self, app_ref: str) -> tuple[str, str]:
         completed = self._run(("machine", "list", "--app", app_ref, "--json"))
@@ -201,27 +245,34 @@ class FlyCliSecretStore:
         return release_id, version
 
     def _stop_bootstrap_machine(self, app_ref: str, release: tuple[str, str]) -> None:
-        completed = self._run(("machine", "list", "--app", app_ref, "--json"))
-        try:
-            machines = json.loads(completed.stdout)
-            candidates = [
-                str(item["id"])
-                for item in machines
-                if (
-                    item.get("config", {}).get("metadata", {}).get("fly_release_id"),
-                    str(
+        with _observed_phase(
+            "proof.bootstrap_helper_stop",
+            provider="fly",
+            provider_resource_id=app_ref,
+        ):
+            completed = self._run(("machine", "list", "--app", app_ref, "--json"))
+            try:
+                machines = json.loads(completed.stdout)
+                candidates = [
+                    str(item["id"])
+                    for item in machines
+                    if (
                         item.get("config", {})
                         .get("metadata", {})
-                        .get("fly_release_version", "")
-                    ),
-                )
-                == release
-            ]
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            raise _FlySecretCommandError("fly_release_metadata_invalid") from exc
-        if len(candidates) != 1 or not _SAFE_SLUG.fullmatch(candidates[0]):
-            raise _FlySecretCommandError("fly_release_metadata_invalid")
-        self._run(("machine", "stop", candidates[0], "--app", app_ref))
+                        .get("fly_release_id"),
+                        str(
+                            item.get("config", {})
+                            .get("metadata", {})
+                            .get("fly_release_version", "")
+                        ),
+                    )
+                    == release
+                ]
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise _FlySecretCommandError("fly_release_metadata_invalid") from exc
+            if len(candidates) != 1 or not _SAFE_SLUG.fullmatch(candidates[0]):
+                raise _FlySecretCommandError("fly_release_metadata_invalid")
+            self._run(("machine", "stop", candidates[0], "--app", app_ref))
 
     @staticmethod
     def _validate_secret_name(secret_name: str) -> None:
@@ -237,40 +288,45 @@ class FlyCliSecretStore:
         input_value: str | None = None,
         timeout_seconds: float = _FLY_CLI_TIMEOUT_SECONDS,
     ) -> subprocess.CompletedProcess[str]:
-        try:
-            completed = subprocess.run(
-                (self.executable, *args),
-                input=input_value,
-                text=True,
-                capture_output=True,
-                check=False,
-                timeout=timeout_seconds,
-            )
-        except subprocess.TimeoutExpired as exc:
-            code = (
-                "fly_secret_release_bootstrap_timeout"
-                if args[:1] == ("deploy",)
-                else "fly_secret_deploy_timeout"
-                if args[:2] == ("secrets", "deploy")
-                else "fly_secret_cleanup_timeout"
-                if args[:2] == ("secrets", "unset")
-                else "fly_secret_command_timeout"
-            )
-            raise _FlySecretCommandError(code) from exc
-        except OSError as exc:
-            raise _FlySecretCommandError("fly_secret_command_unavailable") from exc
-        if completed.returncode != 0:
-            code = (
-                "fly_secret_release_bootstrap_failed"
-                if args[:1] == ("deploy",)
-                else "fly_secret_deploy_failed"
-                if args[:2] == ("secrets", "deploy")
-                else "fly_secret_cleanup_failed"
-                if args[:2] == ("secrets", "unset")
-                else "fly_secret_command_failed"
-            )
-            raise _FlySecretCommandError(code)
-        return completed
+        with _observed_phase(
+            _fly_cli_operation(args),
+            provider="fly",
+            provider_resource_id=_fly_cli_app_ref(args),
+        ):
+            try:
+                completed = subprocess.run(
+                    (self.executable, *args),
+                    input=input_value,
+                    text=True,
+                    capture_output=True,
+                    check=False,
+                    timeout=timeout_seconds,
+                )
+            except subprocess.TimeoutExpired as exc:
+                code = (
+                    "fly_secret_release_bootstrap_timeout"
+                    if args[:1] == ("deploy",)
+                    else "fly_secret_deploy_timeout"
+                    if args[:2] == ("secrets", "deploy")
+                    else "fly_secret_cleanup_timeout"
+                    if args[:2] == ("secrets", "unset")
+                    else "fly_secret_command_timeout"
+                )
+                raise _FlySecretCommandError(code) from exc
+            except OSError as exc:
+                raise _FlySecretCommandError("fly_secret_command_unavailable") from exc
+            if completed.returncode != 0:
+                code = (
+                    "fly_secret_release_bootstrap_failed"
+                    if args[:1] == ("deploy",)
+                    else "fly_secret_deploy_failed"
+                    if args[:2] == ("secrets", "deploy")
+                    else "fly_secret_cleanup_failed"
+                    if args[:2] == ("secrets", "unset")
+                    else "fly_secret_command_failed"
+                )
+                raise _FlySecretCommandError(code)
+            return completed
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,18 +387,23 @@ class ProofDependencyCredentialBootstrap:
             (handle.provider_key_secret_name, self._provider_api_key),
         )
         staged: list[str] = []
-        try:
-            for name, value in values:
-                encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
-                self.secret_store.stage(app_ref, name, encoded)
-                staged.append(name)
-        except Exception:
-            for name in reversed(staged):
-                try:
-                    self.secret_store.remove(app_ref, name)
-                except Exception:  # noqa: BLE001, S110 - preserve original failure
-                    pass
-            raise
+        with _observed_phase(
+            "proof.dependency_credential_stage",
+            provider="fly",
+            provider_resource_id=app_ref,
+        ):
+            try:
+                for name, value in values:
+                    encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
+                    self.secret_store.stage(app_ref, name, encoded)
+                    staged.append(name)
+            except Exception:
+                for name in reversed(staged):
+                    try:
+                        self.secret_store.remove(app_ref, name)
+                    except Exception:  # noqa: BLE001, S110 - preserve original failure
+                        pass
+                raise
         self._handle = handle
         return handle
 
@@ -414,7 +475,13 @@ class ProofCredentialBootstrap:
         token = self.token_factory()
         secret_name = f"ALLIES_FND008_G{generation}_{operation_id.hex[:16].upper()}"
         encoded = base64.b64encode(token.encode("utf-8")).decode("ascii")
-        self.secret_store.stage(app_ref, secret_name, encoded)
+        with _observed_phase(
+            "proof.runtime_credential_stage",
+            workspace_id=workspace_id,
+            provider="fly",
+            provider_resource_id=app_ref,
+        ):
+            self.secret_store.stage(app_ref, secret_name, encoded)
         handle = ProofCredentialHandle(
             workspace_id=workspace_id,
             app_ref=app_ref,
@@ -434,17 +501,21 @@ class ProofCredentialBootstrap:
             raise ValueError("proof credential handle is unavailable")
         if handle.credential_id is not None:
             return handle
-        try:
-            issued = self.credential_issuer(
-                handle.workspace_id,
-                handle.generation,
-                handle.raw_token,
-                handle.operation_id,
-            )
-        except Exception:
-            self.secret_store.remove(handle.app_ref, handle.secret_name)
-            self._handles.pop(handle.operation_id, None)
-            raise
+        with _observed_phase(
+            "proof.runtime_credential_issue",
+            workspace_id=handle.workspace_id,
+        ):
+            try:
+                issued = self.credential_issuer(
+                    handle.workspace_id,
+                    handle.generation,
+                    handle.raw_token,
+                    handle.operation_id,
+                )
+            except Exception:
+                self.secret_store.remove(handle.app_ref, handle.secret_name)
+                self._handles.pop(handle.operation_id, None)
+                raise
         active = replace(handle, credential_id=issued.credential.id)
         self._handles[handle.operation_id] = active
         return active
@@ -673,7 +744,12 @@ def run_machine_replacement_proof(
         capability = getattr(provider, "assert_proof_capabilities", None)
         if capability is None:
             capability = provider.assert_topology_supported
-        capability()
+        with _observed_phase(
+            "proof.provider_preflight",
+            workspace_id=config.workspace_id,
+            provider="fly",
+        ):
+            capability()
         checks.append(ProofCheck("provider_preflight", "pass", "capabilities_ready"))
 
         workspace, workspace_created = Workspace.objects.get_or_create(
@@ -691,7 +767,13 @@ def run_machine_replacement_proof(
         # App creation may succeed remotely even when its response is lost.
         # From this point cleanup must reconcile the exact proof-owned name.
         mutated = True
-        app = provider.ensure_app(app_spec)
+        with _observed_phase(
+            "proof.app",
+            workspace_id=workspace.id,
+            provider="fly",
+            provider_resource_id=app_spec.name,
+        ):
+            app = provider.ensure_app(app_spec)
         resources["app"] = app.name
         if dependency_credential_bootstrap is not None:
             dependency_handle = dependency_credential_bootstrap.prepare(app.name)
@@ -719,7 +801,13 @@ def run_machine_replacement_proof(
                 config.workspace_spec.region,
             )
             _set_provider_release_metadata(provider, release_metadata)
-        first_binding = lifecycle.ensure_workspace(workspace.id, first_spec)
+        with _observed_phase(
+            "proof.initial_lifecycle",
+            workspace_id=workspace.id,
+            provider="fly",
+            provider_resource_id=app.name,
+        ):
+            first_binding = lifecycle.ensure_workspace(workspace.id, first_spec)
         second_handle = credential_bootstrap.issue(second_handle)
         handles[-1] = second_handle
         old_generation = first_binding.machine_generation
@@ -832,12 +920,18 @@ def run_machine_replacement_proof(
         checks.append(ProofCheck("active_overlap", "pass", "two_streams_and_queue"))
 
         second_spec = _spec_for_handle(config, second_handle, dependency_handle)
-        replacement = lifecycle.replace_machine(
-            workspace.id,
-            second_spec,
-            old_generation,
-            precondition,
-        )
+        with _observed_phase(
+            "proof.replacement_lifecycle",
+            workspace_id=workspace.id,
+            provider="fly",
+            provider_resource_id=resources.get("app"),
+        ):
+            replacement = lifecycle.replace_machine(
+                workspace.id,
+                second_spec,
+                old_generation,
+                precondition,
+            )
         new_generation = replacement.machine_generation
         if replacement.volume_ref != first_binding.volume_ref:
             raise RuntimeError("replacement_volume_changed")
@@ -1056,6 +1150,8 @@ def proof_workspace_spec(
     foundry_origin: str,
     handle: ProofCredentialHandle,
     dependency_handle: ProofDependencyCredentialHandle | None = None,
+    *,
+    activity_wait_enabled: bool = False,
 ) -> WorkspaceSpec:
     """Build the proof container topology from opaque credential handles.
 
@@ -1095,6 +1191,9 @@ def proof_workspace_spec(
                 environment={
                     "HERMES_REQUEST_TIMEOUT": "180",
                     "HERMES_STREAM_TIMEOUT": "180",
+                    "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED": (
+                        "true" if activity_wait_enabled else "false"
+                    ),
                 },
                 healthchecks=(
                     _proof_process_healthcheck(

@@ -4,6 +4,7 @@ import base64
 import os
 import re
 import subprocess
+import tomllib
 from dataclasses import replace
 from datetime import timedelta
 from pathlib import Path
@@ -47,6 +48,7 @@ from runtime.services.continuity_proof import (
     _record_current_machine,
     _safe_failure_code,
     _spec_for_handle,
+    proof_workspace_spec,
     run_machine_replacement_proof,
 )
 from runtime.services.profiles import ProfileSeed
@@ -286,6 +288,22 @@ def test_proof_spec_mounts_each_dependency_only_in_its_consumer():
     }
     assert spec.runtime_credential_ref == dependencies.hermes_credential_ref
     assert "must-not-escape" not in repr(spec)
+    assert runtime.environment["ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED"] == "false"
+    accelerated = proof_workspace_spec(
+        config.workspace_spec,
+        config.foundry_origin,
+        generation,
+        dependencies,
+        activity_wait_enabled=True,
+    )
+    assert (
+        accelerated.containers[1].environment["ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED"]
+        == "true"
+    )
+    assert (
+        "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED"
+        not in accelerated.containers[0].environment
+    )
 
 
 @pytest.mark.skipif(os.name == "nt", reason="proof guest shell is Linux")
@@ -497,7 +515,10 @@ def test_fly_secret_store_bootstraps_first_release_without_secret_values(
 
     assert captured["args"][1] == "deploy"
     assert 'app = "allies-app"' in captured["config"]
-    assert 'entrypoint = ["/bin/sh", "-c", "sleep 1800"]' in captured["config"]
+    fly_config = tomllib.loads(captured["config"])
+    assert fly_config["kill_signal"] == "SIGTERM"
+    assert fly_config["kill_timeout"] == "5s"
+    assert fly_config["experimental"]["entrypoint"] == ["/bin/sleep", "1800"]
     assert captured["timeout"] == 180
     assert not captured["path"].exists()
     assert ("fly", "machine", "stop", "abc123", "--app", "allies-app") in captured[
@@ -997,7 +1018,7 @@ def test_proof_timeout_after_mutation_is_failed_and_cleaned():
     )
     # Leave enough wall-clock budget for the provider setup phase; the injected
     # proof clock still makes the overall timeout deterministic and immediate.
-    config = proof_config(run_id="fnd008-timeout", timeout_seconds=0.1)
+    config = proof_config(run_id="fnd008-timeout", timeout_seconds=1)
     now = [0.0]
 
     def advance(seconds):

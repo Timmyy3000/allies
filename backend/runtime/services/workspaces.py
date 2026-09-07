@@ -13,6 +13,7 @@ import random
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from email.utils import parsedate_to_datetime
@@ -81,6 +82,47 @@ STOP_POLL_SECONDS = 0.05
 START_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
 HEALTH_POLL_SECONDS = 1.0
 REQUIRED_CONTAINERS = frozenset(("hermes", "allies-runtime"))
+
+
+@contextmanager
+def _observed_phase(
+    operation: str,
+    workspace_id: UUID | str | None = None,
+    *,
+    provider_resource_id: str | None = None,
+    provider: str | None = None,
+):
+    started_at = time.monotonic()
+    fields = {
+        "operation": operation,
+        "workspace_id": str(workspace_id) if workspace_id is not None else None,
+        "provider_resource_id": provider_resource_id,
+        "provider": provider,
+    }
+    emit_event(build_event("runtime.operation.started", **fields, outcome="started"))
+    try:
+        yield
+    except BaseException as error:
+        emit_event(
+            build_event(
+                "runtime.operation.failed",
+                **fields,
+                duration_ms=(time.monotonic() - started_at) * 1000,
+                outcome="error",
+                error_type=type(error).__name__,
+                error_code=getattr(error, "code", None),
+            )
+        )
+        raise
+    else:
+        emit_event(
+            build_event(
+                "runtime.operation.succeeded",
+                **fields,
+                duration_ms=(time.monotonic() - started_at) * 1000,
+                outcome="success",
+            )
+        )
 
 
 class WorkspaceReplacementRequiredError(RuntimeConflictError):
@@ -744,22 +786,24 @@ class WorkspaceLifecycle:
         workspace = Workspace.objects.get(pk=workspace_id)
         app_spec = spec.app_spec(workspace_id)
         if claim.phase == WorkspaceProvisioningPhase.APP_READY:
-            app = self._ensure_app(app_spec)
-            self._cas_phase(
-                workspace_id,
-                claim,
-                phase=WorkspaceProvisioningPhase.VOLUME_READY,
-                updates={"fly_app_ref": app.id},
-            )
+            with _observed_phase("workspace.provision.app", workspace_id):
+                app = self._ensure_app(app_spec)
+                self._cas_phase(
+                    workspace_id,
+                    claim,
+                    phase=WorkspaceProvisioningPhase.VOLUME_READY,
+                    updates={"fly_app_ref": app.id},
+                )
             return None
         if claim.phase == WorkspaceProvisioningPhase.VOLUME_READY:
-            volume = self._ensure_volume(spec.volume_spec(workspace_id))
-            self._cas_phase(
-                workspace_id,
-                claim,
-                phase=WorkspaceProvisioningPhase.MACHINE_CREATED,
-                updates={"fly_app_ref": app_spec.name, "volume_ref": volume.id},
-            )
+            with _observed_phase("workspace.provision.volume", workspace_id):
+                volume = self._ensure_volume(spec.volume_spec(workspace_id))
+                self._cas_phase(
+                    workspace_id,
+                    claim,
+                    phase=WorkspaceProvisioningPhase.MACHINE_CREATED,
+                    updates={"fly_app_ref": app_spec.name, "volume_ref": volume.id},
+                )
             return None
         if claim.phase == WorkspaceProvisioningPhase.MACHINE_CREATED:
             volume_id = workspace.volume_ref
@@ -768,38 +812,45 @@ class WorkspaceLifecycle:
             machine_spec = spec.machine_spec(
                 workspace_id, volume_id, claim.target_generation, claim.operation_id
             )
-            machine = self._ensure_machine(workspace_id, machine_spec, volume_id)
-            self._cas_phase(
-                workspace_id,
-                claim,
-                phase=WorkspaceProvisioningPhase.MACHINE_STARTED,
-                updates={"machine_ref": machine.id},
-            )
+            with _observed_phase("workspace.provision.machine_create", workspace_id):
+                machine = self._ensure_machine(workspace_id, machine_spec, volume_id)
+                self._cas_phase(
+                    workspace_id,
+                    claim,
+                    phase=WorkspaceProvisioningPhase.MACHINE_STARTED,
+                    updates={"machine_ref": machine.id},
+                )
             return None
         if claim.phase == WorkspaceProvisioningPhase.MACHINE_STARTED:
             if not workspace.machine_ref:
                 raise ProviderTerminalError("workspace Machine binding is incomplete")
-            self._start_machine_if_needed(
-                app_spec.name, workspace.machine_ref, deadline
-            )
-            self._cas_phase(
-                workspace_id,
-                claim,
-                phase=WorkspaceProvisioningPhase.HEALTHY,
-                updates={},
-            )
+            with _observed_phase("workspace.provision.machine_start", workspace_id):
+                self._start_machine_if_needed(
+                    app_spec.name, workspace.machine_ref, deadline
+                )
+                self._cas_phase(
+                    workspace_id,
+                    claim,
+                    phase=WorkspaceProvisioningPhase.HEALTHY,
+                    updates={},
+                )
             return None
         if claim.phase == WorkspaceProvisioningPhase.HEALTHY:
             if not workspace.machine_ref or not workspace.volume_ref:
                 raise ProviderTerminalError("workspace binding is incomplete")
-            self._wait_healthy(app_spec.name, workspace.machine_ref, spec, deadline)
+            with _observed_phase("workspace.provision.machine_health", workspace_id):
+                self._wait_healthy(app_spec.name, workspace.machine_ref, spec, deadline)
             if before_bind is not None:
                 # The callback is the final activation gate. It runs after
                 # provider liveness but before the durable idle binding, so a
                 # failed authenticated bootstrap cannot leave a usable-looking
                 # Workspace row behind.
-                before_bind(workspace_id, spec, claim, deadline)
-            return self._bind_idle(workspace_id, claim, workspace.machine_ref, spec)
+                with _observed_phase(
+                    "workspace.provision.activation_gate", workspace_id
+                ):
+                    before_bind(workspace_id, spec, claim, deadline)
+            with _observed_phase("workspace.provision.bind", workspace_id):
+                return self._bind_idle(workspace_id, claim, workspace.machine_ref, spec)
         raise ProviderTerminalError(f"unsupported ensure phase: {claim.phase}")
 
     def _run_replace_phase(
@@ -817,119 +868,124 @@ class WorkspaceLifecycle:
         previous = claim.previous_machine_ref
 
         if claim.phase == WorkspaceProvisioningPhase.OLD_MACHINE_STOPPED:
-            if previous:
-                existing = self._inspect_machine_by_id(app_name, previous)
-                if existing is not None:
-                    self._verify_previous_machine(
-                        existing,
-                        workspace_id,
-                        volume_id,
-                        claim,
-                    )
-                if existing is not None and existing.state not in (
-                    MachineState.STOPPED,
-                    MachineState.DESTROYED,
-                ):
-                    try:
-                        self.provider.stop_machine(app_name, previous)
-                    except ProviderNotFoundError:
-                        # A stop can succeed before its response is lost.  A
-                        # 404 for the recorded Machine is therefore an
-                        # idempotent success, not a terminal replacement
-                        # failure.
-                        existing = None
-                    self._wait_machine_stopped(
-                        app_name,
-                        previous,
-                        workspace_id,
-                        volume_id,
-                        claim,
-                        deadline,
-                    )
-            # The provider has now authoritatively reported STOPPED or 404.
-            # Retire old-generation leases before destroying/replacing the
-            # Machine; this callback is intentionally after the wait and also
-            # runs for an already-absent recorded Machine.
-            if claim.target_generation > 1:
-                callback = self.fence_callback
-                if callback is None:
-                    from .leases import confirm_machine_stopped_and_fence
+            with _observed_phase("workspace.replace.machine_stop", workspace_id):
+                if previous:
+                    existing = self._inspect_machine_by_id(app_name, previous)
+                    if existing is not None:
+                        self._verify_previous_machine(
+                            existing,
+                            workspace_id,
+                            volume_id,
+                            claim,
+                        )
+                    if existing is not None and existing.state not in (
+                        MachineState.STOPPED,
+                        MachineState.DESTROYED,
+                    ):
+                        try:
+                            self.provider.stop_machine(app_name, previous)
+                        except ProviderNotFoundError:
+                            # A stop can succeed before its response is lost.  A
+                            # 404 for the recorded Machine is therefore an
+                            # idempotent success, not a terminal replacement
+                            # failure.
+                            existing = None
+                        self._wait_machine_stopped(
+                            app_name,
+                            previous,
+                            workspace_id,
+                            volume_id,
+                            claim,
+                            deadline,
+                        )
+                # The provider has now authoritatively reported STOPPED or 404.
+                # Retire old-generation leases before destroying/replacing the
+                # Machine; this callback is intentionally after the wait and also
+                # runs for an already-absent recorded Machine.
+                if claim.target_generation > 1:
+                    callback = self.fence_callback
+                    if callback is None:
+                        from .leases import confirm_machine_stopped_and_fence
 
-                    callback = confirm_machine_stopped_and_fence
-                callback(
+                        callback = confirm_machine_stopped_and_fence
+                    callback(
+                        workspace_id,
+                        claim.target_generation - 1,
+                        claim.target_generation,
+                        previous,
+                    )
+                self._cas_phase(
                     workspace_id,
-                    claim.target_generation - 1,
-                    claim.target_generation,
-                    previous,
+                    claim,
+                    phase=WorkspaceProvisioningPhase.OLD_MACHINE_DESTROYED,
+                    updates={},
                 )
-            self._cas_phase(
-                workspace_id,
-                claim,
-                phase=WorkspaceProvisioningPhase.OLD_MACHINE_DESTROYED,
-                updates={},
-            )
             return None
         if claim.phase == WorkspaceProvisioningPhase.OLD_MACHINE_DESTROYED:
-            if previous:
-                existing = self._inspect_machine_by_id(app_name, previous)
-                if existing is not None:
-                    self._verify_previous_machine(
-                        existing,
-                        workspace_id,
-                        volume_id,
-                        claim,
+            with _observed_phase("workspace.replace.machine_destroy", workspace_id):
+                if previous:
+                    existing = self._inspect_machine_by_id(app_name, previous)
+                    if existing is not None:
+                        self._verify_previous_machine(
+                            existing,
+                            workspace_id,
+                            volume_id,
+                            claim,
+                        )
+                        try:
+                            self.provider.destroy_machine(app_name, previous)
+                        except ProviderNotFoundError:
+                            # The recorded Machine is already gone; continue to
+                            # the authoritative Volume-detachment reconciliation.
+                            pass
+                volume = self._volume_by_id(app_name, volume_id, spec)
+                if volume.attached_machine_id:
+                    if volume.attached_machine_id != previous:
+                        raise ProviderAttachmentConflictError(
+                            volume_id=volume.id,
+                            attached_machine_id=volume.attached_machine_id,
+                        )
+                    raise ProviderRetryableError(
+                        "workspace Volume is still attached to the previous Machine",
+                        operation="wait_volume_detach",
                     )
-                    try:
-                        self.provider.destroy_machine(app_name, previous)
-                    except ProviderNotFoundError:
-                        # The recorded Machine is already gone; continue to
-                        # the authoritative Volume-detachment reconciliation.
-                        pass
-            volume = self._volume_by_id(app_name, volume_id, spec)
-            if volume.attached_machine_id:
-                if volume.attached_machine_id != previous:
-                    raise ProviderAttachmentConflictError(
-                        volume_id=volume.id,
-                        attached_machine_id=volume.attached_machine_id,
-                    )
-                raise ProviderRetryableError(
-                    "workspace Volume is still attached to the previous Machine",
-                    operation="wait_volume_detach",
+                self._cas_phase(
+                    workspace_id,
+                    claim,
+                    phase=WorkspaceProvisioningPhase.MACHINE_CREATED,
+                    updates={},
                 )
-            self._cas_phase(
-                workspace_id,
-                claim,
-                phase=WorkspaceProvisioningPhase.MACHINE_CREATED,
-                updates={},
-            )
             return None
         if claim.phase == WorkspaceProvisioningPhase.MACHINE_CREATED:
-            machine_spec = spec.machine_spec(
-                workspace_id, volume_id, claim.target_generation, claim.operation_id
-            )
-            machine = self._ensure_machine(workspace_id, machine_spec, volume_id)
-            self._cas_phase(
-                workspace_id,
-                claim,
-                phase=WorkspaceProvisioningPhase.MACHINE_STARTED,
-                updates={"machine_ref": machine.id},
-            )
+            with _observed_phase("workspace.replace.machine_create", workspace_id):
+                machine_spec = spec.machine_spec(
+                    workspace_id, volume_id, claim.target_generation, claim.operation_id
+                )
+                machine = self._ensure_machine(workspace_id, machine_spec, volume_id)
+                self._cas_phase(
+                    workspace_id,
+                    claim,
+                    phase=WorkspaceProvisioningPhase.MACHINE_STARTED,
+                    updates={"machine_ref": machine.id},
+                )
             return None
         if claim.phase == WorkspaceProvisioningPhase.MACHINE_STARTED:
             if not workspace.machine_ref:
                 raise ProviderTerminalError("replacement Machine is missing")
-            self._start_machine_if_needed(app_name, workspace.machine_ref, deadline)
-            self._cas_phase(
-                workspace_id,
-                claim,
-                phase=WorkspaceProvisioningPhase.HEALTHY,
-                updates={},
-            )
+            with _observed_phase("workspace.replace.machine_start", workspace_id):
+                self._start_machine_if_needed(app_name, workspace.machine_ref, deadline)
+                self._cas_phase(
+                    workspace_id,
+                    claim,
+                    phase=WorkspaceProvisioningPhase.HEALTHY,
+                    updates={},
+                )
             return None
         if claim.phase == WorkspaceProvisioningPhase.HEALTHY:
             if not workspace.machine_ref:
                 raise ProviderTerminalError("replacement Machine is missing")
-            self._wait_healthy(app_name, workspace.machine_ref, spec, deadline)
+            with _observed_phase("workspace.replace.machine_health", workspace_id):
+                self._wait_healthy(app_name, workspace.machine_ref, spec, deadline)
             if workspace.release_target:
                 machine = self._inspect_machine_by_id(app_name, workspace.machine_ref)
                 if (
@@ -939,7 +995,8 @@ class WorkspaceLifecycle:
                     raise ProviderTerminalError(
                         "replacement images do not match the pinned release"
                     )
-            return self._bind_idle(workspace_id, claim, workspace.machine_ref, spec)
+            with _observed_phase("workspace.replace.bind", workspace_id):
+                return self._bind_idle(workspace_id, claim, workspace.machine_ref, spec)
         raise ProviderTerminalError(f"unsupported replace phase: {claim.phase}")
 
     def _ensure_app(self, spec: AppSpec) -> AppRecord:

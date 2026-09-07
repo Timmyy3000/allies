@@ -154,9 +154,7 @@ class FakeProvider:
             raise ProviderNotFoundError("Machine already destroyed")
         self._remove_machine(machine_id)
 
-    def wait_machine(
-        self, app_name, machine_id, *, timeout_seconds, state="started"
-    ):
+    def wait_machine(self, app_name, machine_id, *, timeout_seconds, state="started"):
         self.calls.append("wait_machine")
         if self.force_unhealthy:
             machine = self.machines[machine_id]
@@ -246,6 +244,39 @@ def test_ensure_is_idempotent_and_binds_one_machine():
 
 
 @pytest.mark.django_db(transaction=True)
+def test_ensure_emits_phase_durations(monkeypatch):
+    events = []
+    monkeypatch.setattr("runtime.services.workspaces.emit_event", events.append)
+    provider = FakeProvider()
+    lifecycle = WorkspaceLifecycle(provider, sleep=lambda _: None, jitter=False)
+    workspace = Workspace.objects.create(
+        id=WORKSPACE_ID, tenant_ref="tenant-phase-events"
+    )
+
+    lifecycle.ensure_workspace(workspace.id, spec())
+
+    phase_events = [
+        event
+        for event in events
+        if str(event.get("operation", "")).startswith("workspace.provision.")
+    ]
+    operations = {event["operation"] for event in phase_events}
+    assert operations == {
+        "workspace.provision.app",
+        "workspace.provision.volume",
+        "workspace.provision.machine_create",
+        "workspace.provision.machine_start",
+        "workspace.provision.machine_health",
+        "workspace.provision.bind",
+    }
+    for operation in operations:
+        observed = [event for event in phase_events if event["operation"] == operation]
+        assert {event["outcome"] for event in observed} == {"started", "success"}
+        completed = next(event for event in observed if event["outcome"] == "success")
+        assert completed["duration_ms"] >= 0
+
+
+@pytest.mark.django_db(transaction=True)
 def test_ensure_retries_a_transient_machine_start_precondition():
     provider = FakeProvider()
     original_ensure = provider.ensure_machine
@@ -330,9 +361,7 @@ def test_ensure_keeps_waiting_after_a_provider_wait_timeout():
     original_wait = provider.wait_machine
     wait_attempts = 0
 
-    def wait_after_timeout(
-        app_name, machine_id, *, timeout_seconds, state="started"
-    ):
+    def wait_after_timeout(app_name, machine_id, *, timeout_seconds, state="started"):
         nonlocal wait_attempts
         wait_attempts += 1
         if wait_attempts == 1:
@@ -705,7 +734,9 @@ def test_terminal_retryable_failure_does_not_emit_retry_event(monkeypatch):
 def test_deadline_before_next_claim_does_not_emit_retry_event(monkeypatch):
     provider = FakeProvider()
     provider.ensure_app = lambda _spec: (_ for _ in ()).throw(
-        ProviderRetryableError("provider is temporarily unavailable", operation="ensure_app")
+        ProviderRetryableError(
+            "provider is temporarily unavailable", operation="ensure_app"
+        )
     )
     events = []
     monkeypatch.setattr(
