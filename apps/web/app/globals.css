@@ -828,6 +828,13 @@ textarea::placeholder {
   -webkit-text-fill-color: transparent;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .shiny-text {
+    background-image: none !important;
+    -webkit-text-fill-color: currentColor;
+  }
+}
+
 .onboarding-coming-alive-page {
   align-items: center;
   justify-content: center;

@@ -12,6 +12,7 @@ export interface DebugConversationMessage {
 export interface DebugActivityEntry {
   id: string;
   text: string;
+  activityKind?: string;
   tone?: "accent" | "muted" | "default";
 }
 

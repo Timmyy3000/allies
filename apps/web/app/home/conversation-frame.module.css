@@ -742,7 +742,13 @@
   color: var(--chat-accent);
   font-size: 14px;
   line-height: 18px;
+  font-weight: 500;
+  letter-spacing: -0.5px;
 }
+
+.frameActivity[data-ongoing="false"] { color: var(--text-secondary); }
+.frameActivityLabel { animation: activity-label-in 150ms ease-out; }
+@keyframes activity-label-in { from { opacity: 0; } to { opacity: 1; } }
 
 .frameActivity summary {
   display: flex;
@@ -759,15 +765,15 @@
 
 .frameActivityChevron {
   display: grid;
-  width: 18px;
-  height: 18px;
+  width: 12px;
+  height: 12px;
   place-items: center;
-  transition: transform 160ms ease;
+  transition: transform 180ms ease;
 }
 
 .frameActivityChevron svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 .frameActivity[open] .frameActivityChevron {
@@ -777,24 +783,23 @@
 .frameActivityEntries {
   display: grid;
   gap: 12px;
-  margin: 2px 0 0 24px;
+  margin: 14px 0 0;
   padding-bottom: 2px;
 }
 
 .frameActivityEntry {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
   color: var(--chat-ink);
 }
 
-.frameActivityDot {
-  width: 8px;
-  height: 8px;
-  flex: 0 0 8px;
-  margin-top: 5px;
-  border-radius: 50%;
-  background: currentColor;
+.frameActivityEntry svg { flex: 0 0 18px; }
+.frameActivityEntry small { color: var(--text-secondary); white-space: nowrap; }
+.frameActivity[open] .frameActivityEntries { animation: activity-label-in 180ms ease-out; }
+@media (prefers-reduced-motion: reduce) {
+  .frameActivityLabel, .frameActivity[open] .frameActivityEntries { animation: none; }
+  .frameActivityChevron { transition: none; }
 }
 
 .frameActivityAccent {

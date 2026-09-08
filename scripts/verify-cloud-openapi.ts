@@ -7,6 +7,8 @@ const canonicalSource = "https://cloud.staging.yourallies.io/api/v1/openapi.json
 const bytes = await readFile(path.join(directory, "allies-cloud-0.1.0.json"));
 const metadata = JSON.parse(await readFile(path.join(directory, "metadata.json"), "utf8")) as {
   source: string;
+  sourceRevision?: string;
+  sourceDirty?: boolean;
   retrievedAt: string;
   title: string;
   version: string;
@@ -23,9 +25,14 @@ const schema = JSON.parse(bytes.toString("utf8")) as {
 const hash = createHash("sha256").update(bytes).digest("hex");
 const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(metadata.retrievedAt) &&
   new Date(`${metadata.retrievedAt}T00:00:00.000Z`).toISOString().startsWith(metadata.retrievedAt);
+const validSource = metadata.source === canonicalSource || (
+  metadata.source === "https://github.com/alliesai/allies-cloud"
+  && /^[0-9a-f]{40}$/.test(metadata.sourceRevision ?? "")
+  && metadata.sourceDirty === false
+);
 
 if (
-  metadata.source !== canonicalSource ||
+  !validSource ||
   !isIsoDate ||
   metadata.title !== "Allies Cloud API" ||
   metadata.version !== "0.1.0" ||

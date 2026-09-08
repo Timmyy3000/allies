@@ -69,6 +69,7 @@
         "@allies/cloud-client": "workspace:*",
         "@tanstack/react-query": "^5.85.5",
         "generative-loaders": "^0.1.1",
+        "iconsax-reactjs": "0.0.8",
         "motion": "^13.1.0",
         "next": "16.2.12",
         "posthog-js": "^1.417.3",
@@ -111,8 +112,6 @@
     "unrs-resolver",
   ],
   "packages": {
-    "@allies/ally-motion": ["@allies/ally-motion@workspace:packages/ally-motion"],
-
     "@allies/ally-motion": ["@allies/ally-motion@workspace:packages/ally-motion"],
 
     "@allies/cloud-client": ["@allies/cloud-client@workspace:packages/cloud-client"],
@@ -1400,6 +1399,8 @@
     "https-proxy-agent": ["https-proxy-agent@7.0.6", "", { "dependencies": { "agent-base": "^7.1.2", "debug": "4" } }, "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw=="],
 
     "hyphenate-style-name": ["hyphenate-style-name@1.1.0", "", {}, "sha512-WDC/ui2VVRrz3jOVi+XtjqkDjiVjTtFaAGiW37k6b+ohyQ5wYDOGkvCZa8+H0nx3gyvv0+BST9xuOgIyGQ00gw=="],
+
+    "iconsax-reactjs": ["iconsax-reactjs@0.0.8", "", { "peerDependencies": { "react": "*" } }, "sha512-cb+uTMxbkSFNbu8ZclX7BWQVfOWQt8+m/PsDjnsm/H+mcYrnfTYMjHxiof1FB43k7UAgt1ds+0oFeMVKdqyslw=="],
 
     "iconv-lite": ["iconv-lite@0.6.3", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw=="],
 

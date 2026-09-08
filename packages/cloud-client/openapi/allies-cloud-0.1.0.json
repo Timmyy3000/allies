@@ -3,6 +3,39 @@
     "schemas": {
       "ActivityResponse": {
         "properties": {
+          "activity_attempt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity Attempt Id"
+          },
+          "activity_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity Id"
+          },
+          "activity_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Activity Kind"
+          },
           "conversation_turn_ordinal": {
             "title": "Conversation Turn Ordinal",
             "type": "integer"
@@ -11,6 +44,17 @@
             "format": "date-time",
             "title": "Created At",
             "type": "string"
+          },
+          "duration_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Ms"
           },
           "id": {
             "format": "uuid",
@@ -25,6 +69,17 @@
             "format": "uuid",
             "title": "Message Id",
             "type": "string"
+          },
+          "outcome": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Outcome"
           },
           "sequence": {
             "title": "Sequence",
@@ -2293,7 +2348,7 @@
   "paths": {
     "/api/v1/allies/{ally_id}/runtime-intents": {
       "post": {
-        "operationId": "runtimeintent_request_9d7697db",
+        "operationId": "runtimeintent_request_fd560790",
         "parameters": [
           {
             "in": "path",
@@ -2449,7 +2504,7 @@
     },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_aabcb109",
+        "operationId": "authentication_callback_222aeeea",
         "parameters": [
           {
             "in": "path",
@@ -2554,7 +2609,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_4d6cc269",
+        "operationId": "authentication_csrf_bd5e0170",
         "parameters": [],
         "responses": {
           "204": {
@@ -2584,7 +2639,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_b45018f8",
+        "operationId": "identity_link_08f06b60",
         "parameters": [
           {
             "in": "path",
@@ -2761,7 +2816,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_5de09f2f",
+        "operationId": "session_logout_d535c754",
         "parameters": [],
         "responses": {
           "204": {
@@ -2806,7 +2861,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_b5dbfd54",
+        "operationId": "profile_me_4aa4ad88",
         "parameters": [],
         "responses": {
           "200": {
@@ -2863,7 +2918,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_2fbdfa08",
+        "operationId": "avatar_delete_985717c5",
         "parameters": [],
         "responses": {
           "204": {
@@ -2973,7 +3028,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_db427fbe",
+        "operationId": "avatar_complete_77cb1ea8",
         "parameters": [
           {
             "in": "path",
@@ -3131,7 +3186,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_28732bf8",
+        "operationId": "avatar_read_11e3745f",
         "parameters": [],
         "responses": {
           "200": {
@@ -3218,7 +3273,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_474fed68",
+        "operationId": "avatar_prepare_9242e868",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3360,7 +3415,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_84ca47dc",
+        "operationId": "profile_profile_83793f21",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3473,7 +3528,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_d1a1ee44",
+        "operationId": "nativeauthentication_callback_7228940e",
         "parameters": [
           {
             "in": "path",
@@ -3657,7 +3712,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_a28cae36",
+        "operationId": "nativeauthentication_logout_3a40efc4",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3749,7 +3804,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_7248440c",
+        "operationId": "nativeauthentication_sign_in_976372f9",
         "parameters": [
           {
             "in": "path",
@@ -3853,7 +3908,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_1b8d3467",
+        "operationId": "nativeauthentication_token_44c3e271",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -4017,7 +4072,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_d3314401",
+        "operationId": "nativeauthentication_refresh_15a4fc0b",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -4180,7 +4235,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_01c34a4c",
+        "operationId": "session_refresh_492e92bb",
         "parameters": [],
         "responses": {
           "204": {
@@ -4270,7 +4325,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_f5f7adb8",
+        "operationId": "authentication_sign_in_e4555281",
         "parameters": [
           {
             "in": "path",
@@ -4417,7 +4472,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_61636c7d",
+        "operationId": "health_health_c47e29a1",
         "parameters": [],
         "responses": {
           "200": {
@@ -4514,7 +4569,7 @@
     "/api/v1/onboarding/attempts": {
       "post": {
         "description": "This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.",
-        "operationId": "onboarding_begin_ee3402d5",
+        "operationId": "onboarding_begin_11f5a39e",
         "parameters": [
           {
             "description": "Browser-only signal; if present it must be a configured trusted origin.",
@@ -4691,7 +4746,7 @@
     "/api/v1/onboarding/runtime-intents": {
       "post": {
         "description": "This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.",
-        "operationId": "onboarding_runtime_intent_c2f276cc",
+        "operationId": "onboarding_runtime_intent_010a512d",
         "parameters": [
           {
             "description": "Stable UUID for repeating one runtime intent.",
@@ -4975,7 +5030,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_f8a64fc5",
+        "operationId": "waitlist_create_f9a2c04c",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -5156,7 +5211,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_8f4d5f89",
+        "operationId": "waitlist_complete_498831c4",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -5326,7 +5381,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_4660774f",
+        "operationId": "workspace_context_08395a14",
         "parameters": [
           {
             "in": "path",
@@ -5409,7 +5464,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_81159475",
+        "operationId": "ally_list_3c75546e",
         "parameters": [
           {
             "in": "path",
@@ -5486,7 +5541,7 @@
       },
       "post": {
         "description": "Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.",
-        "operationId": "ally_create_347ea961",
+        "operationId": "ally_create_c79488de",
         "parameters": [
           {
             "in": "path",
@@ -5722,7 +5777,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_0c1920ff",
+        "operationId": "ally_retrieve_dc76e965",
         "parameters": [
           {
             "in": "path",
@@ -5810,7 +5865,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_676b9bb2",
+        "operationId": "conversation_by_ally_e7a40390",
         "parameters": [
           {
             "in": "path",
@@ -5941,7 +5996,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_875f228a",
+        "operationId": "conversation_by_conversation_2f287417",
         "parameters": [
           {
             "in": "path",
@@ -6072,7 +6127,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_7b5cb2e3",
+        "operationId": "activity_snapshot_808355c5",
         "parameters": [
           {
             "in": "path",
@@ -6244,7 +6299,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
       "get": {
-        "operationId": "activity_stream_5f4b78a9",
+        "operationId": "activity_stream_817b9a68",
         "parameters": [
           {
             "in": "path",
@@ -6298,7 +6353,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_send_bce002e8",
+        "operationId": "conversation_send_3a9ed1ee",
         "parameters": [
           {
             "in": "path",
@@ -6515,7 +6570,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}": {
       "delete": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_delete_08f0c4f9",
+        "operationId": "conversation_delete_3f1b62e9",
         "parameters": [
           {
             "in": "path",
@@ -6679,7 +6734,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_retry_ee549e9e",
+        "operationId": "conversation_retry_4033a48a",
         "parameters": [
           {
             "in": "path",

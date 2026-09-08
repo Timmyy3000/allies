@@ -26,6 +26,79 @@ function activity(
 }
 
 describe("mergeActivityPresentation", () => {
+  it("folds concurrent calls out of order and never reopens a terminal call", () => {
+    const rich = { activityAttemptId: "attempt-a", activityKind: "web_search" };
+    const one = activity("one", 1, { ...rich, activityId: "call-one" });
+    const two = activity("two", 2, { ...rich, activityId: "call-two" });
+    const terminal = activity("done-two", 3, { ...rich, activityId: "call-two", kind: "activity_completed", outcome: "failed", text: "Could not search" });
+    const first = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, {
+      conversationId: "c", activities: [terminal, two, one],
+    });
+    const next = mergeActivityPresentation(first, {
+      conversationId: "c", activities: [
+        one, terminal,
+        activity("late-start", 4, { ...rich, activityId: "call-two" }),
+        activity("conflict", 5, { ...rich, activityId: "call-two", kind: "activity_completed", outcome: "completed" }),
+      ],
+    });
+    const entries = next.groupsByKey[activityTurnKey("message-1", 1)].entries;
+    expect(entries).toHaveLength(2);
+    expect(entries[0].activityId).toBe("call-one");
+    expect(entries[0].outcome).toBeUndefined();
+    expect(entries[1].outcome).toBe("failed");
+    expect(entries[1].text).toBe("Could not search");
+  });
+
+  it("uses terminal execution evidence only for open calls in the same attempt", () => {
+    const first = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, {
+      conversationId: "c", activities: [
+        activity("open", 1, { activityAttemptId: "a", activityId: "call" }),
+        activity("other-attempt", 2, { activityAttemptId: "b", activityId: "call" }),
+        activity("stop", 4, { activityAttemptId: "a", kind: "execution_stopped", text: "", state: "stopped" }),
+      ],
+    });
+    const next = mergeActivityPresentation(first, { conversationId: "c", activities: [
+      activity("done-before-stop", 3, { activityAttemptId: "a", activityId: "call", kind: "activity_completed", outcome: "completed", text: "Read a file" }),
+    ] });
+    const before = first.groupsByKey[activityTurnKey("message-1", 1)].entries;
+    expect(before[0].outcome).toBe("stopped");
+    expect(before[1].outcome).toBeUndefined();
+    const after = next.groupsByKey[activityTurnKey("message-1", 1)].entries;
+    expect(after[0].outcome).toBe("completed");
+    expect(after[1].outcome).toBeUndefined();
+  });
+
+  it("does not resurrect evicted history on reconnect", () => {
+    const first = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, {
+      conversationId: "c", activities: [activity("one", 1), activity("two", 2)],
+    }, 1);
+    const next = mergeActivityPresentation(first, { conversationId: "c", activities: [activity("one", 1)] }, 1);
+    expect(next.retainedEntryCount).toBe(1);
+    expect(next.groupsByKey[activityTurnKey("message-1", 1)].entries[0].id).toBe("two");
+  });
+
+  it("does not recreate an evicted call from a late completion", () => {
+    const rich = { activityAttemptId: "a", activityId: "call-a" };
+    const first = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, {
+      conversationId: "c", activities: [activity("one", 1, rich), activity("two", 2, { ...rich, activityId: "call-b" })],
+    }, 1);
+    const next = mergeActivityPresentation(first, { conversationId: "c", activities: [
+      activity("late", 3, { ...rich, kind: "activity_completed", outcome: "completed" }),
+    ] }, 1);
+    expect(next.groupsByKey[activityTurnKey("message-1", 1)].entries[0].activityId).toBe("call-b");
+  });
+
+  it.each([false, true])("ignores successful call completion after execution stop (split=%s)", (split) => {
+    const events = [
+      activity("one", 1, { activityAttemptId: "a", activityId: "call-a" }),
+      activity("stop", 3, { activityAttemptId: "a", kind: "execution_stopped", text: "" }),
+      activity("late", 4, { activityAttemptId: "a", activityId: "call-a", kind: "activity_completed", outcome: "completed" }),
+    ];
+    const first = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, { conversationId: "c", activities: split ? events.slice(0, 2) : events });
+    const result = split ? mergeActivityPresentation(first, { conversationId: "c", activities: events.slice(2) }) : first;
+    expect(result.groupsByKey[activityTurnKey("message-1", 1)].entries[0].outcome).toBe("stopped");
+  });
+
   it("keeps only non-empty product activity kinds and trims presentation text", () => {
     const result = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, {
       conversationId: "conversation-1",
