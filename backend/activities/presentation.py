@@ -2,6 +2,44 @@
 
 import hashlib
 
+from django.core.exceptions import ObjectDoesNotExist
+
+
+def approval_summary(approval) -> dict:
+    """Return the content-free approval projection used by activity/list APIs."""
+
+    return {
+        "id": approval.id,
+        "message_id": approval.message_id,
+        "status": approval.status,
+        "expires_at": approval.expires_at,
+        "decided_at": approval.decided_at,
+        "acknowledgement_deadline_at": approval.acknowledgement_deadline_at,
+    }
+
+
+def approval_activity_summary(approval) -> dict:
+    """Return the smaller approval projection safe for generic activities."""
+
+    return {
+        "id": approval.id,
+        "status": approval.status,
+        "expires_at": approval.expires_at,
+        "decided_at": approval.decided_at,
+    }
+
+
+def approval_detail(approval) -> dict:
+    result = approval_summary(approval)
+    result.update(
+        {
+            "action_label": approval.action_label,
+            "action_preview": approval.action_preview,
+        }
+    )
+    return result
+
+
 ACTIVITY_LABELS = {
     "web_search": ("Searching the web", "Searched the web"),
     "web_extract": ("Reading a webpage", "Read a webpage"),
@@ -49,10 +87,27 @@ def activity_metadata(activity) -> dict:
     digest = hashlib.sha256(
         f"allies:activity-attempt:v1:{activity.attempt_id}".encode()
     ).hexdigest()[:32]
+    try:
+        approval = activity.approval
+    except ObjectDoesNotExist:
+        approval = None
     return {
         "activity_attempt_id": f"attempt-{digest}",
         "activity_id": activity.activity_id,
         "activity_kind": activity.activity_kind,
         "outcome": activity.outcome,
         "duration_ms": activity.duration_ms,
+        "approval": (
+            approval_activity_summary(approval) if approval is not None else None
+        ),
     }
+
+
+__all__ = [
+    "ACTIVITY_LABELS",
+    "activity_metadata",
+    "activity_text",
+    "approval_activity_summary",
+    "approval_detail",
+    "approval_summary",
+]

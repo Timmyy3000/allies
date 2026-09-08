@@ -231,6 +231,36 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             "retention_gap": False,
         },
     },
+    "SuccessResponse_ApprovalListResponse_": {
+        "status": "success",
+        "message": "Approvals loaded",
+        "data": {
+            "approvals": [
+                {
+                    "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d84",
+                    "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
+                    "status": "pending",
+                    "expires_at": "2026-08-20T16:05:00Z",
+                    "decided_at": None,
+                    "acknowledgement_deadline_at": None,
+                }
+            ]
+        },
+    },
+    "SuccessResponse_ApprovalDetailResponse_": {
+        "status": "success",
+        "message": "Approval loaded",
+        "data": {
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d84",
+            "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
+            "status": "pending",
+            "expires_at": "2026-08-20T16:05:00Z",
+            "decided_at": None,
+            "acknowledgement_deadline_at": None,
+            "action_label": "Run the requested command",
+            "action_preview": "echo a redacted command",
+        },
+    },
     "SuccessResponse_WaitlistEntryResponse_": {
         "status": "success",
         "message": "Waitlist greeting ready",
@@ -624,6 +654,20 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
             "delete",
         ),
     }
+    approval_read_paths = {
+        (
+            "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals",
+            "get",
+        ),
+        (
+            "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}",
+            "get",
+        ),
+    }
+    approval_decision_path = (
+        "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}/decision",
+        "post",
+    )
     security_schemes = schema.setdefault("components", {}).setdefault(
         "securitySchemes", {}
     )
@@ -640,6 +684,49 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
         operation = schema.get("paths", {}).get(path, {}).get(method)
         if isinstance(operation, dict):
             operation["security"] = [{"BearerAuth": []}]
+    for path, method in approval_read_paths:
+        operation = schema.get("paths", {}).get(path, {}).get(method)
+        if isinstance(operation, dict):
+            operation["security"] = [{"BrowserSession": []}, {"BearerAuth": []}]
+            operation["description"] = (
+                f"{operation.get('description', '').rstrip()}\n\n"
+                "Approval summaries and authorized detail are membership-scoped; "
+                "the detail response contains the complete redacted action preview."
+            ).strip()
+    operation = (
+        schema.get("paths", {})
+        .get(approval_decision_path[0], {})
+        .get(approval_decision_path[1])
+    )
+    if isinstance(operation, dict):
+        operation["security"] = [{"BrowserSession": []}, {"BearerAuth": []}]
+        operation["description"] = (
+            f"{operation.get('description', '').rstrip()}\n\n"
+            "This mutation accepts either a browser session with a trusted Origin "
+            "or Referer and matching CSRF cookie/header, or a validated native "
+            "bearer-only session. Mixed browser and bearer transport is rejected. "
+            "The idempotency key must be reused for an exact retry."
+        ).strip()
+        for header_name, description in (
+            (
+                "Origin",
+                "Required for browser transport and must be trusted; omit for native.",
+            ),
+            (
+                "Referer",
+                "Browser alternative to Origin; omit for native.",
+            ),
+            (
+                "X-CSRFToken",
+                "Required with the browser CSRF cookie; omit for native.",
+            ),
+        ):
+            _add_header_parameter(operation, header_name, description)
+        _add_header_parameter(
+            operation,
+            "Idempotency-Key",
+            "Stable UUID for repeating exactly one approval choice.",
+        )
     for path, method in chat_mutation_paths:
         operation = schema.get("paths", {}).get(path, {}).get(method)
         if not isinstance(operation, dict):

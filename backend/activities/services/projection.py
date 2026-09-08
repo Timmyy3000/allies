@@ -41,7 +41,14 @@ from ..exceptions import (
     ProjectionNotFound,
     ProjectionSequenceGap,
 )
-from ..models import Activity, FoundryEventReceipt, ProjectionState
+from ..models import (
+    Activity,
+    Approval,
+    ApprovalDeliveryState,
+    ApprovalStatus,
+    FoundryEventReceipt,
+    ProjectionState,
+)
 from ..presentation import activity_text
 
 MAX_ACTIVITY_SNAPSHOT = 200
@@ -305,7 +312,195 @@ def _event_state(event_type: str) -> tuple[str, str, str, str]:
         )
     if event_type == "execution.failed":
         return ProjectionState.FAILED, "execution_failed", "", MessageLifecycle.FAILED
+    if event_type == "execution.approval_resolved":
+        return (
+            ProjectionState.RUNNING,
+            "approval_resolved",
+            "",
+            MessageLifecycle.IN_PROGRESS,
+        )
     raise ProjectionInvalid("event type is not supported")
+
+
+def _rich_approval_for_event(
+    *, envelope: FoundryEventEnvelope, conversation: Conversation, message: Message
+) -> Approval:
+    payload = envelope.payload
+    try:
+        request_id = UUID(payload["approval_request_id"])
+        expires_at = datetime.fromisoformat(payload["expires_at"])
+    except (AttributeError, TypeError, ValueError, KeyError) as exc:
+        raise ProjectionInvalid("approval payload is invalid") from exc
+    existing = (
+        Approval.objects.select_for_update()
+        .filter(approval_request_id=request_id)
+        .first()
+    )
+    if existing is not None:
+        if (
+            existing.workspace_id != envelope.scope.cloud_workspace_id
+            or existing.ally_id != conversation.ally_id
+            or existing.conversation_id != conversation.id
+            or existing.message_id != message.id
+            or existing.cloud_binding_id != envelope.cloud.cloud_binding_id
+            or existing.execution_id != envelope.foundry.execution_id
+            or existing.attempt_id != envelope.foundry.attempt_id
+            or existing.generation != envelope.foundry.generation
+            or existing.action_kind != payload["action_kind"]
+            or existing.action_label != payload["action_label"]
+            or existing.action_preview != payload["action_preview"]
+            or existing.expires_at != expires_at
+        ):
+            raise ProjectionConflict("approval request conflicts with existing row")
+        return existing
+    try:
+        return Approval.objects.create(
+            workspace_id=envelope.scope.cloud_workspace_id,
+            ally_id=conversation.ally_id,
+            conversation=conversation,
+            message=message,
+            approval_request_id=request_id,
+            cloud_binding_id=envelope.cloud.cloud_binding_id,
+            execution_id=envelope.foundry.execution_id,
+            attempt_id=envelope.foundry.attempt_id,
+            generation=envelope.foundry.generation,
+            attempt_sequence=envelope.foundry.attempt_sequence,
+            action_kind=payload["action_kind"],
+            action_label=payload["action_label"],
+            action_preview=payload["action_preview"],
+            requested_at=envelope.issued_at,
+            expires_at=expires_at,
+            status=ApprovalStatus.PENDING,
+            delivery_state=ApprovalDeliveryState.PENDING,
+        )
+    except ValueError as exc:
+        raise ProjectionInvalid("approval payload is invalid") from exc
+
+
+def _resolve_approval_for_event(
+    *, envelope: FoundryEventEnvelope, conversation: Conversation, message: Message
+) -> None:
+    # Import lazily to keep the projection module's existing dependency direction
+    # while reusing the single timestamp reconciliation rule used by API reads
+    # and delivery claims.
+    from .approvals import _save_reconciliation
+
+    payload = envelope.payload
+    try:
+        request_id = UUID(payload["approval_request_id"])
+    except (TypeError, ValueError, KeyError) as exc:
+        raise ProjectionInvalid("approval resolution payload is invalid") from exc
+    approval = (
+        Approval.objects.select_for_update()
+        .filter(
+            approval_request_id=request_id,
+            workspace_id=envelope.scope.cloud_workspace_id,
+            ally_id=conversation.ally_id,
+            conversation=conversation,
+            message=message,
+            execution_id=envelope.foundry.execution_id,
+            attempt_id=envelope.foundry.attempt_id,
+            generation=envelope.foundry.generation,
+        )
+        .first()
+    )
+    if approval is None:
+        raise ProjectionConflict("approval resolution is not bound to a request")
+    previous_status = approval.status
+    previous_decision = approval.decision
+    _save_reconciliation(approval, now=timezone.now())
+    outcome = payload["outcome"]
+    if outcome in {"approved", "rejected"}:
+        expected_decision = "approve" if outcome == "approved" else "reject"
+        if (
+            previous_decision != expected_decision
+            or previous_status == ApprovalStatus.PENDING
+        ):
+            raise ProjectionConflict("approval resolution does not match decision")
+        if approval.status == ApprovalStatus.OUTCOME_UNKNOWN:
+            return
+        if approval.status != ApprovalStatus.DECISION_RECORDED:
+            raise ProjectionConflict("approval resolution is already terminal")
+        approval.status = (
+            ApprovalStatus.APPROVED
+            if outcome == "approved"
+            else ApprovalStatus.REJECTED
+        )
+        approval.delivery_state = ApprovalDeliveryState.DELIVERED
+        approval.delivery_completed_at = timezone.now()
+    elif outcome == "expired":
+        if previous_status in {
+            ApprovalStatus.APPROVED,
+            ApprovalStatus.REJECTED,
+            ApprovalStatus.CANCELLED,
+        }:
+            raise ProjectionConflict("approval resolution is already terminal")
+        if approval.status == ApprovalStatus.OUTCOME_UNKNOWN:
+            return
+        approval.status = ApprovalStatus.EXPIRED
+        approval.delivery_state = ApprovalDeliveryState.CANCELLED
+    elif previous_status in {
+        ApprovalStatus.PENDING,
+        ApprovalStatus.DECISION_RECORDED,
+        ApprovalStatus.CANCELLED,
+        ApprovalStatus.OUTCOME_UNKNOWN,
+    }:
+        if approval.status == ApprovalStatus.OUTCOME_UNKNOWN:
+            return
+        approval.status = ApprovalStatus.CANCELLED
+        approval.delivery_state = ApprovalDeliveryState.CANCELLED
+    else:
+        raise ProjectionConflict("approval resolution is already terminal")
+    approval.delivery_next_attempt_at = None
+    approval.delivery_lease_expires_at = None
+    approval.delivery_safe_error_code = ""
+    approval.save(
+        update_fields=(
+            "status",
+            "delivery_state",
+            "delivery_completed_at",
+            "delivery_next_attempt_at",
+            "delivery_lease_expires_at",
+            "delivery_safe_error_code",
+            "updated_at",
+        )
+    )
+
+
+def _cancel_live_approvals_for_terminal_event(
+    *, envelope: FoundryEventEnvelope, conversation: Conversation, message: Message
+) -> None:
+    """Close actionable rows when an execution ends without a resolution event."""
+
+    actionable = Approval.objects.filter(
+        workspace_id=envelope.scope.cloud_workspace_id,
+        ally_id=conversation.ally_id,
+        conversation=conversation,
+        message=message,
+        execution_id=envelope.foundry.execution_id,
+        attempt_id=envelope.foundry.attempt_id,
+        generation=envelope.foundry.generation,
+    )
+    current = timezone.now()
+    actionable.filter(status=ApprovalStatus.PENDING).update(
+        status=ApprovalStatus.CANCELLED,
+        delivery_state=ApprovalDeliveryState.CANCELLED,
+        delivery_next_attempt_at=None,
+        delivery_lease_expires_at=None,
+        delivery_safe_error_code="execution_terminal",
+        updated_at=current,
+    )
+    # A recorded decision may already have reached Foundry when the terminal
+    # event arrives. Without a runtime acknowledgement it is unknowable, so
+    # preserve that uncertainty instead of claiming cancellation.
+    actionable.filter(status=ApprovalStatus.DECISION_RECORDED).update(
+        status=ApprovalStatus.OUTCOME_UNKNOWN,
+        delivery_state=ApprovalDeliveryState.CANCELLED,
+        delivery_next_attempt_at=None,
+        delivery_lease_expires_at=None,
+        delivery_safe_error_code="execution_terminal_ack_missing",
+        updated_at=current,
+    )
 
 
 def _last_contiguous(message_id: UUID, attempt_id: UUID, generation: int) -> int:
@@ -461,6 +656,25 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         raise ProjectionConflict("terminal message cannot accept another event")
 
     state, kind, default_text, message_status = _event_state(envelope.event_type)
+    approval = None
+    if envelope.event_type == "execution.awaiting_action" and set(envelope.payload) != {
+        "action_kind"
+    }:
+        approval = _rich_approval_for_event(
+            envelope=envelope, conversation=conversation, message=message
+        )
+    elif envelope.event_type == "execution.approval_resolved":
+        _resolve_approval_for_event(
+            envelope=envelope, conversation=conversation, message=message
+        )
+    elif envelope.event_type in {
+        "execution.completed",
+        "execution.stopped",
+        "execution.failed",
+    }:
+        _cancel_live_approvals_for_terminal_event(
+            envelope=envelope, conversation=conversation, message=message
+        )
     text = (
         str(envelope.payload.get("text", default_text))
         if envelope.event_type == "message.delta"
@@ -487,6 +701,8 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         terminal=message_status in _TERMINAL_STATES,
         attempt_sequence=foundry.attempt_sequence,
     )
+    if envelope.event_type == "execution.approval_resolved":
+        visible_activity_allowed = False
     visible_activity_allowed = visible_activity_allowed and not duplicate_activity
     reply, created = AssistantReply.objects.get_or_create(
         message=message,
@@ -517,6 +733,7 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         activity = Activity.objects.create(
             conversation=conversation,
             message=message,
+            approval=approval,
             sequence=product_sequence,
             conversation_turn_ordinal=message.sequence,
             generation=foundry.generation,
@@ -603,7 +820,12 @@ def read_activity_snapshot(
     )
     if conversation is None:
         raise ProjectionNotFound("projection unavailable")
-    activity_query = Activity.objects.filter(conversation=conversation)
+    from .approvals import reconcile_conversation_approvals
+
+    reconcile_conversation_approvals(conversation.id)
+    activity_query = Activity.objects.filter(conversation=conversation).select_related(
+        "approval"
+    )
     oldest_sequence = (
         activity_query.order_by("sequence", "id")
         .values_list("sequence", flat=True)

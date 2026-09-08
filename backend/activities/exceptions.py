@@ -28,3 +28,15 @@ class ProjectionCursorExpired(ProjectionError):
 
 class ProjectionCursorInvalid(ProjectionError):
     code = "activity_cursor_invalid"
+
+
+class ApprovalNotFound(ProjectionError):
+    code = "approval_unavailable"
+
+
+class ApprovalConflict(ProjectionError):
+    code = "approval_conflict"
+
+
+class ApprovalInvalid(ProjectionError):
+    code = "approval_invalid"
