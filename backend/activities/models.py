@@ -68,6 +68,7 @@ class Approval(models.Model):
     action_kind = models.CharField(max_length=64)
     action_label = models.CharField(max_length=120)
     action_preview = models.TextField(max_length=16_384)
+    explanation = models.JSONField(default=dict, blank=True)
     requested_at = models.DateTimeField()
     expires_at = models.DateTimeField()
     status = models.CharField(
