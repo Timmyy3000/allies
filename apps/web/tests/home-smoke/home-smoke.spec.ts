@@ -20,7 +20,7 @@ function account() {
     user: { id: "00000000-0000-4000-8000-000000000005" },
     profile: { display_name: "Smoke User", avatar_url: null },
     session: { id: "00000000-0000-4000-8000-000000000006", expires_at: "2099-01-02T12:00:00Z" },
-    workspace: { id: workspaceId, name: "Smoke workspace", role: "owner", capabilities: [] },
+    workspace: { id: workspaceId, name: "Smoke workspace", role: "owner", capabilities: ["profile.read", "profile.write"] },
   });
 }
 
@@ -62,9 +62,12 @@ function conversation(sent: boolean) {
   return success({ id: conversationId, ally_id: allyId, messages, assistant_replies: assistantReplies, next_cursor: null });
 }
 
-async function fixtureCloud(page: Page, mode: SessionMode) {
+async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false) {
   let sent = false;
   let sentRequest: { body: string | null; csrf: string | undefined } | null = null;
+  let approvalStatus = "pending";
+  const approvalId = "00000000-0000-4000-8000-000000000010";
+  const approval = () => ({ id: approvalId, message_id: sentMessageId, status: approvalStatus, expires_at: now, decided_at: approvalStatus === "pending" ? null : new Date().toISOString(), acknowledgement_deadline_at: approvalStatus === "pending" ? null : new Date(Date.now() + 30_000).toISOString() });
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -99,6 +102,18 @@ async function fixtureCloud(page: Page, mode: SessionMode) {
         last_contiguous_sequence: 0,
       }) });
     }
+    if (url.pathname.endsWith(`/conversations/${conversationId}/approvals`)) {
+      return route.fulfill({ status: 200, headers, json: success({ approvals: withApproval ? [approval()] : [] }) });
+    }
+    if (withApproval && url.pathname.includes(`/approvals/${approvalId}`)) {
+      if (request.method() === "POST") {
+        expect(request.headers()["x-csrftoken"]).toBe(csrfToken);
+        expect(request.headers()["idempotency-key"]).toBeTruthy();
+        expect(request.postDataJSON()).toEqual({ decision: "approve" });
+        approvalStatus = "decision_recorded";
+      }
+      return route.fulfill({ status: 200, headers, json: success({ ...approval(), action_label: "Connect a knowledge space", action_preview: "Connect to the selected knowledge space using the supplied credential." }) });
+    }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages` && request.method() === "POST") {
       sentRequest = { body: request.postData(), csrf: request.headers()["x-csrftoken"] };
       sent = true;
@@ -126,6 +141,27 @@ test("redirects signed-out visitors to sign-in", async ({ page }) => {
   await fixtureCloud(page, "signed-out");
   await page.goto("/home");
   await expect(page).toHaveURL(/\/sign-in\?returnTo=%2Fhome$/);
+});
+
+test("shows a real conversation approval and records the choice before runtime acknowledgement", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await fixtureCloud(page, "signed-in", true);
+  await page.goto(`/home/${allyId}`);
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText("Connect a knowledge space")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await page.keyboard.press("Shift+Tab");
+  expect(await dialog.evaluate((element) => document.activeElement === document.body || element.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
+  await page.screenshot({ path: testInfo.outputPath("approval-mobile.png") });
+  await page.keyboard.press("Escape");
+  await expect(dialog).not.toBeVisible();
+  await page.getByRole("button", { name: "Approval needed", exact: true }).click();
+  await dialog.getByRole("button", { name: "Approve", exact: true }).click();
+  await expect(dialog.getByText("Decision recorded · Waiting for Ally")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
 });
 
 test("keeps the landing page continuous on a short phone", async ({ page }) => {

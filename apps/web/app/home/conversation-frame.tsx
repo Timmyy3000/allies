@@ -2,7 +2,7 @@
 
 import { Streamdown } from "streamdown";
 import { ShinyText } from "../../components/text-animations/shiny-text";
-import { useEffect, useRef, useState, type Ref, type UIEvent } from "react";
+import { useEffect, useRef, useState, type Ref, type UIEvent, type ReactNode } from "react";
 import { ConversationPresence } from "./conversation-presence";
 
 import type {
@@ -35,12 +35,13 @@ export interface ConversationFrameProps {
   model: ProductionConversationFrameModel;
   actions: ProductionConversationFrameActions;
   canvasRef?: Ref<HTMLDivElement>;
+  approvals?: ReactNode;
   sleeping?: boolean;
   stateReady?: boolean;
   runtimeIntentStatus?: ProductionRuntimeIntentStatus;
 }
 
-export function ConversationFrame({ model, actions, canvasRef, sleeping = false, stateReady = true, runtimeIntentStatus = null }: ConversationFrameProps) {
+export function ConversationFrame({ model, actions, canvasRef, approvals, sleeping = false, stateReady = true, runtimeIntentStatus = null }: ConversationFrameProps) {
   useEffect(() => {
     // Markdown dialogs portal outside the conversation's accent scope.
     const previous = document.body.style.getPropertyValue("--active-chat-accent");
@@ -274,7 +275,7 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
           </div>
 
           {!model.streaming && !hasTerminalTurn && model.activityState === "awaiting_action" ? (
-            <AssistantMessage>This Ally needs an action Home cannot complete yet.</AssistantMessage>
+            <AssistantMessage>This Ally is waiting for an action.</AssistantMessage>
           ) : null}
           {!model.streaming && !hasTerminalTurn && (model.activityState === "failed" || model.activityState === "stopped") ? (
             <AssistantMessage>
@@ -294,6 +295,7 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
             </>
           ) : null}
 
+          {approvals}
           {model.timeline.pollBudgetReached ? (
             <FrameError action="Check again" onAction={actions.onCheckAgain}>
               Status checking is paused.

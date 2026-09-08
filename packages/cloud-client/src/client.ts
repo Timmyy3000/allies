@@ -35,6 +35,7 @@ import {
 } from "./mappers/allies";
 import { csrfTokenSchema, externalHttpsUrlSchema, type CloudCsrfToken } from "./schemas";
 import { createControlledFetch } from "./transport";
+import { approvalSummarySchema, approvalDetailSchema, toApprovalSummary, toApprovalDetail, type ApprovalDecision } from "./mappers/approvals";
 
 const CloudRequest = globalThis.Request;
 const CHAT_READ_MAX_JSON_BYTES = 48 * 1024 * 1024;
@@ -728,6 +729,46 @@ export function createCloudClient(options: CloudClientOptions) {
         }) as Promise<ApiResult>,
         (data) => toActivitySnapshotViewModel(successEnvelope(activitySnapshotResponseSchema).parse(data).data),
         [200],
+      );
+    },
+
+    async getApprovals(workspaceId: string, conversationId: string, signal?: AbortSignal) {
+      rejectPreAborted(signal);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals", {
+          params: { path: { workspace_id: parsePathSegment(workspaceId), conversation_id: parsePathSegment(conversationId) } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => successEnvelope(z.object({ approvals: z.array(approvalSummarySchema).max(50) })).parse(data).data.approvals.map(toApprovalSummary),
+        [200],
+      );
+    },
+
+    async getApproval(workspaceId: string, conversationId: string, approvalId: string, signal?: AbortSignal) {
+      rejectPreAborted(signal);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}", {
+          params: { path: { workspace_id: parsePathSegment(workspaceId), conversation_id: parsePathSegment(conversationId), approval_id: parsePathSegment(approvalId) } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toApprovalDetail(successEnvelope(approvalDetailSchema.refine((approval) => approval.id === approvalId)).parse(data).data),
+        [200],
+      );
+    },
+
+    async decideApproval(workspaceId: string, conversationId: string, approvalId: string, decision: ApprovalDecision, key: string, signal?: AbortSignal) {
+      rejectPreAborted(signal);
+      return unwrap(
+        api.POST("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}/decision", {
+          params: {
+            path: { workspace_id: parsePathSegment(workspaceId), conversation_id: parsePathSegment(conversationId), approval_id: parsePathSegment(approvalId) },
+            header: { "Idempotency-Key": parseIdempotencyKey(key) },
+          },
+          body: { decision },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toApprovalDetail(successEnvelope(approvalDetailSchema.refine((approval) => approval.id === approvalId)).parse(data).data),
+        [200, 202],
       );
     },
 

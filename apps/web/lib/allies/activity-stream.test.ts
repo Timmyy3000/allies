@@ -86,6 +86,7 @@ describe("readActivityStream", () => {
     ["malformed activity kind", "activity_kind", "Web Search"],
     ["invalid outcome", "outcome", "unknown"],
     ["out-of-range duration", "duration_ms", 86_400_001],
+    ["invalid approval status", "approval", { id: "00000000-0000-4000-8000-000000000001", status: "resumed", expires_at: "2099-01-01T00:00:00Z" }],
   ])("rejects %s in rich activity metadata", async (_label, field, value) => {
     const onError = vi.fn();
     const activity = {
