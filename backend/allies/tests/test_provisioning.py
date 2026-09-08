@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 
 import pytest
@@ -7,7 +8,13 @@ from django.utils import timezone
 
 from allies.exceptions import ProvisioningRejected, ProvisioningRetryable
 from allies.gateways.contracts import ExecutionReceipt
-from allies.gateways.foundry import ProfileProvisioningReceipt
+from allies.gateways.foundry import (
+    ProfileProvisioningReceipt,
+    ProfileProvisioningRequest,
+)
+from allies.gateways.foundry import (
+    provision_profile as gateway_provision_profile,
+)
 from allies.models import (
     Ally,
     AllyBinding,
@@ -35,6 +42,11 @@ from chat.services.conversations import (
 )
 from chat.services.dispatch import dispatch_pending_messages
 from workspaces.models import Workspace
+
+MULTILINE_JOB = (
+    "I want you to teach my German \n"
+    "I am currently at the A1 level and just started at A2"
+)
 
 
 @pytest.fixture
@@ -105,6 +117,83 @@ def test_ready_timing_is_emitted_only_after_commit(
     assert len(ready) == 1
     assert ready[0]["correlation_id"] == str(operation.pk)
     assert ready[0]["duration_ms"] >= 0
+
+
+@pytest.mark.django_db
+def test_dispatch_serializes_stored_multiline_ally_with_operation_fingerprint(
+    operation, monkeypatch, settings
+):
+    ally = operation.binding.ally
+    ally.job = MULTILINE_JOB
+    ally.personality = "Calm\nspecific."
+    ally.save(update_fields=("job", "personality", "updated_at"))
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    captured = {}
+
+    class Response:
+        def __init__(self, body):
+            self.body = json.dumps(body).encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return self.body
+
+    class Opener:
+        def open(self, request, *, timeout):
+            captured["raw"] = request.data
+            captured["body"] = json.loads(request.data)
+            captured["timeout"] = timeout
+            return Response(
+                {
+                    "version": 1,
+                    "binding_id": str(operation.binding_id),
+                    "operation_id": str(operation.id),
+                    "request_fingerprint": operation.content_fingerprint,
+                    "status": "active",
+                    "evidence_digest": "c" * 64,
+                }
+            )
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+
+    def provision(request):
+        captured["request"] = request
+        return gateway_provision_profile(request)
+
+    monkeypatch.setattr("allies.services.provisioning.provision_profile", provision)
+    monkeypatch.setattr(
+        "chat.services.conversations.activate_onboarding_reply", lambda **_kwargs: None
+    )
+
+    report = dispatch_due_provisioning()
+
+    assert report.succeeded == 1
+    assert isinstance(captured["request"], ProfileProvisioningRequest)
+    assert captured["request"].job == MULTILINE_JOB
+    assert captured["request"].request_fingerprint == operation.content_fingerprint
+    assert captured["body"] == {
+        "version": 1,
+        "workspace_id": str(operation.workspace_id),
+        "binding_id": str(operation.binding_id),
+        "ally_ref": str(operation.binding.ally_id),
+        "operation_id": str(operation.id),
+        "request_fingerprint": operation.content_fingerprint,
+        "name": "Mira",
+        "job": MULTILINE_JOB,
+        "personality": "Calm\nspecific.",
+    }
+    assert b"\\r" not in captured["raw"]
+    assert captured["timeout"] == settings.ALLIES_FOUNDRY_TIMEOUT_SECONDS
+    operation.refresh_from_db()
+    assert operation.status == ProvisioningStatus.SUCCEEDED
 
 
 @pytest.mark.django_db

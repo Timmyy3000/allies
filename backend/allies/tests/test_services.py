@@ -20,6 +20,7 @@ from allies.services.onboarding import (
     begin_onboarding,
     cleanup_expired_onboarding_attempts,
     digest_value,
+    normalize_seed,
 )
 from auths.exceptions import WorkspaceAccessDenied
 from auths.models import User
@@ -53,6 +54,43 @@ def payload():
         "appearance_catalog_version": "v1",
         "appearance_key": "sunrise",
     }
+
+
+def test_normalize_seed_canonicalizes_crlf_and_preserves_personality_whitespace():
+    values = normalize_seed(
+        **{
+            **payload(),
+            "job": "Study\r\npartner",
+            "personality": " \r\nCalm\r\nspecific.\n ",
+        }
+    )
+
+    assert values["job"] == "Study\npartner"
+    assert values["personality"] == " \nCalm\nspecific.\n "
+
+
+@pytest.mark.parametrize("unsafe", ["x\ry", "x\ty", "x\x00y", "x\u2028y"])
+def test_normalize_seed_rejects_unsafe_multiline_controls(unsafe):
+    with pytest.raises(OnboardingInvalid):
+        normalize_seed(**{**payload(), "job": unsafe})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("job", "x" * 200 + "\r\n"),
+        ("job", "x" * 401),
+        ("job", 123),
+        ("personality", "x" * 4000 + "\r\n"),
+        ("personality", "x" * 8001),
+        ("personality", 123),
+    ],
+)
+def test_normalize_seed_rejects_canonical_overflow_raw_over_two_x_and_non_string(
+    field, value
+):
+    with pytest.raises(OnboardingInvalid):
+        normalize_seed(**{**payload(), field: value})
 
 
 def seed_ally(*, workspace, user, ally_id: str) -> Ally:
@@ -160,6 +198,111 @@ def test_legacy_idempotency_retry_requires_the_original_attempt(account):
     assert replay.replayed
     with pytest.raises(IdempotencyConflict):
         create_ally(**{**values, "onboarding_attempt": "x" * 32})
+
+
+@pytest.mark.django_db
+def test_create_accepts_unconsumed_legacy_crlf_attempt_without_rewriting_it(
+    account, monkeypatch
+):
+    user, workspace = account
+    canonical = {
+        **payload(),
+        "job": "Study\npartner",
+        "personality": "Calm\nspecific.",
+    }
+    legacy = {
+        **canonical,
+        "job": "Study\r\npartner",
+        "personality": "Calm\r\nspecific.",
+    }
+    start = begin_onboarding(
+        **canonical,
+        browser_binding=b"browser",
+        generation_identity="test:legacy-attempt",
+        provider=GreetingProvider(),
+    )
+    attempt = OnboardingAttempt.objects.get()
+    attempt.job = legacy["job"]
+    attempt.personality = legacy["personality"]
+    attempt.save(update_fields=("job", "personality", "updated_at"))
+    monkeypatch.setattr("allies.services.creation._enqueue_dispatch", lambda: None)
+
+    result = create_ally(
+        **canonical,
+        user=user,
+        workspace_id=workspace.id,
+        onboarding_attempt=start.attempt_token,
+        reply="Help me plan tomorrow.",
+        browser_binding=b"browser",
+        idempotency_key="legacy-attempt-key-1",
+    )
+
+    attempt.refresh_from_db()
+    assert result.ally.job == canonical["job"]
+    assert result.ally.personality == canonical["personality"]
+    assert attempt.job == legacy["job"]
+    assert attempt.personality == legacy["personality"]
+
+
+@pytest.mark.parametrize("with_attempt_digest", [False, True])
+@pytest.mark.django_db
+def test_legacy_crlf_operation_replays_without_mutation_or_content_drift(
+    account, monkeypatch, with_attempt_digest
+):
+    user, workspace = account
+    canonical = {
+        **payload(),
+        "job": "Study\npartner",
+        "personality": "Calm\nspecific.",
+    }
+    legacy = {
+        **canonical,
+        "job": "Study\r\npartner",
+        "personality": "Calm\r\nspecific.",
+    }
+    start = begin_onboarding(
+        **canonical,
+        browser_binding=b"browser",
+        generation_identity="test:legacy-operation",
+        provider=GreetingProvider(),
+    )
+    values = {
+        **canonical,
+        "user": user,
+        "workspace_id": workspace.id,
+        "onboarding_attempt": start.attempt_token,
+        "reply": "Help me plan tomorrow.",
+        "browser_binding": b"browser",
+        "idempotency_key": "test-" + "0" * 16,
+    }
+    monkeypatch.setattr("allies.services.creation._enqueue_dispatch", lambda: None)
+    first = create_ally(**values)
+    attempt = OnboardingAttempt.objects.get()
+    ally = first.ally
+    ally.job = legacy["job"]
+    ally.personality = legacy["personality"]
+    ally.save(update_fields=("job", "personality", "updated_at"))
+    attempt.job = legacy["job"]
+    attempt.personality = legacy["personality"]
+    attempt.save(update_fields=("job", "personality", "updated_at"))
+    operation = ProvisioningOperation.objects.get(pk=first.operation.pk)
+    old_payload = {**legacy, "reply": values["reply"]}
+    if with_attempt_digest:
+        old_payload["onboarding_attempt_digest"] = digest_value(start.attempt_token)
+    operation.content_fingerprint = _fingerprint(old_payload)
+    operation.save(update_fields=("content_fingerprint", "updated_at"))
+    original_fingerprint = operation.content_fingerprint
+
+    replay = create_ally(**values)
+
+    assert replay.replayed
+    ally.refresh_from_db()
+    operation.refresh_from_db()
+    assert ally.job == legacy["job"]
+    assert ally.personality == legacy["personality"]
+    assert operation.content_fingerprint == original_fingerprint
+    with pytest.raises(IdempotencyConflict):
+        create_ally(**{**values, "reply": "Different reply."})
 
 
 @pytest.mark.django_db
