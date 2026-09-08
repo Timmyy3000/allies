@@ -9,7 +9,9 @@ import pytest
 from django.core.cache import cache
 from django.test import Client, override_settings
 from django.utils import timezone
+from pydantic import ValidationError
 
+from allies.api.schemas import OnboardingAttemptRequest
 from allies.models import (
     Ally,
     AllyBinding,
@@ -48,6 +50,53 @@ def seed():
         "personality": "Calm, curious, and specific.",
         "appearance": {"catalog_version": "v1", "key": "sunrise"},
     }
+
+
+def test_seed_schema_normalizes_crlf_before_length_validation():
+    payload = seed()
+    payload["job"] = "x" * 199 + "\r\n"
+    payload["personality"] = " \r\n" + "x" * 3996 + "\r\n "
+
+    parsed = OnboardingAttemptRequest.model_validate(payload)
+
+    assert parsed.job == "x" * 199 + "\n"
+    assert parsed.personality == " \n" + "x" * 3996 + "\n "
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("job", "x" * 200 + "\r\n"),
+        ("job", "x" * 401),
+        ("job", 123),
+        ("personality", "x" * 4000 + "\r\n"),
+        ("personality", "x" * 8001),
+        ("personality", 123),
+    ],
+)
+def test_seed_schema_rejects_canonical_overflow_raw_over_two_x_and_non_string(
+    field, value
+):
+    with pytest.raises(ValidationError):
+        OnboardingAttemptRequest.model_validate({**seed(), field: value})
+
+
+@pytest.mark.parametrize(
+    "unsafe",
+    [
+        "x\ry",
+        "x\ty",
+        "x\x00y",
+        "x\x7fy",
+        "x\u0085y",
+        "x\u200by",
+        "x\u2028y",
+        "x\u2029y",
+    ],
+)
+def test_seed_schema_rejects_unsafe_multiline_controls(unsafe):
+    with pytest.raises(ValidationError):
+        OnboardingAttemptRequest.model_validate({**seed(), "job": unsafe})
 
 
 def seed_ally(*, workspace, user, ally_id: str, name: str) -> Ally:

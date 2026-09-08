@@ -13,6 +13,7 @@ from allies.models import Ally, AllyBinding, OnboardingAttempt, ProvisioningOper
 from allies.services.onboarding import (
     _native_attempt_binding,
     digest_value,
+    normalize_multiline_field,
     normalize_seed,
 )
 from auths.config import digest_key
@@ -43,14 +44,43 @@ def _fingerprint(payload: dict[str, str]) -> str:
     return hashlib.sha256(raw).hexdigest()
 
 
+def _legacy_crlf_fingerprints(
+    operation: ProvisioningOperation,
+    values: dict[str, str],
+    attempt_token_digest: str,
+) -> set[str]:
+    ally = operation.binding.ally
+    if "\r\n" not in ally.job and "\r\n" not in ally.personality:
+        return set()
+    try:
+        job = normalize_multiline_field(ally.job, max_length=200)
+        personality = normalize_multiline_field(ally.personality, max_length=4000)
+    except ValueError:
+        return set()
+    if (job, personality) != (values["job"], values["personality"]):
+        return set()
+    retained = {**values, "job": ally.job, "personality": ally.personality}
+    return {
+        _fingerprint(retained),
+        _fingerprint({**retained, "onboarding_attempt_digest": attempt_token_digest}),
+    }
+
+
 def _load_result(
     operation: ProvisioningOperation,
     fingerprint: str,
     legacy_fingerprint: str,
+    values: dict[str, str],
     onboarding_attempt: str,
     browser_binding: bytes | None,
 ):
-    if operation.content_fingerprint not in {fingerprint, legacy_fingerprint}:
+    accepted_fingerprints = {fingerprint, legacy_fingerprint}
+    if operation.content_fingerprint not in accepted_fingerprints and (
+        operation.content_fingerprint
+        not in _legacy_crlf_fingerprints(
+            operation, values, digest_value(onboarding_attempt)
+        )
+    ):
         raise IdempotencyConflict("idempotency key conflicts with accepted content")
     try:
         attempt = operation.binding.ally.onboarding_attempt
@@ -139,6 +169,7 @@ def create_ally(
                 operation,
                 fingerprint,
                 legacy_fingerprint,
+                values,
                 onboarding_attempt,
                 browser_binding,
             )
@@ -172,13 +203,16 @@ def create_ally(
                 raise OnboardingInvalid("onboarding attempt unavailable")
             if not attempt.is_usable():
                 raise OnboardingInvalid("onboarding attempt unavailable")
-            expected = (
-                attempt.name,
-                attempt.job,
-                attempt.personality,
-                attempt.appearance_catalog_version,
-                attempt.appearance_key,
-            )
+            try:
+                expected = (
+                    attempt.name,
+                    normalize_multiline_field(attempt.job, max_length=200),
+                    normalize_multiline_field(attempt.personality, max_length=4000),
+                    attempt.appearance_catalog_version,
+                    attempt.appearance_key,
+                )
+            except ValueError as exc:
+                raise OnboardingInvalid("onboarding content changed") from exc
             submitted = (
                 values["name"],
                 values["job"],

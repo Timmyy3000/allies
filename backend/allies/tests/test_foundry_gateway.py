@@ -25,6 +25,11 @@ from allies.gateways.foundry import (
     request_runtime_intent,
 )
 
+MULTILINE_JOB = (
+    "I want you to teach my German \n"
+    "I am currently at the A1 level and just started at A2"
+)
+
 
 def request_payload() -> ProfileProvisioningRequest:
     return ProfileProvisioningRequest(
@@ -89,6 +94,39 @@ def test_gateway_sends_one_bearer_authenticated_command(monkeypatch, settings):
         "authorization": "Bearer service-secret",
         "timeout": settings.ALLIES_FOUNDRY_TIMEOUT_SECONDS,
     }
+
+
+def test_gateway_serializes_authorized_multiline_job_exactly(monkeypatch, settings):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    captured = {}
+
+    class Opener:
+        def open(self, request, *, timeout):
+            captured["body"] = json.loads(request.data)
+            return Response(receipt())
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+
+    provision_profile(request_payload().model_copy(update={"job": MULTILINE_JOB}))
+
+    assert captured["body"]["job"] == MULTILINE_JOB
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("job", "x\ry"),
+        ("job", "x\ty"),
+        ("personality", "x\x00y"),
+        ("personality", "x\u2028y"),
+    ],
+)
+def test_profile_request_rejects_unsafe_multiline_controls(field, value):
+    with pytest.raises(ValueError):
+        ProfileProvisioningRequest(**{**request_payload().model_dump(), field: value})
 
 
 def test_gateway_starts_workspace_activation(monkeypatch, settings):
