@@ -8,7 +8,7 @@ This file records secret names and their purpose only. Secret values must be add
 | `PROMOTION_TOKEN` | Protected branch promotions and Fastlane back-merge PRs | To be added |
 | `GITLEAKS_LICENSE` | Gitleaks scan if the action requires licensing | To be confirmed |
 | `DEPLOYMENT_TOKEN` | Future hosted Foundry deployment workflow | Not used yet |
-| `RAILWAY_TOKEN` | Publish Allies Runtime Images workflow | Required at repository scope |
+| `RAILWAY_TOKEN` | Publish Allies Runtime Images workflow | Required at repository scope; the account token is passed to Railway as `RAILWAY_API_TOKEN` |
 
 The promotion credential should be a narrowly scoped GitHub App or fine-grained repository token with only the permissions required to update promotion branches and open the Fastlane back-merge PR.
 
