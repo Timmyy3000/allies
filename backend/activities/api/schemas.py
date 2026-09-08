@@ -17,6 +17,11 @@ class ActivityResponse(Schema):
     text: str
     state: str
     created_at: datetime
+    activity_attempt_id: str | None = None
+    activity_id: str | None = None
+    activity_kind: str | None = None
+    outcome: str | None = None
+    duration_ms: int | None = None
 
 
 class ActivitySnapshotResponse(Schema):
