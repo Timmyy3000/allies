@@ -48,6 +48,51 @@ MAX_MESSAGE_BYTES = 16 * 1024
 DEFAULT_CREDENTIAL_SOCKET = "/run/allies-runtime/hermes-credential.sock"
 MAX_CREDENTIAL_SOCKET_PATH = 100
 TEST_CREDENTIAL_PREFIX = "test://fnd004/"
+ACTIVITY_KINDS = frozenset(
+    {
+        "web_search",
+        "web_extract",
+        "browser_navigate",
+        "browser_interact",
+        "search_files",
+        "read_file",
+        "write_file",
+        "patch",
+        "terminal",
+        "execute_code",
+        "image_generate",
+        "video_generate",
+        "text_to_speech",
+        "vision_analyze",
+        "session_search",
+        "memory_remember",
+        "memory_recall",
+        "memory",
+        "skills_list",
+        "skill_view",
+        "skill_manage",
+        "todo",
+        "cronjob",
+        "delegate_task",
+        "unknown",
+    }
+)
+_ACTIVITY_KIND_ALIASES = {
+    "browser_click": "browser_interact",
+    "browser_type": "browser_interact",
+    "browser_snapshot": "browser_interact",
+    "browser_scroll": "browser_interact",
+    "browser_press": "browser_interact",
+    "browser_hover": "browser_interact",
+    "exec_command": "terminal",
+    "apply_patch": "patch",
+    "web_search_preview": "web_search",
+    "image_generation": "image_generate",
+    "video_generation": "video_generate",
+    "tts": "text_to_speech",
+}
+_ACTIVITY_ID = re.compile(r"^activity-[0-9a-f]{32}$")
+_TOOL_CALL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +159,51 @@ def validate_stream_message(message: str) -> str:
     return message
 
 
+def _validated_tool_name(value: Any) -> str:
+    if (
+        not isinstance(value, str)
+        or not value
+        or len(value.encode("utf-8")) > 128
+        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
+    ):
+        raise HermesMalformedResponse("Hermes tool name was invalid")
+    return value
+
+
+def _validated_tool_call_id(value: Any) -> str:
+    if not isinstance(value, str) or _TOOL_CALL_ID.fullmatch(value) is None:
+        raise HermesMalformedResponse("Hermes tool call identity was invalid")
+    return value
+
+
+def _normalize_activity_kind(tool_name: Any) -> str:
+    """Map one trusted Hermes tool name to the safe activity vocabulary."""
+
+    name = _validated_tool_name(tool_name)
+    return _ACTIVITY_KIND_ALIASES.get(
+        name, name if name in ACTIVITY_KINDS else "unknown"
+    )
+
+
+def _activity_id(run_id: str, tool_call_id: str) -> str:
+    digest = hashlib.sha256(
+        b"allies:activity:v1\0"
+        + run_id.encode("utf-8")
+        + b"\0"
+        + tool_call_id.encode("utf-8")
+    ).hexdigest()[:32]
+    return f"activity-{digest}"
+
+
+def _duration_ms(payload: Mapping[str, Any]) -> int | None:
+    if "duration_ms" not in payload:
+        return None
+    value = payload["duration_ms"]
+    if type(value) is not int or not 0 <= value <= 86_400_000:
+        raise HermesMalformedResponse("Hermes activity duration was invalid")
+    return value
+
+
 def _bootstrap_fields(
     bootstrap: HermesBootstrap | Mapping[str, Any],
 ) -> tuple[str, str]:
@@ -127,9 +217,10 @@ def _bootstrap_fields(
         value = bootstrap
     else:
         raise TypeError("Hermes bootstrap must be an assistant message object")
-    if set(value) != {"kind", "message_id", "text"} or value.get(
-        "kind"
-    ) != "assistant_message":
+    if (
+        set(value) != {"kind", "message_id", "text"}
+        or value.get("kind") != "assistant_message"
+    ):
         raise ValueError("Hermes bootstrap must be an assistant message object")
     try:
         message_id = str(UUID(str(value["message_id"])))
@@ -286,9 +377,7 @@ class _ObservedHermesStream:
             # Only that explicit completion marker is allowed to produce
             # success; every other early close is an interrupted operation.
             await self._finish(
-                None
-                if self._completed
-                else HermesDisconnected("Hermes stream closed")
+                None if self._completed else HermesDisconnected("Hermes stream closed")
             )
 
     cancel = aclose
@@ -313,9 +402,7 @@ class _IncrementalHTTPStream:
         self.profile_id = profile_id
         self.session_id = session_id
         self.deadline = (
-            time.monotonic() + stream_timeout
-            if stream_timeout is not None
-            else None
+            time.monotonic() + stream_timeout if stream_timeout is not None else None
         )
         self.current_name = "message"
         self.data_lines: list[str] = []
@@ -325,12 +412,16 @@ class _IncrementalHTTPStream:
         self.normalized_count = 0
         self.run_id: str | None = None
         self.state = "awaiting_run"
-        self.active_activities: list[tuple[str, str]] = []
+        self._active_activity_calls: dict[str, tuple[str, str]] = {}
+        self._legacy_activity_counts: dict[str, int] = {}
+        self._seen_activity_calls: set[str] = set()
         self.saw_assistant_delta = False
         self.assistant_completion_session_id: str | None = None
         self.terminal_event: HermesEvent | None = None
         self.done = False
         self.closed = False
+        self._readline = getattr(response, "readline", None)
+        self._rows = None
 
     def __aiter__(self):
         return self
@@ -346,7 +437,12 @@ class _IncrementalHTTPStream:
                     await self.aclose()
                     raise HermesTimeout("Hermes stream timed out")
             try:
-                read = asyncio.to_thread(self.response.readline, MAX_EVENT_BYTES + 1)
+                if callable(self._readline):
+                    read = asyncio.to_thread(self._readline, MAX_EVENT_BYTES + 1)
+                else:
+                    if self._rows is None:
+                        self._rows = iter(self.response)
+                    read = asyncio.to_thread(next, self._rows, b"")
                 line = (
                     await asyncio.wait_for(read, remaining)
                     if remaining is not None
@@ -355,6 +451,11 @@ class _IncrementalHTTPStream:
             except TimeoutError as exc:
                 await self.aclose()
                 raise HermesTimeout("Hermes stream timed out") from exc
+            except TypeError as exc:
+                await self.aclose()
+                raise HermesMalformedResponse(
+                    "Hermes stream did not expose readable events"
+                ) from exc
             except (OSError, ConnectionError) as exc:
                 await self.aclose()
                 raise HermesDisconnected("Hermes stream disconnected") from exc
@@ -523,53 +624,97 @@ class _IncrementalHTTPStream:
             self.saw_assistant_delta = True
             return self._event("message.delta", self.session_id, {"text": delta})
         if name == "tool.started":
-            tool_name = payload.get("tool_name")
-            if not isinstance(tool_name, str) or not tool_name or len(tool_name) > 128:
-                raise HermesMalformedResponse("Hermes tool start was invalid")
-            digest = hashlib.sha256(
-                f"allies:activity:v1:{self.run_id}:{self.event_count}:{tool_name}".encode()
-            ).hexdigest()[:32]
-            activity_id = f"activity-{digest}"
-            self.active_activities.append((tool_name, activity_id))
+            tool_name = _validated_tool_name(payload.get("tool_name"))
+            tool_call_id = payload.get("tool_call_id")
+            if "tool_call_id" not in payload:
+                # Legacy images lack call identity, so their public activity stays generic.
+                if any(
+                    field in payload
+                    for field in (
+                        "activity_id",
+                        "activity_kind",
+                        "duration_ms",
+                        "is_error",
+                    )
+                ):
+                    raise HermesMalformedResponse(
+                        "Hermes tool start identity was invalid"
+                    )
+                self._legacy_activity_counts[tool_name] = (
+                    self._legacy_activity_counts.get(tool_name, 0) + 1
+                )
+                return self._event(
+                    "activity.started", self.session_id, {"kind": "tool"}
+                )
+            tool_call_id = _validated_tool_call_id(tool_call_id)
+            if tool_call_id in self._seen_activity_calls:
+                raise HermesMalformedResponse("Hermes tool start was duplicated")
+            activity_kind = _normalize_activity_kind(tool_name)
+            activity_id = _activity_id(self.run_id, tool_call_id)
+            if any(
+                active_id == activity_id
+                for active_id, _active_kind in self._active_activity_calls.values()
+            ):
+                raise HermesMalformedResponse("Hermes activity identity collided")
+            self._active_activity_calls[tool_call_id] = (activity_id, activity_kind)
+            self._seen_activity_calls.add(tool_call_id)
             return self._event(
                 "activity.started",
                 self.session_id,
-                {"activity_id": activity_id, "kind": "tool"},
+                {"activity_id": activity_id, "activity_kind": activity_kind},
             )
         if name == "tool.progress":
-            tool_name = payload.get("tool_name")
-            if not isinstance(tool_name, str) or not tool_name or len(tool_name) > 128:
-                raise HermesMalformedResponse("Hermes tool progress was invalid")
+            _validated_tool_name(payload.get("tool_name"))
             return None
         if name == "tool.completed":
-            tool_name = payload.get("tool_name")
-            match = next(
-                (
-                    (index, activity_id)
-                    for index, (active_name, activity_id) in enumerate(
-                        self.active_activities
+            tool_name = _validated_tool_name(payload.get("tool_name"))
+            tool_call_id = payload.get("tool_call_id")
+            if "tool_call_id" not in payload:
+                if any(field in payload for field in ("duration_ms", "is_error")):
+                    raise HermesMalformedResponse(
+                        "Hermes tool completion identity was invalid"
                     )
-                    if active_name == tool_name
-                ),
-                None,
-            )
-            if match is None:
+                if self._legacy_activity_counts.get(tool_name, 0) <= 0:
+                    raise HermesMalformedResponse(
+                        "Hermes tool completion was out of order"
+                    )
+                self._legacy_activity_counts[tool_name] -= 1
+                if self._legacy_activity_counts[tool_name] == 0:
+                    del self._legacy_activity_counts[tool_name]
+                return self._event(
+                    "activity.completed", self.session_id, {"status": "completed"}
+                )
+            tool_call_id = _validated_tool_call_id(tool_call_id)
+            active = self._active_activity_calls.get(tool_call_id)
+            if active is None:
                 raise HermesMalformedResponse("Hermes tool completion was out of order")
-            index, activity_id = match
-            self.active_activities.pop(index)
-            return self._event(
-                "activity.completed",
-                self.session_id,
-                {"activity_id": activity_id, "status": "completed"},
-            )
+            activity_id, activity_kind = active
+            if _normalize_activity_kind(tool_name) != activity_kind:
+                raise HermesMalformedResponse("Hermes tool completion identity changed")
+            is_error = payload.get("is_error")
+            if type(is_error) is not bool:
+                raise HermesMalformedResponse(
+                    "Hermes tool completion status was invalid"
+                )
+            duration = _duration_ms(payload)
+            del self._active_activity_calls[tool_call_id]
+            completed_payload: dict[str, Any] = {
+                "activity_id": activity_id,
+                "activity_kind": activity_kind,
+                "status": "failed" if is_error else "completed",
+            }
+            if duration is not None:
+                completed_payload["duration_ms"] = duration
+            return self._event("activity.completed", self.session_id, completed_payload)
         if name == "run.completed":
-            if self.active_activities or payload.get("completed") is not True:
+            if (
+                self._active_activity_calls
+                or self._legacy_activity_counts
+                or payload.get("completed") is not True
+            ):
                 raise HermesMalformedResponse("Hermes run completion was invalid")
             messages = payload.get("messages")
-            if (
-                not isinstance(messages, list)
-                or len(messages) > MAX_EVENTS
-            ):
+            if not isinstance(messages, list) or len(messages) > MAX_EVENTS:
                 raise HermesMalformedResponse(
                     "Hermes run completion omitted its transcript"
                 )
@@ -1080,9 +1225,13 @@ class HermesClient:
                     body=body,
                     accepted_statuses=(409,),
                 )
-                status_code = getattr(response, "status", getattr(response, "code", 200))
+                status_code = getattr(
+                    response, "status", getattr(response, "code", 200)
+                )
                 if status_code == 409:
-                    raise HermesTranscriptConflict("Hermes transcript bootstrap conflicted")
+                    raise HermesTranscriptConflict(
+                        "Hermes transcript bootstrap conflicted"
+                    )
                 payload = _decode_json(_read_bounded(response))
                 if set(payload) != {
                     "object",
@@ -1195,46 +1344,39 @@ class HermesClient:
                     body=body,
                     headers=_session_key_header(session_key),
                 )
-                event_rows = _sse_events(_bounded_lines(response))
-                events: list[HermesEvent] = []
-                for name, payload in event_rows:
-                    payload_session = payload.get("session_id", session_id)
-                    payload_run = payload.get("run_id", "")
-                    sequence = payload.get("seq", len(events) + 1)
-                    if (
-                        not isinstance(payload_session, str)
-                        or payload_session != session_id
-                    ):
-                        raise HermesMalformedResponse(
-                            "Hermes event session identity did not match request"
-                        )
-                    if not isinstance(payload_run, str) or not payload_run:
-                        raise HermesMalformedResponse(
-                            "Hermes event omitted run identity"
-                        )
-                    if (
-                        isinstance(sequence, bool)
-                        or not isinstance(sequence, int)
-                        or sequence < 1
-                    ):
-                        raise HermesMalformedResponse(
-                            "Hermes event sequence was invalid"
-                        )
-                    events.append(
-                        HermesEvent(
-                            name=name,
-                            profile_id=profile_id,
-                            session_id=session_id,
-                            run_id=payload_run,
-                            sequence=sequence,
-                            payload=payload,
-                        )
+
+                async def collect() -> HermesStreamResult:
+                    parser = _IncrementalHTTPStream(
+                        response,
+                        profile_id,
+                        session_id,
+                        stream_timeout=self.settings.stream_timeout,
                     )
-                if not events:
-                    raise HermesMalformedResponse("Hermes stream returned no events")
-                return HermesStreamResult(
-                    profile_id=profile_id, session_id=session_id, events=tuple(events)
-                )
+                    try:
+                        events: list[HermesEvent] = []
+                        async for event in parser:
+                            events.append(event)
+                            if parser.event_count > MAX_BUFFERED_EVENTS:
+                                raise HermesMalformedResponse(
+                                    "Hermes stream exceeded the buffered event limit"
+                                )
+                    finally:
+                        await parser.aclose()
+                    if parser.event_count > MAX_BUFFERED_EVENTS:
+                        raise HermesMalformedResponse(
+                            "Hermes stream exceeded the buffered event limit"
+                        )
+                    if not events:
+                        raise HermesMalformedResponse(
+                            "Hermes stream returned no events"
+                        )
+                    return HermesStreamResult(
+                        profile_id=profile_id,
+                        session_id=session_id,
+                        events=tuple(events),
+                    )
+
+                return asyncio.run(collect())
             except HermesError:
                 raise
             except TimeoutError as exc:
@@ -1344,9 +1486,7 @@ class HermesClient:
             if error is not None:
                 fields["error_type"] = type(error).__name__
                 fields["error_code"] = getattr(error, "code", None)
-                emit_runtime_event(
-                    build_event("provider.operation.failed", **fields)
-                )
+                emit_runtime_event(build_event("provider.operation.failed", **fields))
             else:
                 emit_runtime_event(
                     build_event("provider.operation.succeeded", **fields)
@@ -1401,6 +1541,7 @@ class HermesClient:
 
 
 __all__ = [
+    "ACTIVITY_KINDS",
     "DEFAULT_CREDENTIAL_SOCKET",
     "MAX_MESSAGE_BYTES",
     "TEST_CREDENTIAL_PREFIX",

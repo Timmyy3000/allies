@@ -1,0 +1,142 @@
+{
+  "schema_version": "v1",
+  "activity_kinds": [
+    "web_search",
+    "web_extract",
+    "browser_navigate",
+    "browser_interact",
+    "search_files",
+    "read_file",
+    "write_file",
+    "patch",
+    "terminal",
+    "execute_code",
+    "image_generate",
+    "video_generate",
+    "text_to_speech",
+    "vision_analyze",
+    "session_search",
+    "memory_remember",
+    "memory_recall",
+    "memory",
+    "skills_list",
+    "skill_view",
+    "skill_manage",
+    "todo",
+    "cronjob",
+    "delegate_task",
+    "unknown"
+  ],
+  "accepted": [
+    {
+      "event_type": "activity.started",
+      "payload": {
+        "kind": "tool"
+      }
+    },
+    {
+      "event_type": "activity.started",
+      "payload": {
+        "activity_id": "activity-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "activity_kind": "web_search"
+      }
+    },
+    {
+      "event_type": "activity.completed",
+      "payload": {
+        "status": "completed"
+      }
+    },
+    {
+      "event_type": "activity.completed",
+      "payload": {
+        "activity_id": "activity-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "activity_kind": "web_search",
+        "status": "failed",
+        "duration_ms": 25
+      }
+    },
+    {
+      "event_type": "activity.completed",
+      "payload": {
+        "activity_id": "activity-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "activity_kind": "unknown",
+        "status": "stopped"
+      }
+    }
+  ],
+  "rejected": [
+    {
+      "event_type": "activity.started",
+      "payload": {
+        "activity_id": "activity-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    },
+    {
+      "event_type": "activity.started",
+      "payload": {
+        "activity_id": "activity-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "activity_kind": "private_custom_tool"
+      }
+    },
+    {
+      "event_type": "activity.started",
+      "payload": {
+        "activity_id": "activity-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "activity_kind": "web_search",
+        "kind": "tool"
+      }
+    },
+    {
+      "event_type": "activity.completed",
+      "payload": {
+        "activity_id": "activity-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "activity_kind": "web_search"
+      }
+    },
+    {
+      "event_type": "activity.completed",
+      "payload": {
+        "activity_id": "activity-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "activity_kind": "web_search",
+        "status": "completed",
+        "duration_ms": true
+      }
+    },
+    {
+      "event_type": "activity.completed",
+      "payload": {
+        "activity_id": "activity-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "activity_kind": "web_search",
+        "status": "completed",
+        "duration_ms": 0.5
+      }
+    },
+    {
+      "event_type": "activity.completed",
+      "payload": {
+        "activity_id": "activity-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "activity_kind": "web_search",
+        "status": "completed",
+        "duration_ms": -1
+      }
+    },
+    {
+      "event_type": "activity.completed",
+      "payload": {
+        "activity_id": "activity-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "activity_kind": "web_search",
+        "status": "completed",
+        "duration_ms": 86400001
+      }
+    },
+    {
+      "event_type": "activity.completed",
+      "payload": {
+        "activity_id": "activity-not-lowercase-or-32-hex",
+        "activity_kind": "web_search",
+        "status": "completed"
+      }
+    }
+  ]
+}

@@ -63,6 +63,12 @@ RUN cd /opt/hermes \
     && git apply --whitespace=nowarn /tmp/allies-first-turn-transcript-bootstrap.patch \
     && rm -f /tmp/allies-first-turn-transcript-bootstrap.patch
 
+COPY patches/meaningful-activity.patch /tmp/allies-meaningful-activity.patch
+RUN cd /opt/hermes \
+    && git apply --check --whitespace=nowarn /tmp/allies-meaningful-activity.patch \
+    && git apply --whitespace=nowarn /tmp/allies-meaningful-activity.patch \
+    && rm -f /tmp/allies-meaningful-activity.patch
+
 LABEL org.opencontainers.image.title="Allies Hermes with Mnemosyne" \
       org.opencontainers.image.description="Policy-fenced profile-local Mnemosyne provider" \
       org.opencontainers.image.version="${ALLIES_WRAPPER_VERSION}" \
