@@ -60,6 +60,224 @@ DEFAULT_ATTEMPT_ID = UUID("f50e8400-e29b-41d4-a716-446655440000")
 DEFAULT_EXECUTION_ID = UUID("e50e8400-e29b-41d4-a716-446655440000")
 
 
+@pytest.mark.parametrize("outcome", ["completed", "failed", "stopped"])
+def test_rich_activity_identity_outcomes_and_conflicts(conversation_records, outcome):
+    user, workspace, _ally, binding, conversation, message = conversation_records
+    first = {"activity_id": "activity-" + "a" * 32, "activity_kind": "web_search"}
+    second = {"activity_id": "activity-" + "b" * 32, "activity_kind": "web_search"}
+    events = [
+        ("activity.started", first),
+        ("activity.started", second),
+        ("activity.completed", {**second, "status": outcome, "duration_ms": 25}),
+        (
+            "activity.completed",
+            {**second, "status": "failed" if outcome == "completed" else "completed"},
+        ),
+        ("activity.started", second),
+        ("activity.completed", {**first, "status": "completed"}),
+        ("execution.stopped", {"reason": "user_requested"}),
+    ]
+    for sequence, (event_type, payload) in enumerate(events, 1):
+        result = project_foundry_event(
+            event_for(
+                message,
+                binding,
+                event_type=event_type,
+                attempt_sequence=sequence,
+                payload=payload,
+            )
+        )
+        assert (result.activity is None) == (sequence in (4, 5))
+        if sequence == 3:
+            message.refresh_from_db()
+            assert message.status == MessageLifecycle.IN_PROGRESS
+            assert result.activity.outcome == outcome
+            assert result.activity.activity_id == second["activity_id"]
+            assert result.activity.duration_ms == 25
+            assert (result.activity.text == "Searched the web") == (
+                outcome == "completed"
+            )
+    snapshot = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        replay=True,
+    )
+    assert [row.sequence for row in snapshot.activities] == [1, 2, 3, 4, 5]
+    assert snapshot.last_contiguous_sequence == 7
+    assert FoundryEventReceipt.objects.filter(message=message).count() == 7
+    assert snapshot.activities[-1].state == "stopped"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"activity_id": "activity-" + "a" * 32},
+        {"activity_id": "activity-" + "a" * 32, "activity_kind": "private_custom_tool"},
+        {
+            "activity_id": "activity-" + "a" * 32,
+            "activity_kind": "web_search",
+            "kind": "tool",
+        },
+        {"activity_id": "raw-private-id", "activity_kind": "web_search"},
+        {
+            "activity_id": "activity-" + "a" * 32,
+            "activity_kind": "web_search",
+            "args": {"query": "private"},
+        },
+    ],
+)
+def test_rich_activity_rejects_partial_hybrid_and_private_payloads(
+    conversation_records, payload
+):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    with pytest.raises(ValueError):
+        event_for(message, binding, event_type="activity.started", payload=payload)
+
+
+@pytest.mark.parametrize("duration", [True, -1, 86_400_001, 0.5, "20", None])
+def test_rich_activity_rejects_invalid_duration(conversation_records, duration):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    with pytest.raises(ValueError):
+        event_for(
+            message,
+            binding,
+            event_type="activity.completed",
+            payload={
+                "activity_id": "activity-" + "a" * 32,
+                "activity_kind": "web_search",
+                "status": "completed",
+                "duration_ms": duration,
+            },
+        )
+
+
+def test_activity_public_metadata_does_not_expose_foundry_attempt(conversation_records):
+    from activities.api.schemas import ActivityResponse
+    from activities.presentation import ACTIVITY_LABELS, activity_metadata
+    from allies.gateways.contracts import ACTIVITY_KINDS
+
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    assert ACTIVITY_LABELS.keys() == ACTIVITY_KINDS
+    row = project_foundry_event(event_for(message, binding)).activity
+    metadata = activity_metadata(row)
+    assert metadata["activity_attempt_id"].startswith("attempt-")
+    assert len(metadata["activity_attempt_id"]) == 40
+    public = ActivityResponse(
+        id=row.id,
+        message_id=row.message_id,
+        sequence=row.sequence,
+        conversation_turn_ordinal=row.conversation_turn_ordinal,
+        kind=row.kind,
+        text=row.text,
+        state=row.state,
+        created_at=row.created_at,
+        **metadata,
+    ).model_dump_json()
+    assert str(DEFAULT_ATTEMPT_ID) not in public
+    assert metadata["activity_id"] is None
+
+
+def test_hidden_terminal_receipt_prevents_visible_contradiction(
+    conversation_records, monkeypatch
+):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    rich = {"activity_id": "activity-" + "c" * 32, "activity_kind": "web_search"}
+    project_foundry_event(
+        event_for(message, binding, event_type="activity.started", payload=rich)
+    )
+    with monkeypatch.context() as scoped:
+        scoped.setattr(projection_service, "MAX_AGGREGATE_TEXT_BYTES", 0)
+        hidden = project_foundry_event(
+            event_for(
+                message,
+                binding,
+                event_type="activity.completed",
+                attempt_sequence=2,
+                payload={**rich, "status": "failed"},
+            )
+        )
+    assert hidden.activity is None
+    conflict = project_foundry_event(
+        event_for(
+            message,
+            binding,
+            event_type="activity.completed",
+            attempt_sequence=3,
+            payload={**rich, "status": "completed"},
+        )
+    )
+    assert conflict.activity is None
+    assert FoundryEventReceipt.objects.get(attempt_sequence=2).outcome == "failed"
+    assert conflict.last_contiguous_sequence == 3
+
+
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    ALLIES_AUTH_DIGEST_KEY="d" * 32,
+    ALLIES_AUTH_JWT_KEY="j" * 32,
+    ALLIES_ACTIVITY_SSE_ENABLED=True,
+)
+def test_rich_snapshot_and_sse_share_private_safe_metadata(conversation_records):
+    user, workspace, _ally, binding, conversation, message = conversation_records
+    rich = {"activity_id": "activity-" + "d" * 32, "activity_kind": "memory_recall"}
+    for sequence, (kind, payload) in enumerate(
+        [
+            ("activity.started", {"kind": "tool"}),
+            ("activity.started", rich),
+            ("activity.completed", {**rich, "status": "completed", "duration_ms": 100}),
+        ],
+        1,
+    ):
+        project_foundry_event(
+            event_for(
+                message,
+                binding,
+                event_type=kind,
+                attempt_sequence=sequence,
+                payload=payload,
+            )
+        )
+    client = Client()
+    client.cookies[cookie_name("access")] = issue_session(user).access_token
+    path = (
+        f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/activities"
+    )
+    response = client.get(path)
+    assert response.status_code == 200
+    rows = response.json()["data"]["activities"]
+    assert rows[0]["activity_id"] is None
+    assert rows[1]["activity_id"] == rich["activity_id"]
+    assert rows[2]["outcome"] == "completed"
+    assert rows[1]["activity_attempt_id"] == rows[2]["activity_attempt_id"]
+    stream = client.get(
+        path + "/stream", {"cursor": serialize_activity_cursor(conversation.id)}
+    )
+    assert stream.status_code == 200
+    iterator = iter(stream.streaming_content)
+    try:
+        assert b"event: ready" in next(iterator)
+        streamed = []
+        for _ in range(3):
+            chunk = next(iterator).decode()
+            data = next(
+                line[6:] for line in chunk.splitlines() if line.startswith("data: ")
+            )
+            streamed.append(json.loads(data)["activity"])
+    finally:
+        stream.close()
+    for snapshot, streamed_row in zip(rows, streamed, strict=True):
+        for key in (
+            "activity_id",
+            "activity_kind",
+            "activity_attempt_id",
+            "outcome",
+            "duration_ms",
+        ):
+            assert snapshot[key] == streamed_row[key]
+    assert str(DEFAULT_ATTEMPT_ID) not in json.dumps([rows, streamed])
+
+
 def test_terminal_projection_claims_only_next_turn_and_duplicate_does_not_advance(
     conversation_records,
 ):
@@ -711,7 +929,8 @@ def test_activity_replay_pages_from_a_signed_cursor(conversation_records):
     )
     assert [activity.sequence for activity in second.activities] == [4, 5]
     assert second.next_cursor is None
-    assert second.resume_cursor == serialize_activity_cursor(conversation.id, 5)
+    resumed = parse_activity_cursor(second.resume_cursor, conversation.id)
+    assert (resumed.after_sequence, resumed.high_water_sequence) == (5, 5)
 
 
 def test_activity_replay_rejects_a_cursor_before_retained_history(conversation_records):

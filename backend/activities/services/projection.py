@@ -42,6 +42,7 @@ from ..exceptions import (
     ProjectionSequenceGap,
 )
 from ..models import Activity, FoundryEventReceipt, ProjectionState
+from ..presentation import activity_text
 
 MAX_ACTIVITY_SNAPSHOT = 200
 MAX_ACTIVITIES_PER_MESSAGE = 513
@@ -465,6 +466,20 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         if envelope.event_type == "message.delta"
         else default_text
     )
+    activity_id = envelope.payload.get("activity_id")
+    activity_kind = envelope.payload.get("activity_kind")
+    outcome = envelope.payload.get("status") if activity_id else None
+    duplicate_activity = False
+    if activity_id:
+        text = activity_text(activity_kind, outcome)
+        prior = FoundryEventReceipt.objects.filter(
+            message=message, attempt_id=foundry.attempt_id, activity_id=activity_id
+        )
+        duplicate_activity = prior.filter(outcome__isnull=False).exists()
+        if envelope.event_type == "activity.started":
+            duplicate_activity = duplicate_activity or prior.exists()
+        elif prior.exclude(activity_kind=activity_kind).exists():
+            duplicate_activity = True
     visible_activity_allowed = _ensure_projection_bounds(
         message=message,
         conversation=conversation,
@@ -472,6 +487,7 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         terminal=message_status in _TERMINAL_STATES,
         attempt_sequence=foundry.attempt_sequence,
     )
+    visible_activity_allowed = visible_activity_allowed and not duplicate_activity
     reply, created = AssistantReply.objects.get_or_create(
         message=message,
         defaults={
@@ -511,6 +527,10 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
             kind=kind,
             text=text,
             state=state,
+            activity_id=activity_id,
+            activity_kind=activity_kind,
+            outcome=outcome,
+            duration_ms=envelope.payload.get("duration_ms") if activity_id else None,
             event_fingerprint=envelope.fingerprint,
         )
     FoundryEventReceipt.objects.create(
@@ -525,6 +545,9 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         event_fingerprint=envelope.fingerprint,
         result="applied",
         product_sequence=product_sequence,
+        activity_id=activity_id if not duplicate_activity else None,
+        activity_kind=activity_kind if not duplicate_activity else None,
+        outcome=outcome if not duplicate_activity else None,
     )
     message.status = message_status
     message.retry_allowed = (

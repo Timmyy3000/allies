@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import re
 import unicodedata
 from collections.abc import Mapping
 from datetime import datetime
@@ -23,6 +24,63 @@ MAX_EVENT_DEDUPE_KEY_LENGTH = 255
 MAX_RUNTIME_EVENT_SEQUENCE = 100_000
 MAX_TERMINAL_SEQUENCE = 100_001
 MAX_CONTRACT_LIFETIME_SECONDS = 60
+ACTIVITY_KINDS = frozenset(
+    {
+        "web_search",
+        "web_extract",
+        "browser_navigate",
+        "browser_interact",
+        "search_files",
+        "read_file",
+        "write_file",
+        "patch",
+        "terminal",
+        "execute_code",
+        "image_generate",
+        "video_generate",
+        "text_to_speech",
+        "vision_analyze",
+        "session_search",
+        "memory_remember",
+        "memory_recall",
+        "memory",
+        "skills_list",
+        "skill_view",
+        "skill_manage",
+        "todo",
+        "cronjob",
+        "delegate_task",
+        "unknown",
+    }
+)
+
+
+def _validate_activity(payload: dict[str, Any], *, completed: bool) -> None:
+    legacy = {"status": "completed"} if completed else {"kind": "tool"}
+    if payload == legacy:
+        return
+    required = {"activity_id", "activity_kind"}
+    if completed:
+        required.add("status")
+    allowed = required | ({"duration_ms"} if completed else set())
+    if not required <= set(payload) <= allowed:
+        raise ValueError("activity payload fields are invalid")
+    identity = payload["activity_id"]
+    kind = payload["activity_kind"]
+    if (
+        not isinstance(identity, str)
+        or re.fullmatch(r"activity-[0-9a-f]{32}", identity) is None
+        or not isinstance(kind, str)
+        or kind not in ACTIVITY_KINDS
+    ):
+        raise ValueError("activity identity or kind is invalid")
+    if completed and payload["status"] not in ("completed", "failed", "stopped"):
+        raise ValueError("activity outcome is invalid")
+    if "duration_ms" in payload and (
+        type(payload["duration_ms"]) is not int
+        or not 0 <= payload["duration_ms"] <= 86_400_000
+    ):
+        raise ValueError("activity duration is invalid")
 
 
 def _normalize(value: Any) -> Any:
@@ -221,11 +279,9 @@ class FoundryEventEnvelope(ContractModel):
             if set(payload) != {"action_kind"} or not _safe_code(action_kind):
                 raise ValueError("awaiting action payload is invalid")
         elif self.event_type == "activity.started":
-            if payload != {"kind": "tool"}:
-                raise ValueError("activity start payload is invalid")
+            _validate_activity(payload, completed=False)
         elif self.event_type == "activity.completed":
-            if payload != {"status": "completed"}:
-                raise ValueError("activity completion payload is invalid")
+            _validate_activity(payload, completed=True)
         elif self.event_type == "execution.accepted":
             if payload != {"status": "accepted"}:
                 raise ValueError("accepted payload is invalid")

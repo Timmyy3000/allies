@@ -25,6 +25,7 @@ from ..exceptions import (
     ProjectionNotFound,
     ProjectionSequenceGap,
 )
+from ..presentation import activity_metadata
 from ..services.projection import (
     parse_activity_cursor,
     project_foundry_event,
@@ -98,6 +99,7 @@ class ActivityController(ControllerBase):
                         "text": activity.text,
                         "state": activity.state,
                         "created_at": activity.created_at,
+                        **activity_metadata(activity),
                     }
                     for activity in result.activities
                 ],
@@ -240,6 +242,7 @@ class ActivityController(ControllerBase):
                                         "text": activity.text,
                                         "state": activity.state,
                                         "created_at": activity.created_at.isoformat(),
+                                        **activity_metadata(activity),
                                     },
                                 },
                                 next_cursor,

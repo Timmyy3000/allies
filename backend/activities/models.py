@@ -41,6 +41,10 @@ class Activity(models.Model):
     kind = models.CharField(max_length=64)
     text = models.TextField(max_length=16_000, blank=True, default="")
     state = models.CharField(max_length=32, choices=ProjectionState.choices)
+    activity_id = models.CharField(max_length=41, null=True, blank=True)
+    activity_kind = models.CharField(max_length=32, null=True, blank=True)
+    outcome = models.CharField(max_length=16, null=True, blank=True)
+    duration_ms = models.PositiveIntegerField(null=True, blank=True)
     event_fingerprint = models.CharField(max_length=90)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -108,6 +112,9 @@ class FoundryEventReceipt(models.Model):
     event_fingerprint = models.CharField(max_length=90)
     result = models.CharField(max_length=16, choices=(("applied", "Applied"),))
     product_sequence = models.PositiveIntegerField(null=True, blank=True)
+    activity_id = models.CharField(max_length=41, null=True, blank=True)
+    activity_kind = models.CharField(max_length=32, null=True, blank=True)
+    outcome = models.CharField(max_length=16, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
