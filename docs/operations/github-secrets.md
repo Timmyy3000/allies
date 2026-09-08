@@ -8,7 +8,7 @@ This file records secret names and their purpose only. Secret values must be add
 | `PROMOTION_TOKEN` | Protected branch promotions and Fastlane back-merge PRs | To be added |
 | `GITLEAKS_LICENSE` | Gitleaks scan if the action requires licensing | To be confirmed |
 | `DEPLOYMENT_TOKEN` | Future hosted Foundry deployment workflow | Not used yet |
-| `RAILWAY_TOKEN` | Publish Allies Runtime Images workflow | Required in the `foundry / staging` and `foundry / production` GitHub environments; do not add at repository scope |
+| `RAILWAY_TOKEN` | Publish Allies Runtime Images workflow | Required at repository scope |
 
 The promotion credential should be a narrowly scoped GitHub App or fine-grained repository token with only the permissions required to update promotion branches and open the Fastlane back-merge PR.
 
@@ -26,9 +26,8 @@ an `https://` URL and checks `/healthz` until the service returns HTTP 200 with
 The **Publish Allies Runtime Images** workflow builds and publishes the Hermes
 and runtime images from one commit. Select `staging` or `production` to update
 that Railway environment's shared `HERMES_IMAGE` and `RUNTIME_IMAGE` values as
-one CLI operation. Configure production reviewers on the
-`foundry / production` GitHub environment. Selecting `none` only publishes the
-images. Railway redeploys services that reference the changed shared values;
+one CLI operation. Selecting `none` only publishes the images. Railway
+redeploys services that reference the changed shared values;
 existing Fly machines reconcile to the pair through Foundry's normal image
 update flow.
 

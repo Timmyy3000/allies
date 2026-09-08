@@ -190,7 +190,6 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && (inputs.railway_environment == 'staging' || inputs.railway_environment == 'production')
     needs: build
     runs-on: blacksmith-2vcpu-ubuntu-2404
-    environment: ${{ inputs.railway_environment == 'production' && 'foundry / production' || 'foundry / staging' }}
     concurrency:
       group: publish-runtime-images-${{ inputs.railway_environment }}
       cancel-in-progress: false
