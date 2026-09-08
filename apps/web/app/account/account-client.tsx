@@ -26,6 +26,7 @@ import {
 } from "../../lib/account/account-query";
 import { uploadAvatar } from "../../lib/account/avatar-upload";
 import { profileFormSchema } from "../../lib/account/profile-schema";
+import { isStandalonePwa } from "../../lib/pwa/pwa-install";
 import { useSession } from "../../lib/session/session-context";
 
 import styles from "./account.module.css";
@@ -227,11 +228,12 @@ export function AccountClient() {
     if (logoutPending) return;
     setLogoutPending(true);
     setLogoutMessage(null);
+    const destination = isStandalonePwa() ? "/app" : "/";
     try {
       const result = await session.logout();
-      router.replace(result.serverConfirmed ? "/" : "/?signout=unconfirmed");
+      router.replace(result.serverConfirmed ? destination : `${destination}?signout=unconfirmed`);
     } catch {
-      router.replace("/?signout=unconfirmed");
+      router.replace(`${destination}?signout=unconfirmed`);
     }
   };
 

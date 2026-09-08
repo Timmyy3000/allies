@@ -131,7 +131,10 @@ describe("AuthenticatedAllyFlowProvider", () => {
       reply: "Make tomorrow easier.",
     });
     expect(createAlly.mock.calls[1]?.[2]).toBe(firstKey);
-    expect(onCreated).toHaveBeenCalledWith(ally);
+    expect(onCreated).toHaveBeenCalledWith(ally, {
+      greeting: "Hello. What should we work on first?",
+      reply: "Make tomorrow easier.",
+    });
   });
 
   it("rejects a reply before an onboarding attempt exists", async () => {
