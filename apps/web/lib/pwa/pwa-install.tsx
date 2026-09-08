@@ -127,7 +127,6 @@ function persistDismissal(timestamp: number): boolean {
 export function PwaInstallProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState(initialState);
   const eventRef = useRef<BeforeInstallPromptEvent | null>(null);
-  const consumedEventsRef = useRef(new WeakSet<BeforeInstallPromptEvent>());
   const promptingRef = useRef(false);
   const mountedRef = useRef(false);
   const cooldownTimerRef = useRef<number | null>(null);
@@ -169,7 +168,6 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
         eventRef.current = null;
         if (mountedRef.current) setState((previous) => ({ ...previous, hasNativePrompt: false }));
       }
-      consumedEventsRef.current.add(current);
       promptingRef.current = false;
       if (mountedRef.current) setState((previous) => ({ ...previous, prompting: false }));
     }
@@ -182,7 +180,6 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
       event.preventDefault();
       const promptEvent = getInstallEvent(event);
       if (!promptEvent) return;
-      if (consumedEventsRef.current.has(promptEvent)) return;
       eventRef.current = promptEvent;
       setState((current) => ({ ...current, hasNativePrompt: true }));
     };
