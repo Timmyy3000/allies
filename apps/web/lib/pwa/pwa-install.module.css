@@ -88,9 +88,3 @@
     bottom: calc(88px + env(safe-area-inset-bottom));
   }
 }
-
-@media (prefers-reduced-motion: reduce) {
-  .button {
-    transition: none;
-  }
-}
