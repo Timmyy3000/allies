@@ -9,6 +9,7 @@ import { createCloudCsrfTokenOwner } from "../lib/cloud/csrf-token";
 import { getWebEnvironment } from "../lib/env";
 import { createQueryClient } from "../lib/query/create-query-client";
 import { SessionProvider } from "../lib/session/session-context";
+import { PwaInstallProvider } from "../lib/pwa/pwa-install";
 
 export default function AppProviders({ children }: { children: ReactNode }) {
   const [environment] = useState(getWebEnvironment);
@@ -25,7 +26,7 @@ export default function AppProviders({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <SessionProvider client={cloudClient} csrf={csrf}>
-        {children}
+        <PwaInstallProvider>{children}</PwaInstallProvider>
       </SessionProvider>
     </QueryClientProvider>
   );
