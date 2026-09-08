@@ -42,6 +42,9 @@ vi.mock("next/image", () => ({
 }));
 vi.mock("../../lib/allies/activity-stream", () => ({ readActivityStream: readActivityStreamMock }));
 vi.mock("../../lib/session/session-context", () => ({ useSession: useSessionMock }));
+vi.mock("../../lib/pwa/pwa-install", () => ({
+  InstallInvitation: () => <aside data-testid="install-invitation" />,
+}));
 vi.mock("../../components/ally-avatar", () => ({
   ALLY_SHAPES: ["boxy", "ghosty", "rocky", "rolly"],
   AllyAvatar: ({ label, state }: { label?: string; state?: string }) => <span data-testid="ally-avatar" aria-label={label} data-state={state} />,
@@ -195,7 +198,9 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
 
   it("loads the real roster and opens the created Ally through its actual page", async () => {
     const client = renderHome([ally], null, {}, <HomePage />);
+    expect(screen.queryByTestId("install-invitation")).toBeNull();
     const row = await screen.findByRole("link", { name: /Mira/ });
+    expect(screen.getByTestId("install-invitation")).toBeTruthy();
     expect(row.getAttribute("href")).toBe(`/home/${ally.id}`);
     expect(client.listAllies).toHaveBeenCalledWith(account.workspace.id, expect.any(AbortSignal));
     expect(screen.queryByText("Sally Morano")).toBeNull();
@@ -209,6 +214,7 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     expect(screen.queryByRole("dialog", { name: "Make your Ally" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Make an Ally" }));
     expect(await screen.findByRole("dialog", { name: "Make your Ally" })).toBeTruthy();
+    expect(screen.queryByTestId("install-invitation")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Finish create" }));
     const createdId = "00000000-0000-4000-8000-000000000099";
     expect(replace).toHaveBeenCalledWith(`/home/${createdId}`);
@@ -216,6 +222,7 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     const page = <AllyHomePage />;
     client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout>{page}</HomeLayout></QueryClientProvider>);
     expect(await screen.findByRole("heading", { name: "Nova" })).toBeTruthy();
+    expect(screen.queryByTestId("install-invitation")).toBeNull();
     await waitFor(() => expect(client.getAllyConversation).toHaveBeenCalledWith(
       account.workspace.id, createdId, expect.objectContaining({ limit: 50 }),
     ));

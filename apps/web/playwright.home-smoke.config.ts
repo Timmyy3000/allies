@@ -23,5 +23,6 @@ export default defineConfig({
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"] } },
     { name: "mobile", use: { ...devices["iPhone 13"], browserName: "chromium" } },
+    { name: "pwa-webkit", testMatch: "pwa-install.spec.ts", use: { ...devices["iPhone 13"], browserName: "webkit" } },
   ],
 });

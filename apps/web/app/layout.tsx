@@ -53,7 +53,7 @@ export const metadata: Metadata = {
   icons: {
     icon: [{ url: "/allies-icon.svg", type: "image/svg+xml" }],
     shortcut: ["/allies-icon.svg"],
-    apple: [{ url: "/allies-icon.svg", type: "image/svg+xml" }],
+    apple: [{ url: "/pwa/apple-touch-icon.png", sizes: "180x180", type: "image/png" }],
   },
   openGraph: {
     type: "website",

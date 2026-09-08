@@ -46,6 +46,7 @@ import {
 } from "../../lib/allies/activity-presentation";
 import { getActivitySseEnabled, getCreationWakeEnabled, getWebEnvironment } from "../../lib/env";
 import { useSession } from "../../lib/session/session-context";
+import { InstallInvitation } from "../../lib/pwa/pwa-install";
 import {
   WAITLIST_APPEARANCE_CATALOG_VERSION,
   WAITLIST_COLORS,
@@ -473,6 +474,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
         </section>
       ) : null}
       {createOverlay}
+      {!selectedAllyId && !createOverlayOpen ? <InstallInvitation /> : null}
     </main>
   );
 }
