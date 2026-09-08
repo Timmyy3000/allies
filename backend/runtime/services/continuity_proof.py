@@ -1152,7 +1152,7 @@ def proof_workspace_spec(
     dependency_handle: ProofDependencyCredentialHandle | None = None,
     *,
     activity_wait_enabled: bool = False,
-    rich_approvals_enabled: bool = False,
+    rich_approvals_enabled: bool = True,
 ) -> WorkspaceSpec:
     """Build the proof container topology from opaque credential handles.
 

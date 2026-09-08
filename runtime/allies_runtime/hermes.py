@@ -1075,7 +1075,7 @@ def _session_stream_headers(
     settings: Any, session_key: str | None
 ) -> Mapping[str, str]:
     headers = dict(_session_key_header(session_key))
-    if getattr(settings, "rich_approvals_enabled", False):
+    if getattr(settings, "rich_approvals_enabled", True):
         headers["X-Allies-Rich-Approvals"] = "1"
     return headers
 

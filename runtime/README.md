@@ -83,10 +83,10 @@ Approval consumers must be compatible before the producer is enabled: deploy
 Cloud, Foundry, and Interface support first, then publish the derived Hermes
 and `allies-runtime` images together. Existing profile and bootstrap
 credential references are reused; no credential migration is part of this
-rollout. Rich approval production is default-off. Foundry-managed activation
+rollout. Rich approval production is enabled by default. Foundry-managed activation
 and image replacement carry the same `ALLIES_RICH_APPROVALS_ENABLED` setting
-into the runtime container, so configure it in the Foundry environment after
-compatibility checks; do not mutate individual Machines. The setting is read
+into the runtime container. Set it to `false` in the Foundry environment to
+disable production; do not mutate individual Machines. The setting is read
 when an adoption or replacement spec is built and applies to newly managed
 Machines.
 
