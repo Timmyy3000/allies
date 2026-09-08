@@ -42,6 +42,7 @@ from ..exceptions import (
     ProjectionSequenceGap,
 )
 from ..presentation import activity_metadata, approval_detail, approval_summary
+from ..services.approval_explanations import ensure_approval_explanation
 from ..services.approvals import (
     APPROVAL_MAX_LIST,
     get_approval_detail,
@@ -60,6 +61,11 @@ from .schemas import (
     ApprovalDetailResponse,
     ApprovalListResponse,
 )
+
+
+def _no_store(response: JsonResponse) -> JsonResponse:
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 def _foundry_token_valid(request: HttpRequest) -> bool:
@@ -101,11 +107,13 @@ class ActivityController(ControllerBase):
             return error_json("approval_unavailable", "approval unavailable", 404)
         except ApprovalInvalid:
             return error_json("validation_error", "request validation failed", 422)
-        return success_json(
-            ApprovalListResponse(
-                approvals=[approval_summary(approval) for approval in approvals]
-            ),
-            "Approvals loaded",
+        return _no_store(
+            success_json(
+                ApprovalListResponse(
+                    approvals=[approval_summary(approval) for approval in approvals]
+                ),
+                "Approvals loaded",
+            )
         )
 
     @http_get(
@@ -124,19 +132,26 @@ class ActivityController(ControllerBase):
     ):
         try:
             session = _session(request)
-            result = get_approval_detail(
-                user=session.user,
-                workspace_id=workspace_id,
-                conversation_id=conversation_id,
-                approval_id=approval_id,
+            arguments = {
+                "user": session.user,
+                "workspace_id": workspace_id,
+                "conversation_id": conversation_id,
+                "approval_id": approval_id,
+            }
+            result = (
+                ensure_approval_explanation(**arguments)
+                if _require_origin(request, allow_native_bearer=True) is None
+                else get_approval_detail(**arguments)
             )
         except SessionInvalid:
             return error_json("session_invalid", "session invalid", 401)
         except (WorkspaceAccessDenied, ApprovalNotFound):
             return error_json("approval_unavailable", "approval unavailable", 404)
-        return success_json(
-            ApprovalDetailResponse.model_validate(approval_detail(result)),
-            "Approval loaded",
+        return _no_store(
+            success_json(
+                ApprovalDetailResponse.model_validate(approval_detail(result)),
+                "Approval loaded",
+            )
         )
 
     @http_post(
@@ -184,10 +199,12 @@ class ActivityController(ControllerBase):
             return error_json("approval_conflict", "request conflicts", 409)
         except ApprovalInvalid:
             return error_json("validation_error", "request validation failed", 422)
-        return success_json(
-            ApprovalDetailResponse.model_validate(approval_detail(result.approval)),
-            "Approval decision recorded",
-            status=200 if result.replayed else 202,
+        return _no_store(
+            success_json(
+                ApprovalDetailResponse.model_validate(approval_detail(result.approval)),
+                "Approval decision recorded",
+                status=200 if result.replayed else 202,
+            )
         )
 
     @http_get(

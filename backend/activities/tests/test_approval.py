@@ -105,8 +105,11 @@ def test_rich_awaiting_event_creates_private_approval_and_safe_activity(
     assert approval.cloud_binding_id == binding.id
     public = activity_metadata(result.activity)["approval"]
     assert public == {
+        "contract_version": "approval.v1",
         "id": approval.id,
         "status": ApprovalStatus.PENDING,
+        "decision": None,
+        "decision_recorded": False,
         "expires_at": approval.expires_at,
         "decided_at": None,
     }

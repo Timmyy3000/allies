@@ -4,14 +4,31 @@ import hashlib
 
 from django.core.exceptions import ObjectDoesNotExist
 
+from .services.approval_explanations import (
+    APPROVAL_CONTRACT_VERSION,
+    public_explanation,
+    technical_details,
+)
+
+
+def _decision_state(approval) -> tuple[str | None, bool]:
+    decision = approval.decision if approval.decision in {"approve", "reject"} else None
+    return decision, bool(decision and approval.decided_at is not None)
+
 
 def approval_summary(approval) -> dict:
     """Return the content-free approval projection used by activity/list APIs."""
 
+    decision, decision_recorded = _decision_state(approval)
+
     return {
+        "contract_version": APPROVAL_CONTRACT_VERSION,
         "id": approval.id,
         "message_id": approval.message_id,
+        "conversation_turn_ordinal": approval.message.sequence,
         "status": approval.status,
+        "decision": decision,
+        "decision_recorded": decision_recorded,
         "expires_at": approval.expires_at,
         "decided_at": approval.decided_at,
         "acknowledgement_deadline_at": approval.acknowledgement_deadline_at,
@@ -21,9 +38,14 @@ def approval_summary(approval) -> dict:
 def approval_activity_summary(approval) -> dict:
     """Return the smaller approval projection safe for generic activities."""
 
+    decision, decision_recorded = _decision_state(approval)
+
     return {
+        "contract_version": APPROVAL_CONTRACT_VERSION,
         "id": approval.id,
         "status": approval.status,
+        "decision": decision,
+        "decision_recorded": decision_recorded,
         "expires_at": approval.expires_at,
         "decided_at": approval.decided_at,
     }
@@ -31,10 +53,15 @@ def approval_activity_summary(approval) -> dict:
 
 def approval_detail(approval) -> dict:
     result = approval_summary(approval)
+    explanation = public_explanation(approval)
     result.update(
         {
             "action_label": approval.action_label,
             "action_preview": approval.action_preview,
+            "approval_request_id": approval.approval_request_id,
+            "preview_digest": explanation["preview_digest"],
+            "explanation": explanation,
+            "technical_details": technical_details(approval),
         }
     )
     return result
