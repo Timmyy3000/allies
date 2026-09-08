@@ -43,7 +43,11 @@ export const metadata: Metadata = {
     template: "%s · Allies",
   },
   description: siteDescription,
-  applicationName: "Allies",
+  applicationName: "allies",
+  appleWebApp: {
+    capable: true,
+    title: "allies",
+  },
   authors: [{ name: "Allies" }],
   creator: "Allies",
   publisher: "Allies",

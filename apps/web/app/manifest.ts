@@ -2,8 +2,8 @@ import type { MetadataRoute } from "next";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Allies",
-    short_name: "Allies",
+    name: "allies",
+    short_name: "allies",
     description: "Personal helpers built around what matters to you.",
     start_url: "/app",
     scope: "/",

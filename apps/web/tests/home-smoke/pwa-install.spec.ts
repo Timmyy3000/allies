@@ -90,7 +90,9 @@ test("manifest launches at app with usable icons and no service worker", async (
   const response = await page.request.get(manifestUrl!);
   expect(response.ok()).toBe(true);
   const manifest = await response.json();
-  expect(manifest).toMatchObject({ start_url: "/app", scope: "/", display: "standalone" });
+  expect(manifest).toMatchObject({ name: "allies", short_name: "allies", start_url: "/app", scope: "/", display: "standalone" });
+  await expect(page.locator('meta[name="application-name"]')).toHaveAttribute("content", "allies");
+  await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute("content", "allies");
   for (const icon of manifest.icons) {
     const image = await page.request.get(icon.src);
     expect(image.ok()).toBe(true);

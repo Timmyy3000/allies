@@ -11,8 +11,8 @@ const pwaAssetDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.ur
 describe("web app manifest", () => {
   it("launches the app route inside the whole Allies scope", () => {
     expect(manifest()).toMatchObject({
-      name: "Allies",
-      short_name: "Allies",
+      name: "allies",
+      short_name: "allies",
       start_url: "/app",
       scope: "/",
       display: "standalone",
