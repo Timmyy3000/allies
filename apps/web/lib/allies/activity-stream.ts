@@ -1,4 +1,4 @@
-import { activityKindSchema, activityStateSchema, type ActivityState, type ActivityViewModel } from "@allies/cloud-client";
+import { activityApprovalSchema, toActivityApproval, activityKindSchema, activityStateSchema, type ActivityState, type ActivityViewModel } from "@allies/cloud-client";
 
 const MAX_STREAM_BUFFER_BYTES = 4 * 1024 * 1024;
 const ACTIVITY_ATTEMPT_ID_PATTERN = /^attempt-[0-9a-f]{32}$/;
@@ -76,6 +76,7 @@ function parseEvent(eventName: string, eventId: string, data: string): ActivityS
       throw new ActivityStreamError("invalid activity stream activity event");
     }
     const activity = raw as Record<string, unknown>;
+    const approval = activityApprovalSchema.nullish().safeParse(activity.approval);
     if (
       typeof activity.id !== "string"
       || typeof activity.message_id !== "string"
@@ -92,6 +93,7 @@ function parseEvent(eventName: string, eventId: string, data: string): ActivityS
       || !isOptionalPattern(activity.activity_kind, ACTIVITY_KIND_PATTERN)
       || !isOptionalOutcome(activity.outcome)
       || !isOptionalDuration(activity.duration_ms)
+      || !approval.success
     ) throw new ActivityStreamError("invalid activity stream activity payload");
     return {
       type: "activity",
@@ -111,6 +113,7 @@ function parseEvent(eventName: string, eventId: string, data: string): ActivityS
         activityKind: activity.activity_kind,
         outcome: activity.outcome,
         durationMs: activity.duration_ms,
+        approval: approval.data ? toActivityApproval(approval.data) : approval.data,
       },
     };
   }

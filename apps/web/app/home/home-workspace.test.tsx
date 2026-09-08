@@ -148,6 +148,7 @@ function renderHome(
   const client = {
     getCurrentAccount: vi.fn(async () => account),
     listAllies: vi.fn(async () => allies),
+    getApprovals: vi.fn(async () => []),
     getAllyConversation: vi.fn(async (_workspaceId: string, selectedId: string) => ({
       id: "00000000-0000-4000-8000-000000000005",
       allyId: selectedId,

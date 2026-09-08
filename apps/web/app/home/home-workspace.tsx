@@ -62,6 +62,7 @@ import {
   type ConversationAccessFailure,
 } from "./conversation-access-error";
 import { ConversationFrame } from "./conversation-frame";
+import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
 import { MobileHomeRosterExact } from "./_exact/mobile-home-roster-exact";
 import { HomeReadySplash } from "./home-ready-splash";
 import { useIsMobileHome } from "./use-is-mobile-home";
@@ -349,6 +350,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
       key={selectedAlly.id}
       userId={accountQuery.data.userId}
       workspaceId={workspaceId}
+      canApprove={accountQuery.data.workspace.capabilities.includes("profile.write")}
       ally={selectedAlly}
       onActivity={() => recordAllyActivity(selectedAlly.id)}
       stateReady={sleepClock !== null && Boolean(allyPreviews.get(selectedAlly.id)) && !allyPreviews.get(selectedAlly.id)?.isPending}
@@ -609,6 +611,7 @@ function ConversationPane({
   stateReady,
   userId,
   workspaceId,
+  canApprove,
   ally,
   onActivity,
   workspaceRefreshError,
@@ -616,6 +619,7 @@ function ConversationPane({
 }: {
   userId: string;
   workspaceId: string;
+  canApprove: boolean;
   ally: AllyViewModel;
   onActivity: () => void;
   sleeping: boolean;
@@ -624,6 +628,11 @@ function ConversationPane({
   onRetryWorkspace: () => void;
 }) {
   const session = useSession();
+  const approvalClient = useMemo<ApprovalClient>(() => ({
+    getApprovals: (workspace, conversation, signal) => session.runCloudOperation((operationSignal) => session.client.getApprovals(workspace, conversation, operationSignal), { signal }),
+    getApproval: (workspace, conversation, approval, signal) => session.runCloudOperation((operationSignal) => session.client.getApproval(workspace, conversation, approval, operationSignal), { signal }),
+    decideApproval: (workspace, conversation, approval, decision, key, signal) => session.runCloudOperation((operationSignal) => session.client.decideApproval(workspace, conversation, approval, decision, key, operationSignal), { signal, csrf: true, retryTransient: false }),
+  }), [session]);
   const queryClient = useQueryClient();
   const [olderMessages, setOlderMessages] = useState<MessageViewModel[]>([]);
   const [nextCursorOverride, setNextCursorOverride] = useState<string | null | undefined>(undefined);
@@ -2031,7 +2040,7 @@ function ConversationPane({
     },
   };
 
-  return <ConversationFrame stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} canvasRef={messageCanvasRef} />;
+  return <ConversationFrame stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} canvasRef={messageCanvasRef} approvals={conversationId && !conversationAccessFailure ? <ConversationApprovals key={conversationId} client={approvalClient} workspaceId={workspaceId} conversationId={conversationId} allyName={ally.name} accent={allyAccent} canApprove={canApprove} /> : null} />;
 }
 
 function HomeStatus({

@@ -594,20 +594,29 @@ export function BottomSheet({
   onClose,
   labelledBy,
   className = "",
+  modal = false,
 }: {
   title?: string;
   children: ReactNode;
   onClose: () => void;
   labelledBy?: string;
   className?: string;
+  modal?: boolean;
 }) {
-  return (
-    <div className={`${styles.frameOverlay} ${className}`} role="presentation">
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!modal || !dialog) return;
+    dialog.showModal();
+    return () => dialog.close();
+  }, [modal]);
+  const label = labelledBy ?? (title ? "conversation-sheet-title" : undefined);
+  const content = (
         <section
           className={styles.frameSheet}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={labelledBy ?? (title ? "conversation-sheet-title" : undefined)}
+          role={modal ? undefined : "dialog"}
+          aria-modal={modal ? undefined : true}
+          aria-labelledby={modal ? undefined : label}
         >
         <div className={styles.frameSheetTop}>
           {title ? <h2 id={labelledBy ?? "conversation-sheet-title"}>{title}</h2> : <span />}
@@ -615,8 +624,9 @@ export function BottomSheet({
         </div>
         {children}
       </section>
-    </div>
   );
+  return modal ? <dialog ref={dialogRef} className={`${styles.frameOverlay} ${styles.frameNativeSheet} ${className}`} aria-labelledby={label} onCancel={(event) => { event.preventDefault(); onClose(); }}>{content}</dialog>
+    : <div className={`${styles.frameOverlay} ${className}`} role="presentation">{content}</div>;
 }
 
 export function ApprovalSheet({
