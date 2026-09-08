@@ -205,4 +205,14 @@ describe("AccountClient", () => {
     await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/?signout=unconfirmed"));
     expect(logout).toHaveBeenCalledOnce();
   });
+
+  it("returns standalone logout to the app route", async () => {
+    window.matchMedia = vi.fn().mockReturnValue({ matches: true });
+    setupSession();
+    renderAccount();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
+
+    await waitFor(() => expect(navigation.replace).toHaveBeenCalledWith("/app"));
+  });
 });

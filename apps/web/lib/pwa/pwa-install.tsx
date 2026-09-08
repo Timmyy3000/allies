@@ -84,7 +84,7 @@ function detectIOS(): boolean {
   return /iPad|iPhone|iPod/u.test(userAgent) || isTouchMac;
 }
 
-function detectStandalone(): boolean {
+export function isStandalonePwa(): boolean {
   if (typeof window === "undefined") return false;
   try {
     if (typeof window.matchMedia === "function" && window.matchMedia("(display-mode: standalone)").matches) {
@@ -198,7 +198,7 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
       media = null;
     }
     const handleDisplayModeChange = () => {
-      setState((current) => ({ ...current, isStandalone: detectStandalone() }));
+      setState((current) => ({ ...current, isStandalone: isStandalonePwa() }));
     };
     if (media) {
       if (typeof media.addEventListener === "function") media.addEventListener("change", handleDisplayModeChange);
@@ -213,7 +213,7 @@ export function PwaInstallProvider({ children }: { children: ReactNode }) {
         dismissedAt: dismissal.dismissedAt,
         hydrated: true,
         isIOS: detectIOS(),
-        isStandalone: detectStandalone(),
+        isStandalone: isStandalonePwa(),
         now,
         storageUsable: dismissal.storageUsable,
       }));

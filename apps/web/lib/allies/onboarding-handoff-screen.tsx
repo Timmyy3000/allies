@@ -9,6 +9,7 @@ import { alliesQueryKey } from "./query-keys";
 import { bindOnboardingHandoff, clearOnboardingHandoff, hasOnboardingHandoff } from "./onboarding-handoff";
 import { clearOnboardingResume, readOnboardingResume, type OnboardingResumeSnapshot } from "../../app/(onboarding)/_store/onboarding-resume";
 import { AuthenticatedAllyFlowProvider } from "./authenticated-onboarding-flow";
+import { isStandalonePwa } from "../pwa/pwa-install";
 import { OnboardingStateProvider, useOnboardingStore } from "../../app/(onboarding)/_store/onboarding-store";
 import { WaitlistPreviewScreen } from "../../app/(onboarding)/_components/waitlist-preview";
 import { AuthWelcome } from "../../app/(onboarding)/_components/auth-welcome";
@@ -72,8 +73,9 @@ export function OnboardingHandoffScreen() {
         <button type="button" disabled={signingOut} onClick={() => { started.current = false; setError(null); setRetry((value) => value + 1); }}>Try again</button>
         <button type="button" disabled={signingOut} onClick={() => {
           setSigningOut(true);
-          void logout().then((result) => router.replace(result.serverConfirmed ? "/" : "/?signout=unconfirmed"))
-            .catch(() => router.replace("/?signout=unconfirmed"));
+          const destination = isStandalonePwa() ? "/app" : "/";
+          void logout().then((result) => router.replace(result.serverConfirmed ? destination : `${destination}?signout=unconfirmed`))
+            .catch(() => router.replace(`${destination}?signout=unconfirmed`));
         }}>{signingOut ? "Signing out…" : "Sign out to switch accounts"}</button>
         <Link href="/home">Back to chats</Link>
         <p>Your saved Ally and first message will be kept for the original account.</p>

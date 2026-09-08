@@ -62,7 +62,7 @@ function normalizeError(error: unknown): CloudError {
 
 export interface AuthenticatedAllyFlowProviderProps {
   workspaceId: string;
-  onCreated: (ally: AllyViewModel) => void;
+  onCreated: (ally: AllyViewModel, handoff: { greeting: string; reply: string }) => void;
   creationWakeEnabled?: boolean;
   children: ReactNode;
 }
@@ -85,8 +85,10 @@ export function AuthenticatedAllyFlowProvider({
   const creationWakeSent = useRef(false);
   const creationWakeController = useRef<AbortController | null>(null);
   const attemptToken = useRef<string | null>(null);
+  const createdRef = useRef(false);
 
   useEffect(() => {
+    createdRef.current = false;
     creationWakeController.current?.abort();
     creationWakeController.current = null;
     creationWakeSent.current = false;
@@ -193,6 +195,7 @@ export function AuthenticatedAllyFlowProvider({
   const recordReply = useCallback(
     (text: string) => {
       const reply = text.trim();
+      if (createdRef.current) return Promise.resolve(snapshot);
       if (!reply) {
         return Promise.reject(
           new WaitlistMappingError("reply_required", "Write a reply first."),
@@ -259,7 +262,8 @@ export function AuthenticatedAllyFlowProvider({
           reply: { text: reply, status: "pending" },
         }));
         await queryClient.invalidateQueries({ queryKey: alliesQueryKey(workspaceId) });
-        onCreated(ally);
+        createdRef.current = true;
+        onCreated(ally, { greeting: snapshot.greeting?.text ?? "", reply });
         const next: AllyPreviewSnapshot = {
           ...snapshot,
           lifecycle: "pending_claim",

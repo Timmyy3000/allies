@@ -106,6 +106,16 @@ describe("AppPageClient", () => {
     expect(screen.getByRole("button", { name: "Continue with Google" })).toBeTruthy();
   });
 
+  it("shows unconfirmed sign-out recovery without restoring private session content", () => {
+    searchParamsMock.get.mockImplementation((key) => key === "signout" ? "unconfirmed" : null);
+    const { restore } = setupSession("unknown");
+
+    render(<AppPageClient />);
+
+    expect(screen.getByRole("heading", { name: "Let’s finish signing you out" })).toBeTruthy();
+    expect(restore).not.toHaveBeenCalled();
+  });
+
   it("starts CSRF-protected Google sign-in and blocks duplicate starts", async () => {
     const { beginSignIn, runCloudOperation } = setupSession("signed-out");
 
