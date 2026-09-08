@@ -38,6 +38,7 @@ def run_settings_probe(**overrides):
         "ALLIES_RUNTIME_POWER_PROOF_ENABLED",
         "ALLIES_RUNTIME_READINESS_HINT_ENABLED",
         "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED",
+        "ALLIES_RICH_APPROVALS_ENABLED",
         "ALLIES_RUNTIME_ACTIVITY_WAIT_SECONDS",
         "ALLIES_RUNTIME_ACTIVITY_WAIT_MAX_WAITERS",
         "READY_WORKSPACE_POOL_TARGET",
@@ -445,3 +446,21 @@ def test_explicit_hint_enable_requires_delivery_credentials():
         "ALLIES_CLOUD_URL and ALLIES_CLOUD_EVENT_SERVICE_TOKEN are required"
         in result.stderr
     )
+
+
+@pytest.mark.parametrize(
+    ("override", "expected"),
+    [(None, False), ("false", False), ("true", True)],
+)
+def test_rich_approval_setting_is_explicit_and_environment_scoped(
+    monkeypatch, override, expected
+):
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "PROBE",
+        "import config.settings as s; print(s.ALLIES_RICH_APPROVALS_ENABLED)",
+    )
+    overrides = {} if override is None else {"ALLIES_RICH_APPROVALS_ENABLED": override}
+    result = run_settings_probe(DJANGO_DEBUG="true", **overrides)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == str(expected)

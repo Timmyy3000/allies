@@ -225,6 +225,9 @@ def _finish_attempt(
         execution = attempt.execution
         execution.status = execution_status
         execution.save(update_fields=["status", "updated_at"])
+        from .approvals import cancel_live_approval_requests
+
+        cancel_live_approval_requests(attempt)
         lease.state = LeaseState.RELEASED
         lease.save(update_fields=["state", "updated_at"])
         return TerminalReceipt(

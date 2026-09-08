@@ -314,6 +314,7 @@ class Command(BaseCommand):
                 credential_handle,
                 dependency_handle,
                 activity_wait_enabled=settings.ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED,
+                rich_approvals_enabled=settings.ALLIES_RICH_APPROVALS_ENABLED,
             )
             if existing_machine is None:
                 provider.set_release_metadata(

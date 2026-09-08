@@ -188,6 +188,7 @@ def reconcile_workspace_release(
                 provider_key_secret_name="ALLIES_FND008_OPENAI_KEY",
             ),
             activity_wait_enabled=settings.ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED,
+            rich_approvals_enabled=settings.ALLIES_RICH_APPROVALS_ENABLED,
         )
         WorkspaceLifecycle(provider, jitter=False).replace_machine(
             workspace.id,

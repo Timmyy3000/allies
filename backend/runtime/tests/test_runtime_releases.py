@@ -127,6 +127,17 @@ def test_release_propagates_optional_activity_wait_setting(
     )
 
 
+@pytest.mark.parametrize("enabled", [False, True])
+def test_release_propagates_rich_approval_setting(release_setup, settings, enabled):
+    workspace, provider, _ = release_setup
+    settings.ALLIES_RICH_APPROVALS_ENABLED = enabled
+    assert wake(workspace, provider).awaiting_readiness == 1
+    runtime = next(
+        c for c in provider.last_machine_spec.containers if c.name == "allies-runtime"
+    )
+    assert runtime.environment["ALLIES_RICH_APPROVALS_ENABLED"] == str(enabled).lower()
+
+
 def wake(workspace, provider):
     request_execution_wake_locked(workspace)
     return process_runtime_wakes(provider=provider)

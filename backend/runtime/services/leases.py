@@ -492,6 +492,9 @@ def acknowledge_stopped(
         execution = attempt.execution
         execution.status = ExecutionStatus.QUEUED if requeue else ExecutionStatus.FAILED
         execution.save(update_fields=["status", "updated_at"])
+        from .approvals import cancel_live_approval_requests
+
+        cancel_live_approval_requests(attempt)
         lease.state = LeaseState.RELEASED
         lease.save(update_fields=["state", "updated_at"])
         return StopReceipt(attempt.id, LeaseState.RELEASED, requeue)
@@ -591,6 +594,9 @@ def confirm_machine_stopped_and_fence(
                         execution.save(update_fields=["status", "updated_at"])
                         if not checkpointed:
                             requeued += 1
+                from .approvals import cancel_live_approval_requests
+
+                cancel_live_approval_requests(attempt)
         return FenceReceipt(
             workspace_id,
             source_generation,

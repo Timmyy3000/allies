@@ -989,6 +989,8 @@ def _fence_profile_leases(profile_id: UUID) -> None:
         )
     )
     for lease in leases:
+        from .approvals import cancel_live_approval_requests
+
         lease.state = LeaseState.FENCED
         lease.save(update_fields=["state", "updated_at"])
         attempt = lease.attempt
@@ -1003,6 +1005,7 @@ def _fence_profile_leases(profile_id: UUID) -> None:
         if execution.status == ExecutionStatus.RUNNING:
             execution.status = ExecutionStatus.FAILED
             execution.save(update_fields=["status", "updated_at"])
+        cancel_live_approval_requests(attempt)
 
 
 def _require_context(context: RuntimeContext) -> None:

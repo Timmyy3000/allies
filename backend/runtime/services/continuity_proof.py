@@ -1152,6 +1152,7 @@ def proof_workspace_spec(
     dependency_handle: ProofDependencyCredentialHandle | None = None,
     *,
     activity_wait_enabled: bool = False,
+    rich_approvals_enabled: bool = False,
 ) -> WorkspaceSpec:
     """Build the proof container topology from opaque credential handles.
 
@@ -1193,6 +1194,9 @@ def proof_workspace_spec(
                     "HERMES_STREAM_TIMEOUT": "180",
                     "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED": (
                         "true" if activity_wait_enabled else "false"
+                    ),
+                    "ALLIES_RICH_APPROVALS_ENABLED": (
+                        "true" if rich_approvals_enabled else "false"
                     ),
                 },
                 healthchecks=(

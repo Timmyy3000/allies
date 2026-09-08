@@ -289,6 +289,7 @@ def test_proof_spec_mounts_each_dependency_only_in_its_consumer():
     assert spec.runtime_credential_ref == dependencies.hermes_credential_ref
     assert "must-not-escape" not in repr(spec)
     assert runtime.environment["ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED"] == "false"
+    assert runtime.environment["ALLIES_RICH_APPROVALS_ENABLED"] == "false"
     accelerated = proof_workspace_spec(
         config.workspace_spec,
         config.foundry_origin,
@@ -300,6 +301,14 @@ def test_proof_spec_mounts_each_dependency_only_in_its_consumer():
         accelerated.containers[1].environment["ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED"]
         == "true"
     )
+    rich = proof_workspace_spec(
+        config.workspace_spec,
+        config.foundry_origin,
+        generation,
+        dependencies,
+        rich_approvals_enabled=True,
+    )
+    assert rich.containers[1].environment["ALLIES_RICH_APPROVALS_ENABLED"] == "true"
     assert (
         "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED"
         not in accelerated.containers[0].environment

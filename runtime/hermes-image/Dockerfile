@@ -69,6 +69,12 @@ RUN cd /opt/hermes \
     && git apply --whitespace=nowarn /tmp/allies-meaningful-activity.patch \
     && rm -f /tmp/allies-meaningful-activity.patch
 
+COPY patches/approval-flow.patch /tmp/allies-approval-flow.patch
+RUN cd /opt/hermes \
+    && git apply --check --whitespace=nowarn /tmp/allies-approval-flow.patch \
+    && git apply --whitespace=nowarn /tmp/allies-approval-flow.patch \
+    && rm -f /tmp/allies-approval-flow.patch
+
 LABEL org.opencontainers.image.title="Allies Hermes with Mnemosyne" \
       org.opencontainers.image.description="Policy-fenced profile-local Mnemosyne provider" \
       org.opencontainers.image.version="${ALLIES_WRAPPER_VERSION}" \

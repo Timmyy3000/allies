@@ -14,6 +14,7 @@ from django.utils import timezone
 from runtime.contracts import (
     ACTIVITY_KINDS,
     FINGERPRINT_PREFIX,
+    MAX_APPROVAL_LIFETIME_SECONDS,
     MAX_RUNTIME_EVENT_SEQUENCE,
     MAX_TERMINAL_SEQUENCE,
     ExecutionCommand,
@@ -21,6 +22,7 @@ from runtime.contracts import (
     _validate_event_payload,
     build_event_envelope,
     command_fingerprint,
+    event_envelope_bytes,
     event_fingerprint,
     validate_command,
 )
@@ -53,6 +55,7 @@ from runtime.services.runtime_auth import (
     authenticate_runtime_token,
     issue_runtime_credential,
 )
+from runtime.services.validation import digest_payload
 
 FIXTURE_PATH = (
     Path(__file__).resolve().parents[3]
@@ -462,6 +465,42 @@ def test_dispatched_runtime_event_is_published_as_accepted(binding, contract):
         contract["command"]["command_id"],
     }
     assert ExecutionEvent.objects.filter(attempt=claim.attempt_id).count() == 1
+
+
+def test_delivery_rebuild_uses_event_time_for_rich_approval_expiry(delivery):
+    attempt = delivery.event.attempt
+    created_at = timezone.now() - timedelta(seconds=MAX_APPROVAL_LIFETIME_SECONDS + 60)
+    payload = {
+        "approval_request_id": str(uuid4()),
+        "action_kind": "plugin_tool",
+        "action_label": "Connect Nabu",
+        "action_preview": "Connect to the selected Nabu space",
+        "expires_at": (created_at + timedelta(seconds=120)).isoformat(),
+    }
+    event = ExecutionEvent.objects.create(
+        attempt=attempt,
+        event_id=uuid4(),
+        stream_id=f"stream-{attempt.id.hex}",
+        sequence=2,
+        event_type="execution.awaiting_action",
+        payload=payload,
+        payload_digest=digest_payload(payload),
+    )
+    ExecutionEvent.objects.filter(pk=event.pk).update(created_at=created_at)
+    event.refresh_from_db()
+
+    envelope = build_event_envelope(event.attempt.execution, event.attempt, event)
+    assert envelope is not None
+    encoded = event_envelope_bytes(envelope)
+    delivery = ExecutionEventDelivery.objects.create(
+        event=event,
+        envelope_bytes=encoded,
+        byte_length=len(encoded),
+        fingerprint=envelope.fingerprint,
+        next_attempt_at=timezone.now(),
+    )
+
+    assert event_delivery._rebuild_delivery_envelope(delivery) == encoded
 
 
 def test_invalid_service_bearer_is_privacy_safe(binding, contract, configured):
