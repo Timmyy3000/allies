@@ -38,6 +38,7 @@ export interface ProductionConversationMessageModel {
 
 export interface ProductionConversationTurnModel {
   assistantText: string;
+  createdAt?: string;
   isTruncated?: boolean;
   messageId: string;
   state: ActivityState;
@@ -327,6 +328,7 @@ function mergeTurnModels(
       assistantText: hasLegacyReply
         ? ""
         : reply?.content ?? (turn.state === "failed" || turn.state === "stopped" ? "" : turn.assistantText),
+      createdAt: reply?.createdAt,
       state: reply ? messageStatusToActivityState(reply.status) : turn.state,
       isTruncated: !hasLegacyReply && reply?.isTruncated === true,
     };
@@ -343,6 +345,7 @@ function mergeTurnModels(
     })) continue;
     turns.push({
       assistantText: reply.content,
+      createdAt: reply.createdAt,
       isTruncated: reply.isTruncated === true,
       messageId: reply.sourceMessageId,
       state: messageStatusToActivityState(reply.status),

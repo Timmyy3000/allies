@@ -160,8 +160,8 @@ test("shows a real conversation approval and records the choice before runtime a
   await expect(dialog).not.toBeVisible();
   await page.getByRole("button", { name: "Approval needed", exact: true }).click();
   await dialog.getByRole("button", { name: "Approve", exact: true }).click();
-  await expect(dialog.getByText("Decision recorded · Waiting for Ally")).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Decision recorded · Waiting for Ally", exact: true })).toBeFocused();
 });
 
 test("keeps the landing page continuous on a short phone", async ({ page }) => {
@@ -233,10 +233,10 @@ test("opens an Ally and keeps a sent reply after reload", async ({ page }) => {
   await page.getByRole("button", { name: "Send message" }).click();
   await expect.poll(cloud.sentRequest).toEqual({ body: JSON.stringify({ content: reply }), csrf: csrfToken });
   await expect(page.locator("article").filter({ hasText: reply })).toBeVisible();
-  await expect(page.getByTestId("activity-reply-1")).toHaveText(assistantReply);
+  await expect(page.getByTestId("activity-reply-1").locator("p")).toHaveText(assistantReply);
   await page.reload();
   await expect(page.locator("article").filter({ hasText: reply })).toBeVisible();
-  await expect(page.getByTestId("activity-reply-1")).toHaveText(assistantReply);
+  await expect(page.getByTestId("activity-reply-1").locator("p")).toHaveText(assistantReply);
   expect(cloudinaryRequests).toEqual([]);
   await page.goto("/home/new");
   await expect(page.getByTestId("name-ally")).toBeVisible();
