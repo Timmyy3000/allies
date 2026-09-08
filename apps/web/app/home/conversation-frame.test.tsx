@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import type { ActivityProjection, MessageViewModel } from "@allies/cloud-client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ActivityProjection, ApprovalSummary, MessageViewModel } from "@allies/cloud-client";
 import { EMPTY_ACTIVITY_PROJECTION } from "@allies/cloud-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +11,7 @@ import {
   mergeActivityPresentation,
 } from "../../lib/allies/activity-presentation";
 import { ConversationFrame } from "./conversation-frame";
+import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
 import type {
   ProductionConversationFrameActions,
   ProductionConversationFrameModel,
@@ -328,6 +330,76 @@ describe("ConversationFrame", () => {
     expect(screen.getByText(formatConversationDateDivider(messages[0].createdAt), { exact: false })).toBeTruthy();
   });
 
+  it("moves each approval once through the real fallback, presence, and historical insertion sites", async () => {
+    const approvals: ApprovalSummary[] = messages.slice(0, 2).map((message, index) => ({
+      id: `approval-${index + 1}`,
+      messageId: message.id,
+      status: "decision_recorded",
+      expiresAt: new Date(Date.now() + 300_000).toISOString(),
+      decidedAt: new Date().toISOString(),
+      acknowledgementDeadlineAt: new Date(Date.now() + 30_000).toISOString(),
+    }));
+    const client: ApprovalClient = {
+      getApprovals: vi.fn().mockResolvedValue(approvals),
+      getApproval: vi.fn().mockImplementation(async (_workspace, _conversation, id) => ({ ...approvals.find((item) => item.id === id)!, actionLabel: "Action", actionPreview: "Preview" })),
+      decideApproval: vi.fn(),
+    };
+    const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const tree = (frameModel: ProductionConversationFrameModel, sleeping = false) => <QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Sally" accent="#fd304f" canApprove><ConversationFrame model={frameModel} actions={actions} sleeping={sleeping} /></ConversationApprovals></QueryClientProvider>;
+    const view = render(tree(model));
+    await screen.findAllByRole("button", { name: "Decision recorded · Waiting for Ally" });
+    const first = () => view.container.querySelector<HTMLElement>(`[data-approval-id="${approvals[0].id}"]`)!;
+    const second = () => view.container.querySelector<HTMLElement>(`[data-approval-id="${approvals[1].id}"]`)!;
+    expect(view.container.querySelectorAll(`[data-approval-id="${approvals[0].id}"]`)).toHaveLength(1);
+    expect(first().closest('[class*="frameMessageRow"]')).not.toBeNull();
+    expect(second().closest('[class*="frameMessageRow"]')).not.toBeNull();
+
+    view.rerender(tree({ ...model, messages: [model.messages[0]], showThinkingState: true, activityState: "running", activityGroups: [{ ...model.activityGroups[0], entries: [{ ...model.activityGroups[0].entries[0], activityId: "call-1", activityAttemptId: "attempt-1" }] }] }));
+    expect(first().closest('[class*="framePresenceActivity"]')).not.toBeNull();
+    expect(view.container.querySelectorAll(`[data-approval-id="${approvals[0].id}"]`)).toHaveLength(1);
+
+    view.rerender(tree({ ...model, messages: [model.messages[0]], showThinkingState: true, activityState: "running", activityGroups: [{ ...model.activityGroups[0], entries: [{ ...model.activityGroups[0].entries[0], activityId: "call-1", activityAttemptId: "attempt-1" }] }] }, true));
+    expect(first().closest('[class*="frameMessageRow"]')).not.toBeNull();
+    expect(first().closest('[class*="framePresenceActivity"]')).toBeNull();
+    expect(view.container.querySelectorAll(`[data-approval-id="${approvals[0].id}"]`)).toHaveLength(1);
+
+    view.rerender(tree({ ...model, messages: [model.messages[1]], activityGroups: [] }));
+    expect(first().closest('[class*="frameMessageRow"]')).toBeNull();
+    expect(first().closest('[class*="framePresenceActivity"]')).toBeNull();
+    expect(second().closest('[class*="frameMessageRow"]')).not.toBeNull();
+    expect(view.container.querySelectorAll(`[data-approval-id]`)).toHaveLength(2);
+  });
+
+  it("reveals exact local timestamps on click and focus, then fades them", () => {
+    vi.useFakeTimers();
+    render(<ConversationFrame model={model} actions={actions} />);
+    const user = screen.getByText("First request", { selector: "article p" }).closest("article")!;
+    const timestamp = user.querySelector("time")!;
+    expect(timestamp.textContent).toBe(new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "medium" }).format(new Date(messages[0].createdAt)));
+    expect(timestamp.getAttribute("data-visible")).toBe("false");
+    fireEvent.click(user);
+    expect(timestamp.getAttribute("data-visible")).toBe("true");
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(timestamp.getAttribute("data-visible")).toBe("false");
+    fireEvent.focus(user);
+    expect(timestamp.getAttribute("data-visible")).toBe("true");
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.keyDown(user, { key: "Enter" });
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(timestamp.getAttribute("data-visible")).toBe("true");
+    fireEvent.keyDown(user, { key: " " });
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(timestamp.getAttribute("data-visible")).toBe("false");
+  });
+
+  it("scrolls an expanded Activity disclosure into the nearest visible position", async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView });
+    render(<ConversationFrame model={model} actions={actions} />);
+    fireEvent.click(screen.getByText("1 activity"));
+    await vi.waitFor(() => expect(scrollIntoView).toHaveBeenCalledWith({ block: "nearest", behavior: "smooth" }));
+  });
+
   it("keeps completed legacy history collapsed and static", () => {
     const completedActivity = {
       ...model,
@@ -425,6 +497,38 @@ describe("ConversationFrame", () => {
     expect(icons).toHaveLength(2);
     expect([...icons[0].querySelectorAll("path")].every((path) => path.getAttribute("fill") === "var(--chat-accent)")).toBe(true);
     expect([...icons[1].querySelectorAll("path")].every((path) => path.getAttribute("fill") === "var(--text-secondary)")).toBe(true);
+  });
+
+  it("uses command copy only for terminal activity", () => {
+    const entry = { ...model.activityGroups[0].entries[0], activityId: "call-a", activityAttemptId: "attempt-a" };
+    const view = render(<ConversationFrame model={{
+      ...model,
+      messages: [model.messages[0]],
+      showThinkingState: true,
+      activityState: "running",
+      activityGroups: [{ ...model.activityGroups[0], entries: [{ ...entry, activityKind: "terminal", text: "Doing an activity" }] }],
+    }} actions={actions} />);
+
+    expect(view.getAllByText("Running a command")).toHaveLength(2);
+    view.rerender(<ConversationFrame model={{
+      ...model,
+      activityGroups: [{ ...model.activityGroups[0], entries: [{ ...entry, kind: "activity_completed", outcome: "completed", activityKind: "terminal", text: "Finished an activity" }] }],
+    }} actions={actions} />);
+    expect(view.getByText("Run a command")).toBeTruthy();
+    expect(view.queryByText("Finished an activity")).toBeNull();
+    view.rerender(<ConversationFrame model={{
+      ...model,
+      activityGroups: [{ ...model.activityGroups[0], entries: [{ ...entry, kind: "activity_completed", outcome: "failed", activityKind: "terminal", text: "Command failed" }] }],
+    }} actions={actions} />);
+    expect(view.getByText("Command failed")).toBeTruthy();
+    expect(view.queryByText("Run a command")).toBeNull();
+    view.rerender(<ConversationFrame model={{
+      ...model,
+      showThinkingState: true,
+      activityState: "running",
+      activityGroups: [{ ...model.activityGroups[0], entries: [{ ...entry, activityKind: "unknown", text: "Doing an activity" }] }],
+    }} actions={actions} />);
+    expect(view.getByText("Doing an activity")).toBeTruthy();
   });
 
   it("keeps the active status live region mounted while its label changes", () => {

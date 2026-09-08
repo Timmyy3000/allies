@@ -165,6 +165,7 @@ export function AssistantIdentity({
 
 export function UserBubble({
   children,
+  createdAt,
   status,
   retryable = false,
   retrying = false,
@@ -172,6 +173,7 @@ export function UserBubble({
   className = "",
 }: {
   children: ReactNode;
+  createdAt?: string;
   status?: string | null;
   retryable?: boolean;
   retrying?: boolean;
@@ -180,6 +182,7 @@ export function UserBubble({
 }) {
   const textRef = useRef<HTMLParagraphElement>(null);
   const [multiline, setMultiline] = useState(false);
+  const timestamp = useTimestampReveal(createdAt);
 
   useLayoutEffect(() => {
     const node = textRef.current;
@@ -191,6 +194,14 @@ export function UserBubble({
     <article
       className={`${styles.frameUserBubble} ${className}`}
       data-multiline={multiline ? "true" : "false"}
+      tabIndex={timestamp ? 0 : undefined}
+      onClick={timestamp?.reveal}
+      onFocus={timestamp?.reveal}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget || !timestamp || !["Enter", " "].includes(event.key)) return;
+        event.preventDefault();
+        timestamp.reveal();
+      }}
     >
       <p ref={textRef}>{children}</p>
       {status ? <span className={styles.frameBubbleStatus}>{status}</span> : null}
@@ -199,20 +210,49 @@ export function UserBubble({
           {retrying ? "Retrying…" : "Retry"}
         </button>
       ) : null}
+      {timestamp ? <time className={styles.frameMessageTimestamp} data-visible={timestamp.visible} dateTime={createdAt}>{timestamp.label}</time> : null}
     </article>
   );
 }
 
 export function AssistantMessage({
   children,
+  createdAt,
   className = "",
   testId,
 }: {
   children: ReactNode;
+  createdAt?: string;
   className?: string;
   testId?: string;
 }) {
-  return <article className={`${styles.frameAssistantMessage} ${className}`} data-testid={testId}><div>{children}</div></article>;
+  const timestamp = useTimestampReveal(createdAt);
+  return <article className={`${styles.frameAssistantMessage} ${className}`} data-testid={testId} tabIndex={timestamp ? 0 : undefined} onClick={timestamp?.reveal} onFocus={timestamp?.reveal} onKeyDown={(event) => {
+    if (event.target !== event.currentTarget || !timestamp || !["Enter", " "].includes(event.key)) return;
+    event.preventDefault();
+    timestamp.reveal();
+  }}>
+    <div>{children}</div>
+    {timestamp ? <time className={styles.frameMessageTimestamp} data-visible={timestamp.visible} dateTime={createdAt}>{timestamp.label}</time> : null}
+  </article>;
+}
+
+function useTimestampReveal(createdAt?: string) {
+  const date = createdAt ? new Date(createdAt) : null;
+  const valid = date && !Number.isNaN(date.getTime());
+  const [visible, setVisible] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
+  if (!valid) return null;
+  return {
+    label: new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "medium" }).format(date),
+    visible,
+    reveal: () => {
+      setVisible(true);
+      if (timer.current) clearTimeout(timer.current);
+      timer.current = setTimeout(() => setVisible(false), 3_000);
+    },
+  };
 }
 
 export function ThinkingStatus({
@@ -266,12 +306,18 @@ export function ActivityDisclosure({
   onToggle?: (open: boolean) => void;
   className?: string;
 }) {
+  const disclosureRef = useRef<HTMLDetailsElement>(null);
   return (
     <details
+      ref={disclosureRef}
       className={`${styles.frameActivity} ${className}`}
       data-ongoing={ongoing}
       {...(open === undefined ? {} : { open })}
-      onToggle={(event) => onToggle?.(event.currentTarget.open)}
+      onToggle={(event) => {
+        const expanded = event.currentTarget.open;
+        onToggle?.(expanded);
+        if (expanded) window.requestAnimationFrame(() => disclosureRef.current?.scrollIntoView({ block: "nearest", behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }));
+      }}
     >
       <summary>
         <span role={ongoing ? "status" : undefined} aria-live={ongoing ? "polite" : undefined} aria-atomic={ongoing ? true : undefined}>

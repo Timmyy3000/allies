@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalDetail } from "@allies/cloud-client";
-import { ConversationApprovals, approvalStatusAt, pruneDecisionIntents, type ApprovalClient } from "./conversation-approvals";
+import { ConversationApprovalSlot, ConversationApprovals, approvalStatusAt, pruneDecisionIntents, type ApprovalClient } from "./conversation-approvals";
 
 const approval: ApprovalDetail = {
   id: "e9cfec70-9140-4e08-8ba7-42c6edce5142",
@@ -19,7 +20,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
 
-function setup(overrides: Partial<ApprovalClient> = {}, canApprove = true) {
+function setup(overrides: Partial<ApprovalClient> = {}, canApprove = true, children?: ReactNode) {
   const client: ApprovalClient = {
     getApprovals: vi.fn().mockResolvedValue([approval]),
     getApproval: vi.fn().mockResolvedValue(approval),
@@ -27,7 +28,7 @@ function setup(overrides: Partial<ApprovalClient> = {}, canApprove = true) {
     ...overrides,
   };
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove={canApprove} /></QueryClientProvider>);
+  render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove={canApprove}>{children}</ConversationApprovals></QueryClientProvider>);
   return client;
 }
 
@@ -59,7 +60,81 @@ describe("conversation approvals", () => {
     expect(decideApproval).toHaveBeenCalledTimes(1);
     await act(async () => finish({ ...approval, status: "decision_recorded", decidedAt: new Date().toISOString(), acknowledgementDeadlineAt: new Date(Date.now() + 30_000).toISOString() }));
     await screen.findByText("Decision recorded · Waiting for Ally");
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.queryByRole("button", { name: "Approve" })).toBeNull();
+    await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("button", { name: "Decision recorded · Waiting for Ally" })));
+    fireEvent.click(screen.getByRole("button", { name: "Decision recorded · Waiting for Ally" }));
+    await screen.findByRole("dialog");
+  });
+
+  it("restores focus to a terminal approval inside the expanded previous list", async () => {
+    const approved = { ...approval, status: "approved" as const, decidedAt: new Date().toISOString() };
+    setup({ decideApproval: vi.fn().mockResolvedValue(approved) });
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => {
+      const details = screen.getByText("Previous approvals").closest("details");
+      expect(details?.open).toBe(true);
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: "Approved" }));
+    });
+  });
+
+  it("places an approval beside its message and keeps unmatched approvals in the fallback slot", async () => {
+    setup({}, true, <>
+      <section aria-label="matching"><ConversationApprovalSlot messageId={approval.messageId} /></section>
+      <section aria-label="other"><ConversationApprovalSlot messageId="other-message" /></section>
+      <section aria-label="fallback"><ConversationApprovalSlot visibleMessageIds={new Set([approval.messageId])} /></section>
+    </>);
+    await screen.findByRole("dialog");
+    expect(screen.getByRole("region", { name: "matching" }).textContent).toContain("Approval needed");
+    expect(screen.getByRole("region", { name: "other" }).textContent).toBe("");
+    expect(screen.getByRole("region", { name: "fallback" }).textContent).toBe("");
+  });
+
+  it("moves two approvals exactly once between fallback, active, and historical slots", async () => {
+    const second = { ...approval, id: "second-approval", messageId: "second-message" };
+    const client: ApprovalClient = {
+      getApprovals: vi.fn().mockResolvedValue([approval, second]),
+      getApproval: vi.fn().mockImplementation(async (_workspace, _conversation, id) => id === second.id ? second : approval),
+      decideApproval: vi.fn(),
+    };
+    const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const slots = (phase: "missing" | "active" | "historical") => <>
+      <section aria-label="active">{phase === "active" ? <ConversationApprovalSlot messageId={approval.messageId} /> : null}</section>
+      <section aria-label="historical">{phase === "historical" ? <ConversationApprovalSlot messageId={approval.messageId} /> : null}<ConversationApprovalSlot messageId={second.messageId} /></section>
+      <section aria-label="fallback"><ConversationApprovalSlot visibleMessageIds={new Set(phase === "missing" ? [second.messageId] : [approval.messageId, second.messageId])} /></section>
+    </>;
+    const view = render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove>{slots("missing")}</ConversationApprovals></QueryClientProvider>);
+    await screen.findByRole("dialog");
+    expect(view.container.querySelectorAll(`[data-approval-id="${approval.id}"]`)).toHaveLength(1);
+    expect(screen.getByRole("region", { name: "fallback" }).textContent).toContain("Approval needed");
+    view.rerender(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove>{slots("active")}</ConversationApprovals></QueryClientProvider>);
+    expect(view.container.querySelectorAll(`[data-approval-id="${approval.id}"]`)).toHaveLength(1);
+    expect(screen.getByRole("region", { name: "active" }).textContent).toContain("Approval needed");
+    view.rerender(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove>{slots("historical")}</ConversationApprovals></QueryClientProvider>);
+    expect(view.container.querySelectorAll(`[data-approval-id="${approval.id}"]`)).toHaveLength(1);
+    expect(view.container.querySelectorAll(`[data-approval-id="${second.id}"]`)).toHaveLength(1);
+    expect(screen.getByRole("region", { name: "historical" }).textContent).toContain("Approval needed");
+  });
+
+  it("hides cached approval UI as soon as access is disabled", async () => {
+    const client: ApprovalClient = { getApprovals: vi.fn().mockResolvedValue([approval]), getApproval: vi.fn().mockResolvedValue(approval), decideApproval: vi.fn() };
+    const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const view = render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove><ConversationApprovalSlot messageId={approval.messageId} /></ConversationApprovals></QueryClientProvider>);
+    await screen.findByRole("dialog");
+    view.rerender(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove enabled={false}><ConversationApprovalSlot messageId={approval.messageId} /></ConversationApprovals></QueryClientProvider>);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(view.container.querySelector(`[data-approval-id="${approval.id}"]`)).toBeNull();
+  });
+
+  it("hides a cached approval error as soon as access is disabled", async () => {
+    const client: ApprovalClient = { getApprovals: vi.fn().mockRejectedValue(new Error("denied")), getApproval: vi.fn(), decideApproval: vi.fn() };
+    const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const view = render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove /></QueryClientProvider>);
+    await screen.findByRole("button", { name: "Could not check approvals. Try again" });
+    view.rerender(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove enabled={false} /></QueryClientProvider>);
+    expect(screen.queryByRole("button", { name: "Could not check approvals. Try again" })).toBeNull();
   });
 
   it("retries an uncertain response with the same choice and idempotency key", async () => {

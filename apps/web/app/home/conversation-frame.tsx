@@ -2,8 +2,9 @@
 
 import { Streamdown } from "streamdown";
 import { ShinyText } from "../../components/text-animations/shiny-text";
-import { useEffect, useRef, useState, type Ref, type UIEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type Ref, type UIEvent } from "react";
 import { ConversationPresence } from "./conversation-presence";
+import { ConversationApprovalSlot } from "./conversation-approvals";
 
 import type {
   ProductionRuntimeIntentStatus,
@@ -35,13 +36,12 @@ export interface ConversationFrameProps {
   model: ProductionConversationFrameModel;
   actions: ProductionConversationFrameActions;
   canvasRef?: Ref<HTMLDivElement>;
-  approvals?: ReactNode;
   sleeping?: boolean;
   stateReady?: boolean;
   runtimeIntentStatus?: ProductionRuntimeIntentStatus;
 }
 
-export function ConversationFrame({ model, actions, canvasRef, approvals, sleeping = false, stateReady = true, runtimeIntentStatus = null }: ConversationFrameProps) {
+export function ConversationFrame({ model, actions, canvasRef, sleeping = false, stateReady = true, runtimeIntentStatus = null }: ConversationFrameProps) {
   useEffect(() => {
     // Markdown dialogs portal outside the conversation's accent scope.
     const previous = document.body.style.getPropertyValue("--active-chat-accent");
@@ -240,6 +240,7 @@ export function ConversationFrame({ model, actions, canvasRef, approvals, sleepi
                 {intervalDate ? <DateDivider>{intervalDate}</DateDivider> : null}
                 {message.sender === "user" ? (
                   <UserBubble
+                    createdAt={message.createdAt}
                     status={message.statusLabel}
                     retryable={message.retryable && !model.retriedMessageIds.includes(message.id)}
                     retrying={model.retryingMessageId === message.id}
@@ -249,7 +250,7 @@ export function ConversationFrame({ model, actions, canvasRef, approvals, sleepi
                   </UserBubble>
                 ) : (
                   <>
-                    <AssistantMessage>
+                    <AssistantMessage createdAt={message.createdAt}>
                       <Streamdown mode="static" parseIncompleteMarkdown tableMaxHeight="none">
                         {message.content}
                       </Streamdown>
@@ -261,6 +262,7 @@ export function ConversationFrame({ model, actions, canvasRef, approvals, sleepi
                 {activityGroups.filter((group) => docked || group.key !== currentGroup?.key).map((group) => (
                   <ActivityGroup key={group.key} group={group} />
                 ))}
+                {docked || message.id !== currentGroup?.messageId ? <ConversationApprovalSlot messageId={message.id} /> : null}
               </div>
             );
           })}
@@ -271,6 +273,7 @@ export function ConversationFrame({ model, actions, canvasRef, approvals, sleepi
               {waking ? <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Waking up"><ShinyText color="var(--chat-accent)">Waking up</ShinyText></span> : !docked && currentGroup ? <ActivityGroup key={currentGroup.key} group={currentGroup} ongoing={activityIsCurrent && model.activityState !== "awaiting_action"} /> : !docked && model.showThinkingState ? (
                 <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Thinking"><ShinyText color="var(--chat-accent)">Thinking..</ShinyText></span>
               ) : null}
+              {!docked && currentGroup ? <ConversationApprovalSlot messageId={currentGroup.messageId} /> : null}
             </div>
           </div>
 
@@ -295,7 +298,7 @@ export function ConversationFrame({ model, actions, canvasRef, approvals, sleepi
             </>
           ) : null}
 
-          {approvals}
+          <ConversationApprovalSlot visibleMessageIds={new Set(visibleMessages.map((message) => message.id))} />
           {model.timeline.pollBudgetReached ? (
             <FrameError action="Check again" onAction={actions.onCheckAgain}>
               Status checking is paused.
@@ -387,7 +390,7 @@ function TurnMessage({
   if (!turn.assistantText && !statusText && !turn.isTruncated) return null;
   const reveal = presentation.reveal;
   return (
-    <AssistantMessage testId={`activity-reply-${turn.turnOrdinal}`}>
+    <AssistantMessage createdAt={turn.createdAt} testId={`activity-reply-${turn.turnOrdinal}`}>
       {turn.assistantText ? <Streamdown
         tableMaxHeight="none"
         mode={reveal ? "streaming" : "static"}
@@ -409,13 +412,13 @@ function ActivityGroup({ group, ongoing = false }: { group: ProductionConversati
   if (!group.entries.length) return null;
   return (
     <ActivityDisclosure
-      label={ongoing ? active?.text ?? "Thinking…" : `${group.entries.length} ${group.entries.length === 1 ? "activity" : "activities"}`}
+      label={ongoing ? active ? activityText(active) : "Thinking…" : `${group.entries.length} ${group.entries.length === 1 ? "activity" : "activities"}`}
       ongoing={ongoing}
       open={disclosure.open}
       onToggle={(open) => setDisclosure((current) => current.open === open ? current : { ...current, open })}
       entries={group.entries.map((entry) => ({
         id: entry.id,
-        text: entry.text,
+        text: activityText(entry),
         activityKind: entry.activityKind,
         durationMs: entry.durationMs,
         tone: entry.kind === "awaiting_action"
@@ -426,4 +429,10 @@ function ActivityGroup({ group, ongoing = false }: { group: ProductionConversati
       }))}
     />
   );
+}
+
+function activityText(entry: ProductionConversationActivityGroupModel["entries"][number]) {
+  if (entry.activityKind !== "terminal") return entry.text;
+  if (entry.outcome && entry.outcome !== "completed") return entry.text;
+  return entry.outcome || entry.kind === "activity_completed" ? "Run a command" : "Running a command";
 }
