@@ -75,11 +75,9 @@ jobs:
         if: steps.scope.outputs.web == 'true'
         env:
           FULL_BROWSERS: ${{ steps.scope.outputs.browsers }}
-          MOTION: ${{ steps.scope.outputs.motion }}
         run: |
-          browsers="chromium"
-          if [ "$FULL_BROWSERS" = "true" ]; then browsers="$browsers webkit firefox"
-          elif [ "$MOTION" = "true" ]; then browsers="$browsers webkit"; fi
+          browsers="chromium webkit"
+          if [ "$FULL_BROWSERS" = "true" ]; then browsers="$browsers firefox"; fi
           bun --cwd apps/web playwright install --with-deps $browsers
       - name: Verify production Home flows
         id: home_smoke
