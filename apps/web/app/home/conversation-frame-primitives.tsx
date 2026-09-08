@@ -191,27 +191,29 @@ export function UserBubble({
   }, [children]);
 
   return (
-    <article
-      className={`${styles.frameUserBubble} ${className}`}
-      data-multiline={multiline ? "true" : "false"}
-      tabIndex={timestamp ? 0 : undefined}
-      onClick={timestamp?.reveal}
-      onFocus={timestamp?.reveal}
-      onKeyDown={(event) => {
-        if (event.target !== event.currentTarget || !timestamp || !["Enter", " "].includes(event.key)) return;
-        event.preventDefault();
-        timestamp.reveal();
-      }}
-    >
-      <p ref={textRef}>{children}</p>
-      {status ? <span className={styles.frameBubbleStatus}>{status}</span> : null}
-      {retryable && onRetry ? (
-        <button type="button" className={styles.frameRetryButton} onClick={onRetry} disabled={retrying}>
-          {retrying ? "Retrying…" : "Retry"}
-        </button>
-      ) : null}
+    <>
+      <article
+        className={`${styles.frameUserBubble} ${className}`}
+        data-multiline={multiline ? "true" : "false"}
+        tabIndex={timestamp ? 0 : undefined}
+        onClick={timestamp?.reveal}
+        onFocus={timestamp?.reveal}
+        onKeyDown={(event) => {
+          if (event.target !== event.currentTarget || !timestamp || !["Enter", " "].includes(event.key)) return;
+          event.preventDefault();
+          timestamp.reveal();
+        }}
+      >
+        <p ref={textRef}>{children}</p>
+        {status ? <span className={styles.frameBubbleStatus}>{status}</span> : null}
+        {retryable && onRetry ? (
+          <button type="button" className={styles.frameRetryButton} onClick={onRetry} disabled={retrying}>
+            {retrying ? "Retrying…" : "Retry"}
+          </button>
+        ) : null}
+      </article>
       {timestamp ? <time className={styles.frameMessageTimestamp} data-visible={timestamp.visible} dateTime={createdAt}>{timestamp.label}</time> : null}
-    </article>
+    </>
   );
 }
 
@@ -227,14 +229,18 @@ export function AssistantMessage({
   testId?: string;
 }) {
   const timestamp = useTimestampReveal(createdAt);
-  return <article className={`${styles.frameAssistantMessage} ${className}`} data-testid={testId} tabIndex={timestamp ? 0 : undefined} onClick={timestamp?.reveal} onFocus={timestamp?.reveal} onKeyDown={(event) => {
-    if (event.target !== event.currentTarget || !timestamp || !["Enter", " "].includes(event.key)) return;
-    event.preventDefault();
-    timestamp.reveal();
-  }}>
-    <div>{children}</div>
-    {timestamp ? <time className={styles.frameMessageTimestamp} data-visible={timestamp.visible} dateTime={createdAt}>{timestamp.label}</time> : null}
-  </article>;
+  return (
+    <>
+      <article className={`${styles.frameAssistantMessage} ${className}`} data-testid={testId} tabIndex={timestamp ? 0 : undefined} onClick={timestamp?.reveal} onFocus={timestamp?.reveal} onKeyDown={(event) => {
+        if (event.target !== event.currentTarget || !timestamp || !["Enter", " "].includes(event.key)) return;
+        event.preventDefault();
+        timestamp.reveal();
+      }}>
+        <div>{children}</div>
+      </article>
+      {timestamp ? <time className={styles.frameMessageTimestamp} data-visible={timestamp.visible} dateTime={createdAt}>{timestamp.label}</time> : null}
+    </>
+  );
 }
 
 function useTimestampReveal(createdAt?: string) {
@@ -245,7 +251,7 @@ function useTimestampReveal(createdAt?: string) {
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   if (!valid) return null;
   return {
-    label: new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "medium" }).format(date),
+    label: new Intl.DateTimeFormat([], { timeStyle: "short" }).format(date),
     visible,
     reveal: () => {
       setVisible(true);

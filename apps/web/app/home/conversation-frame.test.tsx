@@ -12,6 +12,7 @@ import {
 } from "../../lib/allies/activity-presentation";
 import { ConversationFrame } from "./conversation-frame";
 import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
+import { AssistantMessage, UserBubble } from "./conversation-frame-primitives";
 import type {
   ProductionConversationFrameActions,
   ProductionConversationFrameModel,
@@ -25,7 +26,7 @@ const messages: MessageViewModel[] = [
     content: "First request",
     sequence: 1,
     status: "completed",
-    createdAt: "2026-09-03T09:40:00Z",
+    createdAt: "2026-09-03T09:40:37Z",
   },
   {
     id: "message-2",
@@ -370,26 +371,72 @@ describe("ConversationFrame", () => {
     expect(view.container.querySelectorAll(`[data-approval-id]`)).toHaveLength(2);
   });
 
-  it("reveals exact local timestamps on click and focus, then fades them", () => {
+  it("renders exact local timestamps as siblings and reveals them on click and focus", () => {
     vi.useFakeTimers();
-    render(<ConversationFrame model={model} actions={actions} />);
-    const user = screen.getByText("First request", { selector: "article p" }).closest("article")!;
-    const timestamp = user.querySelector("time")!;
-    expect(timestamp.textContent).toBe(new Intl.DateTimeFormat([], { dateStyle: "medium", timeStyle: "medium" }).format(new Date(messages[0].createdAt)));
-    expect(timestamp.getAttribute("data-visible")).toBe("false");
-    fireEvent.click(user);
-    expect(timestamp.getAttribute("data-visible")).toBe("true");
-    act(() => vi.advanceTimersByTime(3_000));
-    expect(timestamp.getAttribute("data-visible")).toBe("false");
-    fireEvent.focus(user);
-    expect(timestamp.getAttribute("data-visible")).toBe("true");
-    act(() => vi.advanceTimersByTime(2_000));
-    fireEvent.keyDown(user, { key: "Enter" });
-    act(() => vi.advanceTimersByTime(1_000));
-    expect(timestamp.getAttribute("data-visible")).toBe("true");
-    fireEvent.keyDown(user, { key: " " });
-    act(() => vi.advanceTimersByTime(3_000));
-    expect(timestamp.getAttribute("data-visible")).toBe("false");
+      const view = render(<ConversationFrame model={model} actions={actions} />);
+      const user = screen.getByText("First request", { selector: "article p" }).closest("article")!;
+      const legacyAssistant = [...view.container.querySelectorAll("article")]
+        .find((article) => article.textContent?.includes("A normal production reply."))!;
+      const timestampFor = (article: HTMLElement) => {
+        const timestamp = article.nextElementSibling;
+        expect(timestamp?.tagName).toBe("TIME");
+        expect(article.contains(timestamp)).toBe(false);
+        expect(timestamp?.parentElement).toBe(article.parentElement);
+        return timestamp as HTMLTimeElement;
+      };
+      const timestamp = timestampFor(user);
+      const legacyTimestamp = timestampFor(legacyAssistant);
+      const expectedLabel = new Intl.DateTimeFormat([], { timeStyle: "short" }).format(new Date(messages[0].createdAt));
+
+      expect(timestamp.textContent).toBe(expectedLabel);
+      expect(timestamp.textContent).not.toBe(new Intl.DateTimeFormat([], { timeStyle: "medium" }).format(new Date(messages[0].createdAt)));
+      expect(timestamp.getAttribute("dateTime")).toBe(messages[0].createdAt);
+      expect(legacyTimestamp.getAttribute("dateTime")).toBe(messages[2].createdAt);
+      expect(timestamp.getAttribute("data-visible")).toBe("false");
+      fireEvent.click(user);
+      expect(timestamp.getAttribute("data-visible")).toBe("true");
+      act(() => vi.advanceTimersByTime(3_000));
+      expect(timestamp.getAttribute("data-visible")).toBe("false");
+      fireEvent.focus(user);
+      expect(timestamp.getAttribute("data-visible")).toBe("true");
+      act(() => vi.advanceTimersByTime(2_000));
+      fireEvent.keyDown(user, { key: "Enter" });
+      act(() => vi.advanceTimersByTime(1_000));
+      expect(timestamp.getAttribute("data-visible")).toBe("true");
+      fireEvent.keyDown(user, { key: " " });
+      act(() => vi.advanceTimersByTime(3_000));
+      expect(timestamp.getAttribute("data-visible")).toBe("false");
+
+      view.rerender(<ConversationFrame model={{
+        ...model,
+        messages: [model.messages[0]],
+        turns: [{
+          assistantText: "A durable reply.",
+          createdAt: messages[2].createdAt,
+          messageId: model.messages[0].id,
+          state: "completed",
+          turnOrdinal: 1,
+        }],
+        activityGroups: [],
+      }} actions={actions} />);
+      const durableAssistant = screen.getByTestId("activity-reply-1");
+      expect(timestampFor(durableAssistant).getAttribute("dateTime")).toBe(messages[2].createdAt);
+  });
+
+  it("omits the timestamp and reveal tab stop for invalid or missing dates", () => {
+    render(
+      <>
+        <UserBubble createdAt="not-a-date">Invalid timestamp</UserBubble>
+        <AssistantMessage>Missing timestamp</AssistantMessage>
+      </>,
+    );
+
+    const invalid = screen.getByText("Invalid timestamp", { selector: "article p" }).closest("article")!;
+    const missing = screen.getByText("Missing timestamp").closest("article")!;
+    expect(invalid.nextElementSibling?.tagName).not.toBe("TIME");
+    expect(missing.nextElementSibling).toBeNull();
+    expect(invalid.getAttribute("tabindex")).toBeNull();
+    expect(missing.getAttribute("tabindex")).toBeNull();
   });
 
   it("scrolls an expanded Activity disclosure into the nearest visible position", async () => {
@@ -514,14 +561,16 @@ describe("ConversationFrame", () => {
       ...model,
       activityGroups: [{ ...model.activityGroups[0], entries: [{ ...entry, kind: "activity_completed", outcome: "completed", activityKind: "terminal", text: "Finished an activity" }] }],
     }} actions={actions} />);
-    expect(view.getByText("Run a command")).toBeTruthy();
+    expect(view.getByText("Ran a command")).toBeTruthy();
     expect(view.queryByText("Finished an activity")).toBeNull();
-    view.rerender(<ConversationFrame model={{
-      ...model,
-      activityGroups: [{ ...model.activityGroups[0], entries: [{ ...entry, kind: "activity_completed", outcome: "failed", activityKind: "terminal", text: "Command failed" }] }],
-    }} actions={actions} />);
-    expect(view.getByText("Command failed")).toBeTruthy();
-    expect(view.queryByText("Run a command")).toBeNull();
+    for (const [outcome, text] of [["failed", "Command failed"], ["stopped", "Command stopped"], ["unavailable", "Command unavailable"]] as const) {
+      view.rerender(<ConversationFrame model={{
+        ...model,
+        activityGroups: [{ ...model.activityGroups[0], entries: [{ ...entry, kind: "activity_completed", outcome, activityKind: "terminal", text }] }],
+      }} actions={actions} />);
+      expect(view.getByText(text)).toBeTruthy();
+      expect(view.queryByText("Ran a command")).toBeNull();
+    }
     view.rerender(<ConversationFrame model={{
       ...model,
       showThinkingState: true,
@@ -529,6 +578,11 @@ describe("ConversationFrame", () => {
       activityGroups: [{ ...model.activityGroups[0], entries: [{ ...entry, activityKind: "unknown", text: "Doing an activity" }] }],
     }} actions={actions} />);
     expect(view.getByText("Doing an activity")).toBeTruthy();
+    view.rerender(<ConversationFrame model={{
+      ...model,
+      activityGroups: [{ ...model.activityGroups[0], entries: [{ ...entry, kind: "activity_completed", outcome: "completed", activityKind: "unknown", text: "Finished an activity" }] }],
+    }} actions={actions} />);
+    expect(view.getByText("Finished an activity")).toBeTruthy();
   });
 
   it("keeps the active status live region mounted while its label changes", () => {

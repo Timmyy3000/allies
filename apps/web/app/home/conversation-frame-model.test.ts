@@ -301,23 +301,37 @@ describe("buildProductionConversationFrameModel", () => {
 });
 
 describe("formatConversationDateDivider", () => {
-  it("uses the message timestamp for a message from today", () => {
+  it("uses Today without repeating the message time", () => {
     const now = new Date(2026, 8, 4, 12, 0);
     const messageDate = new Date(2026, 8, 4, 9, 40);
-    const expectedTime = messageDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-    expect(formatConversationDateDivider(messageDate.toISOString(), now)).toBe(`Today ${expectedTime}`);
+    expect(formatConversationDateDivider(messageDate.toISOString(), now)).toBe("Today");
   });
 
-  it("uses the message date when it is not today", () => {
+  it("uses Yesterday across a month and year boundary", () => {
+    const now = new Date(2027, 0, 1, 12, 0);
+    const messageDate = new Date(2026, 11, 31, 23, 59);
+
+    expect(formatConversationDateDivider(messageDate.toISOString(), now)).toBe("Yesterday");
+  });
+
+  it("uses the message date when it is older than yesterday", () => {
     const now = new Date(2026, 8, 4, 12, 0);
     const messageDate = new Date(2026, 7, 20, 16, 0);
     const result = formatConversationDateDivider(messageDate.toISOString(), now);
     const expectedDate = messageDate.toLocaleDateString([], { month: "short", day: "numeric" });
-    const expectedTime = messageDate.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-    expect(result).toBe(`${expectedDate} ${expectedTime}`);
+    expect(result).toBe(expectedDate);
     expect(result).not.toContain("Today");
+  });
+
+  it("includes the year for an older message from a different year and rejects invalid input", () => {
+    const now = new Date(2026, 8, 4, 12, 0);
+    const messageDate = new Date(2025, 8, 4, 16, 0);
+    const expectedDate = messageDate.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+
+    expect(formatConversationDateDivider(messageDate.toISOString(), now)).toBe(expectedDate);
+    expect(formatConversationDateDivider("not-a-date", now)).toBe("");
   });
 });
 

@@ -4,7 +4,7 @@ const workspaceId = "00000000-0000-4000-8000-000000000001";
 const allyId = "00000000-0000-4000-8000-000000000002";
 const conversationId = "00000000-0000-4000-8000-000000000003";
 const sentMessageId = "00000000-0000-4000-8000-000000000004";
-const now = "2099-01-01T12:00:00Z";
+const now = "2099-01-01T12:00:37Z";
 const reply = "Keep this reply after reload.";
 const assistantReply = "This assistant reply remains durable.";
 const csrfToken = "a".repeat(32);
@@ -62,8 +62,8 @@ function conversation(sent: boolean) {
   return success({ id: conversationId, ally_id: allyId, messages, assistant_replies: assistantReplies, next_cursor: null });
 }
 
-async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false) {
-  let sent = false;
+async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false, seedConversation = false, withActivity = false) {
+  let sent = seedConversation;
   let sentRequest: { body: string | null; csrf: string | undefined } | null = null;
   let approvalStatus = "pending";
   const approvalId = "00000000-0000-4000-8000-000000000010";
@@ -95,11 +95,22 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false)
       return route.fulfill({ status: 200, headers, json: conversation(sent) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/activities`) {
+      const activities = withActivity && sent ? [{
+        id: "00000000-0000-4000-8000-000000000011",
+        message_id: sentMessageId,
+        sequence: 1,
+        conversation_turn_ordinal: 1,
+        kind: "activity_started",
+        text: "Terminal command",
+        state: "completed",
+        created_at: now,
+        activity_kind: "terminal",
+      }] : [];
       return route.fulfill({ status: 200, headers, json: success({
         conversation_id: conversationId,
-        activities: [],
+        activities,
         state: "completed",
-        last_contiguous_sequence: 0,
+        last_contiguous_sequence: activities.length,
       }) });
     }
     if (url.pathname.endsWith(`/conversations/${conversationId}/approvals`)) {
@@ -162,6 +173,123 @@ test("shows a real conversation approval and records the choice before runtime a
   await dialog.getByRole("button", { name: "Approve", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Decision recorded · Waiting for Ally", exact: true })).toBeFocused();
+});
+
+test("keeps local message times outside bubbles without changing bubble geometry", async ({ page }) => {
+  await fixtureCloud(page, "signed-in");
+  await page.goto(`/home/${allyId}`);
+  await page.getByLabel("Message Ada").fill(reply);
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  const userBubble = page.locator("article").filter({ hasText: reply });
+  const assistantMessage = page.locator("article").filter({ hasText: assistantReply });
+  await expect(userBubble).toBeVisible();
+  await expect(assistantMessage).toBeVisible();
+  expect(await assistantMessage.evaluate((element) => getComputedStyle(element).marginTop)).toBe("24px");
+
+  const layout = () => page.evaluate(({ reply, assistantReply }) => {
+    const articles = [...document.querySelectorAll("article")];
+    const bounds = (element: Element | null) => {
+      const rect = element?.getBoundingClientRect();
+      return rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null;
+    };
+    const canvas = document.querySelector('[data-testid="conversation-frame-canvas"]');
+    return {
+      user: bounds(articles.find((article) => article.textContent?.includes(reply)) ?? null),
+      assistant: bounds(articles.find((article) => article.textContent?.includes(assistantReply)) ?? null),
+      composer: bounds(document.querySelector('[data-testid="conversation-composer"]')),
+      canvas: canvas ? { height: canvas.scrollHeight, top: canvas.scrollTop } : null,
+    };
+  }, { reply, assistantReply });
+
+  for (const message of [userBubble, assistantMessage]) {
+    await message.scrollIntoViewIfNeeded();
+    const timestamp = message.locator("xpath=following-sibling::time[1]");
+    await expect(timestamp).toHaveCount(1);
+    expect(await message.locator("time").count()).toBe(0);
+    const before = await message.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { width: bounds.width, height: bounds.height, radius: getComputedStyle(element).borderRadius };
+    });
+    const beforeLayout = await layout();
+
+    await message.click();
+    await expect(timestamp).toHaveAttribute("data-visible", "true");
+    await page.waitForTimeout(90);
+    expect(await layout()).toEqual(beforeLayout);
+    await page.waitForTimeout(250);
+    const after = await message.evaluate((element) => {
+      const bounds = element.getBoundingClientRect();
+      return { width: bounds.width, height: bounds.height, radius: getComputedStyle(element).borderRadius };
+    });
+    const [messageBox, timestampBox, paintedTimestamp, label] = await Promise.all([
+      message.boundingBox(),
+      timestamp.boundingBox(),
+      timestamp.evaluate((element) => {
+        const range = document.createRange();
+        range.selectNodeContents(element);
+        const bounds = range.getBoundingClientRect();
+        return { x: bounds.x, y: bounds.y, width: bounds.width, height: bounds.height };
+      }),
+      timestamp.textContent(),
+    ]);
+    const expected = await timestamp.evaluate((element) => new Intl.DateTimeFormat([], { timeStyle: "short" }).format(new Date(element.getAttribute("datetime")!)));
+
+    expect(after).toEqual(before);
+    expect(await layout()).toEqual(beforeLayout);
+    expect(timestampBox!.height).toBe(0);
+    expect(paintedTimestamp.y).toBeGreaterThanOrEqual(messageBox!.y + messageBox!.height);
+    expect(paintedTimestamp.height).toBeGreaterThan(0);
+    expect(paintedTimestamp.x).toBeGreaterThanOrEqual(0);
+    expect(paintedTimestamp.x + paintedTimestamp.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    expect(label).toBe(expected);
+    expect(label).not.toBe(await timestamp.evaluate((element) => new Intl.DateTimeFormat([], { timeStyle: "medium" }).format(new Date(element.getAttribute("datetime")!))));
+    await page.waitForTimeout(3_000);
+    await expect(timestamp).toHaveAttribute("data-visible", "false");
+    expect(await layout()).toEqual(beforeLayout);
+  }
+});
+
+test("keeps revealed timestamps clear of same-row activity and approval content", async ({ page }) => {
+  for (const withActivity of [true, false]) {
+    const scenario = withActivity ? page : await page.context().newPage();
+    await fixtureCloud(scenario, "signed-in", true, true, withActivity);
+    await scenario.goto(`/home/${allyId}`);
+
+    const dialog = scenario.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await scenario.keyboard.press("Escape");
+    await expect(dialog).not.toBeVisible();
+
+    const assistantMessage = scenario.locator("article").filter({ hasText: assistantReply });
+    const timestamp = assistantMessage.locator("xpath=following-sibling::time[1]");
+    const follower = withActivity
+      ? scenario.locator("details").filter({ hasText: "1 activity" })
+      : scenario.getByRole("button", { name: "Approval needed", exact: true }).locator("xpath=..");
+    await expect(assistantMessage).toBeVisible();
+    await expect(timestamp).toHaveCount(1);
+    await expect(follower).toBeVisible();
+
+    await assistantMessage.click();
+    await expect(timestamp).toHaveAttribute("data-visible", "true");
+    await scenario.waitForTimeout(250);
+    const geometry = await timestamp.evaluate((element) => {
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      const painted = range.getBoundingClientRect();
+      const next = element.nextElementSibling;
+      return {
+        paintedBottom: painted.bottom,
+        followerTop: next?.getBoundingClientRect().top ?? null,
+        followerMarginTop: next ? getComputedStyle(next).marginTop : null,
+      };
+    });
+    expect(geometry.followerMarginTop).toBe("18px");
+    expect(geometry.followerTop).not.toBeNull();
+    expect(geometry.followerTop!).toBeGreaterThanOrEqual(geometry.paintedBottom);
+
+    if (!withActivity) await scenario.close();
+  }
 });
 
 test("keeps the landing page continuous on a short phone", async ({ page }) => {

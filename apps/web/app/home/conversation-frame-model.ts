@@ -155,16 +155,15 @@ export function formatConversationDateDivider(value: string, now = new Date()): 
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
 
-  const time = date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  if (date.toDateString() === now.toDateString()) return `Today ${time}`;
+  if (date.toDateString() === now.toDateString()) return "Today";
 
   const yesterday = new Date(now);
   yesterday.setDate(yesterday.getDate() - 1);
-  if (date.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`;
+  if (date.toDateString() === yesterday.toDateString()) return "Yesterday";
 
   const dateOptions: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
   if (date.getFullYear() !== now.getFullYear()) dateOptions.year = "numeric";
-  return `${date.toLocaleDateString([], dateOptions)} ${time}`;
+  return date.toLocaleDateString([], dateOptions);
 }
 
 export function conversationMessageDateKey(value: string): string {
