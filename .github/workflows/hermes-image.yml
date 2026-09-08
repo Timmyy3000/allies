@@ -194,7 +194,7 @@ jobs:
       group: publish-runtime-images-${{ inputs.railway_environment }}
       cancel-in-progress: false
     env:
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
       TARGET_ENVIRONMENT: ${{ inputs.railway_environment }}
       HERMES_IMAGE: ${{ needs.build.outputs.hermes_image }}
@@ -203,7 +203,7 @@ jobs:
       - name: Update shared image variables
         run: |
           set -euo pipefail
-          : "${RAILWAY_TOKEN:?RAILWAY_TOKEN secret is required}"
+          : "${RAILWAY_API_TOKEN:?RAILWAY_TOKEN secret is required}"
           : "${RAILWAY_PROJECT_ID:?RAILWAY_PROJECT_ID variable is required}"
           npx -y @railway/cli@5.45.3 variables set \
             "HERMES_IMAGE=$HERMES_IMAGE" \
