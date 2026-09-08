@@ -25,6 +25,8 @@ from common.uuids import canonical_uuid
 
 from .contracts import (
     FINGERPRINT_PATTERN,
+    ApprovalDecisionCommand,
+    ApprovalDecisionReceipt,
     ExecutionCommand,
     ExecutionReceipt,
     ReconciliationReceipt,
@@ -222,6 +224,31 @@ def create_execution_intent(
     return _receipt(
         _request(method="POST", path="api/v1/internal/executions", body=body)
     )
+
+
+def submit_approval_decision(
+    command: ApprovalDecisionCommand, *, raw_body: bytes | None = None
+) -> ApprovalDecisionReceipt:
+    """Deliver one immutable Cloud approval choice to its Foundry request."""
+
+    canonical_body = canonical_json_bytes(command.model_dump(mode="json"))
+    if raw_body is not None and (
+        not isinstance(raw_body, bytes) or raw_body != canonical_body
+    ):
+        raise FoundryGatewayInvalid("foundry approval bytes are not canonical")
+    body = raw_body if raw_body is not None else canonical_body
+    if len(body) > 64 * 1024:
+        raise FoundryGatewayInvalid("foundry approval command too large")
+    raw = _request(
+        method="POST",
+        path=f"api/v1/internal/approvals/{command.approval_request_id}/decision",
+        body=body,
+        extra_headers={"Idempotency-Key": str(command.idempotency_key)},
+    )
+    try:
+        return ApprovalDecisionReceipt.model_validate_json(raw)
+    except ValueError as exc:
+        raise FoundryGatewayInvalid("foundry approval receipt invalid") from exc
 
 
 def reconcile_execution_intent(

@@ -1,11 +1,44 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 from uuid import UUID
 
 from ninja import Schema
+from pydantic import ConfigDict
 
 from chat.api.schemas import AssistantReplyResponse
+
+
+class ApprovalSummaryResponse(Schema):
+    id: UUID
+    message_id: UUID
+    status: str
+    expires_at: datetime
+    decided_at: datetime | None = None
+    acknowledgement_deadline_at: datetime | None = None
+
+
+class ApprovalDetailResponse(ApprovalSummaryResponse):
+    action_label: str
+    action_preview: str
+
+
+class ApprovalActivitySummaryResponse(Schema):
+    id: UUID
+    status: str
+    expires_at: datetime
+    decided_at: datetime | None = None
+
+
+class ApprovalListResponse(Schema):
+    approvals: list[ApprovalSummaryResponse]
+
+
+class ApprovalDecisionRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["approve", "reject"]
 
 
 class ActivityResponse(Schema):
@@ -22,6 +55,7 @@ class ActivityResponse(Schema):
     activity_kind: str | None = None
     outcome: str | None = None
     duration_ms: int | None = None
+    approval: ApprovalActivitySummaryResponse | None = None
 
 
 class ActivitySnapshotResponse(Schema):

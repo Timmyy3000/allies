@@ -656,6 +656,11 @@ CELERY_BEAT_SCHEDULE["dispatch-pending-messages"] = {
     "schedule": 15.0,
     "options": {"queue": "cloud"},
 }
+CELERY_BEAT_SCHEDULE["dispatch-pending-approvals"] = {
+    "task": "activities.dispatch_pending_approvals",
+    "schedule": 15.0,
+    "options": {"queue": "cloud"},
+}
 CELERY_BEAT_SCHEDULE["cleanup-expired-onboarding-attempts"] = {
     "task": "allies.cleanup_expired_onboarding_attempts",
     "schedule": 900.0,
