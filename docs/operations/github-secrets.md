@@ -26,7 +26,7 @@ an `https://` URL and checks `/healthz` until the service returns HTTP 200 with
 The **Publish Allies Runtime Images** workflow builds and publishes the Hermes
 and runtime images from one commit. Select `staging` or `production` to update
 that Railway environment's shared `HERMES_IMAGE` and `RUNTIME_IMAGE` values as
-one CLI operation. Selecting `none` only publishes the images. Railway
+one API operation. Selecting `none` only publishes the images. Railway
 redeploys services that reference the changed shared values;
 existing Fly machines reconcile to the pair through Foundry's normal image
 update flow.
