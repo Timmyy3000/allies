@@ -1,15 +1,28 @@
 import json
 import secrets
 import time
+from typing import Annotated
 
 from django.conf import settings
 from django.db import DatabaseError, close_old_connections
 from django.http import HttpRequest, JsonResponse, StreamingHttpResponse
-from ninja import Query
-from ninja_extra import ControllerBase, NinjaExtraAPI, api_controller, http_get
+from ninja import Header, Query
+from ninja_extra import (
+    ControllerBase,
+    NinjaExtraAPI,
+    api_controller,
+    http_get,
+    http_post,
+)
 
 from allies.gateways.contracts import FoundryEventEnvelope
-from auths.api.common import _session, error_json, error_responses, success_json
+from auths.api.common import (
+    _require_origin,
+    _session,
+    error_json,
+    error_responses,
+    success_json,
+)
 from auths.api.schemas import SuccessResponse
 from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_limit
@@ -17,6 +30,9 @@ from chat.services.messages import assistant_reply_response
 from common.uuids import CanonicalUUID
 
 from ..exceptions import (
+    ApprovalConflict,
+    ApprovalInvalid,
+    ApprovalNotFound,
     ProjectionConflict,
     ProjectionCursorExpired,
     ProjectionCursorGap,
@@ -25,14 +41,25 @@ from ..exceptions import (
     ProjectionNotFound,
     ProjectionSequenceGap,
 )
-from ..presentation import activity_metadata
+from ..presentation import activity_metadata, approval_detail, approval_summary
+from ..services.approvals import (
+    APPROVAL_MAX_LIST,
+    get_approval_detail,
+    list_approvals,
+    record_approval_decision,
+)
 from ..services.projection import (
     parse_activity_cursor,
     project_foundry_event,
     read_activity_snapshot,
     serialize_activity_cursor,
 )
-from .schemas import ActivitySnapshotResponse
+from .schemas import (
+    ActivitySnapshotResponse,
+    ApprovalDecisionRequest,
+    ApprovalDetailResponse,
+    ApprovalListResponse,
+)
 
 
 def _foundry_token_valid(request: HttpRequest) -> bool:
@@ -46,6 +73,123 @@ def _foundry_token_valid(request: HttpRequest) -> bool:
 
 @api_controller("/workspaces/{workspace_id}", tags=["Activities"])
 class ActivityController(ControllerBase):
+    @http_get(
+        "/conversations/{conversation_id}/approvals",
+        response={
+            200: SuccessResponse[ApprovalListResponse],
+            **error_responses(401, 404, 409, 422, 500),
+        },
+    )
+    def approvals(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        conversation_id: CanonicalUUID,
+        limit: int = Query(APPROVAL_MAX_LIST, ge=1, le=APPROVAL_MAX_LIST),
+    ):
+        try:
+            session = _session(request)
+            approvals = list_approvals(
+                user=session.user,
+                workspace_id=workspace_id,
+                conversation_id=conversation_id,
+                limit=limit,
+            )
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        except (WorkspaceAccessDenied, ApprovalNotFound):
+            return error_json("approval_unavailable", "approval unavailable", 404)
+        except ApprovalInvalid:
+            return error_json("validation_error", "request validation failed", 422)
+        return success_json(
+            ApprovalListResponse(
+                approvals=[approval_summary(approval) for approval in approvals]
+            ),
+            "Approvals loaded",
+        )
+
+    @http_get(
+        "/conversations/{conversation_id}/approvals/{approval_id}",
+        response={
+            200: SuccessResponse[ApprovalDetailResponse],
+            **error_responses(401, 404, 409, 422, 500),
+        },
+    )
+    def approval(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        conversation_id: CanonicalUUID,
+        approval_id: CanonicalUUID,
+    ):
+        try:
+            session = _session(request)
+            result = get_approval_detail(
+                user=session.user,
+                workspace_id=workspace_id,
+                conversation_id=conversation_id,
+                approval_id=approval_id,
+            )
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        except (WorkspaceAccessDenied, ApprovalNotFound):
+            return error_json("approval_unavailable", "approval unavailable", 404)
+        return success_json(
+            ApprovalDetailResponse.model_validate(approval_detail(result)),
+            "Approval loaded",
+        )
+
+    @http_post(
+        "/conversations/{conversation_id}/approvals/{approval_id}/decision",
+        response={
+            200: SuccessResponse[ApprovalDetailResponse],
+            202: SuccessResponse[ApprovalDetailResponse],
+            **error_responses(401, 403, 404, 409, 422, 500),
+        },
+    )
+    def decide(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        conversation_id: CanonicalUUID,
+        approval_id: CanonicalUUID,
+        payload: ApprovalDecisionRequest,
+        idempotency_key: Annotated[
+            str,
+            Header(
+                alias="Idempotency-Key",
+                min_length=36,
+                max_length=36,
+                description="Stable UUID for repeating one approval decision.",
+            ),
+        ],
+    ):
+        if rejected := _require_origin(request, allow_native_bearer=True):
+            return rejected
+        try:
+            session = _session(request)
+            result = record_approval_decision(
+                user=session.user,
+                workspace_id=workspace_id,
+                conversation_id=conversation_id,
+                approval_id=approval_id,
+                decision=payload.decision,
+                idempotency_key=idempotency_key,
+            )
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        except (WorkspaceAccessDenied, ApprovalNotFound):
+            return error_json("approval_unavailable", "approval unavailable", 404)
+        except ApprovalConflict:
+            return error_json("approval_conflict", "request conflicts", 409)
+        except ApprovalInvalid:
+            return error_json("validation_error", "request validation failed", 422)
+        return success_json(
+            ApprovalDetailResponse.model_validate(approval_detail(result.approval)),
+            "Approval decision recorded",
+            status=200 if result.replayed else 202,
+        )
+
     @http_get(
         "/conversations/{conversation_id}/activities",
         response={
