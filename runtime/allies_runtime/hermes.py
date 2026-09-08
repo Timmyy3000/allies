@@ -47,6 +47,7 @@ MAX_STREAM_BYTES = 4 * 1_048_576
 MAX_EVENT_BYTES = 256 * 1_024
 MAX_SAFE_TEXT_BYTES = 16 * 1024
 MAX_MESSAGE_BYTES = 16 * 1024
+MANAGED_REASONING_EFFORTS = frozenset({"high", "xhigh"})
 MAX_APPROVAL_LIFETIME_SECONDS = 300
 MAX_APPROVAL_LABEL_CHARS = 120
 MAX_APPROVAL_PREVIEW_BYTES = 16 * 1024
@@ -163,6 +164,24 @@ def validate_stream_message(message: str) -> str:
     if not message or len(encoded) > MAX_MESSAGE_BYTES:
         raise ValueError("Hermes stream message must be bounded UTF-8 text")
     return message
+
+
+def validate_reasoning_effort(value: Any) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in MANAGED_REASONING_EFFORTS:
+        allowed = ", ".join(sorted(MANAGED_REASONING_EFFORTS))
+        raise ValueError(f"Hermes reasoning effort must be one of: {allowed}")
+    return value
+
+
+def _stream_request_body(message: str, reasoning_effort: str | None) -> bytes:
+    request_body = {"message": message}
+    if reasoning_effort is not None:
+        request_body["model_options"] = {
+            "reasoning": {"enabled": True, "effort": reasoning_effort}
+        }
+    return json.dumps(request_body, separators=(",", ":")).encode("utf-8")
 
 
 def _validated_tool_name(value: Any) -> str:
@@ -1506,12 +1525,14 @@ class HermesClient:
         message: str,
         *,
         session_key: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> HermesStreamResult:
         """Run one profile-scoped SSE turn with bounded response handling."""
 
         profile_id = _profile_path(profile_id)
         session_id = _session_path(session_id)
         message = validate_stream_message(message)
+        reasoning_effort = validate_reasoning_effort(reasoning_effort)
         try:
             token = await asyncio.wait_for(
                 self._profile_credential(profile_id), self.settings.stream_timeout
@@ -1519,7 +1540,7 @@ class HermesClient:
         except TimeoutError as exc:
             raise HermesTimeout("Hermes credential resolution timed out") from exc
         path = f"/p/{profile_id}/api/sessions/{session_id}/chat/stream"
-        body = json.dumps({"message": message}, separators=(",", ":")).encode("utf-8")
+        body = _stream_request_body(message, reasoning_effort)
 
         def read_stream() -> HermesStreamResult:
             response = None
@@ -1745,7 +1766,9 @@ class HermesClient:
         message: str,
         *,
         session_key: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> HermesStreamResult:
+        reasoning_effort = validate_reasoning_effort(reasoning_effort)
         started_at = time.monotonic()
         emit_runtime_event(
             build_event(
@@ -1759,7 +1782,11 @@ class HermesClient:
         )
         try:
             result = await self.stream(
-                profile_id, session_id, message, session_key=session_key
+                profile_id,
+                session_id,
+                message,
+                session_key=session_key,
+                reasoning_effort=reasoning_effort,
             )
         except BaseException as error:
             emit_runtime_event(
@@ -1795,6 +1822,7 @@ class HermesClient:
         message: str,
         *,
         session_key: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> _ObservedHermesStream:
         """Open an SSE response and yield events without buffering the body."""
 
@@ -1802,6 +1830,7 @@ class HermesClient:
         profile_id = _profile_path(profile_id)
         session_id = _session_path(session_id)
         message = validate_stream_message(message)
+        reasoning_effort = validate_reasoning_effort(reasoning_effort)
         emit_runtime_event(
             build_event(
                 "provider.operation.started",
@@ -1836,9 +1865,7 @@ class HermesClient:
                 self._profile_credential(profile_id), self.settings.stream_timeout
             )
             path = f"/p/{profile_id}/api/sessions/{session_id}/chat/stream"
-            body = json.dumps({"message": message}, separators=(",", ":")).encode(
-                "utf-8"
-            )
+            body = _stream_request_body(message, reasoning_effort)
             response = await asyncio.wait_for(
                 asyncio.to_thread(
                     self._request,
@@ -1882,6 +1909,7 @@ class HermesClient:
 __all__ = [
     "ACTIVITY_KINDS",
     "DEFAULT_CREDENTIAL_SOCKET",
+    "MANAGED_REASONING_EFFORTS",
     "MAX_APPROVAL_LABEL_CHARS",
     "MAX_APPROVAL_LIFETIME_SECONDS",
     "MAX_APPROVAL_PREVIEW_BYTES",
@@ -1900,5 +1928,6 @@ __all__ = [
     "UnixSocketCredentialResolver",
     "stable_session_identifiers",
     "test_credential_for_reference",
+    "validate_reasoning_effort",
     "validate_stream_message",
 ]

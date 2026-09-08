@@ -1543,6 +1543,57 @@ async def test_stream_is_profile_scoped_and_parses_events(monkeypatch):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("incremental", [False, True])
+async def test_streams_send_managed_reasoning_options(monkeypatch, incremental):
+    lines = [
+        b"event: run.started\n",
+        b'data: {"session_id":"s1","run_id":"r1","seq":1}\n',
+        b"\n",
+        b"event: run.completed\n",
+        b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[{"role":"assistant","content":"hello"}]}\n',
+        b"\n",
+        b"event: done\n",
+        b'data: {"session_id":"s1","run_id":"r1"}\n',
+        b"\n",
+    ]
+    response = FakeResponse(lines=lines)
+    client, calls = _client(monkeypatch, response)
+
+    if incremental:
+        stream = await client.stream_profile_incremental(
+            "ally-a", "s1", "hello", reasoning_effort="xhigh"
+        )
+        await stream.aclose()
+    else:
+        await client.stream_profile(
+            "ally-a", "s1", "hello", reasoning_effort="xhigh"
+        )
+
+    assert json.loads(calls[0][3]) == {
+        "message": "hello",
+        "model_options": {
+            "reasoning": {"enabled": True, "effort": "xhigh"}
+        },
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "method_name", ["stream", "stream_profile", "stream_profile_incremental"]
+)
+async def test_streams_reject_invalid_reasoning_before_request(monkeypatch, method_name):
+    client, calls = _client(monkeypatch, FakeResponse())
+    method = getattr(client, method_name)
+
+    with pytest.raises(ValueError, match="reasoning effort"):
+        result = method("ally-a", "s1", "hello", reasoning_effort="medium")
+        if asyncio.iscoroutine(result):
+            await result
+
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_incremental_stream_yields_before_done_and_closes_response(monkeypatch):
     lines = iter(
         [

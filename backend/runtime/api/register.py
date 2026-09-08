@@ -653,6 +653,7 @@ def _claim_json(claim):
         "profile_id": str(claim.profile_id),
         "hermes_profile_key": claim.hermes_profile_key,
         "model": claim.model,
+        "reasoning_effort": claim.reasoning_effort,
         "conversation_id": claim.conversation_id,
         "session_id": claim.session_id,
         "stream_id": claim.stream_id,

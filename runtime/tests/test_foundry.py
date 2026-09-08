@@ -250,6 +250,24 @@ async def test_client_sends_two_headers_and_parses_contract():
 
 
 @pytest.mark.asyncio
+async def test_client_parses_optional_managed_reasoning_effort():
+    foundry, _ = client({"status": 200, "body": {**CLAIM, "reasoning_effort": "xhigh"}})
+
+    parsed = await foundry.claim(2, claim_id="claim-1")
+
+    assert parsed.reasoning_effort == "xhigh"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [None, "medium", 1, {"effort": "xhigh"}])
+async def test_client_rejects_invalid_present_reasoning_effort(value):
+    foundry, _ = client({"status": 200, "body": {**CLAIM, "reasoning_effort": value}})
+
+    with pytest.raises(FoundryError, match="invalid reasoning effort"):
+        await foundry.claim(2, claim_id="claim-1")
+
+
+@pytest.mark.asyncio
 async def test_client_reconciliation_snapshot_and_readiness_receipt():
     foundry, transport = client(
         {

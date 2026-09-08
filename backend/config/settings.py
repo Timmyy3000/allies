@@ -111,6 +111,13 @@ ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED = env_bool(
     "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED", default=True
 )
 ALLIES_RICH_APPROVALS_ENABLED = env_bool("ALLIES_RICH_APPROVALS_ENABLED", default=True)
+ALLIES_RUNTIME_REASONING_EFFORT = os.getenv(
+    "ALLIES_RUNTIME_REASONING_EFFORT", "xhigh"
+).strip().lower()
+if ALLIES_RUNTIME_REASONING_EFFORT not in {"high", "xhigh"}:
+    raise ImproperlyConfigured(
+        "ALLIES_RUNTIME_REASONING_EFFORT must be one of: high, xhigh"
+    )
 ALLIES_RUNTIME_ACTIVITY_WAIT_SECONDS = env_positive_int(
     "ALLIES_RUNTIME_ACTIVITY_WAIT_SECONDS", 5, maximum=5
 )

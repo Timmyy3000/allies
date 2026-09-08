@@ -69,6 +69,13 @@ jobs:
         run: sh runtime/hermes-image/smoke_volume_boot.sh allies/hermes-mnemosyne:ci
       - name: Verify native skill discovery and learning across restart
         run: sh runtime/hermes-image/smoke_skills.sh allies/hermes-mnemosyne:ci
+      - name: Verify managed reasoning request precedence
+        run: |
+          docker run --rm \
+            --entrypoint /opt/hermes/.venv/bin/python \
+            --volume "$PWD/runtime/hermes-image/smoke_reasoning_override.py:/tmp/smoke-reasoning.py:ro" \
+            allies/hermes-mnemosyne:ci \
+            /tmp/smoke-reasoning.py
       - name: Exercise first-turn transcript bootstrap
         run: |
           docker run --rm \

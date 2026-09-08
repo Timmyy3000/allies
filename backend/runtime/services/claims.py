@@ -57,6 +57,7 @@ class Claim:
     expires_at: datetime
     payload: dict
     claim_id: UUID
+    reasoning_effort: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +380,7 @@ def _claim_from_records(
         expires_at=lease.expires_at,
         payload=deepcopy(attempt.execution.input_payload),
         claim_id=attempt.claim_id or lease.claim_id or attempt.id,
+        reasoning_effort=settings.ALLIES_RUNTIME_REASONING_EFFORT,
     )
 
 

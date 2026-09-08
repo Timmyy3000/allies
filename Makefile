@@ -107,6 +107,11 @@ hermes-image-test: hermes-image-build
 	sh runtime/hermes-image/smoke_skills.sh $(HERMES_IMAGE_TAG)
 	docker run --rm \
 		--entrypoint /opt/hermes/.venv/bin/python \
+		--volume "$(CURDIR)/runtime/hermes-image/smoke_reasoning_override.py:/tmp/smoke-reasoning.py:ro" \
+		$(HERMES_IMAGE_TAG) \
+		/tmp/smoke-reasoning.py
+	docker run --rm \
+		--entrypoint /opt/hermes/.venv/bin/python \
 		--volume "$(CURDIR)/runtime/hermes-image/smoke_approval_endpoint.py:/tmp/smoke-approval.py:ro" \
 		$(HERMES_IMAGE_TAG) \
 		/tmp/smoke-approval.py

@@ -33,6 +33,7 @@ from .hermes import (
     HermesBootstrap,
     HermesEvent,
     stable_session_identifiers,
+    validate_reasoning_effort,
     validate_stream_message,
 )
 from .observability import (
@@ -215,6 +216,7 @@ class FoundryClaim:
     expires_at: datetime | str | None
     payload: Mapping[str, Any]
     claim_id: str
+    reasoning_effort: str | None = None
 
     def __repr__(self) -> str:  # pragma: no cover - defensive redaction
         return (
@@ -702,6 +704,20 @@ class FoundryClient:
                 status=200,
                 code="MALFORMED_RESPONSE",
             )
+        if "reasoning_effort" in payload:
+            try:
+                raw_reasoning_effort = payload["reasoning_effort"]
+                reasoning_effort = validate_reasoning_effort(raw_reasoning_effort)
+                if reasoning_effort is None:
+                    raise ValueError("reasoning effort cannot be null")
+            except ValueError as exc:
+                raise FoundryError(
+                    "Foundry claim response contained an invalid reasoning effort",
+                    status=200,
+                    code="MALFORMED_RESPONSE",
+                ) from exc
+        else:
+            reasoning_effort = None
         return FoundryClaim(
             attempt_id=str(payload["attempt_id"]),
             execution_id=str(payload["execution_id"]),
@@ -718,6 +734,7 @@ class FoundryClient:
             if isinstance(payload.get("payload"), Mapping)
             else {},
             claim_id=str(payload["claim_id"]),
+            reasoning_effort=reasoning_effort,
         )
 
     async def reconciliation_snapshot(self) -> RuntimeReconciliationSnapshot:
@@ -1226,13 +1243,17 @@ async def _stream_events(
     message: str,
     *,
     session_key: str,
+    reasoning_effort: str | None = None,
 ) -> Any:
+    stream_kwargs: dict[str, Any] = {"session_key": session_key}
+    if reasoning_effort is not None:
+        stream_kwargs["reasoning_effort"] = reasoning_effort
     method = getattr(hermes, "stream_profile_incremental", None)
     if callable(method):
-        result = method(profile_id, session_id, message, session_key=session_key)
+        result = method(profile_id, session_id, message, **stream_kwargs)
     else:
         result = hermes.stream_profile(
-            profile_id, session_id, message, session_key=session_key
+            profile_id, session_id, message, **stream_kwargs
         )
     if inspect.isawaitable(result):
         result = await result
@@ -1693,6 +1714,7 @@ class FoundryWorker:
                 session_id,
                 message,
                 session_key=identifiers.session_key,
+                reasoning_effort=claim.reasoning_effort,
             )
             renewal = asyncio.create_task(self._renew_loop(claim, stream, lost))
             terminal: HermesEvent | None = None
