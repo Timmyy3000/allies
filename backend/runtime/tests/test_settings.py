@@ -450,7 +450,7 @@ def test_explicit_hint_enable_requires_delivery_credentials():
 
 @pytest.mark.parametrize(
     ("override", "expected"),
-    [(None, False), ("false", False), ("true", True)],
+    [(None, True), ("false", False), ("true", True)],
 )
 def test_rich_approval_setting_is_explicit_and_environment_scoped(
     monkeypatch, override, expected

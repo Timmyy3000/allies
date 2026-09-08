@@ -100,3 +100,14 @@ def test_marker_can_be_nested_under_custom_volume():
 def test_credential_reference_rejects_non_uri():
     with pytest.raises(SettingsError):
         CredentialReference("raw-secret")
+
+
+def test_rich_approvals_default_on_with_explicit_rollback():
+    assert RuntimeSettings().rich_approvals_enabled
+    assert load_settings({}).rich_approvals_enabled
+    assert not load_settings(
+        {"ALLIES_RICH_APPROVALS_ENABLED": "false"}
+    ).rich_approvals_enabled
+    assert load_settings(
+        {"ALLIES_RICH_APPROVALS_ENABLED": "true"}
+    ).rich_approvals_enabled
