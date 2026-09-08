@@ -1,6 +1,22 @@
 import { activityKindSchema, activityStateSchema, type ActivityState, type ActivityViewModel } from "@allies/cloud-client";
 
 const MAX_STREAM_BUFFER_BYTES = 4 * 1024 * 1024;
+const ACTIVITY_ATTEMPT_ID_PATTERN = /^attempt-[0-9a-f]{32}$/;
+const ACTIVITY_ID_PATTERN = /^activity-[0-9a-f]{32}$/;
+const ACTIVITY_KIND_PATTERN = /^[a-z_]{1,32}$/;
+const ACTIVITY_OUTCOMES = ["completed", "failed", "stopped"] as const;
+
+function isOptionalPattern(value: unknown, pattern: RegExp): value is string | null | undefined {
+  return value === undefined || value === null || (typeof value === "string" && pattern.test(value));
+}
+
+function isOptionalOutcome(value: unknown): value is (typeof ACTIVITY_OUTCOMES)[number] | null | undefined {
+  return value === undefined || value === null || (typeof value === "string" && ACTIVITY_OUTCOMES.includes(value as (typeof ACTIVITY_OUTCOMES)[number]));
+}
+
+function isOptionalDuration(value: unknown): value is number | null | undefined {
+  return value === undefined || value === null || (typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 86_400_000);
+}
 
 export type ActivityStreamEvent =
   | { type: "ready"; conversationId: string; cursor: string; highWaterSequence: number }
@@ -71,6 +87,11 @@ function parseEvent(eventName: string, eventId: string, data: string): ActivityS
       || typeof activity.created_at !== "string"
       || !activityKindSchema.safeParse(activity.kind).success
       || !activityStateSchema.safeParse(activity.state).success
+      || !isOptionalPattern(activity.activity_attempt_id, ACTIVITY_ATTEMPT_ID_PATTERN)
+      || !isOptionalPattern(activity.activity_id, ACTIVITY_ID_PATTERN)
+      || !isOptionalPattern(activity.activity_kind, ACTIVITY_KIND_PATTERN)
+      || !isOptionalOutcome(activity.outcome)
+      || !isOptionalDuration(activity.duration_ms)
     ) throw new ActivityStreamError("invalid activity stream activity payload");
     return {
       type: "activity",
@@ -85,6 +106,11 @@ function parseEvent(eventName: string, eventId: string, data: string): ActivityS
         text: activity.text,
         state: activity.state as ActivityViewModel["state"],
         createdAt: activity.created_at,
+        activityAttemptId: activity.activity_attempt_id,
+        activityId: activity.activity_id,
+        activityKind: activity.activity_kind,
+        outcome: activity.outcome,
+        durationMs: activity.duration_ms,
       },
     };
   }

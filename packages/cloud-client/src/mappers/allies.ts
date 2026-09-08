@@ -129,6 +129,11 @@ const activityResponseSchema = z
     text: z.string(),
     state: activityStateSchema,
     created_at: timestampSchema,
+    activity_attempt_id: z.string().regex(/^attempt-[0-9a-f]{32}$/).nullish(),
+    activity_id: z.string().regex(/^activity-[0-9a-f]{32}$/).nullish(),
+    activity_kind: z.string().regex(/^[a-z_]{1,32}$/).nullish(),
+    outcome: z.enum(["completed", "failed", "stopped"]).nullish(),
+    duration_ms: z.number().int().min(0).max(86_400_000).nullish(),
   })
   .loose();
 
@@ -251,6 +256,11 @@ export interface ActivityViewModel {
   text: string;
   state: ActivityState;
   createdAt: string;
+  activityAttemptId?: string | null;
+  activityId?: string | null;
+  activityKind?: string | null;
+  outcome?: "completed" | "failed" | "stopped" | null;
+  durationMs?: number | null;
 }
 
 export interface ActivitySnapshotViewModel {
@@ -358,6 +368,11 @@ function toActivityViewModel(input: unknown): ActivityViewModel {
     text: activity.text,
     state: activity.state,
     createdAt: activity.created_at,
+    activityAttemptId: activity.activity_attempt_id,
+    activityId: activity.activity_id,
+    activityKind: activity.activity_kind,
+    outcome: activity.outcome,
+    durationMs: activity.duration_ms,
   };
 }
 

@@ -53,7 +53,7 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
   const shellRef = useRef<HTMLDivElement>(null);
   const headerAnchorRef = useRef<HTMLSpanElement>(null);
   const threadAnchorRef = useRef<HTMLSpanElement>(null);
-  const latestUser = model.messages.findLast((message) => message.sender === "user");
+  const latestUser = model.messages.findLast((message) => message.sender === "user" && !message.queued);
   const currentTurn = model.turns.findLast((turn) => turn.messageId === latestUser?.id);
   const confirmedWork = model.showThinkingState && (model.activityState === "running" || currentTurn?.state === "running" || model.responseStarted);
   const latestReply = model.messages.findLast((message) => message.sender === "assistant" && latestUser && message.sequence > latestUser.sequence);
@@ -267,7 +267,7 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
           <div className={styles.framePresenceRow} data-docked={docked}>
             <span ref={threadAnchorRef} className={styles.framePresenceThreadSlot} aria-hidden="true" />
             <div className={styles.framePresenceActivity}>
-              {waking ? <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Waking up"><ShinyText color="var(--chat-accent)">Waking up</ShinyText></span> : !docked && currentGroup ? <ActivityGroup group={currentGroup} /> : !docked && model.showThinkingState ? (
+              {waking ? <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Waking up"><ShinyText color="var(--chat-accent)">Waking up</ShinyText></span> : !docked && currentGroup ? <ActivityGroup key={currentGroup.key} group={currentGroup} ongoing={activityIsCurrent && model.activityState !== "awaiting_action"} /> : !docked && model.showThinkingState ? (
                 <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Thinking"><ShinyText color="var(--chat-accent)">Thinking..</ShinyText></span>
               ) : null}
             </div>
@@ -400,18 +400,25 @@ function TurnMessage({
   );
 }
 
-function ActivityGroup({ group }: { group: ProductionConversationActivityGroupModel }) {
-  const [first, ...rest] = group.entries;
-  if (!first) return null;
+function ActivityGroup({ group, ongoing = false }: { group: ProductionConversationActivityGroupModel; ongoing?: boolean }) {
+  const active = group.entries.findLast((entry) => entry.activityId && !entry.outcome && entry.kind === "activity_started");
+  const [disclosure, setDisclosure] = useState({ ongoing, open: false });
+  if (disclosure.ongoing !== ongoing) setDisclosure({ ongoing, open: false });
+  if (!group.entries.length) return null;
   return (
     <ActivityDisclosure
-      label={group.entries.at(-1)!.text}
-      entries={[first, ...rest].map((entry) => ({
+      label={ongoing ? active?.text ?? "Thinking…" : `${group.entries.length} ${group.entries.length === 1 ? "activity" : "activities"}`}
+      ongoing={ongoing}
+      open={disclosure.open}
+      onToggle={(open) => setDisclosure((current) => current.open === open ? current : { ...current, open })}
+      entries={group.entries.map((entry) => ({
         id: entry.id,
         text: entry.text,
+        activityKind: entry.activityKind,
+        durationMs: entry.durationMs,
         tone: entry.kind === "awaiting_action"
           ? "accent"
-          : entry.state === "completed"
+          : entry.outcome || !ongoing
             ? "muted"
             : "default",
       }))}

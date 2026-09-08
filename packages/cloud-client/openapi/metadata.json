@@ -1,14 +1,13 @@
 {
-  "source": "https://cloud.staging.yourallies.io/api/v1/openapi.json",
-  "retrievedAt": "2026-09-07",
+  "source": "https://github.com/alliesai/allies-cloud",
+  "sourceRevision": "c0f365d9004cbc5174230877092a6fbe1e4aef0d",
+  "sourceDirty": false,
+  "retrievedAt": "2026-09-08",
   "title": "Allies Cloud API",
   "version": "0.1.0",
-  "byteLength": 195258,
-  "sha256": "447427adf34a221efca162dc61664bf181683bad4b23273460b2cad628ffac05",
+  "byteLength": 196481,
+  "sha256": "acd5e6f6dd72ac39479e89f2cce22124785d2b524320418c26175ca44fe5a7a1",
   "generators": {
     "openapi-typescript": "7.13.0"
-  },
-  "sourceCommit": "1be3a1c592e4d55f4e9d72edad0d420ac33c9f01",
-  "retrievedFrom": "Local OpenAPI export of alliesai/allies-cloud; candidate PR #31",
-  "normalization": "Preserved operation IDs for structurally unchanged operations because django-ninja-extra adds random UUID suffixes during export."
+  }
 }

@@ -253,8 +253,8 @@ export const CHAT_FRAME_FIXTURES: Record<ChatFrameId, ChatFrameFixture> = {
   ]),
   "315:3141": base("315:3141", "chat ~ activity dropdown", [
     activity("activity-dropdown", "Searching for citysubs", [
-      { id: "activity-search", text: "Searched the web for citysubs sandwich", tone: "accent" },
-      { id: "activity-visited", text: "Visited https://citysubs.daash.restaurant/", tone: "muted" },
+      { id: "activity-search", text: "Searched the web for citysubs sandwich", tone: "accent", activityKind: "web_search" },
+      { id: "activity-visited", text: "Visited https://citysubs.daash.restaurant/", tone: "muted", activityKind: "browser_navigate" },
     ], true),
   ]),
 };

@@ -2,22 +2,22 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const source = "https://cloud.staging.yourallies.io/api/v1/openapi.json";
+const localFile = process.env.ALLIES_CLOUD_OPENAPI_FILE;
+const sourceRevision = process.env.ALLIES_CLOUD_OPENAPI_REVISION;
+if (localFile && !/^[0-9a-f]{40}$/.test(sourceRevision ?? "")) {
+  throw new Error("A local Cloud schema requires its source commit");
+}
+const source = localFile ? "https://github.com/alliesai/allies-cloud" : "https://cloud.staging.yourallies.io/api/v1/openapi.json";
 const fetchUrl = process.env.ALLIES_CLOUD_OPENAPI_FETCH_URL ?? source;
 const targetDirectory = path.resolve("packages/cloud-client/openapi");
 const schemaPath = path.join(targetDirectory, "allies-cloud-0.1.0.json");
 const metadataPath = path.join(targetDirectory, "metadata.json");
 
-const response = await fetch(fetchUrl, {
-  headers: { accept: "application/json" },
-  redirect: "error",
-});
-
-if (!response.ok) {
-  throw new Error(`Cloud schema request failed with HTTP ${response.status}`);
-}
-
-const bytes = new Uint8Array(await response.arrayBuffer());
+const bytes = localFile ? await readFile(localFile) : await (async () => {
+  const response = await fetch(fetchUrl, { headers: { accept: "application/json" }, redirect: "error" });
+  if (!response.ok) throw new Error(`Cloud schema request failed with HTTP ${response.status}`);
+  return new Uint8Array(await response.arrayBuffer());
+})();
 const schema = JSON.parse(new TextDecoder().decode(bytes)) as {
   info?: { title?: unknown; version?: unknown };
   paths?: unknown;
@@ -54,6 +54,7 @@ await writeFile(
   `${JSON.stringify(
     {
       source,
+      ...(localFile ? { sourceRevision, sourceDirty: process.env.ALLIES_CLOUD_OPENAPI_DIRTY === "true" } : {}),
       retrievedAt: new Date().toISOString().slice(0, 10),
       title: schema.info.title,
       version: schema.info.version,

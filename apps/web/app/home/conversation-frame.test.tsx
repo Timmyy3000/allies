@@ -328,7 +328,7 @@ describe("ConversationFrame", () => {
     expect(screen.getByText(formatConversationDateDivider(messages[0].createdAt), { exact: false })).toBeTruthy();
   });
 
-  it("uses the latest lifecycle entry for completed activity history", () => {
+  it("keeps completed legacy history collapsed and static", () => {
     const completedActivity = {
       ...model,
       activityGroups: [{
@@ -353,8 +353,101 @@ describe("ConversationFrame", () => {
 
     const request = screen.getByText("First request", { selector: "article p" });
     const disclosure = request.closest("article")?.parentElement?.querySelector("details");
-    expect(disclosure?.querySelector("summary")?.textContent).toContain("Search completed");
+    expect(disclosure?.querySelector("summary")?.textContent).toContain("2 activities");
+    expect(disclosure?.open).toBe(false);
+    expect(disclosure?.querySelector(".shiny-text")).toBeNull();
     expect(disclosure?.textContent).toContain("Searching for citysubs");
+  });
+
+  it("shimmers only the active header and collapses its history when the turn finishes", () => {
+    const entry = { ...model.activityGroups[0].entries[0], activityId: "call-a", activityAttemptId: "attempt-a", activityKind: "web_search" };
+    const active: ProductionConversationFrameModel = {
+      ...model, messages: [model.messages[0]], showThinkingState: true, activityState: "running",
+      activityGroups: [{ ...model.activityGroups[0], entries: [entry] }],
+    };
+    const view = render(<ConversationFrame model={active} actions={actions} />);
+    const details = view.container.querySelector("details")!;
+    expect(details.querySelectorAll(".shiny-text")).toHaveLength(1);
+    expect(details.querySelector("summary .shiny-text")?.textContent).toBe(entry.text);
+    expect(details.querySelector('[class*="frameActivityEntries"] .shiny-text')).toBeNull();
+    act(() => { details.open = true; fireEvent(details, new Event("toggle")); });
+    expect(details.open).toBe(true);
+    view.rerender(<ConversationFrame model={{ ...active, showThinkingState: false, activityState: "completed" }} actions={actions} />);
+    const history = view.container.querySelector("details")!;
+    expect(history.open).toBe(false);
+    expect(history.querySelector(".shiny-text")).toBeNull();
+    act(() => { history.open = true; fireEvent(history, new Event("toggle")); });
+    expect(history.open).toBe(true);
+  });
+
+  it("resets the presence disclosure when the current activity group changes", () => {
+    const entry = { ...model.activityGroups[0].entries[0], activityId: "call-a", activityAttemptId: "attempt-a", activityKind: "web_search" };
+    const active: ProductionConversationFrameModel = {
+      ...model,
+      messages: [model.messages[0]],
+      showThinkingState: true,
+      activityState: "running",
+      activityGroups: [{ ...model.activityGroups[0], entries: [entry] }],
+    };
+    const view = render(<ConversationFrame model={active} actions={actions} />);
+    const details = view.container.querySelector("details")!;
+
+    fireEvent.click(details.querySelector("summary")!);
+    expect(details.open).toBe(true);
+
+    view.rerender(<ConversationFrame model={{
+      ...active,
+      activityGroups: [{
+        ...active.activityGroups[0],
+        key: "message-1:2",
+        conversationTurnOrdinal: 2,
+        entries: [{ ...entry, id: "activity-2", conversationTurnOrdinal: 2, text: "Reading a webpage" }],
+      }],
+    }} actions={actions} />);
+
+    expect(view.container.querySelector("details")?.open).toBe(false);
+  });
+
+  it("uses the Ally accent for active activity icons and muted color for terminal rows", () => {
+    const activeEntry = { ...model.activityGroups[0].entries[0], activityId: "call-a", activityAttemptId: "attempt-a", activityKind: "web_search" };
+    const terminalEntry = { ...activeEntry, id: "activity-2", kind: "activity_completed" as const, outcome: "failed" as const, text: "Could not finish searching" };
+    const active: ProductionConversationFrameModel = {
+      ...model,
+      messages: [model.messages[0]],
+      showThinkingState: true,
+      activityState: "running",
+      activityGroups: [{ ...model.activityGroups[0], entries: [activeEntry, terminalEntry] }],
+    };
+
+    const view = render(<ConversationFrame model={active} actions={actions} />);
+    const icons = [...view.container.querySelectorAll('[class*="frameActivityEntries"] svg')];
+
+    expect(icons).toHaveLength(2);
+    expect([...icons[0].querySelectorAll("path")].every((path) => path.getAttribute("fill") === "var(--chat-accent)")).toBe(true);
+    expect([...icons[1].querySelectorAll("path")].every((path) => path.getAttribute("fill") === "var(--text-secondary)")).toBe(true);
+  });
+
+  it("keeps the active status live region mounted while its label changes", () => {
+    const entry = { ...model.activityGroups[0].entries[0], activityId: "call-a", activityAttemptId: "attempt-a", activityKind: "web_search" };
+    const active: ProductionConversationFrameModel = {
+      ...model,
+      messages: [model.messages[0]],
+      showThinkingState: true,
+      activityState: "running",
+      activityGroups: [{ ...model.activityGroups[0], entries: [entry] }],
+    };
+    const view = render(<ConversationFrame model={active} actions={actions} />);
+    const liveRegion = view.container.querySelector('summary > span[role="status"]');
+
+    view.rerender(<ConversationFrame model={{ ...active, activityGroups: [{ ...active.activityGroups[0], entries: [{ ...entry, text: "Reading a webpage" }] }] }} actions={actions} />);
+
+    expect(liveRegion).not.toBeNull();
+    expect(view.container.querySelector('summary > span[role="status"]')).toBe(liveRegion);
+  });
+
+  it("falls back safely for prototype-named activity kinds", () => {
+    const entry = { ...model.activityGroups[0].entries[0], activityKind: "constructor" };
+    expect(() => render(<ConversationFrame model={{ ...model, activityGroups: [{ ...model.activityGroups[0], entries: [entry] }] }} actions={actions} />)).not.toThrow();
   });
 
   it("fits the focused conversation to the visual viewport and follows the latest message", () => {
