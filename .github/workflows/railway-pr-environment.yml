@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: railway-pr-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 # These identifiers intentionally pin this workflow to the Interface web
 # service. Do not reuse it for the mobile app or another Railway project.
@@ -69,6 +69,7 @@ jobs:
           fi
           echo "PR_ENVIRONMENT=pr-${PR_NUMBER}-${slug}" >> "$GITHUB_ENV"
           echo "PR_PREVIEW_DOMAIN=pr-${PR_NUMBER}.preview.yourallies.io" >> "$GITHUB_ENV"
+          echo "PR_SOURCE_BRANCH=railway-preview-pr-${PR_NUMBER}-upload-only" >> "$GITHUB_ENV"
 
       - name: Link the Interface web service
         shell: sh
@@ -105,25 +106,19 @@ jobs:
           set -eu
           if railway environment config --environment "$PR_ENVIRONMENT" --json >/dev/null 2>/tmp/railway-environment-error; then
             echo "Reusing $PR_ENVIRONMENT"
+            # Keep the service attached while preventing GitHub auto-deploys from replacing the PR upload.
+            railway environment edit \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment "$PR_ENVIRONMENT" \
+              --service-config "$RAILWAY_WEB_SERVICE_ID" source.branch "$PR_SOURCE_BRANCH" \
+              --json >/dev/null
           else
             cat /tmp/railway-environment-error >&2
             railway environment new "$PR_ENVIRONMENT" \
               --duplicate "$RAILWAY_BASE_ENVIRONMENT_ID" \
+              --service-config "$RAILWAY_WEB_SERVICE_ID" source.branch "$PR_SOURCE_BRANCH" \
               --json
           fi
-
-      - name: Remove inherited GitHub source
-        shell: sh
-        run: |
-          set -eu
-          # Duplicating staging copies its connected GitHub source and can
-          # auto-deploy staging's commit over the PR upload. PR previews must
-          # be sourced only from the checked-out pull request.
-          railway service source disconnect \
-            --project "$RAILWAY_PROJECT_ID" \
-            --environment "$PR_ENVIRONMENT" \
-            --service "$RAILWAY_WEB_SERVICE_ID" \
-            --json
 
       - name: Configure the custom preview URL
         shell: sh
