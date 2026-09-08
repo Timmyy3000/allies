@@ -205,11 +205,43 @@ jobs:
           set -euo pipefail
           : "${RAILWAY_API_TOKEN:?RAILWAY_TOKEN secret is required}"
           : "${RAILWAY_PROJECT_ID:?RAILWAY_PROJECT_ID variable is required}"
-          npx -y @railway/cli@5.45.3 variables set \
-            "HERMES_IMAGE=$HERMES_IMAGE" \
-            "RUNTIME_IMAGE=$RUNTIME_IMAGE" \
-            --project "$RAILWAY_PROJECT_ID" \
-            --environment "$TARGET_ENVIRONMENT"
+          environment_query=$(jq -cn \
+            --arg project "$RAILWAY_PROJECT_ID" \
+            '{query:"query($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }",variables:{id:$project}}')
+          environment_response=$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data "$environment_query" \
+            https://backboard.railway.com/graphql/v2)
+          if ! environment_id=$(jq -er --arg target "$TARGET_ENVIRONMENT" '
+            if ((.errors // []) | length) > 0 then
+              error((.errors | map(.message) | join("; ")))
+            else
+              .data.project.environments.edges[]
+              | select(.node.name == $target)
+              | .node.id
+            end
+          ' <<< "$environment_response"); then
+            echo "Unable to resolve Railway environment: $TARGET_ENVIRONMENT" >&2
+            exit 1
+          fi
+          variables_mutation=$(jq -cn \
+            --arg project "$RAILWAY_PROJECT_ID" \
+            --arg environment "$environment_id" \
+            --arg hermes "$HERMES_IMAGE" \
+            --arg runtime "$RUNTIME_IMAGE" \
+            '{query:"mutation($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }",variables:{input:{projectId:$project,environmentId:$environment,variables:{HERMES_IMAGE:$hermes,RUNTIME_IMAGE:$runtime}}}}')
+          variables_response=$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer $RAILWAY_API_TOKEN" \
+            --header 'Content-Type: application/json' \
+            --data "$variables_mutation" \
+            https://backboard.railway.com/graphql/v2)
+          if jq -e '((.errors // []) | length) > 0' <<< "$variables_response" >/dev/null; then
+            echo "Railway rejected the shared image variable update:" >&2
+            jq -r '.errors[]?.message' <<< "$variables_response" >&2
+            exit 1
+          fi
+          test "$(jq -er '.data.variableCollectionUpsert' <<< "$variables_response")" = true
           {
             echo
             echo "## Railway"
