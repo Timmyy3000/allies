@@ -434,5 +434,5 @@ function ActivityGroup({ group, ongoing = false }: { group: ProductionConversati
 function activityText(entry: ProductionConversationActivityGroupModel["entries"][number]) {
   if (entry.activityKind !== "terminal") return entry.text;
   if (entry.outcome && entry.outcome !== "completed") return entry.text;
-  return entry.outcome || entry.kind === "activity_completed" ? "Run a command" : "Running a command";
+  return entry.outcome || entry.kind === "activity_completed" ? "Ran a command" : "Running a command";
 }
