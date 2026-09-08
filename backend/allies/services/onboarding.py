@@ -5,6 +5,7 @@ import hmac
 import secrets
 from dataclasses import dataclass
 from datetime import timedelta
+from unicodedata import category
 
 from django.conf import settings
 from django.db import connection, transaction
@@ -33,9 +34,37 @@ class OnboardingStart:
     greeting: str
 
 
-def _required(
-    value: str, *, field: str, max_length: int, preserve_whitespace: bool = False
+def normalize_multiline_field(
+    value: object, *, max_length: int, canonicalize: bool = True
 ) -> str:
+    if not isinstance(value, str):
+        raise ValueError("value is invalid")  # noqa: TRY004
+    if canonicalize:
+        if len(value) > max_length * 2:
+            raise ValueError("value is invalid")
+        value = value.replace("\r\n", "\n")
+    if len(value) > max_length or "\r" in value:
+        raise ValueError("value is invalid")
+    if any(
+        char != "\n" and category(char) in {"Cc", "Cf", "Zl", "Zp"} for char in value
+    ):
+        raise ValueError("value is invalid")
+    return value
+
+
+def _required(
+    value: object,
+    *,
+    field: str,
+    max_length: int,
+    preserve_whitespace: bool = False,
+    multiline: bool = False,
+) -> str:
+    if multiline:
+        try:
+            value = normalize_multiline_field(value, max_length=max_length)
+        except ValueError as exc:
+            raise OnboardingInvalid(f"{field} is invalid") from exc
     if not isinstance(value, str):
         raise OnboardingInvalid(f"{field} is invalid")
     if not value.strip() or len(value) > max_length:
@@ -53,12 +82,13 @@ def normalize_seed(
 ) -> dict[str, str]:
     return {
         "name": _required(name, field="name", max_length=80),
-        "job": _required(job, field="job", max_length=200),
+        "job": _required(job, field="job", max_length=200, multiline=True),
         "personality": _required(
             personality,
             field="personality",
             max_length=4000,
             preserve_whitespace=True,
+            multiline=True,
         ),
         "appearance_catalog_version": _required(
             appearance_catalog_version,

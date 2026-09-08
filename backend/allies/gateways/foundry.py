@@ -9,7 +9,15 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import UUID
 
 from django.conf import settings
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictInt, StrictStr
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictInt,
+    StrictStr,
+    field_validator,
+)
 
 from allies.exceptions import (
     FoundryGatewayConflict,
@@ -21,6 +29,7 @@ from allies.exceptions import (
     ProvisioningRejected,
     ProvisioningRetryable,
 )
+from allies.services.onboarding import normalize_multiline_field
 from common.uuids import canonical_uuid
 
 from .contracts import (
@@ -52,6 +61,16 @@ class ProfileProvisioningRequest(BaseModel):
     personality: StrictStr = Field(
         min_length=1, max_length=4000, pattern=r"^[^\x00\r]*$"
     )
+
+    @field_validator("job", mode="before")
+    @classmethod
+    def _validate_job(cls, value: object) -> str:
+        return normalize_multiline_field(value, max_length=200, canonicalize=False)
+
+    @field_validator("personality", mode="before")
+    @classmethod
+    def _validate_personality(cls, value: object) -> str:
+        return normalize_multiline_field(value, max_length=4000, canonicalize=False)
 
 
 class ProfileProvisioningReceipt(BaseModel):

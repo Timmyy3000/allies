@@ -2,7 +2,9 @@ from typing import Literal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime, ConfigDict, Field
+from pydantic import AwareDatetime, ConfigDict, Field, field_validator
+
+from allies.services.onboarding import normalize_multiline_field
 
 
 class AppearanceInput(Schema):
@@ -19,6 +21,16 @@ class AllySeedInput(Schema):
     job: str = Field(min_length=1, max_length=200)
     personality: str = Field(min_length=1, max_length=4000)
     appearance: AppearanceInput
+
+    @field_validator("job", mode="before")
+    @classmethod
+    def _normalize_job(cls, value: object) -> str:
+        return normalize_multiline_field(value, max_length=200)
+
+    @field_validator("personality", mode="before")
+    @classmethod
+    def _normalize_personality(cls, value: object) -> str:
+        return normalize_multiline_field(value, max_length=4000)
 
 
 class OnboardingAttemptRequest(AllySeedInput):
