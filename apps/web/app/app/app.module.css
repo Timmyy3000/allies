@@ -2,9 +2,9 @@
   min-height: 100dvh;
   display: flex;
   justify-content: center;
-  background: #fff;
-  color: #121212;
-  color-scheme: light;
+  background: var(--canvas);
+  color: var(--text-primary);
+  color-scheme: var(--app-color-scheme);
 }
 
 .artboard {
@@ -74,7 +74,7 @@
   padding: 8px 16px;
   border: 0;
   background: transparent;
-  color: #121212;
+  color: var(--text-primary);
   cursor: pointer;
   font: inherit;
   font-size: 16px;
@@ -83,9 +83,12 @@
 }
 .signInButton:disabled { cursor: progress; opacity: 0.6; }
 .signInError { margin: 0; color: #b42318; text-align: center; font-size: 14px; }
+@media (prefers-color-scheme: dark) {
+  .signInError { color: #ef6a72; }
+}
 .primaryCta:focus-visible,
 .signInButton:focus-visible,
-.statusContent button:focus-visible { outline: 2px solid #121212; outline-offset: 4px; }
+.statusContent button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 4px; }
 .statusPage {
   min-height: 100dvh;
   display: grid;

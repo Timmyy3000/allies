@@ -18,6 +18,7 @@ import {
   activityReplayFailure,
   activitySnapshotBytes,
   HomeWorkspace,
+  hasOnboardingExchange,
   projectConversationActivity,
 } from "./home-workspace";
 
@@ -56,7 +57,7 @@ vi.mock("../../lib/allies/authenticated-onboarding-flow", () => ({
     onCreated,
     children,
   }: {
-    onCreated: (created: AllyViewModel) => void;
+    onCreated: (created: AllyViewModel, handoff: { greeting: string; reply: string }) => void;
     children: React.ReactNode;
   }) => (
     <div>
@@ -73,7 +74,7 @@ vi.mock("../../lib/allies/authenticated-onboarding-flow", () => ({
           appearance: { catalogVersion: "v1", key: "ghosty:fd304f" },
           provisioningState: "bound",
           retryable: false,
-        })}
+        }, { greeting: "Hello Nova", reply: "Help me study" })}
       >
         Finish create
       </button>
@@ -198,7 +199,17 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
   beforeEach(() => stubViewport(desktop));
 
   it("loads the real roster and opens the created Ally through its actual page", async () => {
-    const client = renderHome([ally], null, {}, <HomePage />);
+    const client = renderHome([ally], null, {
+      getAllyConversation: vi.fn(async (_workspaceId: string, selectedId: string) => ({
+        id: "00000000-0000-4000-8000-000000000005",
+        allyId: selectedId,
+        messages: selectedId === "00000000-0000-4000-8000-000000000099" ? [
+          { id: "greeting", sender: "assistant", content: "Hello Nova", sequence: 1, status: "completed", createdAt: "2026-08-20T16:00:00Z" },
+          { id: "reply", sender: "user", content: "Help me study", sequence: 2, status: "queued", createdAt: "2026-08-20T16:00:01Z" },
+        ] : [],
+        nextCursor: null,
+      })),
+    }, <HomePage />);
     expect(screen.queryByTestId("install-invitation")).toBeNull();
     const row = await screen.findByRole("link", { name: /Mira/ });
     expect(screen.getByTestId("install-invitation")).toBeTruthy();
@@ -223,6 +234,7 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     const page = <AllyHomePage />;
     client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout>{page}</HomeLayout></QueryClientProvider>);
     expect(await screen.findByRole("heading", { name: "Nova" })).toBeTruthy();
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Make your Ally" })).toBeNull());
     expect(screen.queryByTestId("install-invitation")).toBeNull();
     await waitFor(() => expect(client.getAllyConversation).toHaveBeenCalledWith(
       account.workspace.id, createdId, expect.objectContaining({ limit: 50 }),
@@ -306,6 +318,16 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
 });
 
 describe("HomeWorkspace", () => {
+  it("requires the exact onboarding greeting and reply before releasing the handoff", () => {
+    const messages = [
+      { id: "greeting", sender: "assistant", sequence: 1, content: "Hello Nova" },
+      { id: "reply", sender: "user", sequence: 2, content: "Help me study" },
+    ] as MessageViewModel[];
+
+    expect(hasOnboardingExchange(messages, "Hello Nova", "Help me study")).toBe(true);
+    expect(hasOnboardingExchange(messages, "Hello Nova", "Different reply")).toBe(false);
+  });
+
   it("counts durable reply bytes with the replay activity payload", () => {
     const reply = {
       id: "00000000-0000-4000-8000-000000000018",
@@ -368,6 +390,8 @@ describe("HomeWorkspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Finish create" }));
     expect(replace).toHaveBeenCalledWith("/home/00000000-0000-4000-8000-000000000099");
+    expect(screen.getByRole("heading", { name: "Opening Nova" })).toBeTruthy();
+    expect(screen.queryByRole("complementary", { name: "Ally sidebar" })).toBeNull();
   });
 
   it("renders a compact real Ally row and its persisted conversation", async () => {

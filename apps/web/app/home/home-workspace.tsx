@@ -88,6 +88,23 @@ const QUEUED_MESSAGE_REMOVAL_ERROR = "We couldn't remove this queued message. Tr
 const MESSAGE_ACCEPTANCE_UNKNOWN_ERROR = "We couldn't confirm your message";
 const BLOCKED_QUEUE_HEAD_ERROR = "Your earlier message still needs confirmation. Retry it before sending another message.";
 
+type AcceptedOnboardingHandoff = {
+  ally: AllyViewModel;
+  userId: string;
+  workspaceId: string;
+  greeting: string;
+  reply: string;
+};
+
+export function hasOnboardingExchange(
+  messages: readonly MessageViewModel[],
+  greeting: string,
+  reply: string,
+): boolean {
+  return messages.some((message) => message.sender === "assistant" && message.sequence === 1 && message.content === greeting)
+    && messages.some((message) => message.sender === "user" && message.sequence === 2 && message.content === reply);
+}
+
 type QueuedMessage = {
   id: string;
   content: string;
@@ -238,15 +255,29 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     })),
     [allies, allyPreviewQueries],
   );
-  const selectedAlly = selectedAllyId
-    ? allies.find((ally) => ally.id === selectedAllyId) ?? null
-    : null;
   const creatingAlly = selectedAllyId === "new";
   const isMobileHome = useIsMobileHome();
   const isDesktopDashboard = !isMobileHome;
   const [createOverlayOpen, setCreateOverlayOpen] = useState(false);
   const [dismissedCreateRoute, setDismissedCreateRoute] = useState(false);
+  const [acceptedHandoff, setAcceptedHandoff] = useState<AcceptedOnboardingHandoff | null>(null);
+  const [handoffReleased, setHandoffReleased] = useState(false);
+  const [handoffRetryAvailable, setHandoffRetryAvailable] = useState(false);
+  const [handoffRetryToken, setHandoffRetryToken] = useState(0);
   const pendingCreatedAllyId = useRef<string | null>(null);
+  const acceptedHandoffRef = useRef<AcceptedOnboardingHandoff | null>(null);
+
+  const activeHandoff = acceptedHandoff
+    && acceptedHandoff.userId === accountQuery.data?.userId
+    && acceptedHandoff.workspaceId === workspaceId
+    ? acceptedHandoff
+    : null;
+  const handoffIdentityChanged = Boolean(acceptedHandoff && !activeHandoff);
+  const selectedAlly = selectedAllyId
+    ? allies.find((ally) => ally.id === selectedAllyId)
+      ?? (activeHandoff?.ally.id === selectedAllyId ? activeHandoff.ally : null)
+    : null;
+  const conversationAlly = selectedAlly ?? activeHandoff?.ally ?? null;
 
   if (!creatingAlly && dismissedCreateRoute) {
     setDismissedCreateRoute(false);
@@ -263,29 +294,77 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   }, []);
 
   const closeCreateOverlay = useCallback(() => {
+    if (acceptedHandoffRef.current && !handoffReleased) return;
     setCreateOverlayOpen(false);
     if (creatingAlly) setDismissedCreateRoute(true);
-  }, [creatingAlly]);
+  }, [creatingAlly, handoffReleased]);
 
   const handleCreated = useCallback(
-    (ally: AllyViewModel) => {
+    (ally: AllyViewModel, handoff: { greeting: string; reply: string }) => {
+      if (acceptedHandoffRef.current) return;
+      const accepted = { ally, userId: accountQuery.data?.userId ?? "", workspaceId, ...handoff };
+      acceptedHandoffRef.current = accepted;
+      setAcceptedHandoff(accepted);
+      setHandoffReleased(false);
+      setHandoffRetryAvailable(false);
       queryClient.setQueryData<AllyViewModel[]>(alliesQueryKey(workspaceId), (current) => {
         if (current?.some((item) => item.id === ally.id)) return current;
         return [...(current ?? []), ally];
       });
       pendingCreatedAllyId.current = ally.id;
       router.replace(`/home/${encodeURIComponent(ally.id)}`);
-      setCreateOverlayOpen(false);
+      setCreateOverlayOpen(true);
     },
-    [queryClient, router, workspaceId],
+    [accountQuery.data?.userId, queryClient, router, workspaceId],
   );
 
   const handleCreateOverlayClosed = useCallback(() => {
+    if (acceptedHandoffRef.current && !handoffReleased) return;
     const createdId = pendingCreatedAllyId.current;
     pendingCreatedAllyId.current = null;
     if (createdId || !creatingAlly) return;
     router.replace("/home");
-  }, [creatingAlly, router]);
+  }, [creatingAlly, handoffReleased, router]);
+
+  const handleHandoffReady = useCallback(() => {
+    if (!acceptedHandoffRef.current) return;
+    setHandoffRetryAvailable(false);
+    setHandoffReleased(true);
+    setCreateOverlayOpen(false);
+  }, []);
+
+  const retryHandoff = useCallback(() => {
+    const accepted = acceptedHandoffRef.current;
+    if (!accepted) return;
+    setHandoffRetryAvailable(false);
+    setHandoffRetryToken((current) => current + 1);
+    router.replace(`/home/${encodeURIComponent(accepted.ally.id)}`);
+  }, [router]);
+
+  const handleHandoffRetryAvailable = useCallback(() => {
+    setHandoffRetryAvailable(true);
+  }, []);
+
+  useEffect(() => {
+    if (!handoffIdentityChanged) return;
+    const task = window.setTimeout(() => {
+      acceptedHandoffRef.current = null;
+      setAcceptedHandoff(null);
+      setHandoffReleased(false);
+      setHandoffRetryAvailable(false);
+    });
+    return () => window.clearTimeout(task);
+  }, [handoffIdentityChanged]);
+
+  useEffect(() => {
+    if (!handoffReleased || !activeHandoff || selectedAllyId !== activeHandoff.ally.id) return;
+    if (!allies.some((ally) => ally.id === activeHandoff.ally.id)) return;
+    const task = window.setTimeout(() => {
+      acceptedHandoffRef.current = null;
+      setAcceptedHandoff(null);
+    });
+    return () => window.clearTimeout(task);
+  }, [activeHandoff, allies, handoffReleased, selectedAllyId]);
   const hasBlockingQueryError = (accountQuery.isError && !accountQuery.data)
     || (alliesQuery.isError && !alliesQuery.data);
   const hasBackgroundQueryError = (accountQuery.isError && Boolean(accountQuery.data))
@@ -333,11 +412,30 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     );
   }
 
-  const invalidSelection = Boolean(selectedAllyId && !creatingAlly && !selectedAlly);
+  const invalidSelection = Boolean(selectedAllyId && !creatingAlly && !conversationAlly);
   const showDesktopDashboard = isDesktopDashboard;
-  const showThread = Boolean(selectedAllyId) || showDesktopDashboard;
+  const showThread = Boolean(selectedAllyId) || showDesktopDashboard || Boolean(activeHandoff);
 
-  const threadBody = creatingAlly || !selectedAllyId ? (
+  const threadBody = conversationAlly ? (
+    <ConversationPane
+      key={conversationAlly.id}
+      userId={accountQuery.data.userId}
+      workspaceId={workspaceId}
+      canApprove={accountQuery.data.workspace.capabilities.includes("profile.write")}
+      ally={conversationAlly}
+      onActivity={() => recordAllyActivity(conversationAlly.id)}
+      stateReady={sleepClock !== null && Boolean(allyPreviews.get(conversationAlly.id)) && !allyPreviews.get(conversationAlly.id)?.isPending}
+      sleeping={isAllySleeping(conversationAlly, allyPreviews.get(conversationAlly.id)?.latestMessage ?? null, sleepClock, recentActivityByAlly[conversationAlly.id])}
+      workspaceRefreshError={hasBackgroundQueryError}
+      onRetryWorkspace={retryWorkspaceQueries}
+      handoffGreeting={activeHandoff?.ally.id === conversationAlly.id ? activeHandoff.greeting : undefined}
+      handoffReply={activeHandoff?.ally.id === conversationAlly.id ? activeHandoff.reply : undefined}
+      handoffRouteReady={selectedAllyId === conversationAlly.id}
+      handoffRetryToken={handoffRetryToken}
+      onHandoffReady={handleHandoffReady}
+      onHandoffRetryAvailable={handleHandoffRetryAvailable}
+    />
+  ) : creatingAlly || !selectedAllyId ? (
     <EmptyThread />
   ) : invalidSelection ? (
     <EmptyThread
@@ -345,22 +443,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
       detail="Choose one of your Allies to keep talking."
       action={<Link className={styles.primaryAction} href="/home">Back to Allies</Link>}
     />
-  ) : selectedAlly ? (
-    <ConversationPane
-      key={selectedAlly.id}
-      userId={accountQuery.data.userId}
-      workspaceId={workspaceId}
-      canApprove={accountQuery.data.workspace.capabilities.includes("profile.write")}
-      ally={selectedAlly}
-      onActivity={() => recordAllyActivity(selectedAlly.id)}
-      stateReady={sleepClock !== null && Boolean(allyPreviews.get(selectedAlly.id)) && !allyPreviews.get(selectedAlly.id)?.isPending}
-      sleeping={isAllySleeping(selectedAlly, allyPreviews.get(selectedAlly.id)?.latestMessage ?? null, sleepClock, recentActivityByAlly[selectedAlly.id])}
-      workspaceRefreshError={hasBackgroundQueryError}
-      onRetryWorkspace={retryWorkspaceQueries}
-    />
-  ) : (
-    <EmptyThread />
-  );
+  ) : <EmptyThread />;
 
   const createOverlay = (
     <OnboardingDrawer
@@ -369,15 +452,25 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
       onClosed={handleCreateOverlayClosed}
     >
       <div className={styles.creationOverlay}>
-        <OnboardingStateProvider initialStep="name">
-          <AuthenticatedAllyFlowProvider
-            workspaceId={workspaceId}
-            onCreated={handleCreated}
-            creationWakeEnabled={creationWakeEnabled}
-          >
-            <Onboarding exitHref="/home" onExit={closeCreateOverlay} />
-          </AuthenticatedAllyFlowProvider>
-        </OnboardingStateProvider>
+        {activeHandoff ? (
+          <main className="onboarding-handoff">
+            <h1>{handoffRetryAvailable ? "Your Ally is still opening" : `Opening ${activeHandoff.ally.name}`}</h1>
+            <p role={handoffRetryAvailable ? "alert" : "status"} aria-live="polite">
+              {handoffRetryAvailable ? "We couldn't confirm the first conversation yet." : "Keeping your first conversation together…"}
+            </p>
+            {handoffRetryAvailable ? <button type="button" onClick={retryHandoff}>Try again</button> : null}
+          </main>
+        ) : (
+          <OnboardingStateProvider initialStep="name">
+            <AuthenticatedAllyFlowProvider
+              workspaceId={workspaceId}
+              onCreated={handleCreated}
+              creationWakeEnabled={creationWakeEnabled}
+            >
+              <Onboarding exitHref="/home" onExit={closeCreateOverlay} />
+            </AuthenticatedAllyFlowProvider>
+          </OnboardingStateProvider>
+        )}
       </div>
     </OnboardingDrawer>
   );
@@ -467,9 +560,11 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     </aside>
   );
 
+  const showRoster = !activeHandoff || (handoffReleased && selectedAllyId === activeHandoff.ally.id);
+
   return (
     <main className={showDesktopDashboard ? styles.homeLayout : styles.exactMobileHost} data-testid={showDesktopDashboard ? "dashboard-ui-push" : "mobile-home-roster"}>
-      {sidebar}
+      {showRoster ? sidebar : null}
       {showThread ? (
         <section className={styles.exactThread} aria-label="Selected Ally conversation">
           {threadBody}
@@ -616,6 +711,12 @@ function ConversationPane({
   onActivity,
   workspaceRefreshError,
   onRetryWorkspace,
+  handoffGreeting,
+  handoffReply,
+  handoffRouteReady,
+  handoffRetryToken,
+  onHandoffReady,
+  onHandoffRetryAvailable,
 }: {
   userId: string;
   workspaceId: string;
@@ -626,6 +727,12 @@ function ConversationPane({
   stateReady: boolean;
   workspaceRefreshError: boolean;
   onRetryWorkspace: () => void;
+  handoffGreeting?: string;
+  handoffReply?: string;
+  handoffRouteReady?: boolean;
+  handoffRetryToken?: number;
+  onHandoffReady?: () => void;
+  onHandoffRetryAvailable?: () => void;
 }) {
   const session = useSession();
   const approvalClient = useMemo<ApprovalClient>(() => ({
@@ -967,6 +1074,57 @@ function ConversationPane({
   }, [applyConversationAccessFailure, conversationQuery.error, conversationQuery.isError, queryAccessFailure]);
 
   const messages = allConversationMessages.filter((message) => !message.deletedAt);
+  const handoffReadyRef = useRef(false);
+  const handoffRefreshRef = useRef<{ attempts: number; timer: number | null }>({ attempts: 0, timer: null });
+  const handoffMatches = Boolean(
+    handoffGreeting
+      && handoffReply
+      && handoffRouteReady
+      && hasOnboardingExchange(messages, handoffGreeting, handoffReply),
+  );
+
+  useEffect(() => {
+    if (!handoffGreeting || !handoffReply || !handoffMatches || handoffReadyRef.current) return;
+    handoffReadyRef.current = true;
+    if (handoffRefreshRef.current.timer !== null) window.clearTimeout(handoffRefreshRef.current.timer);
+    onHandoffReady?.();
+  }, [handoffGreeting, handoffMatches, handoffReply, onHandoffReady]);
+
+  useEffect(() => {
+    if (!handoffGreeting || !handoffReply) return;
+    handoffReadyRef.current = false;
+    const state = handoffRefreshRef.current;
+    state.attempts = 0;
+    if (state.timer !== null) window.clearTimeout(state.timer);
+    let cancelled = false;
+    const schedule = () => {
+      if (cancelled || handoffReadyRef.current) return;
+      if (state.attempts >= 3) {
+        onHandoffRetryAvailable?.();
+        return;
+      }
+      state.timer = window.setTimeout(async () => {
+        state.timer = null;
+        if (cancelled || handoffReadyRef.current) return;
+        state.attempts += 1;
+        await conversationQuery.refetch().catch(() => undefined);
+        schedule();
+      }, 2_000);
+    };
+    schedule();
+    return () => {
+      cancelled = true;
+      if (state.timer !== null) window.clearTimeout(state.timer);
+      state.timer = null;
+    };
+  }, [conversationQuery.refetch, handoffGreeting, handoffReply, handoffRetryToken, onHandoffRetryAvailable]);
+
+  useEffect(() => {
+    if (handoffGreeting && handoffReply && conversationQuery.isError && !conversationQuery.data) {
+      onHandoffRetryAvailable?.();
+    }
+  }, [conversationQuery.data, conversationQuery.isError, handoffGreeting, handoffReply, onHandoffRetryAvailable]);
+
   const assistantReplies = conversation
     ? mergeAssistantReplies(
       conversation.assistantReplies ?? [],

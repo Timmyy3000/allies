@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 import { OnboardingHandoffScreen } from "../../lib/allies/onboarding-handoff-screen";
+import { isStandalonePwa } from "../../lib/pwa/pwa-install";
 import { googleSignInErrorMessage } from "../../lib/session/sign-in-errors";
 import { useSession } from "../../lib/session/session-context";
 import {
@@ -26,6 +27,7 @@ export function AppPageClient() {
   const searchParams = useSearchParams();
   const session = useSession();
   const sessionStatus = session.state.status;
+  const logoutUnconfirmed = searchParams.get("signout") === "unconfirmed";
   const restoreSession = session.restore;
   const restoreStarted = useRef(false);
   const homeRedirectStarted = useRef(false);
@@ -45,10 +47,10 @@ export function AppPageClient() {
     storedResume !== null && sessionStatus === "signed-in" && !resumeRequested;
 
   useEffect(() => {
-    if (restoreStarted.current || sessionStatus !== "unknown") return;
+    if (logoutUnconfirmed || restoreStarted.current || sessionStatus !== "unknown") return;
     restoreStarted.current = true;
     void restoreSession().catch(() => setRestoreFailed(true));
-  }, [restoreSession, sessionStatus]);
+  }, [logoutUnconfirmed, restoreSession, sessionStatus]);
 
   useEffect(() => {
     if (!sendSignedInHome || homeRedirectStarted.current) return;
@@ -81,6 +83,10 @@ export function AppPageClient() {
     }
   };
 
+  if (logoutUnconfirmed) {
+    return <LogoutRecovery session={session} />;
+  }
+
   if (restoreFailed || sessionStatus === "unavailable") {
     return (
       <AppStatus
@@ -109,6 +115,30 @@ export function AppPageClient() {
   }
 
   return <AppStatus message="Checking your secure session…" />;
+}
+
+function LogoutRecovery({ session }: { session: ReturnType<typeof useSession> }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const retry = async () => {
+    setBusy(true);
+    try {
+      const result = await session.logout();
+      if (result.serverConfirmed) router.replace(isStandalonePwa() ? "/app" : "/");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <main className="onboarding-handoff">
+      <h1>Let’s finish signing you out</h1>
+      <p role="alert">We couldn’t confirm sign-out with the server. Your account may still be signed in on this browser.</p>
+      <button type="button" disabled={busy} onClick={() => void retry().catch(() => undefined)}>
+        {busy ? "Signing out…" : "Retry sign out"}
+      </button>
+    </main>
+  );
 }
 
 function AppStatus({
