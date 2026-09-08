@@ -33,6 +33,7 @@ class FakeResponse:
     def __init__(self, body=b"", lines=(), status=200):
         self.body = body
         self.lines = tuple(lines)
+        self._rows = iter(self.lines)
         self.status = status
         self.closed = False
 
@@ -41,6 +42,9 @@ class FakeResponse:
 
     def __iter__(self):
         return iter(self.lines)
+
+    def readline(self, _limit):
+        return next(self._rows, b"")
 
     def close(self):
         self.closed = True
@@ -227,6 +231,8 @@ async def test_profile_session_history_rejects_peer_marker(monkeypatch):
         "the blue orchard is east",
     )
     assert response.closed
+
+
 @pytest.mark.asyncio
 async def test_profile_session_create_uses_selected_profile_credential(monkeypatch):
     response = FakeResponse(
@@ -580,13 +586,15 @@ async def test_incremental_profile_stream_terminal_close_is_success(
 
 
 @pytest.mark.asyncio
-async def test_incremental_profile_stream_passes_overall_deadline_to_adapter(monkeypatch):
+async def test_incremental_profile_stream_passes_overall_deadline_to_adapter(
+    monkeypatch,
+):
     class Response:
         def __init__(self):
             self.closed = False
 
         def readline(self, _limit):
-            time.sleep(0.05)
+            time.sleep(0.2)
             return b": keepalive\n"
 
         def close(self):
@@ -600,7 +608,7 @@ async def test_incremental_profile_stream_passes_overall_deadline_to_adapter(mon
         load_settings(
             {
                 "HERMES_CREDENTIAL_REF": "ref://bootstrap",
-                "HERMES_STREAM_TIMEOUT": "0.01",
+                "HERMES_STREAM_TIMEOUT": "0.1",
             }
         ),
         lambda ref: "bootstrap-key",
@@ -633,10 +641,10 @@ async def test_incremental_stream_normalizes_safe_events_and_terminal_rotation()
                     b'data: {"session_id":"s1","run_id":"r1","tool_name":"_thinking","delta":"private reasoning"}\n',
                     b"\n",
                     b"event: tool.started\n",
-                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"terminal","args":{"secret":"drop"}}\n',
+                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"terminal","tool_call_id":"call-terminal","args":{"secret":"drop"}}\n',
                     b"\n",
                     b"event: tool.completed\n",
-                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"terminal","preview":"drop"}\n',
+                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"terminal","tool_call_id":"call-terminal","is_error":false,"duration_ms":125,"preview":"drop"}\n',
                     b"\n",
                     b"event: assistant.completed\n",
                     b'data: {"session_id":"s2","run_id":"r1","content":"drop"}\n',
@@ -669,11 +677,215 @@ async def test_incremental_stream_normalizes_safe_events_and_terminal_rotation()
     assert events[0].payload == {"text": "hello"}
     assert events[1].payload == {
         "activity_id": events[2].payload["activity_id"],
-        "kind": "tool",
+        "activity_kind": "terminal",
     }
-    assert events[2].payload["status"] == "completed"
+    assert events[2].payload == {
+        "activity_id": events[1].payload["activity_id"],
+        "activity_kind": "terminal",
+        "status": "completed",
+        "duration_ms": 125,
+    }
     assert events[3].session_id == "s2"
     assert events[3].payload == {"run_id": "r1", "status": "completed"}
+
+
+def _running_activity_stream():
+    stream = _IncrementalHTTPStream(object(), "ally-a", "s1")
+    stream._normalize_event("run.started", {"session_id": "s1", "run_id": "r1"})
+    return stream
+
+
+def test_legacy_completion_cannot_close_a_different_tool():
+    stream = _running_activity_stream()
+    base = {"session_id": "s1", "run_id": "r1"}
+    stream._normalize_event("tool.started", {**base, "tool_name": "terminal"})
+    with pytest.raises(HermesMalformedResponse):
+        stream._normalize_event("tool.completed", {**base, "tool_name": "read_file"})
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"tool_call_id": "bad/id"},
+        {"activity_kind": "terminal"},
+        {"tool_name": "bad\nname"},
+    ],
+)
+def test_activity_start_rejects_invalid_identity_and_hybrid_legacy(fields):
+    stream = _running_activity_stream()
+    with pytest.raises(HermesMalformedResponse):
+        stream._normalize_event(
+            "tool.started",
+            {"session_id": "s1", "run_id": "r1", "tool_name": "terminal", **fields},
+        )
+
+
+def test_legacy_completion_rejects_rich_outcome_without_call_identity():
+    stream = _running_activity_stream()
+    payload = {"session_id": "s1", "run_id": "r1", "tool_name": "terminal"}
+    stream._normalize_event("tool.started", payload)
+    with pytest.raises(HermesMalformedResponse):
+        stream._normalize_event("tool.completed", {**payload, "is_error": False})
+
+
+def test_rich_completion_requires_outcome_and_call_identity_cannot_be_reused():
+    stream = _running_activity_stream()
+    payload = {
+        "session_id": "s1",
+        "run_id": "r1",
+        "tool_name": "terminal",
+        "tool_call_id": "call-a",
+    }
+    stream._normalize_event("tool.started", payload)
+    with pytest.raises(HermesMalformedResponse):
+        stream._normalize_event("tool.completed", payload)
+    stream._normalize_event("tool.completed", {**payload, "is_error": False})
+    with pytest.raises(HermesMalformedResponse):
+        stream._normalize_event("tool.started", payload)
+
+
+def test_correlated_activity_completion_is_id_based_and_preserves_out_of_order_results():
+    stream = _running_activity_stream()
+    started_a = stream._normalize_event(
+        "tool.started",
+        {
+            "session_id": "s1",
+            "run_id": "r1",
+            "tool_name": "terminal",
+            "tool_call_id": "call-a",
+        },
+    )
+    started_b = stream._normalize_event(
+        "tool.started",
+        {
+            "session_id": "s1",
+            "run_id": "r1",
+            "tool_name": "terminal",
+            "tool_call_id": "call-b",
+        },
+    )
+
+    completed_b = stream._normalize_event(
+        "tool.completed",
+        {
+            "session_id": "s1",
+            "run_id": "r1",
+            "tool_name": "terminal",
+            "tool_call_id": "call-b",
+            "is_error": True,
+            "duration_ms": 25,
+        },
+    )
+    completed_a = stream._normalize_event(
+        "tool.completed",
+        {
+            "session_id": "s1",
+            "run_id": "r1",
+            "tool_name": "terminal",
+            "tool_call_id": "call-a",
+            "is_error": False,
+            "duration_ms": 125,
+        },
+    )
+
+    assert started_a is not None and started_b is not None
+    assert completed_a is not None and completed_b is not None
+    assert started_a.payload["activity_id"] != started_b.payload["activity_id"]
+    assert completed_b.payload == {
+        "activity_id": started_b.payload["activity_id"],
+        "activity_kind": "terminal",
+        "status": "failed",
+        "duration_ms": 25,
+    }
+    assert completed_a.payload == {
+        "activity_id": started_a.payload["activity_id"],
+        "activity_kind": "terminal",
+        "status": "completed",
+        "duration_ms": 125,
+    }
+    assert stream._active_activity_calls == {}
+
+
+def test_activity_kind_normalization_is_allowlisted_and_legacy_shape_stays_exact():
+    stream = _running_activity_stream()
+    browser = stream._normalize_event(
+        "tool.started",
+        {
+            "session_id": "s1",
+            "run_id": "r1",
+            "tool_name": "browser_click",
+            "tool_call_id": "call-browser",
+        },
+    )
+    unknown = stream._normalize_event(
+        "tool.started",
+        {
+            "session_id": "s1",
+            "run_id": "r1",
+            "tool_name": "private_custom_tool",
+            "tool_call_id": "call-private",
+        },
+    )
+    assert (
+        browser is not None and browser.payload["activity_kind"] == "browser_interact"
+    )
+    assert unknown is not None and unknown.payload["activity_kind"] == "unknown"
+
+    legacy = _running_activity_stream()
+    assert legacy._normalize_event(
+        "tool.started",
+        {
+            "session_id": "s1",
+            "run_id": "r1",
+            "tool_name": "terminal",
+            "preview": "private detail",
+            "args": {"secret": "drop"},
+        },
+    ).payload == {"kind": "tool"}
+    assert legacy._normalize_event(
+        "tool.completed",
+        {
+            "session_id": "s1",
+            "run_id": "r1",
+            "tool_name": "terminal",
+            "preview": "private detail",
+        },
+    ).payload == {"status": "completed"}
+
+
+@pytest.mark.parametrize(
+    "completion_patch",
+    [
+        {"tool_call_id": "stale"},
+        {"tool_call_id": "call-1", "is_error": "false"},
+        {"tool_call_id": "call-1", "duration_ms": True},
+        {"tool_call_id": "call-1", "duration_ms": 0.5},
+        {"tool_call_id": "call-1", "duration_ms": -1},
+        {"tool_call_id": "call-1", "duration_ms": 86_400_001},
+    ],
+)
+def test_correlated_activity_completion_rejects_stale_or_invalid_fields(
+    completion_patch,
+):
+    stream = _running_activity_stream()
+    stream._normalize_event(
+        "tool.started",
+        {
+            "session_id": "s1",
+            "run_id": "r1",
+            "tool_name": "terminal",
+            "tool_call_id": "call-1",
+        },
+    )
+    payload = {
+        "session_id": "s1",
+        "run_id": "r1",
+        "tool_name": "terminal",
+        "is_error": False,
+    }
+    payload.update(completion_patch)
+    with pytest.raises(HermesMalformedResponse):
+        stream._normalize_event("tool.completed", payload)
 
 
 @pytest.mark.asyncio
@@ -691,13 +903,13 @@ async def test_incremental_stream_accepts_terminal_after_more_than_512_raw_event
             rows.extend(
                 [
                     b"event: tool.started\n",
-                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"calendar"}\n',
+                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"calendar","tool_call_id":"call-calendar"}\n',
                     b"\n",
                     b"event: tool.progress\n",
                     b'data: {"session_id":"s1","run_id":"r1","tool_name":"calendar","delta":"private"}\n',
                     b"\n",
                     b"event: tool.completed\n",
-                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"calendar"}\n',
+                    b'data: {"session_id":"s1","run_id":"r1","tool_name":"calendar","tool_call_id":"call-calendar","is_error":false}\n',
                     b"\n",
                 ]
             )
@@ -733,7 +945,9 @@ async def test_incremental_stream_accepts_terminal_after_more_than_512_raw_event
         def close(self):
             self.closed = True
 
-    events = [event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")]
+    events = [
+        event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")
+    ]
 
     assert len(events) == 513
     assert sum(event.name == "message.delta" for event in events) == 510
@@ -757,9 +971,7 @@ async def test_incremental_stream_enforces_overall_deadline_for_keepalives():
             self.closed = True
 
     response = Response()
-    stream = _IncrementalHTTPStream(
-        response, "ally-a", "s1", stream_timeout=0.01
-    )
+    stream = _IncrementalHTTPStream(response, "ally-a", "s1", stream_timeout=0.01)
 
     with pytest.raises(HermesTimeout, match="stream timed out"):
         await stream.__anext__()
@@ -782,9 +994,7 @@ async def test_incremental_stream_rejects_invalid_or_expired_overall_deadlines()
             self.closed = True
 
     response = Response()
-    stream = _IncrementalHTTPStream(
-        response, "ally-a", "s1", stream_timeout=1
-    )
+    stream = _IncrementalHTTPStream(response, "ally-a", "s1", stream_timeout=1)
     stream.deadline = time.monotonic() - 1
 
     with pytest.raises(HermesTimeout, match="stream timed out"):
@@ -797,10 +1007,8 @@ def test_incremental_stream_rejects_invalid_tool_progress():
     stream = _IncrementalHTTPStream(object(), "ally-a", "s1")
     stream._normalize_event("run.started", {"session_id": "s1", "run_id": "r1"})
 
-    with pytest.raises(HermesMalformedResponse, match="tool progress"):
-        stream._normalize_event(
-            "tool.progress", {"session_id": "s1", "run_id": "r1"}
-        )
+    with pytest.raises(HermesMalformedResponse, match="tool name"):
+        stream._normalize_event("tool.progress", {"session_id": "s1", "run_id": "r1"})
 
 
 @pytest.mark.asyncio
@@ -830,7 +1038,9 @@ async def test_incremental_stream_uses_final_content_when_provider_emits_no_delt
         def close(self):
             return None
 
-    events = [event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")]
+    events = [
+        event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")
+    ]
 
     assert [event.name for event in events] == [
         "message.delta",
@@ -868,7 +1078,9 @@ async def test_incremental_stream_accepts_empty_inline_transcript_after_completi
         def close(self):
             return None
 
-    events = [event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")]
+    events = [
+        event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")
+    ]
 
     assert [event.name for event in events] == [
         "message.delta",
@@ -1023,20 +1235,27 @@ def test_incremental_state_machine_rejects_each_invalid_transition():
         current._normalize_event(
             "assistant.delta", {"session_id": "s1", "run_id": "r1", "delta": ""}
         )
-    with pytest.raises(HermesMalformedResponse, match="tool start"):
+    with pytest.raises(HermesMalformedResponse, match="tool name"):
         current._normalize_event("tool.started", {"session_id": "s1", "run_id": "r1"})
     with pytest.raises(HermesMalformedResponse, match="out of order"):
         current._normalize_event(
             "tool.completed",
             {"session_id": "s1", "run_id": "r1", "tool_name": "terminal"},
         )
-    current.active_activities.append(("terminal", "activity-1"))
+    current._active_activity_calls["call-1"] = (
+        "activity-" + "1" * 32,
+        "terminal",
+    )
     with pytest.raises(HermesMalformedResponse, match="run completion"):
         current._normalize_event(
             "run.completed",
-            {"session_id": "s1", "run_id": "r1", "completed": True},
+            {
+                "session_id": "s1",
+                "run_id": "r1",
+                "completed": True,
+            },
         )
-    current.active_activities.clear()
+    current._active_activity_calls.clear()
     with pytest.raises(HermesMalformedResponse, match="omitted its transcript"):
         current._normalize_event(
             "run.completed",
@@ -1087,7 +1306,7 @@ async def test_stream_is_profile_scoped_and_parses_events(monkeypatch):
         b'data: {"session_id":"s1","run_id":"r1","seq":1}\n',
         b"\n",
         b"event: run.completed\n",
-        b'data: {"session_id":"s1","run_id":"r1","seq":2}\n',
+        b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[{"role":"assistant","content":"hello"}]}\n',
         b"\n",
         b"data: [DONE]\n\n",
     ]
@@ -1095,7 +1314,8 @@ async def test_stream_is_profile_scoped_and_parses_events(monkeypatch):
     client, calls = _client(monkeypatch, response)
     result = await client.stream_profile("ally-a", "s1", "hello")
     assert result.profile_id == "ally-a"
-    assert [event.sequence for event in result.events] == [1, 2]
+    assert [event.sequence for event in result.events] == [1]
+    assert result.events[0].name == "execution.completed"
     assert "/p/ally-a/api/sessions/s1/chat/stream" in calls[0][0]
     assert json.loads(calls[0][3]) == {"message": "hello"}
 

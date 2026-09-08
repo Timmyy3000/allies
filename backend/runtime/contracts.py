@@ -30,6 +30,36 @@ MAX_CONTRACT_LIFETIME_SECONDS = 60
 MAX_RUNTIME_EVENT_SEQUENCE = 100000
 MAX_TERMINAL_SEQUENCE = 100001
 
+ACTIVITY_KINDS = frozenset(
+    {
+        "web_search",
+        "web_extract",
+        "browser_navigate",
+        "browser_interact",
+        "search_files",
+        "read_file",
+        "write_file",
+        "patch",
+        "terminal",
+        "execute_code",
+        "image_generate",
+        "video_generate",
+        "text_to_speech",
+        "vision_analyze",
+        "session_search",
+        "memory_remember",
+        "memory_recall",
+        "memory",
+        "skills_list",
+        "skill_view",
+        "skill_manage",
+        "todo",
+        "cronjob",
+        "delegate_task",
+        "unknown",
+    }
+)
+
 _FINGERPRINT_RE = f"^{FINGERPRINT_PREFIX}[0-9a-f]{{64}}$"
 
 
@@ -207,9 +237,7 @@ def validate_command(command: ExecutionCommand) -> ExecutionCommand:
             raise RuntimeValidationError(
                 "bootstrap is invalid before the second conversation turn"
             )
-        _validate_utf8_size(
-            bootstrap.text, MAX_COMMAND_TEXT_BYTES, "bootstrap text"
-        )
+        _validate_utf8_size(bootstrap.text, MAX_COMMAND_TEXT_BYTES, "bootstrap text")
     return command
 
 
@@ -349,11 +377,9 @@ def _validate_event_payload(event_type: str, payload: Mapping[str, Any]) -> None
             raise RuntimeValidationError("message event payload is invalid")
         _validate_utf8_size(text, MAX_EVENT_TEXT_BYTES, "event text")
     elif event_type == "activity.started":
-        if payload != {"kind": "tool"}:
-            raise RuntimeValidationError("activity start payload is invalid")
+        _validate_activity_payload(payload, completed=False)
     elif event_type == "activity.completed":
-        if payload != {"status": "completed"}:
-            raise RuntimeValidationError("activity completion payload is invalid")
+        _validate_activity_payload(payload, completed=True)
     elif event_type == "execution.completed":
         if payload != {"status": "completed"}:
             raise RuntimeValidationError("completion event payload is invalid")
@@ -377,9 +403,9 @@ def _wire_event_payload(event_type: str, payload: Mapping[str, Any]) -> dict[str
             raise RuntimeValidationError("message event payload is invalid")
         return {"kind": "assistant_delta", "text": unicodedata.normalize("NFC", text)}
     if event_type == "activity.started":
-        return {"kind": "tool"}
+        return _activity_wire_payload(payload, completed=False)
     if event_type == "activity.completed":
-        return {"status": "completed"}
+        return _activity_wire_payload(payload, completed=True)
     if event_type == "execution.completed":
         return {"status": "completed"}
     if event_type == "execution.failed":
@@ -407,6 +433,66 @@ def _safe_code(value: Any) -> bool:
     )
 
 
+def _validate_activity_payload(payload: Mapping[str, Any], *, completed: bool) -> None:
+    """Validate the exact legacy-or-rich activity payload union."""
+
+    legacy = {"status": "completed"} if completed else {"kind": "tool"}
+    if payload == legacy:
+        return
+    required = {"activity_id", "activity_kind"}
+    if completed:
+        required.add("status")
+    allowed = required | ({"duration_ms"} if completed else set())
+    if not required <= set(payload) <= allowed:
+        raise RuntimeValidationError(
+            "activity completion payload is invalid"
+            if completed
+            else "activity start payload is invalid"
+        )
+    activity_id = payload.get("activity_id")
+    activity_kind = payload.get("activity_kind")
+    if (
+        not isinstance(activity_id, str)
+        or re.fullmatch(r"activity-[0-9a-f]{32}", activity_id) is None
+        or not isinstance(activity_kind, str)
+        or activity_kind not in ACTIVITY_KINDS
+    ):
+        raise RuntimeValidationError("activity identity or kind is invalid")
+    if completed and payload.get("status") not in {
+        "completed",
+        "failed",
+        "stopped",
+    }:
+        raise RuntimeValidationError("activity outcome is invalid")
+    if "duration_ms" in payload and (
+        type(payload["duration_ms"]) is not int
+        or not 0 <= payload["duration_ms"] <= 86_400_000
+    ):
+        raise RuntimeValidationError("activity duration is invalid")
+
+
+def _activity_wire_payload(
+    payload: Mapping[str, Any], *, completed: bool
+) -> dict[str, Any]:
+    legacy = {"status": "completed"} if completed else {"kind": "tool"}
+    if (
+        set(payload) == {"activity_id", *legacy}
+        and isinstance(payload["activity_id"], str)
+        and 0 < len(payload["activity_id"]) <= 128
+        and all(payload[key] == value for key, value in legacy.items())
+    ):
+        return legacy
+    _validate_activity_payload(payload, completed=completed)
+    if payload == ({"status": "completed"} if completed else {"kind": "tool"}):
+        return dict(payload)
+    fields = ["activity_id", "activity_kind"]
+    if completed:
+        fields.append("status")
+        if "duration_ms" in payload:
+            fields.append("duration_ms")
+    return {field: payload[field] for field in fields}
+
+
 def _normalize_json(value: Any) -> Any:
     if isinstance(value, str):
         return unicodedata.normalize("NFC", value)
@@ -428,6 +514,7 @@ def _normalize_json(value: Any) -> Any:
 
 
 __all__ = [
+    "ACTIVITY_KINDS",
     "COMMAND_KIND",
     "CONTRACT_VERSION",
     "EVENT_KIND",

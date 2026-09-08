@@ -1,0 +1,96 @@
+diff --git a/agent/codex_runtime.py b/agent/codex_runtime.py
+index c01084c..81c5096 100644
+--- a/agent/codex_runtime.py
++++ b/agent/codex_runtime.py
+@@ -489,7 +489,8 @@ def make_codex_app_server_event_bridge(agent) -> Callable[[dict], None]:
+         cb = getattr(agent, "tool_progress_callback", None)
+         if cb is not None:
+             try:
+-                cb("tool.started", name, _codex_item_to_preview(item), args)
++                cb("tool.started", name, _codex_item_to_preview(item), args,
++                   tool_call_id=_stable_call_id(item, name))
+             except Exception:
+                 logger.debug(
+                     "tool_progress_callback raised on tool.started for %s",
+@@ -527,6 +528,7 @@ def make_codex_app_server_event_bridge(agent) -> Callable[[dict], None]:
+         if cb is not None:
+             try:
+                 cb("tool.completed", name, None, None,
++                   tool_call_id=_stable_call_id(item, name),
+                    duration=duration, is_error=is_error, result=result)
+             except Exception:
+                 logger.debug(
+diff --git a/agent/tool_executor.py b/agent/tool_executor.py
+index e1a3f30..37a5345 100644
+--- a/agent/tool_executor.py
++++ b/agent/tool_executor.py
+@@ -628,7 +628,8 @@ def _begin_tool_execution(
+             )
+             preview = _build_tool_preview(function_name, display_args)
+             agent.tool_progress_callback(
+-                "tool.started", function_name, preview, display_args
++                "tool.started", function_name, preview, display_args,
++                tool_call_id=tool_call_id,
+             )
+         except Exception as callback_error:
+             logging.debug("Tool progress callback error: %s", callback_error)
+@@ -1333,6 +1334,7 @@ def execute_tool_calls_concurrent(agent, assistant_message, messages: list, effe
+             try:
+                 agent.tool_progress_callback(
+                     "tool.completed", progress_function_name, None, None,
++                    tool_call_id=tc.id,
+                     duration=tool_duration, is_error=is_error,
+                     result=display_function_result,
+                 )
+@@ -2057,6 +2059,7 @@ def execute_tool_calls_sequential(agent, assistant_message, messages: list, effe
+             try:
+                 agent.tool_progress_callback(
+                     "tool.completed", function_name, None, None,
++                    tool_call_id=tool_call.id,
+                     duration=tool_duration, is_error=_is_error_result,
+                     result=display_function_result,
+                 )
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index a756134..0a651c0 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -3732,10 +3732,35 @@ class APIServerAdapter(BasePlatformAdapter):
+ 
+         def _tool_progress(event_type: str, tool_name: str = None, preview: str = None, args=None, **kwargs) -> None:
+             if event_type == "reasoning.available":
+-                _enqueue("tool.progress", {"message_id": message_id, "tool_name": tool_name or "_thinking", "delta": preview or ""})
+-            elif event_type in {"tool.started", "tool.completed", "tool.failed"}:
+-                event_name = event_type.replace("tool.", "tool.")
+-                _enqueue(event_name, {"message_id": message_id, "tool_name": tool_name, "preview": preview, "args": args})
++                # Reasoning text is private provider detail.  Keep the
++                # progress marker but never put its text on the wire.
++                _enqueue("tool.progress", {"message_id": message_id, "tool_name": tool_name or "_thinking"})
++                return
++            if event_type not in {"tool.started", "tool.completed"}:
++                return
++            if not isinstance(tool_name, str) or not tool_name:
++                return
++            tool_call_id = kwargs.get("tool_call_id")
++            if not isinstance(tool_call_id, str) or not tool_call_id:
++                return
++            payload = {
++                "message_id": message_id,
++                "tool_name": tool_name,
++                "tool_call_id": tool_call_id,
++            }
++            if event_type == "tool.completed":
++                is_error = kwargs.get("is_error")
++                if type(is_error) is not bool:
++                    return
++                payload["is_error"] = is_error
++                duration = kwargs.get("duration")
++                if (
++                    isinstance(duration, (int, float))
++                    and not isinstance(duration, bool)
++                    and 0 <= duration <= 86_400
++                ):
++                    payload["duration_ms"] = int(round(duration * 1000))
++            _enqueue(event_type, payload)
+ 
+         async def _run_and_signal() -> None:
+             try:

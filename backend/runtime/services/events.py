@@ -6,7 +6,11 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from runtime.contracts import MAX_RUNTIME_EVENT_SEQUENCE, MAX_TERMINAL_SEQUENCE
+from runtime.contracts import (
+    MAX_RUNTIME_EVENT_SEQUENCE,
+    MAX_TERMINAL_SEQUENCE,
+    _activity_wire_payload,
+)
 from runtime.exceptions import (
     RuntimeAuthorizationError,
     RuntimeConflictError,
@@ -188,27 +192,23 @@ def _runtime_event_payload(event_type: str, payload: dict) -> dict:
             raise RuntimeValidationError("message event payload is too large")
         return {"text": text}
     if event_type == "activity.started":
-        activity_id = payload.get("activity_id")
         if (
-            set(payload) != {"activity_id", "kind"}
-            or not isinstance(activity_id, str)
-            or not activity_id
-            or len(activity_id) > 128
-            or payload.get("kind") != "tool"
+            set(payload) == {"activity_id", "kind"}
+            and isinstance(payload.get("activity_id"), str)
+            and 0 < len(payload["activity_id"]) <= 128
+            and payload.get("kind") == "tool"
         ):
-            raise RuntimeValidationError("activity start payload is invalid")
-        return {"activity_id": activity_id, "kind": "tool"}
+            return dict(payload)
+        return _activity_wire_payload(payload, completed=False)
     if event_type == "activity.completed":
-        activity_id = payload.get("activity_id")
         if (
-            set(payload) != {"activity_id", "status"}
-            or not isinstance(activity_id, str)
-            or not activity_id
-            or len(activity_id) > 128
-            or payload.get("status") != "completed"
+            set(payload) == {"activity_id", "status"}
+            and isinstance(payload.get("activity_id"), str)
+            and 0 < len(payload["activity_id"]) <= 128
+            and payload.get("status") == "completed"
         ):
-            raise RuntimeValidationError("activity completion payload is invalid")
-        return {"activity_id": activity_id, "status": "completed"}
+            return dict(payload)
+        return _activity_wire_payload(payload, completed=True)
     raise RuntimeValidationError("event type is not allowed for append")
 
 

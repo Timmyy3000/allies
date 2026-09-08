@@ -76,6 +76,13 @@ jobs:
             --volume "$PWD/runtime/hermes-image/smoke_bootstrap_endpoint.py:/tmp/smoke-bootstrap.py:ro" \
             allies/hermes-mnemosyne:ci \
             /tmp/smoke-bootstrap.py
+      - name: Exercise correlated activity SSE
+        run: |
+          docker run --rm \
+            --entrypoint /opt/hermes/.venv/bin/python \
+            --volume "$PWD/runtime/hermes-image/smoke_activity_stream.py:/tmp/smoke-activity.py:ro" \
+            allies/hermes-mnemosyne:ci \
+            /tmp/smoke-activity.py
       - name: Log in to GHCR for manual publishing
         if: github.event_name == 'workflow_dispatch'
         env:

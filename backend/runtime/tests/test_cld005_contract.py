@@ -12,11 +12,13 @@ from django.test import Client
 from django.utils import timezone
 
 from runtime.contracts import (
+    ACTIVITY_KINDS,
     FINGERPRINT_PREFIX,
     MAX_RUNTIME_EVENT_SEQUENCE,
     MAX_TERMINAL_SEQUENCE,
     ExecutionCommand,
     FoundryEventEnvelope,
+    _validate_event_payload,
     build_event_envelope,
     command_fingerprint,
     event_fingerprint,
@@ -45,7 +47,7 @@ from runtime.services.event_delivery import (
     publish_pending_event_deliveries,
     redrive_event_deliveries,
 )
-from runtime.services.events import append_runtime_event
+from runtime.services.events import _runtime_event_payload, append_runtime_event
 from runtime.services.executions import create_execution_intent
 from runtime.services.runtime_auth import (
     authenticate_runtime_token,
@@ -58,12 +60,23 @@ FIXTURE_PATH = (
     / "contracts"
     / "foundry-execution-v1.json"
 )
+ACTIVITY_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "docs"
+    / "contracts"
+    / "activity-presentation-v1.json"
+)
 PROFILE_NAMESPACE = uuid5(NAMESPACE_URL, "allies-foundry-profile-v1")
 
 
 @pytest.fixture
 def contract():
     return json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
+
+
+@pytest.fixture
+def activity_contract():
+    return json.loads(ACTIVITY_FIXTURE_PATH.read_text(encoding="utf-8"))
 
 
 @pytest.fixture
@@ -136,6 +149,58 @@ def test_fixture_is_strict_and_fingerprints_are_reproducible(contract):
     assert "absent or null" in contract["canonicalization"]["optional_fields"]
     assert event_fingerprint(event) == event.fingerprint
     assert command.payload.text == "normalized user text"
+
+
+def test_activity_presentation_fixture_matches_foundry_validator(activity_contract):
+    assert set(activity_contract["activity_kinds"]) == ACTIVITY_KINDS
+    for case in activity_contract["accepted"]:
+        _validate_event_payload(case["event_type"], case["payload"])
+    for case in activity_contract["rejected"]:
+        with pytest.raises(RuntimeValidationError):
+            _validate_event_payload(case["event_type"], case["payload"])
+
+
+@pytest.mark.parametrize(
+    ("event_type", "payload", "expected"),
+    [
+        (
+            "activity.started",
+            {"activity_id": "legacy-activity-1", "kind": "tool"},
+            {"kind": "tool"},
+        ),
+        (
+            "activity.completed",
+            {"activity_id": "legacy-activity-1", "status": "completed"},
+            {"status": "completed"},
+        ),
+    ],
+)
+def test_legacy_activity_replay_preserves_storage_and_strips_only_wire_identity(
+    binding, contract, event_type, payload, expected
+):
+    assert _runtime_event_payload(event_type, payload) == payload
+    workspace, _profile = binding
+    create_execution_intent(ExecutionCommand.model_validate(contract["command"]))
+    issued = issue_runtime_credential(workspace.id, "runtime-contract-token")
+    context = authenticate_runtime_token(issued.raw_token)
+    claim = claim_next_execution(context, uuid4(), 1)
+    event_id = uuid4()
+    args = (
+        context,
+        claim.attempt_id,
+        claim.lease_token,
+        event_id,
+        claim.stream_id,
+        1,
+        event_type,
+        payload,
+    )
+    event = append_runtime_event(*args)
+    assert event.payload == payload
+    replay = append_runtime_event(*args)
+    assert replay.pk == event.pk
+    delivery = ExecutionEventDelivery.objects.get(event=event)
+    assert json.loads(bytes(delivery.envelope_bytes))["payload"] == expected
 
 
 def test_optional_bootstrap_is_fingerprinted_and_legacy_shape_stays_compatible(
