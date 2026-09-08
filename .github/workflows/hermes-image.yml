@@ -1,4 +1,4 @@
-name: Publish Allies Hermes Image
+name: Publish Allies Runtime Images
 
 on:
   pull_request:
@@ -7,6 +7,16 @@ on:
       - "Makefile"
       - ".github/workflows/hermes-image.yml"
   workflow_dispatch:
+    inputs:
+      railway_environment:
+        description: "Update Foundry shared variables after publishing"
+        required: true
+        default: none
+        type: choice
+        options:
+          - none
+          - staging
+          - production
 
 permissions:
   contents: read
@@ -16,6 +26,9 @@ jobs:
   build:
     name: Build and smoke-test production image
     runs-on: blacksmith-2vcpu-ubuntu-2404
+    outputs:
+      hermes_image: ${{ steps.publish_hermes.outputs.reference }}
+      runtime_image: ${{ steps.publish_runtime.outputs.reference }}
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -104,6 +117,7 @@ jobs:
           GHCR_USER: ${{ github.actor }}
         run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
       - name: Publish tested Hermes image
+        id: publish_hermes
         if: github.event_name == 'workflow_dispatch'
         env:
           IMAGE_OWNER: ${{ github.repository_owner }}
@@ -121,16 +135,85 @@ jobs:
             runtime/hermes-image
           digest=$(jq -er '."containerimage.digest"' /tmp/hermes-publish.json)
           reference="$image@$digest"
+          echo "reference=$reference" >> "$GITHUB_OUTPUT"
           echo "Published image: $reference"
           {
             echo '## Published Hermes image'
             echo
-            echo 'Copy this value into Foundry staging after confirming the run passed:'
             echo '```text'
             echo "HERMES_IMAGE=$reference"
             echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish runtime image
+        if: github.event_name == 'workflow_dispatch'
+        id: publish_runtime
+        env:
+          IMAGE_OWNER: ${{ github.repository_owner }}
+        run: |
+          image="ghcr.io/${IMAGE_OWNER,,}/allies-runtime"
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --sbom=false \
+            --load \
+            --tag allies-runtime:ci \
+            --file runtime/Dockerfile \
+            runtime
+          test "$(docker image inspect --format '{{json .Config.Entrypoint}}' allies-runtime:ci)" = '["python","-m","allies_runtime"]'
+          docker run --rm --entrypoint python allies-runtime:ci -c 'import allies_runtime'
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=true \
+            --sbom=true \
+            --push \
+            --metadata-file /tmp/runtime-publish.json \
+            --tag "$image:$GITHUB_SHA" \
+            --file runtime/Dockerfile \
+            runtime
+          digest=$(jq -er '."containerimage.digest"' /tmp/runtime-publish.json)
+          reference="$image@$digest"
+          echo "reference=$reference" >> "$GITHUB_OUTPUT"
+          echo "Published image: $reference"
+          {
+            echo
+            echo '## Published runtime image'
+            echo
+            echo '```text'
+            echo "RUNTIME_IMAGE=$reference"
+            echo '```'
             echo
             echo "Source commit: $GITHUB_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  update-railway:
+    name: Update Foundry ${{ inputs.railway_environment }} images
+    if: github.event_name == 'workflow_dispatch' && (inputs.railway_environment == 'staging' || inputs.railway_environment == 'production')
+    needs: build
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    environment: ${{ inputs.railway_environment == 'production' && 'foundry / production' || 'foundry / staging' }}
+    concurrency:
+      group: publish-runtime-images-${{ inputs.railway_environment }}
+      cancel-in-progress: false
+    env:
+      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+      TARGET_ENVIRONMENT: ${{ inputs.railway_environment }}
+      HERMES_IMAGE: ${{ needs.build.outputs.hermes_image }}
+      RUNTIME_IMAGE: ${{ needs.build.outputs.runtime_image }}
+    steps:
+      - name: Update shared image variables
+        run: |
+          set -euo pipefail
+          : "${RAILWAY_TOKEN:?RAILWAY_TOKEN secret is required}"
+          : "${RAILWAY_PROJECT_ID:?RAILWAY_PROJECT_ID variable is required}"
+          npx -y @railway/cli@5.45.3 variables set \
+            "HERMES_IMAGE=$HERMES_IMAGE" \
+            "RUNTIME_IMAGE=$RUNTIME_IMAGE" \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$TARGET_ENVIRONMENT"
+          {
             echo
-            echo 'Publishing does not update Railway configuration or existing Fly machines.'
+            echo "## Railway"
+            echo
+            echo "Updated Foundry **$TARGET_ENVIRONMENT** shared image variables."
           } >> "$GITHUB_STEP_SUMMARY"
