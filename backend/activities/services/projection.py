@@ -293,7 +293,7 @@ def _event_state(event_type: str) -> tuple[str, str, str, str]:
         return (
             ProjectionState.AWAITING_ACTION,
             "awaiting_action",
-            "Action required",
+            "Needs your attention",
             MessageLifecycle.AWAITING_ACTION,
         )
     if event_type == "execution.completed":
@@ -663,6 +663,7 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         approval = _rich_approval_for_event(
             envelope=envelope, conversation=conversation, message=message
         )
+        default_text = "Waiting for your approval"
     elif envelope.event_type == "execution.approval_resolved":
         _resolve_approval_for_event(
             envelope=envelope, conversation=conversation, message=message

@@ -624,6 +624,9 @@ ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN = os.environ.get(
 )
 ALLIES_FOUNDRY_EXECUTION_ENABLED = env_bool("ALLIES_FOUNDRY_EXECUTION_ENABLED", False)
 ALLIES_ACTIVITY_SSE_ENABLED = env_bool("ALLIES_ACTIVITY_SSE_ENABLED", False)
+# Keep provider transmission disabled until Foundry producer redaction evidence
+# is recorded for every supported approval action kind.
+ALLIES_APPROVAL_SUMMARIES_ENABLED = env_bool("ALLIES_APPROVAL_SUMMARIES_ENABLED", False)
 ALLIES_RUNTIME_INTENT_ENABLED = env_bool("ALLIES_RUNTIME_INTENT_ENABLED", True)
 ALLIES_RUNTIME_INTENT_RATE_LIMIT = env_bounded_int(
     "ALLIES_RUNTIME_INTENT_RATE_LIMIT", 20, 1, 120
