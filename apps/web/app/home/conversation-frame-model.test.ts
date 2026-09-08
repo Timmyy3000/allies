@@ -200,7 +200,7 @@ describe("buildProductionConversationFrameModel", () => {
     }));
 
     expect(model.turns).toHaveLength(1);
-    expect(model.turns[0]).toMatchObject({ assistantText: reply.content, state: "completed", isTruncated: true });
+    expect(model.turns[0]).toMatchObject({ assistantText: reply.content, createdAt: reply.createdAt, state: "completed", isTruncated: true });
   });
 
   it("keeps the activity fallback for a rollout suffix", () => {

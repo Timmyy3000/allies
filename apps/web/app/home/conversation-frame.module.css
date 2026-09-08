@@ -435,6 +435,7 @@
 }
 
 .framePresenceActivity {
+  flex: 1;
   min-width: 0;
   color: var(--chat-accent);
   font-size: 16px;
@@ -442,6 +443,8 @@
   line-height: 36px;
   letter-spacing: -0.5px;
 }
+
+.framePresenceActivity .frameActivity { width: 100%; }
 
 .framePresenceLabel {
   animation: presence-label-in 220ms ease both;
@@ -543,6 +546,31 @@
   max-width: 100%;
   margin: 0;
   text-wrap: pretty;
+}
+
+.frameMessageTimestamp {
+  display: block;
+  max-height: 0;
+  margin-top: 0;
+  overflow: hidden;
+  color: currentColor;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 14px;
+  opacity: 0;
+  transition: max-height 180ms ease, margin-top 180ms ease, opacity 180ms ease;
+}
+
+.frameMessageTimestamp[data-visible="true"] {
+  max-height: 14px;
+  margin-top: 4px;
+  opacity: 0.72;
+}
+
+.frameAssistantMessage:focus-visible,
+.frameUserBubble:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 3px;
 }
 
 .frameAssistantMessage {
@@ -782,9 +810,13 @@
 
 .frameActivityEntries {
   display: grid;
+  max-height: min(50dvh, 360px);
   gap: 12px;
   margin: 14px 0 0;
   padding-bottom: 2px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--chat-accent) transparent;
 }
 
 .frameActivityEntry {
@@ -795,6 +827,7 @@
 }
 
 .frameActivityEntry svg { flex: 0 0 18px; }
+.frameActivityEntry span { min-width: 0; overflow-wrap: anywhere; }
 .frameActivityEntry small { color: var(--text-secondary); white-space: nowrap; }
 .frameActivity[open] .frameActivityEntries { animation: activity-label-in 180ms ease-out; }
 @media (prefers-reduced-motion: reduce) {
@@ -1283,7 +1316,19 @@
 .approvalModal .frameSheet {
   max-height: calc(100dvh - 24px);
   overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--chat-accent) transparent;
 }
+
+.approvalModal .frameSheet::-webkit-scrollbar,
+.approvalPreview::-webkit-scrollbar,
+.frameActivityEntries::-webkit-scrollbar { width: 6px; }
+.approvalModal .frameSheet::-webkit-scrollbar-track,
+.approvalPreview::-webkit-scrollbar-track,
+.frameActivityEntries::-webkit-scrollbar-track { background: transparent; }
+.approvalModal .frameSheet::-webkit-scrollbar-thumb,
+.approvalPreview::-webkit-scrollbar-thumb,
+.frameActivityEntries::-webkit-scrollbar-thumb { background: var(--chat-accent); border-radius: 999px; }
 
 .approvalModal .frameSheetQuestion { text-align: center; }
 
@@ -1292,6 +1337,8 @@
   min-height: 0;
   overflow: auto;
   overflow-wrap: anywhere;
+  scrollbar-width: thin;
+  scrollbar-color: var(--chat-accent) transparent;
 }
 
 .approvalPreview pre {
@@ -1915,9 +1962,13 @@
     border-radius: 20px;
     letter-spacing: -0.49px;
   }
+
+  .approvalModal { align-items: center; }
+  .approvalModal .frameSheet { width: min(calc(100% - 48px), 560px); }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .frameMessageTimestamp { transition: none; }
   .frameActivityChevron {
     transition: none;
   }

@@ -2155,7 +2155,7 @@ function ConversationPane({
     content: message.content,
     sequence: lastSequence + index + 1,
     createdAt: new Date(message.queuedAt).toISOString(),
-    statusLabel: sendingMessageId === message.id ? "Sending" : "Not confirmed",
+    statusLabel: sendingMessageId === message.id ? null : "Not confirmed",
     retryable: false,
     queued: false,
   }));
@@ -2198,7 +2198,18 @@ function ConversationPane({
     },
   };
 
-  return <ConversationFrame stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} canvasRef={messageCanvasRef} approvals={conversationId && !conversationAccessFailure ? <ConversationApprovals key={conversationId} client={approvalClient} workspaceId={workspaceId} conversationId={conversationId} allyName={ally.name} accent={allyAccent} canApprove={canApprove} /> : null} />;
+  const frame = <ConversationFrame stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} canvasRef={messageCanvasRef} />;
+  return <ConversationApprovals
+    client={approvalClient}
+    workspaceId={workspaceId}
+    conversationId={conversationId ?? ""}
+    allyName={ally.name}
+    accent={allyAccent}
+    canApprove={canApprove}
+    enabled={Boolean(conversationId && !conversationAccessFailure)}
+  >
+    {frame}
+  </ConversationApprovals>;
 }
 
 function HomeStatus({
