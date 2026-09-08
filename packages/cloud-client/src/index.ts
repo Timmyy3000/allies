@@ -42,6 +42,8 @@ export type {
   ProvisioningState,
 } from "./mappers/allies";
 export { createCloudClient } from "./client";
+export type { ApprovalSummary, ApprovalDetail, ApprovalDecision } from "./mappers/approvals";
+export { activityApprovalSchema, toActivityApproval } from "./mappers/approvals";
 export { parseSafeReturnPath } from "./client";
 export {
   assistantReplyResponseSchema,

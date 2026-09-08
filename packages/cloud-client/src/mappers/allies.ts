@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { activityApprovalSchema, toActivityApproval, type ActivityApproval } from "./approvals";
 
 const uuidSchema = z.uuid();
 
@@ -134,6 +135,7 @@ const activityResponseSchema = z
     activity_kind: z.string().regex(/^[a-z_]{1,32}$/).nullish(),
     outcome: z.enum(["completed", "failed", "stopped"]).nullish(),
     duration_ms: z.number().int().min(0).max(86_400_000).nullish(),
+    approval: activityApprovalSchema.nullish(),
   })
   .loose();
 
@@ -261,6 +263,7 @@ export interface ActivityViewModel {
   activityKind?: string | null;
   outcome?: "completed" | "failed" | "stopped" | null;
   durationMs?: number | null;
+  approval?: ActivityApproval | null;
 }
 
 export interface ActivitySnapshotViewModel {
@@ -373,6 +376,7 @@ function toActivityViewModel(input: unknown): ActivityViewModel {
     activityKind: activity.activity_kind,
     outcome: activity.outcome,
     durationMs: activity.duration_ms,
+    approval: activity.approval ? toActivityApproval(activity.approval) : activity.approval,
   };
 }
 

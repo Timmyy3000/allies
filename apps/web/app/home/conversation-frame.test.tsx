@@ -312,7 +312,7 @@ describe("ConversationFrame", () => {
       />,
     );
 
-    expect(screen.getByText("This Ally needs an action Home cannot complete yet.")).toBeTruthy();
+    expect(screen.getByText("This Ally is waiting for an action.")).toBeTruthy();
   });
 
   it("renders production activity after its exact triggering user turn", () => {

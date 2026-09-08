@@ -36,6 +36,16 @@
             ],
             "title": "Activity Kind"
           },
+          "approval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ApprovalActivitySummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "conversation_turn_ordinal": {
             "title": "Conversation Turn Ordinal",
             "type": "integer"
@@ -307,6 +317,197 @@
           "key"
         ],
         "title": "AppearanceInput",
+        "type": "object"
+      },
+      "ApprovalActivitySummaryResponse": {
+        "properties": {
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "expires_at"
+        ],
+        "title": "ApprovalActivitySummaryResponse",
+        "type": "object"
+      },
+      "ApprovalDecisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "ApprovalDecisionRequest",
+        "type": "object"
+      },
+      "ApprovalDetailResponse": {
+        "properties": {
+          "acknowledgement_deadline_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledgement Deadline At"
+          },
+          "action_label": {
+            "title": "Action Label",
+            "type": "string"
+          },
+          "action_preview": {
+            "title": "Action Preview",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "status",
+          "expires_at",
+          "action_label",
+          "action_preview"
+        ],
+        "title": "ApprovalDetailResponse",
+        "type": "object"
+      },
+      "ApprovalListResponse": {
+        "properties": {
+          "approvals": {
+            "items": {
+              "$ref": "#/components/schemas/ApprovalSummaryResponse"
+            },
+            "title": "Approvals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "approvals"
+        ],
+        "title": "ApprovalListResponse",
+        "type": "object"
+      },
+      "ApprovalSummaryResponse": {
+        "properties": {
+          "acknowledgement_deadline_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledgement Deadline At"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "message_id",
+          "status",
+          "expires_at"
+        ],
+        "title": "ApprovalSummaryResponse",
         "type": "object"
       },
       "AssistantReplyResponse": {
@@ -1518,6 +1719,82 @@
         "title": "SuccessResponse[AllyResponse]",
         "type": "object"
       },
+      "SuccessResponse_ApprovalDetailResponse_": {
+        "example": {
+          "data": {
+            "acknowledgement_deadline_at": null,
+            "action_label": "Run the requested command",
+            "action_preview": "echo a redacted command",
+            "decided_at": null,
+            "expires_at": "2026-08-20T16:05:00Z",
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d84",
+            "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
+            "status": "pending"
+          },
+          "message": "Approval loaded",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ApprovalDetailResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[ApprovalDetailResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_ApprovalListResponse_": {
+        "example": {
+          "data": {
+            "approvals": [
+              {
+                "acknowledgement_deadline_at": null,
+                "decided_at": null,
+                "expires_at": "2026-08-20T16:05:00Z",
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d84",
+                "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
+                "status": "pending"
+              }
+            ]
+          },
+          "message": "Approvals loaded",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ApprovalListResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[ApprovalListResponse]",
+        "type": "object"
+      },
       "SuccessResponse_AuthorizationStartResponse_": {
         "example": {
           "data": {
@@ -2348,7 +2625,7 @@
   "paths": {
     "/api/v1/allies/{ally_id}/runtime-intents": {
       "post": {
-        "operationId": "runtimeintent_request_fd560790",
+        "operationId": "runtimeintent_request_bbb203db",
         "parameters": [
           {
             "in": "path",
@@ -2504,7 +2781,7 @@
     },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_222aeeea",
+        "operationId": "authentication_callback_3e33614a",
         "parameters": [
           {
             "in": "path",
@@ -2609,7 +2886,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_bd5e0170",
+        "operationId": "authentication_csrf_b01eb21c",
         "parameters": [],
         "responses": {
           "204": {
@@ -2639,7 +2916,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_08f06b60",
+        "operationId": "identity_link_3e3d7222",
         "parameters": [
           {
             "in": "path",
@@ -2816,7 +3093,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_d535c754",
+        "operationId": "session_logout_529137d9",
         "parameters": [],
         "responses": {
           "204": {
@@ -2861,7 +3138,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_4aa4ad88",
+        "operationId": "profile_me_efa44712",
         "parameters": [],
         "responses": {
           "200": {
@@ -2918,7 +3195,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_985717c5",
+        "operationId": "avatar_delete_c5408f89",
         "parameters": [],
         "responses": {
           "204": {
@@ -3028,7 +3305,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_77cb1ea8",
+        "operationId": "avatar_complete_8939e0f4",
         "parameters": [
           {
             "in": "path",
@@ -3186,7 +3463,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_11e3745f",
+        "operationId": "avatar_read_1c77a5e7",
         "parameters": [],
         "responses": {
           "200": {
@@ -3273,7 +3550,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_9242e868",
+        "operationId": "avatar_prepare_328caffb",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3415,7 +3692,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_83793f21",
+        "operationId": "profile_profile_a9021699",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3528,7 +3805,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_7228940e",
+        "operationId": "nativeauthentication_callback_8d75b0d2",
         "parameters": [
           {
             "in": "path",
@@ -3712,7 +3989,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_3a40efc4",
+        "operationId": "nativeauthentication_logout_7088d248",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3804,7 +4081,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_976372f9",
+        "operationId": "nativeauthentication_sign_in_6d6eccae",
         "parameters": [
           {
             "in": "path",
@@ -3908,7 +4185,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_44c3e271",
+        "operationId": "nativeauthentication_token_91f4515e",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -4072,7 +4349,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_15a4fc0b",
+        "operationId": "nativeauthentication_refresh_0cd34a14",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -4235,7 +4512,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_492e92bb",
+        "operationId": "session_refresh_005bc389",
         "parameters": [],
         "responses": {
           "204": {
@@ -4325,7 +4602,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_e4555281",
+        "operationId": "authentication_sign_in_f08befc6",
         "parameters": [
           {
             "in": "path",
@@ -4472,7 +4749,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_c47e29a1",
+        "operationId": "health_health_35d426ee",
         "parameters": [],
         "responses": {
           "200": {
@@ -4569,7 +4846,7 @@
     "/api/v1/onboarding/attempts": {
       "post": {
         "description": "This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.",
-        "operationId": "onboarding_begin_11f5a39e",
+        "operationId": "onboarding_begin_d8370a47",
         "parameters": [
           {
             "description": "Browser-only signal; if present it must be a configured trusted origin.",
@@ -4746,7 +5023,7 @@
     "/api/v1/onboarding/runtime-intents": {
       "post": {
         "description": "This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.",
-        "operationId": "onboarding_runtime_intent_010a512d",
+        "operationId": "onboarding_runtime_intent_7a30f356",
         "parameters": [
           {
             "description": "Stable UUID for repeating one runtime intent.",
@@ -5030,7 +5307,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_f9a2c04c",
+        "operationId": "waitlist_create_0ad77eea",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -5211,7 +5488,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_498831c4",
+        "operationId": "waitlist_complete_8425b154",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -5381,7 +5658,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_08395a14",
+        "operationId": "workspace_context_dd28e28e",
         "parameters": [
           {
             "in": "path",
@@ -5464,7 +5741,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_3c75546e",
+        "operationId": "ally_list_c297dbfa",
         "parameters": [
           {
             "in": "path",
@@ -5541,7 +5818,7 @@
       },
       "post": {
         "description": "Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.",
-        "operationId": "ally_create_c79488de",
+        "operationId": "ally_create_34f147b1",
         "parameters": [
           {
             "in": "path",
@@ -5777,7 +6054,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_dc76e965",
+        "operationId": "ally_retrieve_83dd728f",
         "parameters": [
           {
             "in": "path",
@@ -5865,7 +6142,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_e7a40390",
+        "operationId": "conversation_by_ally_f2fc096c",
         "parameters": [
           {
             "in": "path",
@@ -5996,7 +6273,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_2f287417",
+        "operationId": "conversation_by_conversation_b8d1444b",
         "parameters": [
           {
             "in": "path",
@@ -6127,7 +6404,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_808355c5",
+        "operationId": "activity_snapshot_4b1aeafa",
         "parameters": [
           {
             "in": "path",
@@ -6299,7 +6576,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
       "get": {
-        "operationId": "activity_stream_817b9a68",
+        "operationId": "activity_stream_0f053ec9",
         "parameters": [
           {
             "in": "path",
@@ -6350,10 +6627,498 @@
         ]
       }
     },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals": {
+      "get": {
+        "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
+        "operationId": "activity_approvals_a88d2508",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ApprovalListResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Approvals",
+        "tags": [
+          "Activities"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}": {
+      "get": {
+        "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
+        "operationId": "activity_approval_b3564e94",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Approval Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ApprovalDetailResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Approval",
+        "tags": [
+          "Activities"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}/decision": {
+      "post": {
+        "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected. The idempotency key must be reused for an exact retry.",
+        "operationId": "activity_decide_eb2c1030",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Approval Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable UUID for repeating one approval decision.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "Stable UUID for repeating one approval decision.",
+              "maxLength": 36,
+              "minLength": 36,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required for browser transport and must be trusted; omit for native.",
+            "in": "header",
+            "name": "Origin",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Browser alternative to Origin; omit for native.",
+            "in": "header",
+            "name": "Referer",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "description": "Required with the browser CSRF cookie; omit for native.",
+            "in": "header",
+            "name": "X-CSRFToken",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ApprovalDetailResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ApprovalDetailResponse_"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "security": [
+          {
+            "BrowserSession": []
+          },
+          {
+            "BearerAuth": []
+          }
+        ],
+        "summary": "Decide",
+        "tags": [
+          "Activities"
+        ]
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_send_3a9ed1ee",
+        "operationId": "conversation_send_fdee8d15",
         "parameters": [
           {
             "in": "path",
@@ -6570,7 +7335,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}": {
       "delete": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_delete_3f1b62e9",
+        "operationId": "conversation_delete_89f0fe4c",
         "parameters": [
           {
             "in": "path",
@@ -6734,7 +7499,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_retry_4033a48a",
+        "operationId": "conversation_retry_077aa94c",
         "parameters": [
           {
             "in": "path",
