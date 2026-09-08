@@ -17,6 +17,7 @@ print(settings.SECURE_PROXY_SSL_HEADER)
 print(settings.SECURE_SSL_REDIRECT)
 print(settings.SECURE_HSTS_SECONDS)
 print(settings.PROFILE_PROVISIONING_PROVIDER)
+print(settings.ALLIES_RUNTIME_REASONING_EFFORT)
 """
 
 
@@ -39,6 +40,7 @@ def run_settings_probe(**overrides):
         "ALLIES_RUNTIME_READINESS_HINT_ENABLED",
         "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED",
         "ALLIES_RICH_APPROVALS_ENABLED",
+        "ALLIES_RUNTIME_REASONING_EFFORT",
         "ALLIES_RUNTIME_ACTIVITY_WAIT_SECONDS",
         "ALLIES_RUNTIME_ACTIVITY_WAIT_MAX_WAITERS",
         "READY_WORKSPACE_POOL_TARGET",
@@ -87,7 +89,29 @@ def test_profile_provisioning_defaults_to_hermes_openai_api_provider():
     result = run_settings_probe(DJANGO_DEBUG="true")
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines()[-1] == "openai-api"
+    assert result.stdout.splitlines()[-2] == "openai-api"
+
+
+def test_runtime_reasoning_effort_defaults_to_xhigh_and_accepts_high():
+    default = run_settings_probe(DJANGO_DEBUG="true")
+    high = run_settings_probe(
+        DJANGO_DEBUG="true", ALLIES_RUNTIME_REASONING_EFFORT="high"
+    )
+
+    assert default.returncode == 0, default.stderr
+    assert default.stdout.splitlines()[-1] == "xhigh"
+    assert high.returncode == 0, high.stderr
+    assert high.stdout.splitlines()[-1] == "high"
+
+
+@pytest.mark.parametrize("value", ["", "medium", "xhigh\ninvalid", "none"])
+def test_runtime_reasoning_effort_rejects_unsupported_values(value):
+    result = run_settings_probe(
+        DJANGO_DEBUG="true", ALLIES_RUNTIME_REASONING_EFFORT=value
+    )
+
+    assert result.returncode != 0
+    assert "ALLIES_RUNTIME_REASONING_EFFORT" in result.stderr
 
 
 def test_readiness_freshness_must_exceed_twice_the_runtime_heartbeat():

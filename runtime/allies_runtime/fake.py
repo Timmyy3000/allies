@@ -95,6 +95,7 @@ class FakeHermesClient:
         message: str,
         *,
         session_key: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> HermesStreamResult:
         plan = self.plans.get(profile_id, FakeProfilePlan())
         self.calls.append((profile_id, session_id, message))
@@ -144,6 +145,7 @@ class FakeHermesClient:
         message: str,
         *,
         session_key: str | None = None,
+        reasoning_effort: str | None = None,
     ) -> CancellableHermesStream:
         """Yield fixture events incrementally and record cancellation."""
 

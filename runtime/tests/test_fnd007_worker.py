@@ -31,6 +31,7 @@ def claim(
     conversation_id: str | None = None,
     session_id: str | None = None,
     bootstrap: dict | None = None,
+    reasoning_effort: str | None = None,
 ):
     payload = {"message": "hello"}
     if conversation_id is None:
@@ -51,6 +52,7 @@ def claim(
         expires_at=None,
         payload=payload,
         claim_id="claim-1",
+        reasoning_effort=reasoning_effort,
     )
 
 
@@ -111,6 +113,7 @@ class RecordingHermes:
         self.ensured = []
         self.bootstraps = []
         self.streams = []
+        self.reasoning_efforts = []
         self.history_checks = []
 
     async def ensure_profile_session(self, profile_key, session_id, *, model):
@@ -135,11 +138,18 @@ class RecordingHermes:
         return True
 
     async def stream_profile_incremental(
-        self, profile_key, session_id, message, *, session_key
+        self,
+        profile_key,
+        session_id,
+        message,
+        *,
+        session_key,
+        reasoning_effort=None,
     ):
         if self.order is not None:
             self.order.append("hermes.stream")
         self.streams.append((profile_key, session_id, message, session_key))
+        self.reasoning_efforts.append(reasoning_effort)
         if self.failure:
             raise self.failure
 
@@ -193,6 +203,19 @@ async def test_first_turn_dispatches_once_binds_terminal_session_and_completes()
         "run_id": "run-1",
         "status": "completed",
     }
+
+
+@pytest.mark.asyncio
+async def test_worker_forwards_managed_reasoning_effort_to_hermes():
+    foundry = RecordingFoundry()
+    hermes = RecordingHermes()
+
+    result = await FoundryWorker(foundry, hermes).run_claim(
+        claim(conversation_id="cloud-1", session_id="session-1", reasoning_effort="xhigh")
+    )
+
+    assert result.status == "succeeded"
+    assert hermes.reasoning_efforts == ["xhigh"]
 
 
 @pytest.mark.asyncio
