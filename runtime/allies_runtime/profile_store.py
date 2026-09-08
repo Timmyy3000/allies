@@ -1,4 +1,4 @@
-"""Dependency-free, secret-safe materialization of one Hermes profile.
+"""Secret-safe materialization of one Hermes profile.
 
 The profile store owns only the files below ``<volume>/profiles/<key>``.  The
 Foundry lifecycle service remains the authority for the profile's lifecycle;
@@ -27,6 +27,9 @@ from enum import StrEnum
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
+
+SKILLS_CATALOG = "/opt/allies/skills"
+SKILLS_CONFIG = f"skills:\n  external_dirs: [{json.dumps(SKILLS_CATALOG)}]\n"
 
 MANIFEST_NAME = ".allies-profile.json"
 MANIFEST_SCHEMA = "allies.profile"
@@ -669,7 +672,56 @@ def _profile_config_bytes(seed: ProfileSeed) -> bytes:
             "    storage: mnemosyne",
         ]
     )
-    return ("\n".join(lines) + "\n").encode("utf-8")
+    return ("\n".join(lines) + "\n" + SKILLS_CONFIG).encode("utf-8")
+
+
+def _config_with_catalog(content: bytes) -> bytes:
+    import yaml
+
+    class ProfileConfigLoader(yaml.SafeLoader):
+        def construct_mapping(self, node, deep=False):
+            keys = [self.construct_object(key, deep=deep) for key, _ in node.value]
+            if any(not isinstance(key, str) for key in keys) or len(set(keys)) != len(
+                keys
+            ):
+                raise ValueError("ambiguous profile config")
+            return super().construct_mapping(node, deep=deep)
+
+    if len(content) > MAX_PROFILE_TEXT_BYTES:
+        raise ValueError("oversized profile config")
+    text = content.decode("utf-8")
+    loader = ProfileConfigLoader(text)
+    try:
+        if any(
+            isinstance(
+                token, (yaml.AliasToken, yaml.AnchorToken, yaml.DocumentEndToken)
+            )
+            for token in yaml.scan(text)
+        ):
+            raise ValueError("unsupported profile config")
+        node = loader.get_single_node()
+        if not isinstance(node, yaml.MappingNode):
+            raise TypeError("profile config must be a mapping")
+        config = loader.construct_document(node)
+        if "skills" in config:
+            skills = config["skills"]
+            dirs = skills.get("external_dirs", []) if isinstance(skills, dict) else []
+            if dirs == SKILLS_CATALOG or (
+                isinstance(dirs, list) and SKILLS_CATALOG in dirs
+            ):
+                return content
+            raise ValueError("custom skills config needs repair")
+        if node.flow_style:
+            raise ValueError("cannot append to flow config")
+        return (
+            content
+            + (b"" if content.endswith(b"\n") else b"\n")
+            + SKILLS_CONFIG.encode()
+        )
+    except yaml.YAMLError:
+        raise ValueError("invalid profile config") from None
+    finally:
+        loader.dispose()
 
 
 def _legacy_soul_bytes(seed: ProfileSeed) -> bytes:
@@ -1206,10 +1258,7 @@ class ProfileStore:
         try:
             fd = os.open(
                 path,
-                os.O_CREAT
-                | os.O_EXCL
-                | os.O_WRONLY
-                | getattr(os, "O_BINARY", 0),
+                os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0),
                 mode,
             )
             try:
@@ -1644,6 +1693,47 @@ class ProfileStore:
             stored_operation = seed.operation_id
             stored_generation = seed.materialized_generation
             stored_receipt = updated["receipt_id"]
+        try:
+            config_path = profile / "config.yaml"
+            descriptor = os.open(
+                config_path,
+                os.O_RDONLY
+                | getattr(os, "O_NOFOLLOW", 0)
+                | getattr(os, "O_NONBLOCK", 0),
+            )
+            try:
+                original_stat = os.fstat(descriptor)
+                if not stat.S_ISREG(original_stat.st_mode):
+                    raise ProfileStoreError("profile config is not a regular file")
+                config_bytes = _read_bounded_descriptor(descriptor)
+            finally:
+                os.close(descriptor)
+            updated_config = _config_with_catalog(config_bytes)
+            if updated_config != config_bytes:
+                current_stat = config_path.stat(follow_symlinks=False)
+                if any(
+                    getattr(original_stat, field) != getattr(current_stat, field)
+                    for field in (
+                        "st_dev",
+                        "st_ino",
+                        "st_size",
+                        "st_mtime_ns",
+                    )
+                ):
+                    raise ProfileStoreError("profile config changed during migration")
+                self._write_bytes_atomic(config_path, updated_config, mode=0o644)
+        except (
+            OSError,
+            ValueError,
+            TypeError,
+            RecursionError,
+            ProfileStoreError,
+        ):
+            return self._receipt(
+                seed,
+                ProfileProvisionStatus.REPAIR_REQUIRED,
+                repair_code="skills_config_requires_repair",
+            )
         try:
             self._clean_owned_first_chat_block(seed, profile / "SOUL.md")
         except ProfileStoreError:

@@ -3,7 +3,7 @@ name = "allies-runtime"
 version = "0.1.0"
 description = "Small independently packaged Allies tenant runtime boundary"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = ["PyYAML==6.0.3"]
 
 [dependency-groups]
 dev = [

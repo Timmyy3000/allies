@@ -8,9 +8,11 @@ WORKDIR /app
 COPY allies_runtime /app/allies_runtime
 COPY pyproject.toml uv.lock /app/
 
-# The package has no network/runtime dependency.  The lockfile is copied into
-# the image as provenance and is checked in CI before an image is published.
-RUN python -m compileall -q /app/allies_runtime
+RUN python -c 'import tomllib; lock=tomllib.load(open("uv.lock", "rb")); p=next(p for p in lock["package"] if p["name"] == "pyyaml"); print("PyYAML==" + p["version"] + " " + " ".join("--hash=" + w["hash"] for w in p["wheels"]))' > /tmp/runtime-requirements.txt \
+    && pip install --no-cache-dir --no-deps --only-binary=:all: --require-hashes -r /tmp/runtime-requirements.txt \
+    && rm /tmp/runtime-requirements.txt \
+    && python -c 'import yaml; import allies_runtime.profile_store' \
+    && python -m compileall -q /app/allies_runtime
 
 # Fly's container command is intentionally not overridden: this is the
 # image-baked process and therefore the runtime container's PID 1.

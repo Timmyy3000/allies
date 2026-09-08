@@ -28,7 +28,7 @@ jobs:
       - name: Test provider policy boundary
         env:
           PYTHONPATH: runtime/hermes-image/provider
-        run: uvx --from pytest==8.4.2 --with PyYAML==6.0.3 pytest runtime/hermes-image/provider/tests/test_provider.py -q
+        run: uvx --from pytest==8.4.2 --with PyYAML==6.0.3 pytest runtime/hermes-image/provider/tests/test_provider.py runtime/hermes-image/tests -q
       - name: Prepare hash-locked offline wheelhouse
         run: make hermes-image-wheelhouse
       - name: Prove wheel hashes are enforced
@@ -67,6 +67,8 @@ jobs:
             -c 'from plugins.memory import load_memory_provider; p=load_memory_provider("allies_mnemosyne"); assert p is not None; p.initialize("smoke-session", hermes_home="/tmp/ally-smoke", profile_root="/tmp/ally-smoke", agent_identity="ally-v1-00000000000000000000000000000001", agent_context="conversation", memory_mode="context_only", tools=[]); assert p.status()["available"] is True; assert p.get_tool_schemas() == []; assert p._delegate._beam.conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000; print(p.status()); p.shutdown()'
       - name: Boot with a fresh root-owned volume
         run: sh runtime/hermes-image/smoke_volume_boot.sh allies/hermes-mnemosyne:ci
+      - name: Verify native skill discovery and learning across restart
+        run: sh runtime/hermes-image/smoke_skills.sh allies/hermes-mnemosyne:ci
       - name: Exercise first-turn transcript bootstrap
         run: |
           docker run --rm \
