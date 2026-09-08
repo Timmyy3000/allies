@@ -31,6 +31,18 @@ RUN /opt/hermes/.venv/bin/python /tmp/allies-verify-wheelhouse.py \
       /tmp/allies-mnemosyne-wheelhouse \
       /tmp/allies-verify-wheelhouse.py
 
+# Keep the shared catalog immutable and separate from Hermes' writable profile
+# skills.  The build script validates provenance before copying any content.
+COPY build_skills_catalog.py /tmp/allies-build-skills-catalog.py
+COPY skills/allies-skill-discovery/ /tmp/allies-skill-discovery/
+RUN /opt/hermes/.venv/bin/python /tmp/allies-build-skills-catalog.py \
+    && rm -rf /tmp/allies-build-skills-catalog.py /tmp/allies-skill-discovery
+
+# The pinned base already ships the helper used by youtube-content.  Keep the
+# assertion at image build so profile wake never installs it.
+RUN /opt/hermes/.venv/bin/python -c \
+    'import importlib.metadata as m; assert m.version("youtube-transcript-api") == "1.2.4"'
+
 # Copy the wrapper into the sealed Hermes environment without assuming a
 # particular site-packages path in the pinned Python minor release.
 COPY provider/allies_mnemosyne/ /opt/allies-mnemosyne-provider/allies_mnemosyne/

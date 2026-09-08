@@ -10,6 +10,7 @@ from pathlib import Path
 from threading import Event, Lock
 
 import pytest
+import yaml
 
 import allies_runtime.profile_store as profile_store_module
 from allies_runtime.profile_store import (
@@ -72,6 +73,113 @@ def make_store(
 
 def profile_path(store: ProfileStore, seed: ProfileSeed) -> Path:
     return store.volume_root / "profiles" / (seed.hermes_profile_key or "")
+
+
+def test_skill_catalog_upgrade_preserves_private_state(tmp_path):
+    store, seed = make_store(tmp_path), make_seed()
+    store.materialize(seed)
+    profile = profile_path(store, seed)
+    config = profile / "config.yaml"
+    assert yaml.safe_load(config.read_text())["skills"]["external_dirs"] == [
+        profile_store_module.SKILLS_CATALOG
+    ]
+    old = config.read_bytes().replace(profile_store_module.SKILLS_CONFIG.encode(), b"")
+    custom = old + b"# User configuration\ncustom:\n  skills: nested-value\n"
+    config.write_bytes(custom)
+    learned = profile / "skills" / "weekly-report" / "SKILL.md"
+    learned.parent.mkdir()
+    learned.write_text("A learned procedure", encoding="utf-8")
+    preserved = {
+        path: path.read_bytes()
+        for path in (learned, profile / ".env", profile / "SOUL.md")
+    }
+    assert store.materialize(seed).status is ProfileProvisionStatus.EXISTING
+    assert config.read_bytes() == custom + profile_store_module.SKILLS_CONFIG.encode()
+    assert (
+        make_store(tmp_path).materialize(seed).status is ProfileProvisionStatus.EXISTING
+    )
+    assert all(path.read_bytes() == value for path, value in preserved.items())
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        b"skills: {}\n",
+        b"skills: false\n",
+        b"model: [broken\n",
+        b"model: a\n---\nmodel: b\n",
+        b"model: a\nmodel: b\n",
+        b"custom:\n  value: a\n  value: b\n",
+        b"[]\n",
+        b"{model: example}\n",
+        b"model: a\n...\n",
+        b"custom: &a [*a]\n",
+        b"1: invalid-key\n",
+        b"custom: !!python/object:example {}\n",
+        b"\xff",
+        b"#" * (profile_store_module.MAX_PROFILE_TEXT_BYTES + 1),
+    ],
+    ids=[f"case-{index}" for index in range(14)],
+)
+def test_ambiguous_skill_config_is_preserved_for_repair(tmp_path, content):
+    store, seed = make_store(tmp_path), make_seed()
+    store.materialize(seed)
+    path = profile_path(store, seed) / "config.yaml"
+    path.write_bytes(content)
+    result = store.materialize(seed)
+    assert result.status is ProfileProvisionStatus.REPAIR_REQUIRED
+    assert result.repair_code == "skills_config_requires_repair"
+    assert path.read_bytes() == content
+
+
+@pytest.mark.parametrize("dirs", ['["/opt/allies/skills"]', '"/opt/allies/skills"'])
+def test_custom_skill_settings_with_catalog_are_not_rewritten(tmp_path, dirs):
+    store, seed = make_store(tmp_path), make_seed()
+    store.materialize(seed)
+    path = profile_path(store, seed) / "config.yaml"
+    custom = (
+        f"skills: {{external_dirs: {dirs}, creation_nudge_interval: 15}}\n".encode()
+    )
+    path.write_bytes(custom)
+    assert store.materialize(seed).status is ProfileProvisionStatus.EXISTING
+    assert path.read_bytes() == custom
+
+
+def test_catalog_migration_preserves_concurrent_edit(tmp_path, monkeypatch):
+    store, seed = make_store(tmp_path), make_seed()
+    store.materialize(seed)
+    path = profile_path(store, seed) / "config.yaml"
+    path.write_text("model: original\n", encoding="utf-8")
+    parse_config = profile_store_module._config_with_catalog
+
+    def edit_while_parsing(content):
+        path.write_text("model: user-edit\n", encoding="utf-8")
+        return parse_config(content)
+
+    monkeypatch.setattr(
+        profile_store_module, "_config_with_catalog", edit_while_parsing
+    )
+    result = store.materialize(seed)
+    assert result.repair_code == "skills_config_requires_repair"
+    assert path.read_text() == "model: user-edit\n"
+
+
+def test_failed_catalog_config_write_preserves_old_config(tmp_path, monkeypatch):
+    store, seed = make_store(tmp_path), make_seed()
+    store.materialize(seed)
+    path = profile_path(store, seed) / "config.yaml"
+    old = path.read_bytes().replace(profile_store_module.SKILLS_CONFIG.encode(), b"")
+    path.write_bytes(old)
+    original_write = store._write_bytes_atomic
+
+    def fail_config(target, content, *, mode):
+        if target == path:
+            raise ProfileStoreError("write failed")
+        return original_write(target, content, mode=mode)
+
+    monkeypatch.setattr(store, "_write_bytes_atomic", fail_config)
+    assert store.materialize(seed).status is ProfileProvisionStatus.REPAIR_REQUIRED
+    assert path.read_bytes() == old
 
 
 def test_memory_policy_is_bounded_and_changes_seed_fingerprint():

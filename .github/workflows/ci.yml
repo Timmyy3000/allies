@@ -52,6 +52,9 @@ jobs:
       - name: Run repository validation
         run: uv run --locked --project backend python scripts/validate.py
 
+      - name: Verify runtime image dependencies
+        run: docker build --tag allies/runtime:ci --file runtime/Dockerfile runtime
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
