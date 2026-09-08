@@ -77,6 +77,24 @@ the lease unresolved. A committed failure is already terminal; otherwise
 claim-time lease expiry publishes one nonretryable `lease_expired` terminal
 at the reserved sequence, without replaying the execution.
 
+## Approval rollout
+
+Approval consumers must be compatible before the producer is enabled: deploy
+Cloud, Foundry, and Interface support first, then publish the derived Hermes
+and `allies-runtime` images together. Existing profile and bootstrap
+credential references are reused; no credential migration is part of this
+rollout. Rich approval production is default-off. Foundry-managed activation
+and image replacement carry the same `ALLIES_RICH_APPROVALS_ENABLED` setting
+into the runtime container, so configure it in the Foundry environment after
+compatibility checks; do not mutate individual Machines. The setting is read
+when an adoption or replacement spec is built and applies to newly managed
+Machines.
+
+An approval already pending in an older image cannot be resumed
+automatically. Ask for a new live approval request after the compatible image
+is running; the runtime never replays a tool call or carries an old consent
+across that boundary.
+
 Foundry delivery retains the canonical event source for repair. After eight
 retryable attempts it rebuilds and verifies the envelope, reuses
 `PENDING` after a 300-second delay, and fences callbacks with the repair cycle

@@ -11,6 +11,8 @@ from pydantic import ConfigDict, Field, StrictInt, StrictStr, field_validator
 from runtime.contracts import (
     MAX_RUNTIME_EVENT_SEQUENCE,
     MAX_TERMINAL_SEQUENCE,
+    ApprovalDecisionCommand,
+    ApprovalDecisionReceipt,
     ExecutionCommand,
     ExecutionReceipt,
     FoundryEventEnvelope,
@@ -18,6 +20,8 @@ from runtime.contracts import (
 )
 
 __all__ = [
+    "ApprovalDecisionCommand",
+    "ApprovalDecisionReceipt",
     "ClaimRequest",
     "CleanupReceiptRequest",
     "CompleteRequest",

@@ -6,6 +6,8 @@ from typing import ClassVar
 
 from django.db import models, transaction
 from django.db.models import Q
+from django.db.models.functions import Length
+from django.db.models.lookups import LessThanOrEqual
 from django.utils import timezone
 
 from runtime.contracts import MAX_TERMINAL_SEQUENCE
@@ -41,6 +43,15 @@ class AttemptStatus(models.TextChoices):
     FAILED = "failed", "Failed"
     CANCELLED = "cancelled", "Cancelled"
     UNKNOWN = "unknown", "Unknown"
+
+
+class ApprovalRequestStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    DECISION_RECORDED = "decision_recorded", "Decision recorded"
+    APPLIED = "applied", "Applied"
+    EXPIRED = "expired", "Expired"
+    CANCELLED = "cancelled", "Cancelled"
+    OUTCOME_UNKNOWN = "outcome_unknown", "Outcome unknown"
 
 
 class LeaseState(models.TextChoices):
@@ -888,6 +899,111 @@ class Attempt(models.Model):
             models.Index(
                 fields=["status", "claimed_at"],
                 name="rt_attempt_status_claimed_idx",
+            ),
+        ]
+
+
+class ApprovalRequest(models.Model):
+    """Foundry's private mirror of one live Hermes approval request."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="approval_requests",
+    )
+    profile = models.ForeignKey(
+        RuntimeProfile,
+        on_delete=models.CASCADE,
+        related_name="approval_requests",
+    )
+    execution = models.ForeignKey(
+        Execution,
+        on_delete=models.CASCADE,
+        related_name="approval_requests",
+    )
+    attempt = models.ForeignKey(
+        Attempt,
+        on_delete=models.CASCADE,
+        related_name="approval_requests",
+    )
+    generation = models.PositiveIntegerField()
+    hermes_run_id = models.CharField(max_length=255)
+    hermes_approval_id = models.CharField(max_length=255)
+    action_kind = models.CharField(max_length=64)
+    action_label = models.CharField(max_length=120)
+    action_preview = models.TextField(max_length=16 * 1024)
+    expires_at = models.DateTimeField()
+    status = models.CharField(
+        max_length=24,
+        choices=ApprovalRequestStatus,
+        default=ApprovalRequestStatus.PENDING,
+    )
+    decision = models.CharField(max_length=7, null=True, blank=True)
+    decision_command_id = models.UUIDField(null=True, blank=True)
+    decision_idempotency_key = models.UUIDField(null=True, blank=True)
+    decision_fingerprint = models.CharField(max_length=100, default="", blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+    acknowledgement_deadline_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.CharField(max_length=9, null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["attempt", "hermes_approval_id"],
+                name="runtime_approval_attempt_hermes_id_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=ApprovalRequestStatus.values),
+                name="runtime_approval_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(generation__gte=0),
+                name="runtime_approval_generation_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(decision__isnull=True) | Q(decision__in=["approve", "reject"])
+                ),
+                name="runtime_approval_decision_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(outcome__isnull=True)
+                    | Q(outcome__in=["approved", "rejected", "expired", "cancelled"])
+                ),
+                name="runtime_approval_outcome_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(decision_fingerprint="")
+                    | Q(
+                        decision_fingerprint__regex=r"^canonical-json-sha256:v1:[0-9a-f]{64}$"
+                    )
+                ),
+                name="runtime_approval_decision_fingerprint_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(action_label="")
+                    & ~Q(action_preview="")
+                    & LessThanOrEqual(Length("action_label"), 120)
+                    & LessThanOrEqual(Length("action_preview"), 16 * 1024)
+                ),
+                name="runtime_approval_material_bounded",
+            ),
+        ]
+        indexes: ClassVar = [
+            models.Index(
+                fields=["attempt", "status", "expires_at"],
+                name="rt_approval_attempt_state_idx",
+            ),
+            models.Index(
+                fields=["workspace", "status", "expires_at"],
+                name="rt_approval_ws_state_idx",
             ),
         ]
 

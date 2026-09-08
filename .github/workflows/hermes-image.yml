@@ -83,6 +83,13 @@ jobs:
             --volume "$PWD/runtime/hermes-image/smoke_activity_stream.py:/tmp/smoke-activity.py:ro" \
             allies/hermes-mnemosyne:ci \
             /tmp/smoke-activity.py
+      - name: Exercise rich Hermes approval SSE and resolver
+        run: |
+          docker run --rm \
+            --entrypoint /opt/hermes/.venv/bin/python \
+            --volume "$PWD/runtime/hermes-image/smoke_approval_endpoint.py:/tmp/smoke-approval.py:ro" \
+            allies/hermes-mnemosyne:ci \
+            /tmp/smoke-approval.py
       - name: Log in to GHCR for manual publishing
         if: github.event_name == 'workflow_dispatch'
         env:

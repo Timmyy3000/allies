@@ -275,6 +275,7 @@ def _reconcile_expired_lease(
     attempt: Attempt,
     lease: Lease,
 ) -> None:
+    now = timezone.now()
     unresolved = attempt.status in {
         AttemptStatus.QUEUED,
         AttemptStatus.LEASED,
@@ -303,6 +304,9 @@ def _reconcile_expired_lease(
         execution = attempt.execution
         execution.status = ExecutionStatus.QUEUED
         execution.save(update_fields=["status", "updated_at"])
+        from .approvals import cancel_live_approval_requests
+
+        cancel_live_approval_requests(attempt, now=now)
         lease.state = LeaseState.RELEASED
         lease.save(update_fields=["state", "updated_at"])
         return
@@ -322,6 +326,10 @@ def _reconcile_expired_lease(
         }:
             execution.status = ExecutionStatus.FAILED
             execution.save(update_fields=["status", "updated_at"])
+
+    from .approvals import cancel_live_approval_requests
+
+    cancel_live_approval_requests(attempt, now=now)
 
     if cleanup_pending or retired:
         lease.state = LeaseState.FENCED

@@ -296,12 +296,14 @@ def test_active_generation_must_have_a_ready_recorded_machine(monkeypatch):
 
 @pytest.mark.django_db
 @pytest.mark.parametrize("reserved", [False, True])
+@pytest.mark.parametrize("rich_enabled", [False, True])
 def test_fresh_activation_stays_pending_until_runtime_readiness_receipt(
-    monkeypatch, reserved
+    monkeypatch, reserved, rich_enabled, settings
 ):
     from runtime.management.commands.activate_fly_workspace import Command
 
     configure_activation(monkeypatch)
+    settings.ALLIES_RICH_APPROVALS_ENABLED = rich_enabled
     tenant_ref = f"pool:{uuid4()}" if reserved else str(uuid4())
     workspace = Workspace.objects.create(tenant_ref=str(tenant_ref))
     provider = CommandProvider()
@@ -326,6 +328,13 @@ def test_fresh_activation_stays_pending_until_runtime_readiness_receipt(
     assert workspace.ready_start_epoch is None
     assert workspace.ready_boot_id is None
     assert "start_machine" in provider.calls
+    runtime = next(
+        c for c in provider.last_machine_spec.containers if c.name == "allies-runtime"
+    )
+    assert (
+        runtime.environment["ALLIES_RICH_APPROVALS_ENABLED"]
+        == str(rich_enabled).lower()
+    )
 
 
 @pytest.mark.django_db

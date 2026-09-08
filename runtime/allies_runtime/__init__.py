@@ -20,6 +20,7 @@ from .fake import FakeFoundryTransport
 from .foundry import (
     MAX_RUNTIME_EVENT_SEQUENCE,
     MAX_TERMINAL_SEQUENCE,
+    ApprovalStatus,
     EventReceipt,
     FoundryClaim,
     FoundryClient,
@@ -67,6 +68,7 @@ __all__ = [
     "MAX_RUNTIME_EVENT_SEQUENCE",
     "MAX_TERMINAL_SEQUENCE",
     "TEST_CREDENTIAL_PREFIX",
+    "ApprovalStatus",
     "CancellableHermesStream",
     "CleanupResult",
     "CredentialReference",

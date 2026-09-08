@@ -3,17 +3,24 @@ from __future__ import annotations
 import asyncio
 import urllib.error
 from collections import deque
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
 
 from allies_runtime import foundry as foundry_module
-from allies_runtime.errors import HermesError
+from allies_runtime.errors import (
+    HermesDisconnected,
+    HermesError,
+    HermesMalformedResponse,
+    HermesTimeout,
+)
 from allies_runtime.fake import FakeFoundryTransport, FakeHermesClient, FakeProfilePlan
 from allies_runtime.foundry import (
     ActivityWaitReceipt,
     FencedError,
+    FoundryClaim,
     FoundryClient,
     FoundryError,
     FoundryWorker,
@@ -63,6 +70,141 @@ class QueueTransport:
 def client(*responses):
     transport = QueueTransport(*responses)
     return FoundryClient(runtime_token="runtime-secret", transport=transport), transport
+
+
+class ApprovalHermes:
+    def __init__(
+        self,
+        *,
+        expires_at,
+        outcome,
+        decision=None,
+        response_id="approval-1",
+        response_extra=None,
+        stream_outcome=None,
+        emit_second_request=False,
+        terminal_while_pending=False,
+    ):
+        self.expires_at = expires_at
+        self.outcome = outcome
+        self.decision = decision
+        self.response_id = response_id
+        self.response_extra = response_extra or {}
+        self.stream_outcome = stream_outcome or outcome
+        self.emit_second_request = emit_second_request
+        self.terminal_while_pending = terminal_while_pending
+        self.resolutions = []
+
+    async def stream_profile_incremental(
+        self, profile_id, session_id, _message, *, session_key
+    ):
+        async def events():
+            yield HermesEvent(
+                "approval.request",
+                profile_id,
+                session_id,
+                "run-approval",
+                1,
+                {
+                    "hermes_approval_id": "approval-1",
+                    "action_kind": "plugin_tool",
+                    "action_label": "Connect Nabu",
+                    "action_preview": "Connect to Nabu",
+                    "expires_at": self.expires_at,
+                },
+            )
+            response = {
+                "hermes_approval_id": self.response_id,
+                "outcome": self.stream_outcome,
+            }
+            response.update(self.response_extra)
+            if self.emit_second_request:
+                yield HermesEvent(
+                    "approval.request",
+                    profile_id,
+                    session_id,
+                    "run-approval",
+                    2,
+                    {
+                        "hermes_approval_id": "approval-2",
+                        "action_kind": "plugin_tool",
+                        "action_label": "Connect Nabu",
+                        "action_preview": "Connect to Nabu",
+                        "expires_at": self.expires_at,
+                    },
+                )
+                return
+            if self.terminal_while_pending:
+                yield HermesEvent(
+                    "execution.completed",
+                    profile_id,
+                    session_id,
+                    "run-approval",
+                    2,
+                    {"run_id": "run-approval", "status": "completed"},
+                )
+                return
+            yield HermesEvent(
+                "approval.responded",
+                profile_id,
+                session_id,
+                "run-approval",
+                2,
+                response,
+            )
+            yield HermesEvent(
+                "execution.completed",
+                profile_id,
+                session_id,
+                "run-approval",
+                3,
+                {"run_id": "run-approval", "status": "completed"},
+            )
+
+        return CancellableHermesStream(events())
+
+    async def resolve_approval(
+        self,
+        profile_id,
+        session_id,
+        run_id,
+        hermes_approval_id,
+        decision,
+        *,
+        session_key,
+        deadline_at,
+    ):
+        self.resolutions.append(
+            {
+                "profile_id": profile_id,
+                "session_id": session_id,
+                "run_id": run_id,
+                "hermes_approval_id": hermes_approval_id,
+                "decision": decision,
+                "session_key": session_key,
+                "deadline_at": deadline_at,
+            }
+        )
+        return {
+            "status": self.outcome
+            if self.outcome in {"expired", "cancelled"}
+            else "accepted",
+            "outcome": self.outcome,
+        }
+
+
+def approval_status_payload(approval_request_id, *, expires_at, status, decision):
+    payload = {
+        "approval_request_id": approval_request_id,
+        "status": status,
+        "decision": decision,
+        "expires_at": expires_at,
+    }
+    if status == "decision_recorded":
+        payload["acknowledgement_deadline_at"] = (
+            datetime.now(UTC) + timedelta(seconds=30)
+        ).isoformat()
+    return payload
 
 
 @pytest.mark.asyncio
@@ -316,6 +458,1149 @@ async def test_worker_overlaps_profiles_and_completes_incremental_events():
         for call in transport.calls
         if "/events" in call[1] or "/complete" in call[1]
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("decision", "outcome"),
+    [
+        ("approve", "approved"),
+        ("reject", "rejected"),
+        ("approve", "expired"),
+        ("approve", "cancelled"),
+    ],
+)
+async def test_worker_resolves_approval_and_continues_the_same_turn(decision, outcome):
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="decision_recorded",
+                decision=decision,
+            ),
+        },
+        {"status": 202, "body": {"event_id": "resolved", "sequence": 3}},
+        {"session_id": "session-1"},
+        {
+            "attempt_id": "attempt-1",
+            "status": "succeeded",
+            "receipt_id": "receipt-approval",
+        },
+    )
+    hermes = ApprovalHermes(
+        expires_at=expires_at,
+        outcome=outcome,
+        decision=decision,
+    )
+    worker = FoundryWorker(
+        foundry,
+        hermes,
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    )
+
+    result = await worker.run(max_turns=1)
+
+    assert result[0].status == "succeeded"
+    assert len(hermes.resolutions) == 1
+    resolution = hermes.resolutions[0]
+    assert resolution["decision"] == decision
+    assert resolution["run_id"] == "run-approval"
+    assert resolution["hermes_approval_id"] == "approval-1"
+    assert resolution["session_id"] == "session-1"
+    assert resolution["session_key"].startswith("allies-k-")
+    event_types = [call[3]["type"] for call in transport.calls if "/events" in call[1]]
+    assert event_types == [
+        "execution.dispatched",
+        "execution.awaiting_action",
+        "execution.approval_resolved",
+    ]
+    assert transport.calls[-1][1].endswith("/complete")
+    resolution_events = [
+        call[3]
+        for call in transport.calls
+        if "/events" in call[1] and call[3]["type"] == "execution.approval_resolved"
+    ]
+    assert resolution_events[0]["payload"]["outcome"] == outcome
+
+
+@pytest.mark.asyncio
+async def test_worker_records_expired_approval_without_calling_resolver():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="expired",
+                decision=None,
+            ),
+        },
+        {"status": 202, "body": {"event_id": "resolved", "sequence": 3}},
+        {"session_id": "session-1"},
+        {
+            "attempt_id": "attempt-1",
+            "status": "succeeded",
+            "receipt_id": "receipt-expired",
+        },
+    )
+    hermes = ApprovalHermes(expires_at=expires_at, outcome="expired")
+    worker = FoundryWorker(
+        foundry,
+        hermes,
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    )
+
+    result = await worker.run(max_turns=1)
+
+    assert result[0].status == "succeeded"
+    assert hermes.resolutions == []
+    resolved_event = next(
+        call
+        for call in transport.calls
+        if call[3] and call[3].get("type") == "execution.approval_resolved"
+    )
+    assert resolved_event[3]["payload"] == {
+        "approval_request_id": approval_request_id,
+        "outcome": "expired",
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"remove": "action_preview"},
+        {"action_preview": None},
+        {"action_kind": "unsupported"},
+        {"expires_at": (datetime.now(UTC) - timedelta(seconds=1)).isoformat()},
+    ],
+)
+async def test_worker_fails_closed_on_malformed_approval_request(change):
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    payload = {
+        "hermes_approval_id": "approval-1",
+        "action_kind": "plugin_tool",
+        "action_label": "Connect Nabu",
+        "action_preview": "Connect to Nabu",
+        "expires_at": expires_at,
+    }
+    change = dict(change)
+    removed = change.pop("remove", None)
+    if removed is not None:
+        payload.pop(removed)
+    payload.update(change)
+
+    class MalformedHermes:
+        async def stream_profile_incremental(
+            self, profile_id, session_id, _message, *, session_key
+        ):
+            async def events():
+                yield HermesEvent(
+                    "approval.request",
+                    profile_id,
+                    session_id,
+                    "run-approval",
+                    1,
+                    payload,
+                )
+
+            return CancellableHermesStream(events())
+
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-malformed",
+        },
+    )
+    result = await FoundryWorker(foundry, MalformedHermes()).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    fail_call = next(call for call in transport.calls if "/fail" in call[1])
+    assert fail_call[3]["code"] == "malformed_response"
+
+
+@pytest.mark.asyncio
+async def test_worker_rejects_second_pending_approval_request():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="decision_recorded",
+                decision="approve",
+            ),
+        },
+        {"attempt_id": "attempt-1", "status": "failed", "receipt_id": "receipt-second"},
+    )
+    result = await FoundryWorker(
+        foundry,
+        ApprovalHermes(
+            expires_at=expires_at,
+            outcome="approved",
+            decision="approve",
+            emit_second_request=True,
+        ),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    assert next(call for call in transport.calls if "/fail" in call[1])[3]["code"] == (
+        "malformed_response"
+    )
+
+
+@pytest.mark.asyncio
+async def test_worker_rejects_terminal_event_while_approval_is_pending():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="decision_recorded",
+                decision="approve",
+            ),
+        },
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-pending",
+        },
+    )
+    result = await FoundryWorker(
+        foundry,
+        ApprovalHermes(
+            expires_at=expires_at,
+            outcome="approved",
+            decision="approve",
+            terminal_while_pending=True,
+        ),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    assert next(call for call in transport.calls if "/fail" in call[1])[3]["code"] == (
+        "malformed_response"
+    )
+
+
+@pytest.mark.asyncio
+async def test_worker_stops_when_approval_poll_loses_lease():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+
+    class LeaseLostWorker(FoundryWorker):
+        async def _wait_for_approval(
+            self, claim, approval_request_id, expires_at, lost
+        ):
+            lost.set()
+            return "cancelled", None, None
+
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {"attempt_id": "attempt-1", "state": "released", "requeued": True},
+    )
+    result = await LeaseLostWorker(
+        foundry,
+        ApprovalHermes(expires_at=expires_at, outcome="cancelled"),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].state == "released"
+    assert next(call for call in transport.calls if "/stopped" in call[1])[3] == {
+        "reason": "lease_lost"
+    }
+
+
+@pytest.mark.asyncio
+async def test_worker_fails_when_approval_resolution_window_closes(monkeypatch):
+    base = 1_000.0
+    expires_at = datetime.fromtimestamp(base + 1, UTC).isoformat()
+    acknowledgement_deadline = datetime.fromtimestamp(base + 10, UTC).isoformat()
+    clock = iter((base, base + 0.1, base + 0.2, base + 2))
+    monkeypatch.setattr(foundry_module.time, "time", lambda: next(clock, base + 2))
+
+    class ExpiringWorker(FoundryWorker):
+        async def _wait_for_approval(
+            self, claim, approval_request_id, expires_at, lost
+        ):
+            return "decision", "approve", acknowledgement_deadline
+
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {"attempt_id": "attempt-1", "status": "failed", "receipt_id": "receipt-window"},
+    )
+    result = await ExpiringWorker(
+        foundry,
+        ApprovalHermes(expires_at=expires_at, outcome="approved"),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    assert next(call for call in transport.calls if "/fail" in call[1])[3]["code"] == (
+        "hermes_error"
+    )
+
+
+@pytest.mark.asyncio
+async def test_worker_reconciles_lost_approval_resolution_before_continuing():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+
+    class LostResolutionHermes(ApprovalHermes):
+        async def resolve_approval(self, *args, **kwargs):
+            self.resolutions.append(
+                {
+                    "run_id": args[2],
+                    "hermes_approval_id": args[3],
+                    "decision": args[4],
+                }
+            )
+            raise HermesTimeout("resolution response was lost")
+
+        async def approval_status(self, *_args, **_kwargs):
+            return {"status": "resolved", "outcome": "approved"}
+
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="decision_recorded",
+                decision="approve",
+            ),
+        },
+        {"status": 202, "body": {"event_id": "resolved", "sequence": 3}},
+        {"session_id": "session-1"},
+        {
+            "attempt_id": "attempt-1",
+            "status": "succeeded",
+            "receipt_id": "receipt-reconciled",
+        },
+    )
+    hermes = LostResolutionHermes(
+        expires_at=expires_at,
+        outcome="approved",
+        decision="approve",
+    )
+
+    result = await FoundryWorker(
+        foundry,
+        hermes,
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "succeeded"
+    assert len(hermes.resolutions) == 1
+    assert [call[3]["type"] for call in transport.calls if "/events" in call[1]] == [
+        "execution.dispatched",
+        "execution.awaiting_action",
+        "execution.approval_resolved",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("acknowledgement_deadline", "error_code"),
+    [
+        ("not-a-date", "MALFORMED_RESPONSE"),
+        ((datetime.now(UTC) - timedelta(seconds=1)).isoformat(), "hermes_error"),
+    ],
+)
+async def test_worker_rejects_unusable_approval_acknowledgement_deadline(
+    acknowledgement_deadline, error_code
+):
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+    status = approval_status_payload(
+        approval_request_id,
+        expires_at=expires_at,
+        status="decision_recorded",
+        decision="approve",
+    )
+    status["acknowledgement_deadline_at"] = acknowledgement_deadline
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {"status": 200, "body": status},
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-deadline",
+        },
+    )
+    result = await FoundryWorker(
+        foundry,
+        ApprovalHermes(expires_at=expires_at, outcome="approved"),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    fail_call = next(call for call in transport.calls if "/fail" in call[1])
+    assert fail_call[3]["code"] == error_code
+
+
+@pytest.mark.asyncio
+async def test_worker_fails_closed_when_cancelled_approval_cannot_be_resolved():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+
+    class NoResolverHermes:
+        async def stream_profile_incremental(
+            self, profile_id, session_id, _message, *, session_key
+        ):
+            return await ApprovalHermes(
+                expires_at=expires_at, outcome="cancelled"
+            ).stream_profile_incremental(
+                profile_id,
+                session_id,
+                _message,
+                session_key=session_key,
+            )
+
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="cancelled",
+                decision=None,
+            ),
+        },
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-cancelled",
+        },
+    )
+    result = await FoundryWorker(
+        foundry,
+        NoResolverHermes(),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    fail_call = next(call for call in transport.calls if "/fail" in call[1])
+    assert fail_call[3]["code"] == "hermes_error"
+
+
+@pytest.mark.asyncio
+async def test_worker_converts_approval_resolution_timeout_to_failure():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+
+    class TimeoutHermes(ApprovalHermes):
+        async def resolve_approval(self, *_args, **_kwargs):
+            raise TimeoutError("resolution timed out")
+
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="decision_recorded",
+                decision="approve",
+            ),
+        },
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-timeout",
+        },
+    )
+    result = await FoundryWorker(
+        foundry,
+        TimeoutHermes(expires_at=expires_at, outcome="approved"),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    fail_call = next(call for call in transport.calls if "/fail" in call[1])
+    assert fail_call[3]["code"] == "timeout"
+
+
+@pytest.mark.asyncio
+async def test_worker_fails_when_approval_acknowledgement_is_unknown():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="outcome_unknown",
+                decision=None,
+            ),
+        },
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-unknown",
+        },
+    )
+    result = await FoundryWorker(
+        foundry,
+        ApprovalHermes(expires_at=expires_at, outcome="expired"),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    fail_call = next(call for call in transport.calls if "/fail" in call[1])
+    assert fail_call[3]["code"] == "hermes_error"
+
+
+@pytest.mark.asyncio
+async def test_worker_fails_when_terminal_resolution_receipt_conflicts_with_stream():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="decision_recorded",
+                decision="approve",
+            ),
+        },
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-mismatch",
+        },
+    )
+    result = await FoundryWorker(
+        foundry,
+        ApprovalHermes(
+            expires_at=expires_at,
+            outcome="expired",
+            decision="approve",
+            stream_outcome="approved",
+        ),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    assert next(call for call in transport.calls if "/fail" in call[1])[3]["code"] == (
+        "malformed_response"
+    )
+
+
+@pytest.mark.asyncio
+async def test_worker_fails_when_unresolved_approval_receipt_times_out():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+
+    class TimeoutHermes(ApprovalHermes):
+        async def resolve_approval(self, *_args, **_kwargs):
+            raise HermesTimeout("approval resolution timed out")
+
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="cancelled",
+                decision=None,
+            ),
+        },
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-timeout",
+        },
+    )
+    result = await FoundryWorker(
+        foundry,
+        TimeoutHermes(expires_at=expires_at, outcome="cancelled"),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    assert next(call for call in transport.calls if "/fail" in call[1])[3]["code"] == (
+        "timeout"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("response_id", "outcome", "response_extra"),
+    [
+        ("different-approval", "approved", {}),
+        ("approval-1", "rejected", {}),
+        ("approval-1", "invalid", {}),
+        ("approval-1", "approved", {"unexpected": True}),
+    ],
+)
+async def test_worker_rejects_conflicting_approval_response(
+    response_id, outcome, response_extra
+):
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="decision_recorded",
+                decision="approve",
+            ),
+        },
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-conflict",
+        },
+    )
+    hermes = ApprovalHermes(
+        expires_at=expires_at,
+        outcome=outcome,
+        decision="approve",
+        response_id=response_id,
+        response_extra=response_extra,
+    )
+    result = await FoundryWorker(
+        foundry,
+        hermes,
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    fail_call = next(call for call in transport.calls if "/fail" in call[1])
+    assert fail_call[3]["code"] == "malformed_response"
+
+
+@pytest.mark.asyncio
+async def test_worker_rejects_approval_response_without_a_pending_request():
+    class ResponseOnlyHermes:
+        async def stream_profile_incremental(
+            self, profile_id, session_id, _message, *, session_key
+        ):
+            async def events():
+                yield HermesEvent(
+                    "approval.responded",
+                    profile_id,
+                    session_id,
+                    "run-approval",
+                    1,
+                    {
+                        "hermes_approval_id": "approval-1",
+                        "outcome": "approved",
+                    },
+                )
+
+            return CancellableHermesStream(events())
+
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {
+            "attempt_id": "attempt-1",
+            "status": "failed",
+            "receipt_id": "receipt-no-pending",
+        },
+    )
+    result = await FoundryWorker(foundry, ResponseOnlyHermes()).run(max_turns=1)
+
+    assert result[0].status == "failed"
+    assert (
+        next(call for call in transport.calls if "/fail" in call[1])[3]["code"]
+        == "malformed_response"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stopped_response_lost", [False, True])
+async def test_worker_stops_when_approval_awaiting_event_response_is_lost(
+    stopped_response_lost,
+):
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        ResponseLossError("awaiting response lost"),
+        ResponseLossError("awaiting response lost"),
+        ServiceUnavailableError("stopped response lost")
+        if stopped_response_lost
+        else {"attempt_id": "attempt-1", "state": "released", "requeued": True},
+    )
+    result = await FoundryWorker(
+        foundry,
+        ApprovalHermes(expires_at=expires_at, outcome="expired"),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    if stopped_response_lost:
+        assert result == (None,)
+    else:
+        assert result[0].state == "released"
+        stopped = next(call for call in transport.calls if "/stopped" in call[1])
+        assert stopped[3] == {"reason": "event_response_lost"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stopped_response_lost", [False, True])
+async def test_worker_stops_when_approval_resolution_event_response_is_lost(
+    stopped_response_lost,
+):
+    expires_at = (datetime.now(UTC) + timedelta(seconds=60)).isoformat()
+    approval_request_id = foundry_module._approval_request_id(
+        "attempt-1", "run-approval", "approval-1"
+    )
+    foundry, transport = client(
+        CLAIM,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "awaiting", "sequence": 2}},
+        {
+            "status": 200,
+            "body": approval_status_payload(
+                approval_request_id,
+                expires_at=expires_at,
+                status="expired",
+                decision=None,
+            ),
+        },
+        ResponseLossError("resolved response lost"),
+        ResponseLossError("resolved response lost"),
+        ServiceUnavailableError("stopped response lost")
+        if stopped_response_lost
+        else {"attempt_id": "attempt-1", "state": "released", "requeued": True},
+    )
+    result = await FoundryWorker(
+        foundry,
+        ApprovalHermes(expires_at=expires_at, outcome="expired"),
+        renew_interval=0.1,
+        approval_poll_interval=0.01,
+    ).run(max_turns=1)
+
+    if stopped_response_lost:
+        assert result == (None,)
+    else:
+        assert result[0].state == "released"
+        stopped = next(call for call in transport.calls if "/stopped" in call[1])
+        assert stopped[3] == {"reason": "event_response_lost"}
+
+
+def _worker_claim():
+    return FoundryClaim(
+        attempt_id="attempt-1",
+        execution_id="execution-1",
+        profile_id="profile-1",
+        hermes_profile_key="ally-a",
+        model="gpt-5.6-luna",
+        conversation_id="cloud-1",
+        session_id="session-1",
+        stream_id="stream-1",
+        lease_id="lease-1",
+        lease_token="lease-secret",
+        expires_at="2026-08-09T12:00:00Z",
+        payload={"message": "hello"},
+        claim_id="claim-1",
+    )
+
+
+def _approval_expiry():
+    return (datetime.now(UTC) + timedelta(seconds=30)).isoformat()
+
+
+class PollFoundry:
+    def __init__(self, payload):
+        self.payload = payload
+
+    async def approval_status(self, *_args):
+        return self.payload
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("state", "decision", "expected"),
+    [
+        ("expired", None, ("expired", None, None)),
+        ("cancelled", None, ("cancelled", None, None)),
+        ("outcome_unknown", None, ("outcome_unknown", None, None)),
+    ],
+)
+async def test_wait_for_approval_returns_terminal_foundry_states(
+    state, decision, expected
+):
+    approval_id = "approval-request"
+    worker = FoundryWorker(
+        PollFoundry(
+            {
+                "approval_request_id": approval_id,
+                "status": state,
+                "decision": decision,
+            }
+        ),
+        object(),
+        approval_poll_interval=0.01,
+    )
+
+    result = await worker._wait_for_approval(
+        _worker_claim(),
+        approval_id,
+        _approval_expiry(),
+        asyncio.Event(),
+    )
+
+    assert result == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "transient_error",
+    [ResponseLossError, RateLimitedError, ServiceUnavailableError],
+)
+async def test_wait_for_approval_retries_transient_foundry_status_errors(
+    transient_error,
+):
+    class RetryingPollFoundry:
+        def __init__(self):
+            self.calls = 0
+
+        async def approval_status(self, *_args):
+            self.calls += 1
+            if self.calls == 1:
+                raise transient_error("temporary")
+            return {
+                "approval_request_id": "approval-request",
+                "status": "decision_recorded",
+                "decision": "approve",
+                "acknowledgement_deadline_at": _approval_expiry(),
+            }
+
+    foundry = RetryingPollFoundry()
+    worker = FoundryWorker(
+        foundry,
+        object(),
+        approval_poll_interval=0.001,
+    )
+
+    result = await worker._wait_for_approval(
+        _worker_claim(),
+        "approval-request",
+        _approval_expiry(),
+        asyncio.Event(),
+    )
+
+    assert result[:2] == ("decision", "approve")
+    assert foundry.calls == 2
+
+
+@pytest.mark.asyncio
+async def test_wait_for_approval_rejects_synchronous_status_poll_without_calling():
+    calls = []
+
+    class SyncPollFoundry:
+        def approval_status(self, *_args):
+            calls.append(True)
+            return {}
+
+    worker = FoundryWorker(SyncPollFoundry(), object())
+    with pytest.raises(FoundryError, match="must be asynchronous") as error:
+        await worker._wait_for_approval(
+            _worker_claim(),
+            "approval-request",
+            _approval_expiry(),
+            asyncio.Event(),
+        )
+
+    assert error.value.code == "APPROVAL_UNAVAILABLE"
+    assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_wait_for_approval_stops_after_transient_error_consumes_expiry(
+    monkeypatch,
+):
+    wall_times = iter((100.0, 100.2))
+    sleeps = []
+
+    def fake_time():
+        return next(wall_times, 100.2)
+
+    async def record_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr(foundry_module.time, "time", fake_time)
+    monkeypatch.setattr(foundry_module.asyncio, "sleep", record_sleep)
+
+    class ExpiredPollFoundry:
+        async def approval_status(self, *_args):
+            raise ResponseLossError("temporary")
+
+    worker = FoundryWorker(
+        ExpiredPollFoundry(),
+        object(),
+        approval_poll_interval=0.001,
+    )
+    result = await worker._wait_for_approval(
+        _worker_claim(),
+        "approval-request",
+        datetime.fromtimestamp(100.1, UTC),
+        asyncio.Event(),
+    )
+
+    assert result == ("expired", None, None)
+    assert sleeps == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "approval_request_id": "other-request",
+            "status": "pending",
+            "decision": None,
+        },
+        {
+            "approval_request_id": "approval-request",
+            "status": "decision_recorded",
+            "decision": "approve",
+        },
+        {
+            "approval_request_id": "approval-request",
+            "status": "decision_recorded",
+            "decision": "maybe",
+            "acknowledgement_deadline_at": _approval_expiry(),
+        },
+    ],
+)
+async def test_wait_for_approval_rejects_malformed_foundry_status(payload):
+    worker = FoundryWorker(
+        PollFoundry(payload),
+        object(),
+        approval_poll_interval=0.01,
+    )
+
+    with pytest.raises(FoundryError) as error:
+        await worker._wait_for_approval(
+            _worker_claim(),
+            "approval-request",
+            _approval_expiry(),
+            asyncio.Event(),
+        )
+
+    assert error.value.code == "MALFORMED_RESPONSE"
+
+
+@pytest.mark.asyncio
+async def test_reconcile_hermes_approval_retries_transient_status_and_marks_acknowledged():
+    class Hermes:
+        def __init__(self):
+            self.calls = 0
+
+        async def approval_status(self, *_args, **_kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                raise HermesDisconnected("temporary")
+            return {"status": "resolved", "outcome": "approved"}
+
+    hermes = Hermes()
+    worker = FoundryWorker(
+        object(),
+        hermes,
+        approval_poll_interval=0.001,
+    )
+    pending = {}
+
+    await worker._reconcile_hermes_approval(
+        "ally-a",
+        "session-1",
+        "run-1",
+        "approval-1",
+        "approve",
+        "session-key",
+        _approval_expiry(),
+        pending,
+    )
+
+    assert pending == {"acknowledged": "1"}
+    assert hermes.calls == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", ["expired", "cancelled"])
+async def test_terminal_status_reconciliation_records_receipt_without_resending(status):
+    class Hermes:
+        async def approval_status(self, *_args, **_kwargs):
+            return {"status": status, "outcome": status}
+
+        async def resolve_approval(self, *_args, **_kwargs):
+            pytest.fail("status reconciliation must never resend the decision")
+
+    worker = FoundryWorker(object(), Hermes(), approval_poll_interval=0.001)
+    pending = {}
+    await worker._reconcile_hermes_approval(
+        "ally-a",
+        "session-1",
+        "run-1",
+        "approval-1",
+        "approve",
+        "session-key",
+        _approval_expiry(),
+        pending,
+    )
+    assert pending == {"wait_outcome": status}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("status", "outcome", "error"),
+    [
+        ("resolved", "rejected", HermesMalformedResponse),
+        ("expired", None, HermesError),
+    ],
+)
+async def test_reconcile_hermes_approval_rejects_conflicting_terminal_state(
+    status, outcome, error
+):
+    class Hermes:
+        async def approval_status(self, *_args, **_kwargs):
+            return {"status": status, "outcome": outcome}
+
+    worker = FoundryWorker(object(), Hermes(), approval_poll_interval=0.001)
+    with pytest.raises(error):
+        await worker._reconcile_hermes_approval(
+            "ally-a",
+            "session-1",
+            "run-1",
+            "approval-1",
+            "approve",
+            "session-key",
+            _approval_expiry(),
+            {},
+        )
+
+
+@pytest.mark.asyncio
+async def test_reconcile_hermes_approval_requires_a_status_reader_and_bounded_deadline():
+    worker = FoundryWorker(object(), object())
+    with pytest.raises(HermesTimeout):
+        await worker._reconcile_hermes_approval(
+            "ally-a",
+            "session-1",
+            "run-1",
+            "approval-1",
+            "approve",
+            "session-key",
+            _approval_expiry(),
+            {},
+        )
+
+    class Hermes:
+        async def approval_status(self, *_args, **_kwargs):
+            return {"status": "pending"}
+
+    worker = FoundryWorker(object(), Hermes())
+    with pytest.raises(FoundryError, match="deadline was malformed"):
+        await worker._reconcile_hermes_approval(
+            "ally-a",
+            "session-1",
+            "run-1",
+            "approval-1",
+            "approve",
+            "session-key",
+            "not-a-date",
+            {},
+        )
 
 
 @pytest.mark.asyncio

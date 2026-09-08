@@ -27,6 +27,10 @@ from runtime.management.commands.activate_fly_workspace import (
 )
 from runtime.models import Workspace
 from runtime.services.activity import wait_for_workspace_activity
+from runtime.services.approvals import (
+    read_runtime_approval,
+    record_approval_decision,
+)
 from runtime.services.attempts import complete_attempt, fail_attempt
 from runtime.services.claims import claim_next_execution
 from runtime.services.events import append_runtime_event
@@ -50,6 +54,7 @@ from runtime.services.workspaces import register_workspace
 from runtime.soul import render_default_allies_soul
 
 from .schemas import (
+    ApprovalDecisionCommand,
     ClaimRequest,
     CleanupReceiptRequest,
     CompleteRequest,
@@ -362,6 +367,43 @@ def register(api: NinjaExtraAPI) -> None:
         except RuntimeDomainError as exc:
             return _execution_error(exc)
 
+    @api.post(
+        "/internal/approvals/{approval_request_id}/decision", auth=_cloud_service_auth
+    )
+    def approval_decision(
+        request: HttpRequest,
+        approval_request_id: UUID,
+        payload: ApprovalDecisionCommand,
+    ):
+        try:
+            if payload.approval_request_id != approval_request_id:
+                raise RuntimeValidationError("approval identity does not match path")
+            receipt = record_approval_decision(payload)
+            return JsonResponse(receipt.model_dump(mode="json"), status=200)
+        except RuntimeDomainError as exc:
+            return _execution_error(exc)
+
+    @api.get(
+        "/runtime/attempts/{attempt_id}/approval-requests/{approval_request_id}",
+        auth=None,
+    )
+    def approval_status(
+        request: HttpRequest,
+        attempt_id: UUID,
+        approval_request_id: UUID,
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            status = read_runtime_approval(
+                context,
+                attempt_id,
+                _lease_token(request),
+                approval_request_id,
+            )
+            return JsonResponse(_approval_status_json(status), status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
     @api.post("/runtime/attempts/{attempt_id}/lease/renew", auth=None)
     def renew(request: HttpRequest, attempt_id):
         try:
@@ -577,6 +619,8 @@ def _lease_token(request: HttpRequest) -> str:
 def _error(exc: RuntimeDomainError) -> JsonResponse:
     if isinstance(exc, RuntimeAuthorizationError):
         status = 401
+    elif isinstance(exc, RuntimeNotFoundError):
+        status = 404
     elif isinstance(exc, RuntimeValidationError):
         status = 422
     elif isinstance(exc, ActivityWaitSaturated):
@@ -627,6 +671,21 @@ def _terminal_json(receipt):
         "receipt_id": str(receipt.receipt_id),
         "requeued": receipt.requeued,
         "receipt": receipt.receipt,
+    }
+
+
+def _approval_status_json(status):
+    return {
+        "approval_request_id": str(status.approval_request_id),
+        "status": status.status,
+        "decision": status.decision,
+        "decided_at": _timestamp(status.decided_at) if status.decided_at else None,
+        "acknowledgement_deadline_at": (
+            _timestamp(status.acknowledgement_deadline_at)
+            if status.acknowledgement_deadline_at
+            else None
+        ),
+        "expires_at": _timestamp(status.expires_at),
     }
 
 

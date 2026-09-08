@@ -1,0 +1,1217 @@
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index 0aa8b7d..2735b64 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -48,6 +48,7 @@ import itertools
+ import json
+ from contextlib import contextmanager, nullcontext
+ from contextvars import ContextVar
++from datetime import datetime
+ from functools import wraps
+ import logging
+ import os
+@@ -2003,6 +2004,8 @@ class APIServerAdapter(BasePlatformAdapter):
+             ("PUT", "/api/sessions/{session_id}/bootstrap", self._handle_session_bootstrap),
+             ("POST", "/api/sessions/{session_id}/chat", self._handle_session_chat),
+             ("POST", "/api/sessions/{session_id}/chat/stream", self._handle_session_chat_stream),
++            ("POST", "/api/sessions/{session_id}/approval", self._handle_session_approval),
++            ("GET", "/api/sessions/{session_id}/approval/{hermes_approval_id}", self._handle_session_approval_status),
+             ("POST", "/api/sessions/{session_id}/model", self._handle_session_model_lock),
+             ("POST", "/v1/chat/completions", self._handle_chat_completions),
+             ("POST", "/v1/responses", self._handle_responses),
+@@ -3831,6 +3834,22 @@ class APIServerAdapter(BasePlatformAdapter):
+         message_id = f"msg_{uuid.uuid4().hex}"
+         run_id = f"run_{uuid.uuid4().hex}"
+         seq = 0
++        profile_id = _api_request_profile.get()
++        rich_requested = request.headers.get("X-Allies-Rich-Approvals", "").strip() == "1"
++        if rich_requested and (
++            not profile_id
++            or profile_id == "default"
++            or not gateway_session_key
++        ):
++            return web.json_response(
++                _openai_error(
++                    "Rich approvals require a profile-scoped session and X-Hermes-Session-Key",
++                    code="rich_approval_scope_required",
++                ),
++                status=403,
++            )
++        approval_gate_lock = threading.Lock() if rich_requested else None
++        agent_ref = [None]
+ 
+         def _event_payload(name: str, payload: Dict[str, Any]) -> tuple[str, Dict[str, Any]]:
+             nonlocal seq
+@@ -3891,7 +3910,53 @@ class APIServerAdapter(BasePlatformAdapter):
+                     payload["duration_ms"] = int(round(duration * 1000))
+             _enqueue(event_type, payload)
+ 
++        def _approval_notify(approval_data: Dict[str, Any]) -> None:
++            """Bridge one sanitized Hermes approval request onto session SSE."""
++
++            if not rich_requested:
++                return
++            event = {
++                "hermes_approval_id": approval_data.get("hermes_approval_id"),
++                "action_kind": approval_data.get("action_kind"),
++                "action_label": approval_data.get("action_label"),
++                "action_preview": approval_data.get("action_preview"),
++                "expires_at": approval_data.get("expires_at"),
++            }
++            if all(isinstance(event[key], str) and event[key] for key in event):
++                _enqueue("approval.request", event)
++
++        def _approval_response(response_data: Dict[str, Any]) -> None:
++            """Bridge the first terminal result for a rich approval to SSE."""
++
++            if not rich_requested or not isinstance(response_data, dict):
++                return
++            approval_id = response_data.get("hermes_approval_id")
++            outcome = response_data.get("outcome")
++            if (
++                isinstance(approval_id, str)
++                and approval_id
++                and outcome in {"approved", "rejected", "expired", "cancelled"}
++            ):
++                _enqueue(
++                    "approval.responded",
++                    {"hermes_approval_id": approval_id, "outcome": outcome},
++                )
++
++        approval_context = (
++            {
++                "profile_id": profile_id,
++                "session_id": session_id,
++                "run_id": run_id,
++                "session_key": gateway_session_key,
++                "gate_lock": approval_gate_lock,
++                "response_callback": _approval_response,
++            }
++            if rich_requested
++            else None
++        )
++
+         async def _run_and_signal() -> None:
++            approval_registered = False
+             try:
+                 await queue.put(_event_payload("run.started", {
+                     "user_message": {"role": "user", "content": user_message},
+@@ -3899,6 +3964,11 @@ class APIServerAdapter(BasePlatformAdapter):
+                 }))
+                 await queue.put(_event_payload("message.started", {"message": {"id": message_id, "role": "assistant"}}))
+                 history = await self._conversation_history_for_session(session_id)
++                if rich_requested:
++                    from tools.approval import register_gateway_notify
++
++                    register_gateway_notify(run_id, _approval_notify)
++                    approval_registered = True
+                 result, usage = await self._run_agent(
+                     user_message=user_message,
+                     conversation_history=history,
+@@ -3912,6 +3982,8 @@ class APIServerAdapter(BasePlatformAdapter):
+                     requested_runtime=runtime_request.get("requested") or {},
+                     route_source=runtime_request.get("route_source") or "global",
+                     confirmed_runtime_lock=lock_active,
++                    agent_ref=agent_ref,
++                    approval_context=approval_context,
+                     **agent_overrides,
+                 )
+                 final_response = _resolve_media_to_data_urls(result.get("final_response", "") if isinstance(result, dict) else "")
+@@ -3955,6 +4027,16 @@ class APIServerAdapter(BasePlatformAdapter):
+                 logger.exception("[api_server] session chat stream failed")
+                 await queue.put(_event_payload("error", {"message": _redact_api_error_text(exc)}))
+             finally:
++                if approval_registered:
++                    try:
++                        from tools.approval import unregister_gateway_notify
++
++                        unregister_gateway_notify(run_id)
++                    except Exception:
++                        logger.debug(
++                            "Failed to unregister rich Hermes approval callback",
++                            exc_info=True,
++                        )
+                 await queue.put(_event_payload("done", {}))
+                 await queue.put(None)
+ 
+@@ -3987,13 +4069,218 @@ class APIServerAdapter(BasePlatformAdapter):
+                     break
+                 name, payload = item
+                 await response.write(_sse_frame(payload, event=name, ensure_ascii=False))
+-        except (asyncio.CancelledError, ConnectionResetError):
++        except (ConnectionResetError, ConnectionAbortedError, BrokenPipeError, OSError):
++            agent = agent_ref[0] if agent_ref else None
++            if agent is not None:
++                try:
++                    request_hard_interrupt(agent, "SSE client disconnected")
++                except Exception:
++                    pass
++                _reap_disconnected_agent_processes(agent)
++            task.cancel()
++            raise
++        except asyncio.CancelledError:
++            agent = agent_ref[0] if agent_ref else None
++            if agent is not None:
++                try:
++                    request_hard_interrupt(agent, "SSE task cancelled")
++                except Exception:
++                    pass
++                _reap_disconnected_agent_processes(
++                    agent, source="api_server_sse_cancelled"
++                )
+             task.cancel()
+             raise
+         except Exception as exc:
+             logger.debug("[api_server] session SSE stream error: %s", exc)
+         return response
+ 
++    def _session_approval_scope_error(
++        self, request: "web.Request", session_key: Optional[str]
++    ) -> Optional["web.Response"]:
++        """Require the profile URL and memory key for rich approval control."""
++
++        profile = _api_request_profile.get()
++        if (
++            not profile
++            or profile == "default"
++            or request.match_info.get("profile") != profile
++        ):
++            return web.json_response(
++                _openai_error(
++                    "Profile-scoped approval control is required",
++                    code="profile_scope_required",
++                ),
++                status=403,
++            )
++        if not session_key:
++            return web.json_response(
++                _openai_error(
++                    "X-Hermes-Session-Key is required for approval control",
++                    code="session_key_required",
++                ),
++                status=400,
++            )
++        return None
++
++    @staticmethod
++    def _valid_approval_run_id(value: Any) -> bool:
++        return (
++            isinstance(value, str)
++            and bool(value)
++            and len(value) <= 255
++            and not any(ord(character) < 0x20 or ord(character) == 0x7F for character in value)
++        )
++
++    @staticmethod
++    def _valid_approval_deadline(value: Any) -> bool:
++        if not isinstance(value, str) or not value or len(value) > 80:
++            return False
++        normalized = value[:-1] + "+00:00" if value.endswith("Z") else value
++        try:
++            parsed = datetime.fromisoformat(normalized)
++        except (TypeError, ValueError):
++            return False
++        return parsed.tzinfo is not None
++
++    async def _handle_session_approval(self, request: "web.Request") -> "web.Response":
++        """POST /api/sessions/{id}/approval — resolve one rich approval."""
++
++        auth_err = self._check_auth(request)
++        if auth_err:
++            return auth_err
++        session_key, key_err = self._parse_session_key_header(request)
++        if key_err:
++            return key_err
++        scope_err = self._session_approval_scope_error(request, session_key)
++        if scope_err:
++            return scope_err
++        body, body_err = await self._read_json_body(request)
++        if body_err:
++            return body_err
++        if set(body) != {"run_id", "hermes_approval_id", "decision", "deadline_at"}:
++            return web.json_response(
++                _openai_error("Invalid Hermes approval decision", code="invalid_approval_decision"),
++                status=400,
++            )
++        run_id = body.get("run_id")
++        approval_id = body.get("hermes_approval_id")
++        decision = body.get("decision")
++        deadline_at = body.get("deadline_at")
++        if (
++            not self._valid_approval_run_id(run_id)
++            or not isinstance(approval_id, str)
++            or not approval_id
++            or len(approval_id) > 128
++            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in approval_id)
++            or decision not in {"approve", "reject"}
++            or not self._valid_approval_deadline(deadline_at)
++        ):
++            return web.json_response(
++                _openai_error("Invalid Hermes approval decision", code="invalid_approval_decision"),
++                status=400,
++            )
++        try:
++            from tools.approval import resolve_hermes_gateway_approval
++
++            result = resolve_hermes_gateway_approval(
++                _api_request_profile.get() or "",
++                request.match_info["session_id"],
++                run_id,
++                session_key,
++                approval_id,
++                decision,
++                deadline_at=deadline_at,
++            )
++        except Exception:
++            logger.exception("[api_server] Hermes approval resolution failed")
++            return web.json_response(
++                _openai_error("Hermes approval resolution failed", err_type="server_error"),
++                status=500,
++            )
++        result_status = result.get("status") if isinstance(result, dict) else None
++        if result_status == "invalid":
++            return web.json_response(
++                _openai_error("Invalid Hermes approval deadline", code="invalid_deadline"),
++                status=400,
++            )
++        if result_status == "not_found":
++            return web.json_response(
++                _openai_error("Hermes approval was not found", code="approval_not_found"),
++                status=404,
++            )
++        if result_status == "conflict":
++            return web.json_response(
++                _openai_error("Hermes approval already has another decision", code="approval_conflict"),
++                status=409,
++            )
++        if result_status in {"expired", "cancelled"}:
++            # Expiry and disconnect are terminal receipts, not resolver
++            # conflicts.  The worker can consume this receipt alongside the
++            # terminal ``approval.responded`` SSE outcome without replaying a
++            # decision against a request that is already closed.
++            return web.json_response(result, status=200)
++        if result_status not in {"accepted", "resolved"}:
++            return web.json_response(
++                _openai_error("Hermes approval could not be resolved", code="approval_not_pending"),
++                status=409,
++            )
++        return web.json_response(result, status=202 if result_status == "accepted" else 200)
++
++    async def _handle_session_approval_status(
++        self, request: "web.Request"
++    ) -> "web.Response":
++        """GET /api/sessions/{id}/approval/{approval} — read exact receipt."""
++
++        auth_err = self._check_auth(request)
++        if auth_err:
++            return auth_err
++        session_key, key_err = self._parse_session_key_header(request)
++        if key_err:
++            return key_err
++        scope_err = self._session_approval_scope_error(request, session_key)
++        if scope_err:
++            return scope_err
++        run_id = request.query.get("run_id", "")
++        approval_id = request.match_info.get("hermes_approval_id", "")
++        if not self._valid_approval_run_id(run_id):
++            return web.json_response(
++                _openai_error("A valid run_id query parameter is required", code="invalid_run_id"),
++                status=400,
++            )
++        if (
++            not isinstance(approval_id, str)
++            or not approval_id
++            or len(approval_id) > 128
++            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in approval_id)
++        ):
++            return web.json_response(
++                _openai_error("Invalid Hermes approval identity", code="invalid_approval_id"),
++                status=400,
++            )
++        try:
++            from tools.approval import get_hermes_gateway_approval
++
++            result = get_hermes_gateway_approval(
++                _api_request_profile.get() or "",
++                request.match_info["session_id"],
++                run_id,
++                approval_id,
++                session_key,
++            )
++        except Exception:
++            logger.exception("[api_server] Hermes approval status failed")
++            return web.json_response(
++                _openai_error("Hermes approval status failed", err_type="server_error"),
++                status=500,
++            )
++        if result is None:
++            return web.json_response(
++                _openai_error("Hermes approval was not found", code="approval_not_found"),
++                status=404,
++            )
++        return web.json_response(result)
++
+     async def _handle_session_model_lock(self, request: "web.Request") -> "web.Response":
+         """POST /api/sessions/{session_id}/model — backend-ack a Browser model lock."""
+         auth_err = self._check_auth(request)
+@@ -6128,6 +6415,7 @@ class APIServerAdapter(BasePlatformAdapter):
+         requested_runtime: Optional[Dict[str, Any]] = None,
+         route_source: str = "global",
+         confirmed_runtime_lock: bool = False,
++        approval_context: Optional[Dict[str, Any]] = None,
+     ) -> tuple:
+         """
+         Create an agent and run a conversation in a thread executor.
+@@ -6169,8 +6457,27 @@ class APIServerAdapter(BasePlatformAdapter):
+                     session_key=gateway_session_key or session_id or "",
+                     session_id=session_id or "",
+                 )
++                approval_context_token = None
++                approval_session_token = None
+                 agent = None
+                 try:
++                    if approval_context is not None:
++                        from tools.approval import (
++                            reset_current_hermes_approval_context,
++                            reset_current_session_key,
++                            set_current_hermes_approval_context,
++                            set_current_session_key,
++                        )
++
++                        approval_context_token = set_current_hermes_approval_context(
++                            **approval_context
++                        )
++                        approval_session_token = set_current_session_key(
++                            # Rich approval queues are run-scoped.  The
++                            # stable gateway key remains in the bound session
++                            # context and in the receipt for resolver auth.
++                            approval_context["run_id"]
++                        )
+                     agent = self._create_agent(
+                         ephemeral_system_prompt=ephemeral_system_prompt,
+                         session_id=session_id,
+@@ -6324,6 +6631,16 @@ class APIServerAdapter(BasePlatformAdapter):
+                     # in gateway/run.py's _run_sync_with_timeout_lifecycle.
+                     if agent is not None:
+                         _clear_turn_process_ownership(agent)
++                    if approval_session_token is not None:
++                        try:
++                            reset_current_session_key(approval_session_token)
++                        except Exception:
++                            pass
++                    if approval_context_token is not None:
++                        try:
++                            reset_current_hermes_approval_context(approval_context_token)
++                        except Exception:
++                            pass
+                     clear_session_vars(tokens)
+ 
+         self._activate_admitted_request()
+diff --git a/tools/approval.py b/tools/approval.py
+index f5e7f0b..9843a92 100644
+--- a/tools/approval.py
++++ b/tools/approval.py
+@@ -12,6 +12,7 @@ import contextvars
+ import fnmatch
+ import functools
+ import hashlib
++import json
+ import logging
+ import os
+ import re
+@@ -21,6 +22,8 @@ import tempfile
+ import threading
+ import time
+ import unicodedata
++import uuid
++from datetime import datetime, timezone
+ from typing import Optional
+ from hermes_cli.config import cfg_get
+ 
+@@ -51,6 +54,15 @@ _approval_tool_call_id: contextvars.ContextVar[str] = contextvars.ContextVar(
+     default="",
+ )
+ 
++# Rich Hermes session approvals carry their own identity and lifecycle rather
++# than using the legacy session FIFO.  The context is installed by the API
++# server only for the persisted-session stream; other gateway surfaces keep
++# the existing approval behavior.
++_hermes_approval_context: contextvars.ContextVar[Optional[dict]] = contextvars.ContextVar(
++    "hermes_approval_context",
++    default=None,
++)
++
+ # Interactive-CLI flag. Concurrent ACP sessions run on a shared
+ # ThreadPoolExecutor (acp_adapter/server.py), so mutating the process-global
+ # os.environ["HERMES_INTERACTIVE"] races: one session's restore in `finally`
+@@ -178,6 +190,45 @@ def reset_current_session_key(token: contextvars.Token[str]) -> None:
+     _approval_session_key.reset(token)
+ 
+ 
++def set_current_hermes_approval_context(
++    *,
++    profile_id: str,
++    session_id: str,
++    run_id: str,
++    session_key: str,
++    gate_lock=None,
++    response_callback=None,
++) -> contextvars.Token:
++    """Bind the exact persisted Hermes session identity for rich approvals."""
++
++    values = {
++        "profile_id": profile_id,
++        "session_id": session_id,
++        "run_id": run_id,
++        "session_key": session_key,
++        "gate_lock": gate_lock,
++        "response_callback": response_callback,
++    }
++    if any(
++        not isinstance(values[name], str)
++        or not values[name]
++        or len(values[name]) > 255
++        or any(ord(character) < 0x20 or ord(character) == 0x7F for character in values[name])
++        for name in ("profile_id", "session_id", "run_id", "session_key")
++    ):
++        raise ValueError("Hermes approval context identity was invalid")
++    if gate_lock is not None and not callable(getattr(gate_lock, "__enter__", None)):
++        raise ValueError("Hermes approval context gate lock was invalid")
++    if response_callback is not None and not callable(response_callback):
++        raise ValueError("Hermes approval response callback was invalid")
++    return _hermes_approval_context.set(values)
++
++
++def reset_current_hermes_approval_context(token: contextvars.Token) -> None:
++    """Restore the previous rich Hermes approval context."""
++    _hermes_approval_context.reset(token)
++
++
+ def set_current_observability_context(
+     *,
+     turn_id: str = "",
+@@ -2208,6 +2259,386 @@ _session_approved: dict[str, set] = {}
+ _session_yolo: set[str] = set()
+ _permanent_approved: set = set()
+ 
++# Rich session approval receipts are deliberately process-local.  Foundry
++# addresses the live Hermes turn and only needs a short reconciliation window
++# after a response is accepted; durable outcome state belongs to Foundry.
++_HERMES_APPROVAL_RETENTION_SECONDS = 30
++_HERMES_APPROVAL_MAX_RECORDS = 1024
++_hermes_approval_records: dict[str, dict] = {}
++
++
++def _prune_hermes_approval_records(now: float | None = None) -> None:
++    """Bound rich approval receipt memory without evicting pending waits."""
++
++    now = time.time() if now is None else now
++    for approval_id, record in list(_hermes_approval_records.items()):
++        terminal_at = record.get("terminal_at")
++        if terminal_at is not None and now - terminal_at > _HERMES_APPROVAL_RETENTION_SECONDS:
++            _hermes_approval_records.pop(approval_id, None)
++        elif terminal_at is None and now - record.get("expires_at_epoch", now) > _HERMES_APPROVAL_RETENTION_SECONDS:
++            # A crashed worker cannot run the normal waiter cleanup.  Drop
++            # abandoned pending records after the same bounded reconciliation
++            # window, while live pending records remain pinned in memory.
++            _hermes_approval_records.pop(approval_id, None)
++
++
++def _mark_hermes_entry_terminal(entry, status: str, *, outcome: str | None = None) -> None:
++    """Mark a rich approval terminal and wake its blocked agent thread."""
++
++    approval_id = entry.data.get("hermes_approval_id") if entry is not None else None
++    if not isinstance(approval_id, str):
++        return
++    record = _hermes_approval_records.get(approval_id)
++    if record is None:
++        return
++    current_status = record.get("status")
++    if current_status == "pending":
++        record["status"] = status
++        record["outcome"] = outcome
++        record["terminal_at"] = time.time()
++    # A disconnect can race a just-accepted HTTP decision.  Preserve the
++    # already-resolved receipt and wake the waiter with that same outcome.
++    if record.get("status") == "resolved" and record.get("outcome") == "approved":
++        entry.result = "once"
++    else:
++        entry.result = "deny"
++    entry.event.set()
++
++
++def _hermes_approval_response_payload(record: dict) -> dict:
++    """Return the bounded public receipt shape for one rich approval."""
++
++    return {
++        "object": "hermes.session.approval",
++        "profile_id": record["profile_id"],
++        "session_id": record["session_id"],
++        "run_id": record["run_id"],
++        "hermes_approval_id": record["hermes_approval_id"],
++        "status": record["status"],
++        "outcome": record.get("outcome"),
++        "expires_at": record["expires_at"],
++    }
++
++
++def _safe_hermes_plugin_preview(command: str) -> str | None:
++    """Redact URL credentials while retaining material plugin destinations.
++
++    ``redact_sensitive_text`` handles the common credential names and URL
++    userinfo.  Plugin links also carry opaque invite values under arbitrary
++    names, so this second, structured pass preserves ordinary destination
++    fields while masking values that look like credentials.  Ambiguous opaque
++    path segments on invite/connection links fail closed; ordinary document
++    paths remain visible for a useful approval decision.
++    """
++
++    try:
++        from urllib.parse import unquote_plus, urlsplit, urlunsplit
++
++        payload = json.loads(command)
++    except Exception:
++        return None
++    if not isinstance(payload, dict) or not isinstance(payload.get("tool"), str):
++        return None
++    link_key = re.compile(
++        r"(?:url|uri|link|invite|connection|callback|redirect)", re.IGNORECASE
++    )
++    secret_query_keys = frozenset(
++        {
++            "access_token",
++            "refresh_token",
++            "id_token",
++            "token",
++            "api_key",
++            "apikey",
++            "client_secret",
++            "password",
++            "passwd",
++            "auth",
++            "jwt",
++            "session",
++            "secret",
++            "key",
++            "code",
++            "signature",
++            "sig",
++            "nonce",
++            "state",
++            "x_amz_signature",
++        }
++    )
++    safe_query_keys = frozenset(
++        {
++            "workspace",
++            "recipient",
++            "project",
++            "document",
++            "file",
++            "folder",
++            "page",
++            "view",
++            "ref",
++            "id",
++            "name",
++            "target",
++            "channel",
++            "org",
++            "organization",
++            "tenant",
++        }
++    )
++    safe_fragment_keys = frozenset({"section", "anchor", "page", "view", "tab", "ref"})
++    unsafe = object()
++
++    def _normalized_key(value: str) -> str:
++        return unquote_plus(value).strip().lower().replace("-", "_")
++
++    def _sanitize_query(query: str) -> str | None:
++        if not query:
++            return ""
++        sanitized = []
++        for pair in query.split("&"):
++            if not pair:
++                sanitized.append(pair)
++                continue
++            key, separator, value = pair.partition("=")
++            normalized_key = _normalized_key(key)
++            if normalized_key in safe_query_keys:
++                sanitized.append(pair)
++            elif normalized_key in secret_query_keys:
++                sanitized.append(f"{key}=***")
++            else:
++                # Unknown URL query keys may carry opaque invite credentials.
++                # Withhold the whole approval rather than guessing whether a
++                # value is material context or a capability token.
++                return None
++        return "&".join(sanitized)
++
++    def _sanitize_fragment(fragment: str, *, semantic_link: bool) -> str | None:
++        if not fragment:
++            return ""
++        key, separator, value = fragment.partition("=")
++        normalized_key = _normalized_key(key)
++        if separator and normalized_key in safe_fragment_keys:
++            return fragment
++        if separator and normalized_key in secret_query_keys:
++            return f"{key}=***"
++        if not separator and (not semantic_link or len(fragment) < 16):
++            return fragment
++        # An unknown key/value fragment or an opaque invite anchor is
++        # ambiguous at an approval boundary.  Withhold the request rather
++        # than hiding material.
++        return None
++
++    def _url(value: str, key: str) -> str | None:
++        semantic_link = bool(
++            re.search(r"(?:invite|connection)", key, re.IGNORECASE)
++        )
++        if "://" not in value and not value.startswith("//"):
++            return None if semantic_link else value
++        try:
++            parsed = urlsplit(value)
++            if not parsed.netloc:
++                return None
++            host = parsed.hostname
++            if not host:
++                return None
++            try:
++                port = parsed.port
++            except ValueError:
++                return None
++            netloc = host
++            if ":" in host and not host.startswith("["):
++                netloc = f"[{host}]"
++            if port is not None:
++                netloc = f"{netloc}:{port}"
++            path_parts = parsed.path.split("/")
++            for index, part in enumerate(path_parts):
++                if (
++                    semantic_link
++                    and index > 0
++                    and len(part) >= 16
++                    and re.fullmatch(r"[A-Za-z0-9%_~.-]+", part)
++                ):
++                    # Invite/connection paths commonly contain one-time
++                    # capabilities.  Preserve short human-readable routes;
++                    # withhold an ambiguous long segment rather than masking
++                    # a material target and proceeding.
++                    return None
++            query = _sanitize_query(parsed.query)
++            fragment = _sanitize_fragment(parsed.fragment, semantic_link=semantic_link)
++            if query is None or fragment is None:
++                return None
++            return urlunsplit(
++                (parsed.scheme, netloc, "/".join(path_parts), query, fragment)
++            )
++        except Exception:
++            return None
++
++    def _value(value, key: str = ""):
++        if isinstance(value, dict):
++            result = {}
++            for child_key, child_value in value.items():
++                if not isinstance(child_key, str):
++                    return unsafe
++                sanitized = _value(child_value, child_key)
++                if sanitized is unsafe:
++                    return unsafe
++                result[child_key] = sanitized
++            return result
++        if isinstance(value, list):
++            result = []
++            for child_value in value:
++                sanitized = _value(child_value, key)
++                if sanitized is unsafe:
++                    return unsafe
++                result.append(sanitized)
++            return result
++        if isinstance(value, str) and link_key.search(key):
++            sanitized = _url(value, key)
++            return sanitized if sanitized is not None else unsafe
++        return value
++
++    sanitized = _value(payload)
++    if sanitized is unsafe:
++        return None
++    try:
++        return json.dumps(
++            sanitized,
++            sort_keys=True,
++            ensure_ascii=False,
++            separators=(",", ":"),
++            default=str,
++        )
++    except Exception:
++        return None
++
++
++def _hermes_deadline_epoch(value: str | None) -> float | None:
++    """Parse a timezone-aware RFC3339 approval acknowledgement deadline."""
++
++    if value is None:
++        return None
++    if not isinstance(value, str) or not value or len(value) > 80:
++        return None
++    try:
++        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
++    except (TypeError, ValueError):
++        return None
++    if parsed.tzinfo is None:
++        return None
++    return parsed.timestamp()
++
++
++def resolve_hermes_gateway_approval(
++    profile_id: str,
++    session_id: str,
++    run_id: str,
++    session_key: str,
++    hermes_approval_id: str,
++    decision: str,
++    *,
++    deadline_at: str,
++) -> dict:
++    """Resolve one rich approval by exact run-scoped ID.
++
++    ``resolve_gateway_approval`` remains the legacy FIFO resolver.  This
++    resolver never searches another session or consumes another request.
++    """
++
++    deadline_epoch = _hermes_deadline_epoch(deadline_at)
++    if (
++        not all(
++            isinstance(value, str) and bool(value)
++            for value in (profile_id, session_id, run_id, session_key)
++        )
++        or not isinstance(hermes_approval_id, str)
++        or not hermes_approval_id
++        or decision not in {"approve", "reject"}
++        or deadline_epoch is None
++    ):
++        return {"status": "invalid"}
++    with _lock:
++        now = time.time()
++        _prune_hermes_approval_records(now)
++        record = _hermes_approval_records.get(hermes_approval_id)
++        if record is None or any(
++            record.get(field) != expected
++            for field, expected in (
++                ("profile_id", profile_id),
++                ("session_id", session_id),
++                ("run_id", run_id),
++                ("session_key", session_key),
++            )
++        ):
++            return {"status": "not_found"}
++        current = record.get("status")
++        if current == "pending":
++            effective_deadline = record["expires_at_epoch"]
++            effective_deadline = min(effective_deadline, deadline_epoch)
++            if now >= effective_deadline:
++                record["status"] = "expired"
++                record["outcome"] = "expired"
++                record["terminal_at"] = now
++                entry = record.get("entry")
++                if entry is not None:
++                    entry.result = "deny"
++                    entry.event.set()
++                return _hermes_approval_response_payload(record)
++            record["decision"] = decision
++            record["status"] = "resolved"
++            record["outcome"] = "approved" if decision == "approve" else "rejected"
++            record["decided_at"] = now
++            record["terminal_at"] = now
++            entry = record.get("entry")
++            if entry is not None:
++                entry.result = "once" if decision == "approve" else "deny"
++                entry.event.set()
++            payload = _hermes_approval_response_payload(record)
++            payload["status"] = "accepted"
++            return payload
++        if current == "resolved":
++            if record.get("decision") != decision:
++                return {"status": "conflict"}
++            return _hermes_approval_response_payload(record)
++        # Expiry/cancellation can race the HTTP resolver.  Return a terminal
++        # receipt so the runtime can consume the matching response event and
++        # record the durable outcome without retrying a new action.
++        return _hermes_approval_response_payload(record)
++
++
++def get_hermes_gateway_approval(
++    profile_id: str,
++    session_id: str,
++    run_id: str,
++    hermes_approval_id: str,
++    session_key: str,
++) -> dict | None:
++    """Read one rich approval only when every routing identity matches."""
++
++    with _lock:
++        now = time.time()
++        _prune_hermes_approval_records(now)
++        record = _hermes_approval_records.get(hermes_approval_id)
++        if record is None or any(
++            record.get(field) != expected
++            for field, expected in (
++                ("profile_id", profile_id),
++                ("session_id", session_id),
++                ("run_id", run_id),
++                ("session_key", session_key),
++            )
++        ):
++            return None
++        if record.get("status") == "pending" and now >= record["expires_at_epoch"]:
++            record["status"] = "expired"
++            record["outcome"] = "expired"
++            record["terminal_at"] = now
++            entry = record.get("entry")
++            if entry is not None:
++                entry.result = "deny"
++                entry.event.set()
++        return _hermes_approval_response_payload(record)
++
+ # =========================================================================
+ # Consecutive-denial circuit breaker for smart approvals
+ # =========================================================================
+@@ -2331,6 +2762,8 @@ def unregister_gateway_notify(session_key: str) -> None:
+     with _lock:
+         _gateway_notify_cbs.pop(session_key, None)
+         entries = _gateway_queues.pop(session_key, [])
++        for entry in entries:
++            _mark_hermes_entry_terminal(entry, "cancelled", outcome="cancelled")
+     for entry in entries:
+         entry.event.set()
+ 
+@@ -2986,6 +3419,8 @@ def _run_approval_gate(
+     autoapprove_log_prefix: str,
+     fail_closed_when_no_human: bool = False,
+     no_human_block_message: str = "",
++    action_kind: str = "terminal",
++    action_label: str = "Run terminal command",
+ ) -> dict:
+     """Shared human-approval gate for a flagged action (command or tool).
+ 
+@@ -3103,6 +3538,8 @@ def _run_approval_gate(
+                 "pattern_key": pattern_key,
+                 "pattern_keys": [pattern_key],
+                 "description": redact_sensitive_text(description),
++                "action_kind": action_kind,
++                "action_label": action_label,
+                 "allow_permanent": True,
+                 "allow_session": True,
+             }
+@@ -3321,6 +3758,7 @@ def request_tool_approval(
+     *,
+     rule_key: str = "",
+     approval_callback=None,
++    tool_args: Optional[dict] = None,
+ ) -> dict:
+     """Escalate an arbitrary tool call to the human-approval gate.
+ 
+@@ -3375,8 +3813,32 @@ def request_tool_approval(
+     # to avoid ever colliding with a real command pattern key.
+     pattern_key = f"plugin_rule:{key_suffix}"
+     # A synthetic "command" string for the display/allowlist layer. It never
+-    # executes; it only labels the gate. Namespaced identically.
+-    display_target = f"<{tool_name}> (plugin approval rule)"
++    # executes; it labels the gate and includes the complete redacted call so
++    # the rich Hermes UI can explain what the plugin asked to run. Rich
++    # sessions require the actual intercepted argument object; silently
++    # replacing missing args with ``{}`` would hide the operation being gated.
++    if isinstance(_hermes_approval_context.get(), dict) and not isinstance(tool_args, dict):
++        display_target = ""
++    elif isinstance(tool_args, dict):
++        try:
++            display_target = json.dumps(
++                {"tool": tool_name, "args": tool_args},
++                sort_keys=True,
++                ensure_ascii=False,
++                separators=(",", ":"),
++                default=str,
++            )
++        except Exception:
++            display_target = ""
++    else:
++        display_target = f"<{tool_name}> (plugin approval rule)"
++    if not display_target:
++        return {
++            "approved": False,
++            "message": f"BLOCKED: plugin approval preview for {tool_name} was unavailable.",
++            "pattern_key": pattern_key,
++            "description": description,
++        }
+ 
+     return _run_approval_gate(
+         pattern_key=pattern_key,
+@@ -3399,6 +3861,8 @@ def request_tool_approval(
+             "but no interactive user or gateway is present to approve it. "
+             "A plugin flagged this action for human confirmation."
+         ),
++        action_kind="plugin_tool",
++        action_label=f"Use {tool_name} plugin",
+     )
+ 
+ 
+@@ -3435,6 +3899,22 @@ def _format_tirith_description(tirith_result: dict) -> str:
+ 
+ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
+                             *, surface: str = "gateway") -> dict:
++    """Serialize rich persisted-session prompts within one Hermes run."""
++
++    context = _hermes_approval_context.get()
++    gate_lock = context.get("gate_lock") if isinstance(context, dict) else None
++    if gate_lock is None:
++        return _await_gateway_decision_impl(
++            session_key, notify_cb, approval_data, surface=surface
++        )
++    with gate_lock:
++        return _await_gateway_decision_impl(
++            session_key, notify_cb, approval_data, surface=surface
++        )
++
++
++def _await_gateway_decision_impl(session_key: str, notify_cb, approval_data: dict,
++                                 *, surface: str = "gateway") -> dict:
+     """Enqueue *approval_data*, notify the user, and block the calling agent
+     thread until the request is resolved or the gateway approval timeout
+     elapses — firing pre/post approval hooks and cleaning up the queue entry.
+@@ -3452,9 +3932,144 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
+     description = approval_data.get("description", "")
+     primary_key = approval_data.get("pattern_key", "")
+     all_keys = approval_data.get("pattern_keys", [primary_key])
++    context = _hermes_approval_context.get()
++    rich_context = context if isinstance(context, dict) else None
++    rich_record = None
+ 
+-    entry = _ApprovalEntry(approval_data)
++    # A serialized waiter can outlive the HTTP stream's disconnect.  Refuse a
++    # stale callback before adding another entry so a queued tool cannot
++    # resurrect a closed session after its first approval is cancelled.
+     with _lock:
++        if rich_context is not None and _gateway_notify_cbs.get(session_key) is not notify_cb:
++            return {
++                "resolved": True,
++                "choice": "deny",
++                "reason": "session cancelled",
++                "cancelled": True,
++            }
++
++    entry_data = dict(approval_data)
++    if rich_context is not None:
++        action_kind = entry_data.get("action_kind")
++        if action_kind not in {"terminal", "execute_code", "plugin_tool"}:
++            # The rich client renders a fixed action contract.  Coercing an
++            # omitted or unknown kind to terminal would misrepresent the
++            # operation at the approval boundary, so deny before creating a
++            # receipt, queue entry, or notification.
++            return {
++                "resolved": True,
++                "choice": "deny",
++                "reason": "unsupported approval action kind",
++                "notify_failed": True,
++            }
++        action_label = entry_data.get("action_label")
++        if not isinstance(action_label, str) or not action_label or "\x00" in action_label:
++            action_label = {
++                "terminal": "Run terminal command",
++                "execute_code": "Run code",
++                "plugin_tool": "Use plugin tool",
++            }[action_kind]
++        action_label = action_label[:120]
++        try:
++            from agent.redact import redact_sensitive_text
++
++            action_preview = redact_sensitive_text(
++                str(command), force=True, redact_url_credentials=True
++            )
++        except Exception:
++            # Approval previews are a secret-egress boundary.  A redaction
++            # failure must block the action instead of returning the source.
++            return {
++                "resolved": True,
++                "choice": "deny",
++                "reason": "approval preview redaction failed",
++                "notify_failed": True,
++            }
++        if "\x00" in action_preview:
++            return {
++                "resolved": True,
++                "choice": "deny",
++                "reason": "approval preview contained NUL",
++                "notify_failed": True,
++            }
++        if action_kind == "plugin_tool":
++            action_preview = _safe_hermes_plugin_preview(action_preview)
++            if not action_preview:
++                return {
++                    "resolved": True,
++                    "choice": "deny",
++                    "reason": "plugin approval preview was not safely representable",
++                    "notify_failed": True,
++                }
++        try:
++            preview_bytes = action_preview.encode("utf-8")
++        except UnicodeEncodeError:
++            preview_bytes = b""
++        if not preview_bytes or len(preview_bytes) > 16 * 1024:
++            return {
++                "resolved": True,
++                "choice": "deny",
++                "reason": "approval preview exceeded its size limit",
++                "notify_failed": True,
++            }
++        lifetime = min(max(float(_get_approval_timeout()), 1.0), 300.0)
++        expires_at_epoch = time.time() + lifetime
++        expires_at = datetime.fromtimestamp(
++            expires_at_epoch, timezone.utc
++        ).isoformat(timespec="milliseconds").replace("+00:00", "Z")
++        approval_id = str(uuid.uuid4())
++        entry_data.update(
++            {
++                "hermes_approval_id": approval_id,
++                "action_kind": action_kind,
++                "action_label": action_label,
++                "action_preview": action_preview,
++                "expires_at": expires_at,
++            }
++        )
++        rich_record = {
++            "hermes_approval_id": approval_id,
++            "profile_id": rich_context["profile_id"],
++            "session_id": rich_context["session_id"],
++            "run_id": rich_context["run_id"],
++            "session_key": rich_context["session_key"],
++            "expires_at": expires_at,
++            "expires_at_epoch": expires_at_epoch,
++            "status": "pending",
++            "outcome": None,
++            "decision": None,
++            "decided_at": None,
++            "terminal_at": None,
++            "entry": None,
++            "response_callback": rich_context.get("response_callback"),
++        }
++
++    entry = _ApprovalEntry(entry_data)
++    if rich_record is not None:
++        rich_record["entry"] = entry
++    with _lock:
++        if rich_record is not None:
++            # Redaction/preview construction runs outside the lock.  The
++            # stream may disconnect during that work, so verify the exact
++            # callback again immediately before publishing a new record and
++            # queue entry.  Otherwise a stale waiter could resurrect a
++            # cancelled approval after the disconnect has already drained it.
++            if _gateway_notify_cbs.get(session_key) is not notify_cb:
++                return {
++                    "resolved": True,
++                    "choice": "deny",
++                    "reason": "session cancelled",
++                    "cancelled": True,
++                }
++            _prune_hermes_approval_records()
++            if len(_hermes_approval_records) >= _HERMES_APPROVAL_MAX_RECORDS:
++                return {
++                    "resolved": True,
++                    "choice": "deny",
++                    "reason": "approval receipt capacity is full",
++                    "notify_failed": True,
++                }
++            _hermes_approval_records[rich_record["hermes_approval_id"]] = rich_record
+         _gateway_queues.setdefault(session_key, []).append(entry)
+ 
+     def _drop_entry() -> None:
+@@ -3479,7 +4094,7 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
+ 
+     # Notify the user (bridges sync agent thread → async gateway)
+     try:
+-        notify_cb(approval_data)
++        notify_cb(entry_data)
+     except Exception as exc:
+         logger.warning("Gateway approval notify failed: %s", exc)
+         _drop_entry()
+@@ -3493,6 +4108,11 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
+             surface=surface,
+             choice="notify_failed",
+         )
++        if rich_record is not None:
++            with _lock:
++                rich_record["status"] = "cancelled"
++                rich_record["outcome"] = "cancelled"
++                rich_record["terminal_at"] = time.time()
+         return {"resolved": False, "choice": None, "notify_failed": True}
+ 
+     # Block until the user responds or the canonical approval timeout elapses
+@@ -3541,6 +4161,38 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
+     _drop_entry()
+ 
+     choice = entry.result
++    response_callback = None
++    response_payload = None
++    if rich_record is not None:
++        with _lock:
++            current_status = rich_record.get("status")
++            if current_status == "pending":
++                if not resolved:
++                    rich_record["status"] = "expired"
++                    rich_record["outcome"] = "expired"
++                elif choice == "once":
++                    rich_record["status"] = "resolved"
++                    rich_record["outcome"] = "approved"
++                    rich_record["decision"] = "approve"
++                else:
++                    rich_record["status"] = "resolved"
++                    rich_record["outcome"] = "rejected"
++                    rich_record["decision"] = "reject"
++                rich_record["terminal_at"] = time.time()
++            outcome = rich_record.get("outcome") or "cancelled"
++            if not rich_record.get("response_emitted"):
++                rich_record["response_emitted"] = True
++                response_callback = rich_record.get("response_callback")
++                response_payload = {
++                    "hermes_approval_id": rich_record["hermes_approval_id"],
++                    "outcome": outcome,
++                }
++    if response_callback is not None and response_payload is not None:
++        try:
++            response_callback(response_payload)
++        except Exception:
++            logger.debug("Hermes approval response callback failed", exc_info=True)
++
+     # Normalize outcome for the post hook. Unresolved (timeout) and None both
+     # mean the user never responded; report that explicitly so plugins can
+     # distinguish timeout from explicit deny.
+@@ -3849,6 +4501,8 @@ def check_all_command_guards(command: str, env_type: str,
+                 "pattern_key": primary_key,
+                 "pattern_keys": all_keys,
+                 "description": redact_sensitive_text(combined_desc),
++                "action_kind": "terminal",
++                "action_label": "Run terminal command",
+                 # Smart DENY overrides are one-operation decisions, so the UI
+                 # must not offer a permanent scope.  Otherwise offer Always
+                 # whenever any dangerous-pattern warning can actually be
+@@ -4222,6 +4876,8 @@ def check_execute_code_guard(code: str, env_type: str,
+         "pattern_key": pattern_key,
+         "pattern_keys": [pattern_key],
+         "description": display_description,
++        "action_kind": "execute_code",
++        "action_label": "Run code",
+         "allow_permanent": not smart_denied_for_owner,
+         "allow_session": not smart_denied_for_owner,
+     }
+diff --git a/hermes_cli/plugins.py b/hermes_cli/plugins.py
+index 23ed3c2..0edb6cf 100644
+--- a/hermes_cli/plugins.py
++++ b/hermes_cli/plugins.py
+@@ -2298,6 +2298,7 @@ def resolve_pre_tool_block(
+                     tool_name,
+                     details.message or "",
+                     rule_key=details.rule_key or tool_name,
++                    tool_args=args if isinstance(args, dict) else None,
+                 )
+             finally:
+                 if approval_tokens is not None:

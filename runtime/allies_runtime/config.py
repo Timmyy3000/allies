@@ -276,6 +276,7 @@ class RuntimeSettings:
     wide_events: WideEventSettings = field(default_factory=WideEventSettings)
     activity_wait_enabled: bool = True
     activity_wait_seconds: float = 5.0
+    rich_approvals_enabled: bool = False
 
 
 def load_settings(env: Mapping[str, object] | None = None) -> RuntimeSettings:
@@ -345,6 +346,9 @@ def load_settings(env: Mapping[str, object] | None = None) -> RuntimeSettings:
             "ALLIES_RUNTIME_ACTIVITY_WAIT_SECONDS",
             5.0,
             maximum=5.0,
+        ),
+        rich_approvals_enabled=_observability_bool(
+            values, "ALLIES_RICH_APPROVALS_ENABLED", False
         ),
     )
 
