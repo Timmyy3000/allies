@@ -26,6 +26,11 @@ from allies_runtime.reconciliation import (
     ProfileReconciliationBlocked,
 )
 
+MULTILINE_JOB = (
+    "I want you to teach my German \n"
+    "I am currently at the A1 level and just started at A2"
+)
+
 
 class QueueTransport:
     def __init__(self, *responses):
@@ -154,10 +159,17 @@ async def test_foundry_client_rejects_malformed_profile_response():
 async def test_profile_reconciler_materializes_then_acknowledges_store_receipt(
     tmp_path, monkeypatch
 ):
+    rendered_seed = (
+        "# ally-a\n\n"
+        "## Your job\n\n"
+        f"> {MULTILINE_JOB}\n\n"
+        "## Your personality\n\n"
+        "> Exact personality\n"
+    )
     seed = ProfileSeed(
         foundry_profile_id="12345678-1234-5678-1234-567812345678",
         ally_name="ally-a",
-        personality="Exact personality",
+        personality=rendered_seed,
         provider="openai",
         model="gpt-test",
         first_chat_instruction="Ask one useful question.",
@@ -226,20 +238,20 @@ async def test_profile_reconciler_materializes_then_acknowledges_store_receipt(
         api_key_factory=lambda: "profile-local-key-0123456789",
         credential_resolver={"vault://providers/ally-a": "secret"},
     )
-    report = await ProfileReconciler(
-        foundry, store, correlation_id="boot-1"
-    ).reconcile()
+    reconciler = ProfileReconciler(foundry, store, correlation_id="boot-1")
+    report = await reconciler.reconcile()
     assert len(report.materialized) == 1
     assert foundry.receipts[0][1]["seed_fingerprint"] == seed.fingerprint
-    profile_config = (
-        tmp_path / "volume" / "profiles" / seed.profile_key / "config.yaml"
-    ).read_text(encoding="utf-8")
+    assert report.materialized[0].seed_fingerprint == seed.fingerprint
+    profile_root = tmp_path / "volume" / "profiles" / seed.profile_key
+    soul_path = profile_root / "SOUL.md"
+    assert soul_path.read_bytes() == rendered_seed.encode("utf-8")
+    assert soul_path.read_text(encoding="utf-8") == rendered_seed
+    profile_config = (profile_root / "config.yaml").read_text(encoding="utf-8")
     assert 'provider: "allies_mnemosyne"' in profile_config
     assert 'mode: "context_only"' in profile_config
     materialization_events = [
-        event
-        for event in events
-        if event.get("operation") == "profile_materialization"
+        event for event in events if event.get("operation") == "profile_materialization"
     ]
     assert [event["event"] for event in materialization_events] == [
         "runtime.operation.started",
@@ -260,6 +272,12 @@ async def test_profile_reconciler_materializes_then_acknowledges_store_receipt(
         ]
         assert child_events[0]["request_id"] == child_events[1]["request_id"]
         assert child_events[0]["correlation_id"] == "boot-1"
+    first_soul = soul_path.read_bytes()
+    second_report = await reconciler.reconcile()
+    assert len(second_report.materialized) == 1
+    assert second_report.materialized[0].result_code == "existing"
+    assert soul_path.read_bytes() == first_soul
+    assert list(profile_root.parent.iterdir()).count(profile_root) == 1
 
 
 class StaticFoundry:
