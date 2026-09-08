@@ -6,6 +6,7 @@ import { ShinyText } from "../../components/text-animations/shiny-text";
 
 import styles from "./conversation-frame.module.css";
 import { useIsMobileHome } from "./use-is-mobile-home";
+import { ActivityIcon } from "./activity-icon";
 
 export type FrameAvatar = ReactNode;
 
@@ -246,6 +247,8 @@ export interface ActivityDisclosureEntry {
   id: string;
   text: string;
   tone?: "accent" | "muted" | "default";
+  activityKind?: string | null;
+  durationMs?: number | null;
 }
 
 export function ActivityDisclosure({
@@ -254,9 +257,11 @@ export function ActivityDisclosure({
   open,
   onToggle,
   className = "",
+  ongoing = false,
 }: {
   label: string;
   entries: readonly ActivityDisclosureEntry[];
+  ongoing?: boolean;
   open?: boolean;
   onToggle?: (open: boolean) => void;
   className?: string;
@@ -264,18 +269,24 @@ export function ActivityDisclosure({
   return (
     <details
       className={`${styles.frameActivity} ${className}`}
+      data-ongoing={ongoing}
       {...(open === undefined ? {} : { open })}
       onToggle={(event) => onToggle?.(event.currentTarget.open)}
     >
       <summary>
+        <span role={ongoing ? "status" : undefined} aria-live={ongoing ? "polite" : undefined} aria-atomic={ongoing ? true : undefined}>
+          <span key={label} className={styles.frameActivityLabel}>
+            {ongoing ? <ShinyText color="var(--chat-accent)">{label}</ShinyText> : label}
+          </span>
+        </span>
         <span className={styles.frameActivityChevron} aria-hidden="true"><ChevronIcon /></span>
-        <ShinyText color="var(--chat-accent)">{label}</ShinyText>
       </summary>
       <div className={styles.frameActivityEntries}>
         {entries.map((entry) => (
           <div className={`${styles.frameActivityEntry} ${entry.tone === "accent" ? styles.frameActivityAccent : entry.tone === "muted" ? styles.frameActivityMuted : ""}`} key={entry.id}>
-            <span className={styles.frameActivityDot} aria-hidden="true" />
-            <ShinyText color="var(--chat-accent)">{entry.text}</ShinyText>
+            <ActivityIcon kind={entry.activityKind} tone={entry.tone} />
+            <span>{entry.text}</span>
+            {entry.durationMs != null ? <small>{entry.durationMs > 0 && entry.durationMs < 1000 ? "<1" : Math.round(entry.durationMs / 1000)}s</small> : null}
           </div>
         ))}
       </div>

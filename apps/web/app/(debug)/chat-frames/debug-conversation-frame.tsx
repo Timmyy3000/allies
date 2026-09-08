@@ -149,7 +149,7 @@ function DebugTimelineBlock({
   }
 
   if (item.kind === "activity") {
-    return <ActivityDisclosure label={item.label} entries={item.entries} open={item.open} />;
+    return <ActivityDisclosure label={item.label} entries={item.entries} open={item.open} ongoing />;
   }
 
   if (item.kind === "thinking") {

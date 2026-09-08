@@ -38,7 +38,7 @@ describe("readActivityStream", () => {
           'data: {"conversation_id":"conversation","cursor":"cursor-ready","high_water_sequence":4}\n\n',
           "id: cursor-activity\n",
           "event: activity\n",
-          'data: {"conversation_id":"conversation","cursor":"cursor-activity","activity":{"id":"activity","message_id":"message","sequence":5,"conversation_turn_ordinal":1,"kind":"assistant_delta","text":"Hello","state":"running","created_at":"2026-01-01T00:00:00Z"}}\n\n',
+          'data: {"conversation_id":"conversation","cursor":"cursor-activity","activity":{"id":"activity","message_id":"message","sequence":5,"conversation_turn_ordinal":1,"kind":"assistant_delta","text":"Hello","state":"running","created_at":"2026-01-01T00:00:00Z","activity_attempt_id":"attempt-0123456789abcdef0123456789abcdef","activity_id":"activity-0123456789abcdef0123456789abcdef","activity_kind":"web_search","outcome":"failed","duration_ms":1234}}\n\n',
         ].join(""),
         { status: 200, headers: { "Content-Type": "text/event-stream" } },
       ),
@@ -65,9 +65,54 @@ describe("readActivityStream", () => {
       }),
     );
     expect(events[0]).toMatchObject({ type: "ready", highWaterSequence: 4 });
-    expect(events[1]).toMatchObject({ type: "activity", cursor: "cursor-activity" });
+    expect(events[1]).toMatchObject({
+      type: "activity",
+      cursor: "cursor-activity",
+      activity: {
+        activityAttemptId: "attempt-0123456789abcdef0123456789abcdef",
+        activityId: "activity-0123456789abcdef0123456789abcdef",
+        activityKind: "web_search",
+        outcome: "failed",
+        durationMs: 1234,
+      },
+    });
     expect(onError).toHaveBeenCalledOnce();
     handle.close();
+  });
+
+  it.each([
+    ["malformed attempt id", "activity_attempt_id", "bad-attempt"],
+    ["malformed activity id", "activity_id", "bad-activity"],
+    ["malformed activity kind", "activity_kind", "Web Search"],
+    ["invalid outcome", "outcome", "unknown"],
+    ["out-of-range duration", "duration_ms", 86_400_001],
+  ])("rejects %s in rich activity metadata", async (_label, field, value) => {
+    const onError = vi.fn();
+    const activity = {
+      id: "activity",
+      message_id: "message",
+      sequence: 5,
+      conversation_turn_ordinal: 1,
+      kind: "assistant_delta",
+      text: "Hello",
+      state: "running",
+      created_at: "2026-01-01T00:00:00Z",
+      [field]: value,
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(
+      new Response(`event: activity\ndata: ${JSON.stringify({ conversation_id: "conversation", cursor: "cursor-activity", activity })}\n\n`, { status: 200 }),
+    ));
+
+    readActivityStream({
+      baseUrl: "http://localhost:8000",
+      workspaceId: "workspace",
+      conversationId: "conversation",
+      onEvent: vi.fn(),
+      onError,
+    });
+
+    await vi.waitFor(() => expect(onError).toHaveBeenCalledOnce());
+    expect(onError.mock.calls[0][0]).toMatchObject({ message: "invalid activity stream activity payload" });
   });
 
   it("surfaces HTTP status failures without opening a stream", async () => {
