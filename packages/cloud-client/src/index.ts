@@ -17,6 +17,7 @@ export type {
   ProfileViewModel,
   RuntimeIntentStatus,
   RuntimeIntentViewModel,
+  RoutineListOptions,
   WaitlistCompletionInput,
   WaitlistCompletionViewModel,
   WaitlistEntryInput,
@@ -40,6 +41,9 @@ export type {
   MessageViewModel,
   OnboardingAttemptViewModel,
   ProvisioningState,
+  RoutineChatItemKind,
+  RoutineChatItemViewModel,
+  RoutineChatReferenceViewModel,
 } from "./mappers/allies";
 export { createCloudClient } from "./client";
 export type { ApprovalSummary, ApprovalDetail, ApprovalDecision } from "./mappers/approvals";
@@ -63,10 +67,18 @@ export {
   toConversationViewModel,
   toMessageAcceptanceViewModel,
   toOnboardingAttemptViewModel,
+  routineChatItemResponseSchema,
+  toRoutineChatItemViewModel,
 } from "./mappers/allies";
 export { createNativeAuthClient } from "./native-auth";
 export { isCloudError, normalizeCloudError } from "./errors";
 export { parsePublicCloudUrl } from "./environment";
+export type {
+  RoutineDiscoveryDetail,
+  RoutineDiscoveryPage,
+  RoutineDiscoveryState,
+  RoutineDiscoverySummary,
+} from "./routine-discovery";
 export type {
   NativeAuthClient,
   NativeAuthClientOptions,

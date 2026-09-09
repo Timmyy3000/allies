@@ -36,6 +36,13 @@ import {
 import { csrfTokenSchema, externalHttpsUrlSchema, type CloudCsrfToken } from "./schemas";
 import { createControlledFetch } from "./transport";
 import { approvalSummarySchema, approvalDetailSchema, toApprovalSummary, toApprovalDetail, type ApprovalDecision } from "./mappers/approvals";
+import { canonicalRoutineUuidSchema } from "./routines";
+import {
+  parseRoutineDiscoveryDetailEnvelope,
+  parseRoutineDiscoveryPageEnvelope,
+  type RoutineDiscoveryDetail,
+  type RoutineDiscoveryPage,
+} from "./routine-discovery";
 
 const CloudRequest = globalThis.Request;
 const CHAT_READ_MAX_JSON_BYTES = 48 * 1024 * 1024;
@@ -167,10 +174,29 @@ export interface CloudClientOptions {
   maxJsonBytes?: number;
 }
 
+export interface RoutineListOptions {
+  limit?: number;
+  cursor?: string;
+  allyId?: string;
+  signal?: AbortSignal;
+}
+
 interface ApiResult {
   data?: unknown;
   error?: unknown;
   response: Response;
+}
+
+interface RoutineReadInit {
+  params: {
+    path: Record<string, string>;
+    query?: Record<string, number | string>;
+  };
+  signal?: AbortSignal;
+}
+
+interface RoutineReadApi {
+  GET(path: string, init: RoutineReadInit): Promise<ApiResult>;
 }
 
 async function unwrap<T>(
@@ -224,6 +250,11 @@ const activityOptionsSchema = z.object({
   cursor: z.string().min(1).max(512).optional(),
   replay: z.boolean().optional(),
 });
+const routineListOptionsSchema = z.object({
+  limit: z.number().int().min(1).max(100),
+  cursor: z.string().min(1).max(512).optional(),
+  ally_id: canonicalRoutineUuidSchema.optional(),
+}).strict();
 const messageContentSchema = z.string().min(1).max(16_000);
 const runtimeIntentOccurredAtSchema = z.iso.datetime({ offset: true });
 const runtimeIntentIdempotencyKeySchema = z.uuid();
@@ -259,6 +290,10 @@ function parseInput<T>(schema: z.ZodType<T>, input: unknown): T {
 
 function parsePathSegment(value: string): string {
   return parseInput(pathSegmentSchema, value);
+}
+
+function parseCanonicalUuid(value: string): string {
+  return parseInput(canonicalRoutineUuidSchema, value);
 }
 
 function parseIdempotencyKey(value: string): string {
@@ -301,6 +336,18 @@ function parseActivityOptions(
     ...(Object.keys(query).length ? { query } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
   };
+}
+
+function parseRoutineListOptions(options?: RoutineListOptions): {
+  query: { limit: number; cursor?: string; ally_id?: string };
+  signal?: AbortSignal;
+} {
+  const query = parseInput(routineListOptionsSchema, {
+    limit: options?.limit ?? 50,
+    ...(options?.cursor === undefined ? {} : { cursor: options.cursor }),
+    ...(options?.allyId === undefined ? {} : { ally_id: parseCanonicalUuid(options.allyId) }),
+  });
+  return { query, signal: options?.signal };
 }
 
 function hasControlCharacter(value: string): boolean {
@@ -349,6 +396,7 @@ export function createCloudClient(options: CloudClientOptions) {
       : undefined,
   });
   const api = createOpenApiClient<paths>({ baseUrl, fetch: controlledFetch, Request: CloudRequest });
+  const routineReadApi = api as unknown as RoutineReadApi;
 
   return {
     async getCsrf(signal?: AbortSignal): Promise<CloudCsrfToken> {
@@ -468,6 +516,50 @@ export function createCloudClient(options: CloudClientOptions) {
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => successEnvelope(workspaceSchema).parse(data).data,
+      );
+    },
+
+    async listRoutines(workspaceId: string, options?: RoutineListOptions): Promise<RoutineDiscoveryPage> {
+      const parsedOptions = parseRoutineListOptions(options);
+      rejectPreAborted(parsedOptions.signal);
+      const workspace = parseCanonicalUuid(workspaceId);
+      return unwrap(
+        routineReadApi.GET("/api/v1/workspaces/{workspace_id}/routines", {
+          params: {
+            path: { workspace_id: workspace },
+            query: parsedOptions.query,
+          },
+          signal: normalizeRequestSignal(parsedOptions.signal),
+        }),
+        (data) => {
+          const page = parseRoutineDiscoveryPageEnvelope(data);
+          if (parsedOptions.query.ally_id !== undefined
+            && page.items.some((item) => item.responsibleAllyId !== parsedOptions.query.ally_id)) {
+            throw { kind: "contract" } satisfies CloudError;
+          }
+          return page;
+        },
+        [200],
+      );
+    },
+
+    async getRoutine(workspaceId: string, routineId: string, signal?: AbortSignal): Promise<RoutineDiscoveryDetail> {
+      rejectPreAborted(signal);
+      const workspace = parseCanonicalUuid(workspaceId);
+      const routine = parseCanonicalUuid(routineId);
+      return unwrap(
+        routineReadApi.GET("/api/v1/workspaces/{workspace_id}/routines/{routine_id}", {
+          params: { path: { workspace_id: workspace, routine_id: routine } },
+          signal: normalizeRequestSignal(signal),
+        }),
+        (data) => {
+          const detail = parseRoutineDiscoveryDetailEnvelope(data);
+          if (detail.routineId !== routine || detail.workspaceId !== workspace) {
+            throw { kind: "contract" } satisfies CloudError;
+          }
+          return detail;
+        },
+        [200],
       );
     },
 
@@ -601,7 +693,7 @@ export function createCloudClient(options: CloudClientOptions) {
           },
           signal: normalizeRequestSignal(requestSignal),
         }) as Promise<ApiResult>,
-        (data) => toConversationViewModel(successEnvelope(conversationResponseSchema).parse(data).data),
+        (data) => toConversationViewModel(successEnvelope(conversationResponseSchema).parse(data).data, ally),
         [200],
       );
     },

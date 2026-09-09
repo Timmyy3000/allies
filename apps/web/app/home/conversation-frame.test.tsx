@@ -1,8 +1,9 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import type { ActivityProjection, ApprovalSummary, MessageViewModel } from "@allies/cloud-client";
+import { useState } from "react";
+import type { ActivityProjection, ApprovalSummary, MessageViewModel, RoutineChatItemViewModel, RoutineDiscoveryDetail } from "@allies/cloud-client";
 import { EMPTY_ACTIVITY_PROJECTION } from "@allies/cloud-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -133,6 +134,8 @@ const actions: ProductionConversationFrameActions = {
 };
 
 beforeEach(() => {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
   Object.defineProperty(window, "matchMedia", {
     configurable: true,
     value: () => ({
@@ -876,5 +879,206 @@ describe("ConversationFrame", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("renders routine projections with truthful insertion state and attributed approval actions", () => {
+    const routineId = "00000000-0000-4000-8000-000000000010";
+    const runId = "00000000-0000-4000-8000-000000000012";
+    const approvalRequestId = "00000000-0000-4000-8000-000000000016";
+    const approvalItem: RoutineChatItemViewModel = {
+      id: runId,
+      kind: "running",
+      routineId,
+      conversationId: "conversation-1",
+      titleSnapshot: "Morning brief",
+      routineRevision: 2,
+      scheduleGeneration: 1,
+      status: "approval_waiting",
+      schedule: { kind: "recurring", frequency: "daily", localTime: "09:30:00", timezone: "UTC" },
+      occurredAt: "2026-09-09T09:30:01Z",
+      occurrenceId: "00000000-0000-4000-8000-000000000011",
+      runId,
+      executionId: null,
+      attemptId: null,
+      generation: null,
+      resultId: null,
+      resultInsertion: null,
+      text: null,
+      references: [],
+      delayed: false,
+      approvalId: "00000000-0000-4000-8000-000000000017",
+      approvalRequestId,
+      approvalStatus: "pending",
+      approvalDecision: null,
+      actionDigest: null,
+      actionAttemptId: "00000000-0000-4000-8000-000000000018",
+      approvalExpiresAt: "2026-09-09T09:35:01Z",
+    };
+    const resultItem: RoutineChatItemViewModel = {
+      ...approvalItem,
+      id: "00000000-0000-4000-8000-000000000015",
+      kind: "result",
+      status: "changed",
+      occurredAt: "2026-09-09T09:31:00Z",
+      executionId: "00000000-0000-4000-8000-000000000013",
+      attemptId: "00000000-0000-4000-8000-000000000014",
+      generation: 1,
+      resultId: "00000000-0000-4000-8000-000000000015",
+      resultInsertion: "pending",
+      text: "The brief is ready.",
+      references: [{ label: "Source", url: "https://example.com/source" }],
+      approvalId: null,
+      approvalRequestId: null,
+      approvalStatus: null,
+      actionAttemptId: null,
+      approvalExpiresAt: null,
+    };
+    const onRoutineAction = vi.fn(async () => true);
+    const onOpenRoutine = vi.fn();
+    render(<ConversationFrame model={{ ...model, routineItems: [approvalItem, resultItem] }} actions={{
+      ...actions,
+      onRoutineAction,
+      onOpenRoutine,
+    }} />);
+
+    expect(screen.getByRole("region", { name: "Routine updates" })).toBeTruthy();
+    expect(screen.getByText("Waiting for approval")).toBeTruthy();
+    expect(screen.getByText("Pending insertion — waiting to appear in chat.")).toBeTruthy();
+    expect(screen.queryByText("Added to chat.")).toBeNull();
+    expect(screen.queryByText("The brief is ready.")).toBeNull();
+    expect(screen.queryByRole("link", { name: "Source" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(onRoutineAction).toHaveBeenCalledWith(expect.objectContaining({
+      action: "approve",
+      routineId,
+      routineRevision: 2,
+      titleSnapshot: "Morning brief",
+      runId,
+      approvalRequestId,
+      actionAttemptId: "00000000-0000-4000-8000-000000000018",
+    }));
+    fireEvent.click(screen.getAllByRole("button", { name: /Morning brief/ })[0]!);
+    expect(onOpenRoutine).toHaveBeenCalledWith(routineId);
+
+    cleanup();
+    const detail: RoutineDiscoveryDetail = {
+      routineId,
+      responsibleAllyId: "ally-1",
+      title: "Morning brief",
+      schedule: approvalItem.schedule,
+      revision: 2,
+      scheduleGeneration: 1,
+      scheduleState: "active",
+      nextRunAt: "2026-09-10T09:30:00Z",
+      createdAt: "2026-09-09T08:00:00Z",
+      updatedAt: "2026-09-09T08:00:00Z",
+      workspaceId: "workspace-1",
+      ownerUserId: "owner-1",
+      bindingId: "binding-1",
+      mainConversationId: "conversation-1",
+      executionPrompt: "Check the latest brief and report any changes.",
+    };
+    const onDetailAction = vi.fn(async () => true);
+    render(<ConversationFrame model={{
+      ...model,
+      routineItems: [approvalItem],
+      routineDetail: { routineId, detail, loading: false, error: null },
+    }} actions={{ ...actions, onRoutineAction: onDetailAction }} />);
+    expect(screen.getByText("Full task")).toBeTruthy();
+    expect(screen.getByText(detail.executionPrompt)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Pause" }));
+    expect(onDetailAction).toHaveBeenCalledWith({
+      action: "pause",
+      routineId,
+      routineRevision: detail.revision,
+      titleSnapshot: detail.title,
+    });
+
+    cleanup();
+    render(<ConversationFrame model={{
+      ...model,
+      routineItems: [approvalItem],
+      routineDetail: { routineId, detail: { ...detail, scheduleState: "deleted" }, loading: false, error: null },
+    }} actions={actions} />);
+    expect(screen.queryByRole("button", { name: "Ask Ally to delete" })).toBeNull();
+  });
+
+  it("opens routine details as a modal and restores focus to its card", async () => {
+    const routineId = "00000000-0000-4000-8000-000000000010";
+    const item: RoutineChatItemViewModel = {
+      id: routineId,
+      kind: "created",
+      routineId,
+      conversationId: "conversation-1",
+      titleSnapshot: "Morning brief",
+      routineRevision: 2,
+      scheduleGeneration: 1,
+      status: "active",
+      schedule: { kind: "recurring", frequency: "daily", localTime: "09:30:00", timezone: "UTC" },
+      occurredAt: "2026-09-09T08:00:00Z",
+      occurrenceId: null,
+      runId: null,
+      executionId: null,
+      attemptId: null,
+      generation: null,
+      resultId: null,
+      resultInsertion: null,
+      text: null,
+      references: [],
+      delayed: null,
+      approvalId: null,
+      approvalRequestId: null,
+      approvalStatus: null,
+      approvalDecision: null,
+      actionDigest: null,
+      actionAttemptId: null,
+      approvalExpiresAt: null,
+    };
+    const detail: RoutineDiscoveryDetail = {
+      routineId,
+      responsibleAllyId: "ally-1",
+      title: "Morning brief",
+      schedule: item.schedule,
+      revision: 2,
+      scheduleGeneration: 1,
+      scheduleState: "active",
+      nextRunAt: "2026-09-10T09:30:00Z",
+      createdAt: "2026-09-09T08:00:00Z",
+      updatedAt: "2026-09-09T08:00:00Z",
+      workspaceId: "workspace-1",
+      ownerUserId: "owner-1",
+      bindingId: "binding-1",
+      mainConversationId: "conversation-1",
+      executionPrompt: "Check the latest brief and report any changes.",
+    };
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      const [loadedDetail, setLoadedDetail] = useState<RoutineDiscoveryDetail | null>(null);
+      const openRoutine = () => {
+        setLoadedDetail(null);
+        setOpen(true);
+        window.setTimeout(() => setLoadedDetail(detail), 0);
+      };
+      return (
+        <ConversationFrame
+          model={{
+            ...model,
+            routineItems: [item],
+            routineDetail: { routineId: open ? routineId : null, detail: open ? loadedDetail : null, loading: open && !loadedDetail, error: null },
+          }}
+          actions={{ ...actions, onOpenRoutine: openRoutine, onCloseRoutine: () => setOpen(false) }}
+        />
+      );
+    }
+    render(<Harness />);
+    const card = screen.getByRole("button", { name: /Morning brief/ });
+    card.focus();
+    fireEvent.click(card);
+    await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
+    expect(screen.getByText("Loading routine details…")).toBeTruthy();
+    await waitFor(() => expect(screen.getByText("Full task")).toBeTruthy());
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(document.activeElement).toBe(card));
   });
 });

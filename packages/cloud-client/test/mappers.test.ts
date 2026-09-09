@@ -111,3 +111,154 @@ describe("durable reply mappers", () => {
     });
   });
 });
+
+describe("routine chat projection mappers", () => {
+  const conversationId = "00000000-0000-4000-8000-000000000003";
+  const routineId = "00000000-0000-4000-8000-000000000010";
+  const occurrenceId = "00000000-0000-4000-8000-000000000011";
+  const runId = "00000000-0000-4000-8000-000000000012";
+  const executionId = "00000000-0000-4000-8000-000000000013";
+  const attemptId = "00000000-0000-4000-8000-000000000014";
+  const resultId = "00000000-0000-4000-8000-000000000015";
+  const schedule = {
+    kind: "recurring" as const,
+    frequency: "daily" as const,
+    local_time: "09:30:00",
+    timezone: "UTC",
+  };
+
+  it("maps creation, running, and result projections while retaining insertion state", () => {
+    const routineItems = [
+      {
+        id: routineId,
+        kind: "created" as const,
+        routine_id: routineId,
+        conversation_id: conversationId,
+        title_snapshot: "Morning brief",
+        routine_revision: 2,
+        schedule_generation: 1,
+        status: "created",
+        schedule,
+        occurred_at: "2026-09-09T08:00:00Z",
+      },
+      {
+        id: runId,
+        kind: "running" as const,
+        routine_id: routineId,
+        conversation_id: conversationId,
+        title_snapshot: "Morning brief",
+        routine_revision: 2,
+        schedule_generation: 1,
+        status: "approval_waiting",
+        schedule,
+        occurred_at: "2026-09-09T09:30:01Z",
+        occurrence_id: occurrenceId,
+        run_id: runId,
+        delayed: false,
+        approval_request_id: "00000000-0000-4000-8000-000000000016",
+        approval_status: "pending",
+        approval_expires_at: "2026-09-09T09:35:01Z",
+      },
+      {
+        id: resultId,
+        kind: "result" as const,
+        routine_id: routineId,
+        conversation_id: conversationId,
+        title_snapshot: "Morning brief",
+        routine_revision: 2,
+        schedule_generation: 1,
+        status: "changed",
+        schedule,
+        occurred_at: "2026-09-09T09:31:00Z",
+        occurrence_id: occurrenceId,
+        run_id: runId,
+        execution_id: executionId,
+        attempt_id: attemptId,
+        generation: 1,
+        result_id: resultId,
+        result_insertion: "pending" as const,
+        text: "The brief is ready.",
+        references: [{ label: "Source", url: "https://example.com/source" }],
+        delayed: false,
+      },
+    ];
+
+    const mapped = toConversationViewModel({
+      id: conversationId,
+      ally_id: "00000000-0000-4000-8000-000000000002",
+      messages: [],
+      routine_items: routineItems,
+    }).routineItems;
+
+    expect(mapped).toHaveLength(3);
+    expect(mapped[0]).toMatchObject({
+      id: routineId,
+      kind: "created",
+      routineId,
+      titleSnapshot: "Morning brief",
+      schedule: { kind: "recurring", frequency: "daily", localTime: "09:30:00", timezone: "UTC" },
+      resultInsertion: null,
+    });
+    expect(mapped[1]).toMatchObject({ runId, approvalRequestId: "00000000-0000-4000-8000-000000000016" });
+    expect(mapped[2]).toMatchObject({
+      resultId,
+      executionId,
+      attemptId,
+      generation: 1,
+      resultInsertion: "pending",
+      references: [{ label: "Source", url: "https://example.com/source" }],
+    });
+  });
+
+  it("rejects projection identity drift, cross-conversation items, and unsafe references", () => {
+    const running = {
+      id: runId,
+      kind: "running" as const,
+      routine_id: routineId,
+      conversation_id: conversationId,
+      title_snapshot: "Morning brief",
+      routine_revision: 2,
+      schedule_generation: 1,
+      status: "working",
+      schedule,
+      occurred_at: "2026-09-09T09:30:01Z",
+      occurrence_id: occurrenceId,
+      run_id: routineId,
+    };
+    expect(() => toConversationViewModel({
+      id: conversationId,
+      ally_id: "00000000-0000-4000-8000-000000000002",
+      messages: [],
+      routine_items: [running],
+    })).toThrow();
+
+    expect(() => toConversationViewModel({
+      id: conversationId,
+      ally_id: "00000000-0000-4000-8000-000000000002",
+      messages: [],
+      routine_items: [{
+        id: resultId,
+        kind: "result",
+        routine_id: routineId,
+        conversation_id: "00000000-0000-4000-8000-000000000099",
+        title_snapshot: "Morning brief",
+        routine_revision: 2,
+        schedule_generation: 1,
+        status: "changed",
+        schedule,
+        occurred_at: "2026-09-09T09:31:00Z",
+        result_id: resultId,
+        result_insertion: "inserted",
+        text: "Done",
+        references: [{ label: "Unsafe", url: "javascript:alert(1)" }],
+      }],
+    })).toThrow();
+
+    expect(() => toConversationViewModel({
+      id: conversationId,
+      ally_id: "00000000-0000-4000-8000-000000000002",
+      messages: [],
+      routine_items: [],
+    }, "00000000-0000-4000-8000-000000000099")).toThrow();
+  });
+});

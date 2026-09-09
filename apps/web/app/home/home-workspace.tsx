@@ -7,6 +7,7 @@ import type {
   AllyViewModel,
   ConversationViewModel,
   MessageViewModel,
+  RoutineDiscoveryDetail,
 } from "@allies/cloud-client";
 import {
   EMPTY_ACTIVITY_PROJECTION,
@@ -53,9 +54,14 @@ import {
 } from "../../lib/waitlist/catalog";
 
 import {
+  buildRoutineActionIdempotencyKey,
+  buildRoutineActionEvidence,
+  buildRoutineActionMessage,
   buildProductionConversationFrameModel,
   type ProductionQueuedMessageModel,
   type ProductionConversationFrameActions,
+  type ProductionRoutineActionState,
+  type RoutineActionRequest,
 } from "./conversation-frame-model";
 import {
   classifyConversationAccessError,
@@ -87,6 +93,7 @@ const QUEUED_MESSAGE_PERSISTENCE_ERROR = "Message not sent: browser storage is u
 const QUEUED_MESSAGE_REMOVAL_ERROR = "We couldn't remove this queued message. Try again.";
 const MESSAGE_ACCEPTANCE_UNKNOWN_ERROR = "We couldn't confirm your message";
 const BLOCKED_QUEUE_HEAD_ERROR = "Your earlier message still needs confirmation. Retry it before sending another message.";
+export const ROUTINE_ACTION_SENT_TIMEOUT_MS = 30_000;
 
 type AcceptedOnboardingHandoff = {
   ally: AllyViewModel;
@@ -748,6 +755,9 @@ function ConversationPane({
   const [sentMessages, setSentMessages] = useState<MessageViewModel[]>([]);
   const [immediateMessageIds, setImmediateMessageIds] = useState<ReadonlySet<string>>(() => new Set());
   const [draft, setDraft] = useState("");
+  const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
+  const [routineActionState, setRoutineActionState] = useState<ProductionRoutineActionState | null>(null);
+  const routineActionEvidenceRef = useRef<string | null>(null);
   const draftRef = useRef("");
   const [assistantReplyState, setAssistantReplyState] = useState<AssistantReplyState>({
     conversationId: null,
@@ -983,6 +993,31 @@ function ConversationPane({
   const turnInProgress = activeTurn || persistedTurnActive || streamConnected;
   const conversationId = conversation?.id;
 
+  const routineDetailQuery = useQuery<RoutineDiscoveryDetail>({
+    queryKey: [...conversationQueryKey(workspaceId, ally.id), "routine-detail", conversationId ?? "none", selectedRoutineId ?? "none"],
+    enabled: Boolean(selectedRoutineId && conversationId && !conversationAccessFailure),
+    retry: false,
+    queryFn: ({ signal }) => {
+      const routineId = selectedRoutineId;
+      const targetConversationId = conversationId;
+      if (!routineId || !targetConversationId) throw new Error("routine detail is unavailable");
+      return session.runCloudOperation(
+        async (operationSignal) => {
+          const detail = await session.client.getRoutine(workspaceId, routineId, operationSignal);
+          if (
+            detail.mainConversationId !== targetConversationId
+            || detail.responsibleAllyId !== ally.id
+            || detail.bindingId !== ally.bindingId
+          ) {
+            throw new Error("routine detail belongs to a different conversation");
+          }
+          return detail;
+        },
+        { signal },
+      );
+    },
+  });
+
   useEffect(() => {
     if (!conversation) return;
     const authoritativeMessages = mergeConversationMessageCopies(
@@ -1043,6 +1078,8 @@ function ConversationPane({
     setStreamConnected(false);
     setRetryingMessageId(null);
     setRetryError(null);
+    setSelectedRoutineId(null);
+    setRoutineActionState(null);
     if (failure === "session-expired") {
       draftRef.current = "";
       setDraft("");
@@ -1221,7 +1258,38 @@ function ConversationPane({
     projection.pendingActivities
       ?.map((activity) => `${activity.id}:${activity.text.length}`)
       .join("|") ?? "",
+    (conversation?.routineItems ?? [])
+      .map((item) => `${item.kind}:${item.id}:${item.status}:${item.resultInsertion ?? ""}:${item.text?.length ?? 0}`)
+      .join("|"),
   ].join("::");
+  const routineItems = conversation?.routineItems ?? [];
+  const routineActionTargetSignature = routineActionState
+    ? buildRoutineActionEvidence(routineActionState, routineItems)
+    : null;
+
+  useEffect(() => {
+    if (!routineActionState) {
+      routineActionEvidenceRef.current = null;
+      return;
+    }
+    if (routineActionEvidenceRef.current === null) {
+      routineActionEvidenceRef.current = routineActionTargetSignature;
+      return;
+    }
+    if (routineActionEvidenceRef.current !== routineActionTargetSignature) {
+      routineActionEvidenceRef.current = routineActionTargetSignature;
+      setRoutineActionState(null);
+    }
+  }, [routineActionState, routineActionTargetSignature]);
+
+  useEffect(() => {
+    if (routineActionState?.status !== "sent") return;
+    const key = routineActionState.key;
+    const timeout = window.setTimeout(() => {
+      setRoutineActionState((current) => current?.key === key ? null : current);
+    }, ROUTINE_ACTION_SENT_TIMEOUT_MS);
+    return () => window.clearTimeout(timeout);
+  }, [routineActionState]);
 
   const loadOlder = async () => {
     if (conversationAccessFailure || !conversationId || !nextCursor || loadingOlder || !mountedRef.current) return;
@@ -1584,6 +1652,33 @@ function ConversationPane({
     session,
     turnInProgress,
     workspaceId,
+  ]);
+
+  const sendRoutineAction = useCallback(async (request: RoutineActionRequest): Promise<boolean> => {
+    if (conversationAccessFailure || !conversation || !canChat(ally)) return false;
+    const key = buildRoutineActionIdempotencyKey(request);
+    if (routineActionState?.key === key) return false;
+    routineActionEvidenceRef.current = buildRoutineActionEvidence(request, conversation?.routineItems ?? []);
+    setRoutineActionState({
+      key,
+      routineId: request.routineId,
+      action: request.action,
+      runId: request.runId,
+      approvalRequestId: request.approvalRequestId,
+      status: "sending",
+    });
+    const accepted = await sendMessageContent(buildRoutineActionMessage(request), key, false);
+    if (!mountedRef.current) return accepted;
+    setRoutineActionState((current) => current?.key === key
+      ? accepted ? { ...current, status: "sent" } : null
+      : current);
+    return accepted;
+  }, [
+    ally,
+    conversation,
+    conversationAccessFailure,
+    routineActionState?.key,
+    sendMessageContent,
   ]);
 
   const submit = async (showImmediately = false) => {
@@ -2102,6 +2197,14 @@ function ConversationPane({
     gettingReady,
     streaming: shouldPoll || streamConnected,
     retriedMessageIds,
+    routineItems: conversation?.routineItems ?? [],
+    routineDetail: {
+      routineId: selectedRoutineId,
+      detail: routineDetailQuery.data ?? null,
+      loading: Boolean(selectedRoutineId && routineDetailQuery.isPending && !routineDetailQuery.isError),
+      error: routineDetailQuery.isError ? "We couldn't load this routine's details." : null,
+    },
+    routineAction: routineActionState,
   });
   const removeQueuedMessage = async (id: string) => {
     const localMessage = queuedMessagesRef.current.find((message) => message.id === id);
@@ -2192,6 +2295,14 @@ function ConversationPane({
       setActiveTurn(true);
     },
     onRetryActivityHistory: retryActivityHistory,
+    onOpenRoutine: (routineId) => {
+      if ((conversation?.routineItems ?? []).some((item) => item.routineId === routineId)) {
+        setSelectedRoutineId(routineId);
+      }
+    },
+    onCloseRoutine: () => setSelectedRoutineId(null),
+    onRetryRoutineDetail: () => void routineDetailQuery.refetch(),
+    onRoutineAction: sendRoutineAction,
     onScroll: (event) => {
       const canvas = event.currentTarget;
       followLatestRef.current = canvas.scrollHeight - canvas.scrollTop - canvas.clientHeight < 96;

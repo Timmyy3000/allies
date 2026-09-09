@@ -1,5 +1,11 @@
 import { z } from "zod";
 import { activityApprovalSchema, toActivityApproval, type ActivityApproval } from "./approvals";
+import {
+  canonicalRoutineUuidSchema,
+  routineScheduleSchema,
+  toRoutineSchedule,
+  type RoutineScheduleViewModel,
+} from "../routines";
 
 const uuidSchema = z.uuid();
 
@@ -100,6 +106,93 @@ export const assistantReplyResponseSchema = z
   })
   .loose();
 
+const routineChatTitleSchema = z
+  .string()
+  .min(1)
+  .max(120)
+  .refine((value) => !value.includes("\u0000"), "routine title contains a NUL character");
+const routineChatTextSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) => !value.includes("\u0000") && new TextEncoder().encode(value).byteLength <= 16 * 1024,
+    "routine text must be non-empty, NUL-free, and at most 16 KiB in UTF-8",
+  );
+const routineChatStatusSchema = z
+  .string()
+  .regex(/^[a-z][a-z0-9_-]{0,63}$/u, "routine status must be a bounded token");
+const routineChatReferenceSchema = z
+  .object({
+    label: z.string().min(1).max(255).refine((value) => !value.includes("\u0000")),
+    url: z.string().min(1).max(2048).refine((value) => {
+      try {
+        const url = new URL(value);
+        return (url.protocol === "https:" || url.protocol === "http:") && !url.username && !url.password;
+      } catch {
+        return false;
+      }
+    }, "routine reference URL must use http(s) without credentials"),
+  })
+  .strict();
+
+export const routineChatItemResponseSchema = z
+  .object({
+    id: canonicalRoutineUuidSchema,
+    kind: z.enum(["created", "running", "result"]),
+    routine_id: canonicalRoutineUuidSchema,
+    conversation_id: canonicalRoutineUuidSchema,
+    title_snapshot: routineChatTitleSchema,
+    routine_revision: z.number().int().min(1).max(100_000_000),
+    schedule_generation: z.number().int().min(1).max(100_000_000),
+    status: routineChatStatusSchema,
+    schedule: routineScheduleSchema,
+    occurred_at: timestampSchema,
+    occurrence_id: canonicalRoutineUuidSchema.nullish(),
+    run_id: canonicalRoutineUuidSchema.nullish(),
+    execution_id: canonicalRoutineUuidSchema.nullish(),
+    attempt_id: canonicalRoutineUuidSchema.nullish(),
+    generation: z.number().int().min(0).max(100_000).nullish(),
+    result_id: canonicalRoutineUuidSchema.nullish(),
+    result_insertion: z.enum(["pending", "inserted"]).nullish(),
+    text: routineChatTextSchema.nullish(),
+    references: z.array(routineChatReferenceSchema).max(32).default([]),
+    delayed: z.boolean().nullish(),
+    approval_id: canonicalRoutineUuidSchema.nullish(),
+    approval_request_id: canonicalRoutineUuidSchema.nullish(),
+    approval_status: routineChatStatusSchema.nullish(),
+    approval_decision: z.enum(["approve", "reject"]).nullish(),
+    action_digest: z.string().regex(/^[0-9a-f]{64}$/u).nullish(),
+    action_attempt_id: canonicalRoutineUuidSchema.nullish(),
+    approval_expires_at: timestampSchema.nullish(),
+  })
+  .loose()
+  .superRefine((item, context) => {
+    if (item.kind === "created") {
+      if (item.id !== item.routine_id) {
+        context.addIssue({ code: "custom", path: ["id"], message: "created routine item id must equal routine_id" });
+      }
+      if (item.run_id || item.result_id || item.occurrence_id) {
+        context.addIssue({ code: "custom", path: ["run_id"], message: "created routine item cannot carry run identities" });
+      }
+      return;
+    }
+    if (item.kind === "running") {
+      if (!item.run_id || item.id !== item.run_id) {
+        context.addIssue({ code: "custom", path: ["run_id"], message: "running routine item id must equal run_id" });
+      }
+      if (item.result_id || item.result_insertion) {
+        context.addIssue({ code: "custom", path: ["result_id"], message: "running routine item cannot carry result identity" });
+      }
+      return;
+    }
+    if (!item.result_id || item.id !== item.result_id) {
+      context.addIssue({ code: "custom", path: ["result_id"], message: "result routine item id must equal result_id" });
+    }
+    if (!item.result_insertion) {
+      context.addIssue({ code: "custom", path: ["result_insertion"], message: "result routine item must declare insertion state" });
+    }
+  });
+
 export const conversationResponseSchema = z
   .object({
     id: uuidSchema,
@@ -107,6 +200,7 @@ export const conversationResponseSchema = z
     messages: z.array(messageResponseSchema),
     queue: z.array(messageResponseSchema).max(101).optional(),
     assistant_replies: z.array(assistantReplyResponseSchema).default([]),
+    routine_items: z.array(routineChatItemResponseSchema).max(100).default([]),
     next_cursor: z.string().min(1).max(512).nullable().optional(),
   })
   .loose();
@@ -239,7 +333,45 @@ export interface ConversationViewModel {
   messages: MessageViewModel[];
   queue?: MessageViewModel[];
   assistantReplies: AssistantReplyViewModel[];
+  routineItems: RoutineChatItemViewModel[];
   nextCursor: string | null;
+}
+
+export type RoutineChatItemKind = "created" | "running" | "result";
+
+export interface RoutineChatReferenceViewModel {
+  label: string;
+  url: string;
+}
+
+export interface RoutineChatItemViewModel {
+  id: string;
+  kind: RoutineChatItemKind;
+  routineId: string;
+  conversationId: string;
+  titleSnapshot: string;
+  routineRevision: number;
+  scheduleGeneration: number;
+  status: string;
+  schedule: RoutineScheduleViewModel;
+  occurredAt: string;
+  occurrenceId: string | null;
+  runId: string | null;
+  executionId: string | null;
+  attemptId: string | null;
+  generation: number | null;
+  resultId: string | null;
+  resultInsertion: "pending" | "inserted" | null;
+  text: string | null;
+  references: RoutineChatReferenceViewModel[];
+  delayed: boolean | null;
+  approvalId: string | null;
+  approvalRequestId: string | null;
+  approvalStatus: string | null;
+  approvalDecision: "approve" | "reject" | null;
+  actionDigest: string | null;
+  actionAttemptId: string | null;
+  approvalExpiresAt: string | null;
 }
 
 export interface MessageAcceptanceViewModel {
@@ -338,14 +470,54 @@ function toAssistantReplyViewModel(input: unknown): AssistantReplyViewModel {
   };
 }
 
-export function toConversationViewModel(input: unknown): ConversationViewModel {
+export function toRoutineChatItemViewModel(input: unknown, expectedConversationId?: string): RoutineChatItemViewModel {
+  const item = routineChatItemResponseSchema.parse(input);
+  if (expectedConversationId !== undefined && item.conversation_id !== expectedConversationId) {
+    throw new Error("routine chat item belongs to a different conversation");
+  }
+  return {
+    id: item.id,
+    kind: item.kind,
+    routineId: item.routine_id,
+    conversationId: item.conversation_id,
+    titleSnapshot: item.title_snapshot,
+    routineRevision: item.routine_revision,
+    scheduleGeneration: item.schedule_generation,
+    status: item.status,
+    schedule: toRoutineSchedule(item.schedule),
+    occurredAt: item.occurred_at,
+    occurrenceId: item.occurrence_id ?? null,
+    runId: item.run_id ?? null,
+    executionId: item.execution_id ?? null,
+    attemptId: item.attempt_id ?? null,
+    generation: item.generation ?? null,
+    resultId: item.result_id ?? null,
+    resultInsertion: item.result_insertion ?? null,
+    text: item.text ?? null,
+    references: item.references.map((reference) => ({ label: reference.label, url: reference.url })),
+    delayed: item.delayed ?? null,
+    approvalId: item.approval_id ?? null,
+    approvalRequestId: item.approval_request_id ?? null,
+    approvalStatus: item.approval_status ?? null,
+    approvalDecision: item.approval_decision ?? null,
+    actionDigest: item.action_digest ?? null,
+    actionAttemptId: item.action_attempt_id ?? null,
+    approvalExpiresAt: item.approval_expires_at ?? null,
+  };
+}
+
+export function toConversationViewModel(input: unknown, expectedAllyId?: string): ConversationViewModel {
   const conversation = conversationResponseSchema.parse(input);
+  if (expectedAllyId !== undefined && conversation.ally_id !== expectedAllyId) {
+    throw new Error("conversation belongs to a different Ally");
+  }
   return {
     id: conversation.id,
     allyId: conversation.ally_id,
     messages: conversation.messages.map(toMessageViewModel),
     queue: conversation.queue?.map(toMessageViewModel),
     assistantReplies: conversation.assistant_replies.map(toAssistantReplyViewModel),
+    routineItems: conversation.routine_items.map((item) => toRoutineChatItemViewModel(item, conversation.id)),
     nextCursor: conversation.next_cursor ?? null,
   };
 }

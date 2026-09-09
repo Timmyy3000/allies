@@ -1711,6 +1711,154 @@
   transform: rotate(-90deg);
 }
 
+.frameRoutineProjection {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  box-sizing: border-box;
+  border-radius: 18px;
+  background: var(--chat-surface);
+}
+
+.frameRoutineProjectionSection {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.frameRoutineProjectionSection h2 {
+  margin: 0 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 16px;
+  text-transform: uppercase;
+}
+
+.frameRoutineProjectionMeta {
+  display: flex;
+  min-height: 18px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.frameRoutineProjectionDetail,
+.frameRoutineProjectionText,
+.frameRoutineActionNotice {
+  margin: 0;
+  padding: 0 4px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.frameRoutineProjectionText {
+  overflow-wrap: anywhere;
+  color: var(--chat-ink);
+}
+
+.frameRoutineProjectionDetail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+}
+
+.frameRoutineProjectionActions,
+.frameRoutineActionGroup {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 2px 4px 0;
+}
+
+.frameRoutineProjectionActions button,
+.frameRoutineActionGroup button {
+  min-height: 40px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.frameRoutineProjectionActions button:disabled,
+.frameRoutineActionGroup button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.frameRoutineProjectionActions button:focus-visible,
+.frameRoutineActionGroup button:focus-visible,
+.frameRoutineCard:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 3px;
+}
+
+.frameRoutineReferenceList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 0 4px;
+  list-style: none;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.frameRoutineReferenceList a {
+  color: var(--chat-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.frameRoutineActionNotice {
+  color: var(--chat-accent);
+}
+
+.frameRoutinePrompt {
+  margin-top: 24px;
+  padding: 12px;
+  border-radius: 14px;
+  background: var(--chat-surface);
+}
+
+.frameRoutinePrompt strong {
+  font-size: 13px;
+}
+
+.frameRoutinePrompt p {
+  margin: 6px 0 0;
+  overflow-wrap: anywhere;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 20px;
+  white-space: pre-wrap;
+}
+
+.frameRoutineDetailOverlay .frameSheet {
+  min-height: min(520px, calc(100% - 24px));
+  overflow-y: auto;
+}
+
+.frameRoutineDetailOverlay .frameRoutineDetail {
+  min-height: 0;
+}
+
+.frameRoutineDetailOverlay .frameRoutineActionGroup {
+  margin-top: auto;
+  padding-top: 22px;
+}
+
 .frameRoutineDetail {
   display: flex;
   width: 100%;
