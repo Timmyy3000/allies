@@ -1,0 +1,11 @@
+--- cld-012-routines-contract.md (planning draft)
++++ cld-012-routines-contract.md (clean copy)
+@@ title @@
+-# CLD-012 routines contract and feasibility Plan
++# CLD-012 routines contract and feasibility plan
+@@ scope @@
+-Only documentation is changed by this planning worker. Later CLD-012 execution is limited to contract artifacts, fixtures, and a minimal feasibility harness.
++This planning worker changes only documentation. Later CLD-012 execution is limited to contract artifacts, fixtures, and a minimal feasibility harness.
+@@ transport definitions @@
+-Phase 1 must replace the contract names below with complete field definitions and valid request/response examples in routines-v1.md and fixtures. These are planned transport surfaces; no HTTP route is added by this episode.
++Phase 1 must define each contract below with complete fields and valid request/response examples in routines-v1.md and fixtures. These are planned transport surfaces; this episode adds no HTTP route.
