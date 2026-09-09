@@ -55,15 +55,15 @@ const activity = (sequence: number, text: string, state: 'running' | 'completed'
 describe('mobile conversation state', () => {
   it('keeps newer pages and older pages in one ordered set without duplicates', () => {
     const pages = [
-      { id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-2', sequence: 2, content: 'new' })], assistantReplies: [], nextCursor: 'older' },
-      { id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-1', sequence: 1 }), message({ id: 'message-2', sequence: 2, content: 'new' })], assistantReplies: [], nextCursor: null },
+      { id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-2', sequence: 2, content: 'new' })], assistantReplies: [], routineItems: [], nextCursor: 'older' },
+      { id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-1', sequence: 1 }), message({ id: 'message-2', sequence: 2, content: 'new' })], assistantReplies: [], routineItems: [], nextCursor: null },
     ];
 
     expect(mergeConversationMessages(pages).map((item) => item.id)).toEqual(['message-1', 'message-2']);
   });
 
   it('inserts accepted messages into the newest page without losing history', () => {
-    const pages = [{ id: 'conversation', allyId: 'ally', messages: [message()], assistantReplies: [], nextCursor: 'older' }];
+    const pages = [{ id: 'conversation', allyId: 'ally', messages: [message()], assistantReplies: [], routineItems: [], nextCursor: 'older' }];
 
     expect(insertAcceptedMessage(pages, message({ id: 'message-2', sequence: 2, sender: 'user', content: 'Question' }))[0].messages)
       .toEqual([
@@ -80,6 +80,7 @@ describe('mobile conversation state', () => {
       allyId: 'ally',
       messages: [previousUser],
       assistantReplies: [],
+      routineItems: [],
       nextCursor: 'older',
     }];
     const cachedPages = insertAcceptedMessage(pages, acceptedUser);
@@ -98,8 +99,8 @@ describe('mobile conversation state', () => {
   });
 
   it('uses the authoritative newest page when a refetch supersedes local message copies', () => {
-    const pages = [{ id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-2', sequence: 2, sender: 'user' })], assistantReplies: [], nextCursor: 'older' }];
-    const newest = { id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-1', sequence: 1 })], assistantReplies: [], nextCursor: 'older' };
+    const pages = [{ id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-2', sequence: 2, sender: 'user' })], assistantReplies: [], routineItems: [], nextCursor: 'older' }];
+    const newest = { id: 'conversation', allyId: 'ally', messages: [message({ id: 'message-1', sequence: 1 })], assistantReplies: [], routineItems: [], nextCursor: 'older' };
 
     expect(replaceNewestConversationPage(pages, newest)[0]?.messages.map((item) => item.id))
       .toEqual(['message-1']);
@@ -108,7 +109,7 @@ describe('mobile conversation state', () => {
   it('uses the complete Cloud queue and releases only the correlated active message', () => {
     const head = { ...message({ id: 'head', sequence: 2, sender: 'user', status: 'queued' }), queueState: 'claimed' as const } satisfies MessageViewModel;
     const tail = { ...message({ id: 'tail', sequence: 3, sender: 'user', status: 'queued' }), queueState: 'unclaimed' as const } satisfies MessageViewModel;
-    const page = { id: 'conversation', allyId: 'ally', assistantReplies: [], messages: [tail], queue: [head, tail], nextCursor: 'older' };
+    const page = { id: 'conversation', allyId: 'ally', assistantReplies: [], routineItems: [], messages: [tail], queue: [head, tail], nextCursor: 'older' };
     const projection = { ...EMPTY_ACTIVITY_PROJECTION, state: 'queued' as const };
 
     expect(queuedConversationMessages([page], projection)).toEqual([head, tail]);
@@ -118,7 +119,7 @@ describe('mobile conversation state', () => {
 
   it('keeps a Cloud deletion tombstone from resurrecting queued text', () => {
     const tail = { ...message({ id: 'tail', sequence: 3, sender: 'user', content: 'Private text', status: 'queued' }), queueState: 'unclaimed' as const } satisfies MessageViewModel;
-    const page = { id: 'conversation', allyId: 'ally', assistantReplies: [], messages: [tail], queue: [tail], nextCursor: null };
+    const page = { id: 'conversation', allyId: 'ally', assistantReplies: [], routineItems: [], messages: [tail], queue: [tail], nextCursor: null };
     const deleted = { ...tail, content: '', status: 'stopped' as const, queueState: null, deletedAt: '2026-09-06T12:00:00Z' } satisfies MessageViewModel;
     const pages = insertAcceptedMessage([page], deleted);
 
@@ -363,6 +364,7 @@ describe('mobile conversation state', () => {
       allyId: 'ally',
       messages: [user, legacyAssistant],
       assistantReplies: [],
+      routineItems: [],
       nextCursor: null,
     };
     const turn = { assistantText: 'Live response', messageId: user.id, state: 'completed' as const, turnOrdinal: 2 };
@@ -443,7 +445,7 @@ describe('mobile conversation state', () => {
     };
 
     expect(mergeConversationAssistantReplies([
-      { id: 'conversation', allyId: 'ally', messages: [user], assistantReplies: [terminal], nextCursor: null },
+      { id: 'conversation', allyId: 'ally', messages: [user], assistantReplies: [terminal], routineItems: [], nextCursor: null },
     ], delayedRunning)).toEqual([terminal]);
   });
 
@@ -467,7 +469,7 @@ describe('mobile conversation state', () => {
 
     const fullPrefix = { ...suffix, id: 'reply-full', content: 'Full prefix', hasFullPrefix: true };
     expect(mergeConversationAssistantReplies([
-      { id: 'conversation', allyId: 'ally', messages: [user], assistantReplies: [suffix], nextCursor: null },
+      { id: 'conversation', allyId: 'ally', messages: [user], assistantReplies: [suffix], routineItems: [], nextCursor: null },
     ], fullPrefix)).toEqual([fullPrefix]);
   });
 });

@@ -5,7 +5,14 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { EMPTY_ACTIVITY_PROJECTION, type AllyViewModel, type ConversationViewModel, type MessageViewModel } from "@allies/cloud-client";
+import {
+  EMPTY_ACTIVITY_PROJECTION,
+  type AllyViewModel,
+  type ConversationViewModel,
+  type MessageViewModel,
+  type RoutineChatItemViewModel,
+  type RoutineDiscoveryDetail,
+} from "@allies/cloud-client";
 import type { RuntimeIntentRequester } from "../../lib/allies/runtime-intent";
 import type { ActivityStreamOptions } from "../../lib/allies/activity-stream";
 import HomePage from "./page";
@@ -20,6 +27,7 @@ import {
   HomeWorkspace,
   hasOnboardingExchange,
   projectConversationActivity,
+  ROUTINE_ACTION_SENT_TIMEOUT_MS,
 } from "./home-workspace";
 
 const selectedSegment = vi.hoisted(() => vi.fn<() => string | null>(() => null));
@@ -108,6 +116,8 @@ afterEach(() => {
 beforeEach(() => {
   vi.clearAllMocks();
   readActivityStreamMock.mockReset();
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
   window.localStorage.clear();
   Object.defineProperty(navigator, "locks", { configurable: true, value: undefined });
   stubViewport(false);
@@ -939,7 +949,7 @@ describe("HomeWorkspace", () => {
     };
     const tail: MessageViewModel = { ...head, id: "tail", content: "Second question", sequence: 3, queueState: "unclaimed" };
     const initial: ConversationViewModel = {
-      id: "conversation", allyId: ally.id, messages: [head], queue: [head], assistantReplies: [], nextCursor: null,
+      id: "conversation", allyId: ally.id, messages: [head], queue: [head], assistantReplies: [], routineItems: [], nextCursor: null,
     };
     const getAllyConversation = vi.fn(async () => initial);
     const sendMessage = vi.fn(async () => ({ conversationId: initial.id, message: tail, execution: null, replayed: false }));
@@ -2495,6 +2505,115 @@ describe("HomeWorkspace", () => {
 
     expect(await screen.findByText("This response failed.")).toBeTruthy();
     expect(screen.queryByText(/secret runtime detail/i)).toBeNull();
+  });
+
+  it("releases a sent routine-action lock after its bounded retry window", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const routineId = "00000000-0000-4000-8000-000000000010";
+    const routineItem: RoutineChatItemViewModel = {
+      id: routineId,
+      kind: "created",
+      routineId,
+      conversationId,
+      titleSnapshot: "Morning brief",
+      routineRevision: 2,
+      scheduleGeneration: 1,
+      status: "active",
+      schedule: { kind: "recurring", frequency: "daily", localTime: "09:30:00", timezone: "UTC" },
+      occurredAt: "2026-09-09T08:00:00Z",
+      occurrenceId: null,
+      runId: null,
+      executionId: null,
+      attemptId: null,
+      generation: null,
+      resultId: null,
+      resultInsertion: null,
+      text: null,
+      references: [],
+      delayed: null,
+      approvalId: null,
+      approvalRequestId: null,
+      approvalStatus: null,
+      approvalDecision: null,
+      actionDigest: null,
+      actionAttemptId: null,
+      approvalExpiresAt: null,
+    };
+    const detail: RoutineDiscoveryDetail = {
+      routineId,
+      responsibleAllyId: ally.id,
+      title: routineItem.titleSnapshot,
+      schedule: routineItem.schedule,
+      revision: routineItem.routineRevision,
+      scheduleGeneration: routineItem.scheduleGeneration,
+      scheduleState: "active",
+      nextRunAt: "2026-09-10T09:30:00Z",
+      createdAt: routineItem.occurredAt,
+      updatedAt: routineItem.occurredAt,
+      workspaceId: account.workspace.id,
+      ownerUserId: account.userId,
+      bindingId: ally.bindingId,
+      mainConversationId: conversationId,
+      executionPrompt: "Check the latest brief and report any changes.",
+    };
+    const sendMessage = vi.fn(async (_workspaceId: string, _conversationId: string, content: string) => ({
+      conversationId,
+      message: {
+        id: "00000000-0000-4000-8000-000000000011",
+        sender: "user" as const,
+        content,
+        sequence: 2,
+        status: "queued" as const,
+        queueState: "unclaimed" as const,
+        createdAt: "2026-09-09T08:01:00Z",
+      },
+      execution: null,
+      replayed: false,
+    }));
+    const conversation: ConversationViewModel = {
+      id: conversationId,
+      allyId: ally.id,
+      messages: [{
+        id: "00000000-0000-4000-8000-000000000006",
+        sender: "assistant",
+        content: "What should we work on first?",
+        sequence: 1,
+        status: "completed",
+        createdAt: "2026-09-09T08:00:00Z",
+      }],
+      assistantReplies: [],
+      routineItems: [routineItem],
+      nextCursor: null,
+    };
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => conversation),
+      getRoutine: vi.fn(async () => detail),
+      sendMessage,
+    });
+
+    fireEvent.click(await screen.findByRole("button", { name: /Morning brief/ }));
+    const pause = await screen.findByRole("button", { name: "Pause" }) as HTMLButtonElement;
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    try {
+      fireEvent.click(pause);
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(sendMessage).toHaveBeenCalledOnce();
+      expect(pause.disabled).toBe(true);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(ROUTINE_ACTION_SENT_TIMEOUT_MS - 1);
+      });
+      expect(pause.disabled).toBe(true);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(pause.disabled).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("redirects signed-out visitors with the Home return path", async () => {
