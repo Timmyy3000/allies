@@ -3,6 +3,8 @@ import type {
   ActivityState,
   AllyViewModel,
   MessageViewModel,
+  RoutineChatItemViewModel,
+  RoutineDiscoveryDetail,
   RuntimeIntentViewModel,
 } from "@allies/cloud-client";
 import type { ActivityProjection, AssistantTurnProjection } from "@allies/cloud-client";
@@ -59,6 +61,112 @@ export interface ProductionQueuedMessageModel {
   statusLabel?: string | null;
 }
 
+export type RoutineAction = "pause" | "resume" | "delete" | "approve" | "reject" | "cancel";
+
+export interface RoutineActionRequest {
+  action: RoutineAction;
+  routineId: string;
+  routineRevision: number;
+  titleSnapshot: string;
+  runId?: string | null;
+  approvalRequestId?: string | null;
+  approvalId?: string | null;
+  executionId?: string | null;
+  attemptId?: string | null;
+  generation?: number | null;
+  actionAttemptId?: string | null;
+}
+
+export interface ProductionRoutineDetailState {
+  routineId: string | null;
+  detail: RoutineDiscoveryDetail | null;
+  loading: boolean;
+  error: string | null;
+}
+
+export interface ProductionRoutineActionState {
+  key: string;
+  routineId: string;
+  action: RoutineAction;
+  runId?: string | null;
+  approvalRequestId?: string | null;
+  status: "sending" | "sent";
+}
+
+export function buildRoutineActionIdempotencyKey(request: RoutineActionRequest): string {
+  const primaryIdentity = request.action === "pause"
+    || request.action === "resume"
+    || request.action === "delete"
+    ? request.routineId
+    : request.approvalRequestId ?? request.runId ?? request.routineId;
+  return [
+    "routine-action",
+    request.action,
+    primaryIdentity,
+    `revision-${request.routineRevision}`,
+    request.actionAttemptId ?? (request.generation === null || request.generation === undefined ? "" : `generation-${request.generation}`),
+  ].filter(Boolean).join("-");
+}
+
+export function buildRoutineActionEvidence(
+  action: Pick<RoutineActionRequest, "action" | "routineId" | "runId" | "approvalRequestId">,
+  routineItems: readonly RoutineChatItemViewModel[],
+): string {
+  const target = routineItems.find((item) => {
+    if (item.routineId !== action.routineId) return false;
+    if (action.action === "pause" || action.action === "resume" || action.action === "delete") {
+      return item.kind === "created";
+    }
+    const hasRunIdentity = action.runId !== null && action.runId !== undefined;
+    const hasApprovalIdentity = action.approvalRequestId !== null && action.approvalRequestId !== undefined;
+    return item.kind === "running"
+      && (hasRunIdentity || hasApprovalIdentity)
+      && (!hasRunIdentity || action.runId === item.runId)
+      && (!hasApprovalIdentity || action.approvalRequestId === item.approvalRequestId);
+  });
+  if (!target) return `missing:${action.action}:${action.routineId}:${action.runId ?? ""}:${action.approvalRequestId ?? ""}`;
+  return [
+    target.kind,
+    target.id,
+    target.routineId,
+    target.routineRevision,
+    target.scheduleGeneration,
+    target.status,
+    target.resultInsertion ?? "",
+    target.runId ?? "",
+    target.approvalRequestId ?? "",
+    target.approvalStatus ?? "",
+    target.approvalDecision ?? "",
+    target.resultId ?? "",
+    target.occurredAt,
+  ].join(":");
+}
+
+export function buildRoutineActionMessage(request: RoutineActionRequest): string {
+  const identity = [
+    `routine_id=${request.routineId}`,
+    `expected_revision=${request.routineRevision}`,
+    `title_snapshot=${JSON.stringify(request.titleSnapshot)}`,
+    request.runId ? `run_id=${request.runId}` : "",
+    request.approvalId ? `approval_id=${request.approvalId}` : "",
+    request.approvalRequestId ? `approval_request_id=${request.approvalRequestId}` : "",
+    request.executionId ? `execution_id=${request.executionId}` : "",
+    request.attemptId ? `attempt_id=${request.attemptId}` : "",
+    request.generation === null || request.generation === undefined ? "" : `generation=${request.generation}`,
+    request.actionAttemptId ? `action_attempt_id=${request.actionAttemptId}` : "",
+  ].filter(Boolean).join("; ");
+  if (request.action === "pause" || request.action === "resume") {
+    return `Please ${request.action} the routine ${JSON.stringify(request.titleSnapshot)}. ${identity}`;
+  }
+  if (request.action === "delete") {
+    return `Please start the confirmation flow to delete the routine ${JSON.stringify(request.titleSnapshot)}. ${identity}`;
+  }
+  if (request.action === "approve" || request.action === "reject") {
+    return `Please record my ${request.action} decision for the pending routine action. decision=${request.action}; ${identity}`;
+  }
+  return `Please cancel the pending routine wait. ${identity}`;
+}
+
 export interface ProductionConversationFrameModel {
   ally: ProductionAllyFrameModel;
   messages: ProductionConversationMessageModel[];
@@ -97,6 +205,9 @@ export interface ProductionConversationFrameModel {
   firstAssistantMessageId: string | null;
   retriedMessageIds: string[];
   retryingMessageId: string | null;
+  routineItems?: RoutineChatItemViewModel[];
+  routineDetail?: ProductionRoutineDetailState;
+  routineAction?: ProductionRoutineActionState | null;
 }
 
 export interface ProductionConversationFrameInput {
@@ -134,6 +245,9 @@ export interface ProductionConversationFrameInput {
   gettingReady: boolean;
   streaming: boolean;
   retriedMessageIds: ReadonlySet<string>;
+  routineItems?: readonly RoutineChatItemViewModel[];
+  routineDetail?: ProductionRoutineDetailState;
+  routineAction?: ProductionRoutineActionState | null;
 }
 
 export interface ProductionConversationFrameActions {
@@ -149,6 +263,10 @@ export interface ProductionConversationFrameActions {
   onCheckAgain: () => void;
   onRetryActivityHistory: () => void;
   onScroll: (event: UIEvent<HTMLDivElement>) => void;
+  onOpenRoutine?: (routineId: string) => void;
+  onCloseRoutine?: () => void;
+  onRetryRoutineDetail?: () => void;
+  onRoutineAction?: (request: RoutineActionRequest) => Promise<boolean>;
 }
 
 export function formatConversationDateDivider(value: string, now = new Date()): string {
@@ -297,6 +415,14 @@ export function buildProductionConversationFrameModel(
     firstAssistantMessageId,
     retriedMessageIds: [...input.retriedMessageIds],
     retryingMessageId: input.retryingMessageId,
+    routineItems: accessBlocked ? [] : [...(input.routineItems ?? [])],
+    routineDetail: input.routineDetail ?? {
+      routineId: null,
+      detail: null,
+      loading: false,
+      error: null,
+    },
+    routineAction: input.routineAction ?? null,
   };
 }
 

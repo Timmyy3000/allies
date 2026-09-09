@@ -115,7 +115,7 @@ afterEach(cleanup);
 function mount() {
   let conversation: ConversationViewModel = {
     id: 'conversation', allyId: 'ally', messages: [failed, head, tail], queue: [head, tail],
-    assistantReplies: [], nextCursor: null,
+    assistantReplies: [], routineItems: [], nextCursor: null,
   };
   let activity: ActivitySnapshotViewModel = {
     conversationId: 'conversation', activities: [], state: 'queued',
@@ -249,7 +249,7 @@ describe('native durable message queue route', () => {
     fireEvent.click(view.getByLabelText('Send message'));
     await view.findByText('Another task');
     await act(async () => {
-      resolveRead({ id: 'conversation', allyId: 'ally', messages: [head, tail], queue: [head, tail], assistantReplies: [], nextCursor: null });
+      resolveRead({ id: 'conversation', allyId: 'ally', messages: [head, tail], queue: [head, tail], assistantReplies: [], routineItems: [], nextCursor: null });
     });
     expect(view.getByText('Another task')).toBeTruthy();
     expect(view.getByLabelText('Remove queued message: Another task')).toBeTruthy();

@@ -583,6 +583,30 @@ export function RoutineCard({
   return onOpen ? <button type="button" className={styles.frameRoutineCard} onClick={onOpen}>{content}</button> : <div className={styles.frameRoutineCard}>{content}</div>;
 }
 
+export function RoutineChatProjectionCard({
+  name,
+  schedule,
+  status,
+  onOpen,
+  children,
+}: {
+  name: string;
+  schedule: string;
+  status: string;
+  onOpen: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <article className={styles.frameRoutineProjection}>
+      <RoutineCard name={name} schedule={schedule} onOpen={onOpen} />
+      <div className={styles.frameRoutineProjectionMeta}>
+        <span>{status}</span>
+      </div>
+      {children}
+    </article>
+  );
+}
+
 export interface ProductCardItem {
   id: string;
   name: string;
@@ -656,13 +680,29 @@ export function BottomSheet({
   modal?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const dialog = dialogRef.current;
     if (!modal || !dialog) return;
+    const activeElement = document.activeElement;
+    restoreFocusRef.current = activeElement instanceof HTMLElement && activeElement !== document.body
+      ? activeElement
+      : null;
     dialog.showModal();
-    return () => dialog.close();
+    const firstFocusable = dialog.querySelector<HTMLElement>("button, [href], input, select, textarea, [tabindex]:not([tabindex=\"-1\"])");
+    firstFocusable?.focus();
+    return () => {
+      if (dialog.open) dialog.close();
+      const restore = restoreFocusRef.current;
+      restoreFocusRef.current = null;
+      if (restore?.isConnected) window.requestAnimationFrame(() => restore.focus());
+    };
   }, [modal]);
   const label = labelledBy ?? (title ? "conversation-sheet-title" : undefined);
+  const handleClose = () => {
+    if (modal && dialogRef.current?.open) dialogRef.current.close();
+    onClose();
+  };
   const content = (
         <section
           className={styles.frameSheet}
@@ -672,12 +712,12 @@ export function BottomSheet({
         >
         <div className={styles.frameSheetTop}>
           {title ? <h2 id={labelledBy ?? "conversation-sheet-title"}>{title}</h2> : <span />}
-          <button type="button" className={styles.frameSheetClose} aria-label="Close" onClick={onClose}><CloseIcon /></button>
+          <button type="button" className={styles.frameSheetClose} aria-label="Close" onClick={handleClose}><CloseIcon /></button>
         </div>
         {children}
       </section>
   );
-  return modal ? <dialog ref={dialogRef} className={`${styles.frameOverlay} ${styles.frameNativeSheet} ${className}`} aria-labelledby={label} onCancel={(event) => { event.preventDefault(); onClose(); }}>{content}</dialog>
+  return modal ? <dialog ref={dialogRef} className={`${styles.frameOverlay} ${styles.frameNativeSheet} ${className}`} aria-labelledby={label} onCancel={(event) => { event.preventDefault(); handleClose(); }}>{content}</dialog>
     : <div className={`${styles.frameOverlay} ${className}`} role="presentation">{content}</div>;
 }
 
@@ -763,6 +803,72 @@ export function RoutineDetail({ onClose, onDelete }: { onClose: () => void; onDe
         <div><strong>Tool</strong><span>Gmail</span></div>
       </div>
       <button type="button" className={styles.frameAccentAction} onClick={onDelete}>Delete</button>
+    </section>
+  );
+}
+
+export function RoutineChatDetail({
+  title,
+  schedule,
+  scheduleState,
+  revision,
+  scheduleGeneration,
+  nextRunAt,
+  executionPrompt,
+  canPauseResume,
+  canDelete,
+  pauseResumeLabel,
+  actionPending = false,
+  actionSent = false,
+  onPauseResume,
+  onDelete,
+}: {
+  title: string;
+  schedule: string;
+  scheduleState: string;
+  revision: number;
+  scheduleGeneration: number;
+  nextRunAt: string | null;
+  executionPrompt: string;
+  canPauseResume: boolean;
+  canDelete: boolean;
+  pauseResumeLabel: "Pause" | "Resume" | null;
+  actionPending?: boolean;
+  actionSent?: boolean;
+  onPauseResume: () => void;
+  onDelete: () => void;
+}) {
+  const actionLocked = actionPending || actionSent;
+  return (
+    <section className={styles.frameRoutineDetail} aria-label="Routine details">
+      <div className={styles.frameRoutineDetailHeader}>
+        <span className={styles.frameRoutineIcon}><CalendarIcon /></span>
+      </div>
+      <h2>{title}</h2>
+      <div className={styles.frameRoutineRows}>
+        <div><strong>Schedule</strong><span>{schedule}</span></div>
+        <div><strong>State</strong><span>{scheduleState}</span></div>
+        <div><strong>Revision</strong><span>{revision}</span></div>
+        <div><strong>Generation</strong><span>{scheduleGeneration}</span></div>
+        <div><strong>Next run</strong><span>{nextRunAt ?? "No next run"}</span></div>
+      </div>
+      <div className={styles.frameRoutinePrompt}>
+        <strong>Full task</strong>
+        <p>{executionPrompt}</p>
+      </div>
+      {actionSent ? <p className={styles.frameRoutineActionNotice} role="status">Request sent to Ally; waiting for confirmation.</p> : null}
+      <div className={styles.frameRoutineActionGroup}>
+        {canPauseResume && pauseResumeLabel ? (
+          <button type="button" className={styles.frameNeutralAction} onClick={onPauseResume} disabled={actionLocked}>
+            {actionPending ? "Sending…" : pauseResumeLabel}
+          </button>
+        ) : null}
+        {canDelete ? (
+          <button type="button" className={styles.frameAccentAction} onClick={onDelete} disabled={actionLocked}>
+            {actionPending ? "Sending…" : "Ask Ally to delete"}
+          </button>
+        ) : null}
+      </div>
     </section>
   );
 }

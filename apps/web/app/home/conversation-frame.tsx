@@ -12,6 +12,7 @@ import type {
   ProductionConversationFrameActions,
   ProductionConversationFrameModel,
   ProductionConversationTurnModel,
+  RoutineActionRequest,
 } from "./conversation-frame-model";
 import {
   conversationDateDividerAt,
@@ -20,6 +21,7 @@ import {
 import {
   ActivityDisclosure,
   AssistantMessage,
+  BottomSheet,
   ConversationCanvas,
   ConversationComposer,
   ConversationHeader,
@@ -28,6 +30,8 @@ import {
   DateDivider,
   FrameError,
   QueueStack,
+  RoutineChatDetail,
+  RoutineChatProjectionCard,
   UserBubble,
 } from "./conversation-frame-primitives";
 import styles from "./conversation-frame.module.css";
@@ -86,6 +90,7 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
       && (!currentTurn || group.conversationTurnOrdinal === currentTurn.turnOrdinal))
     : undefined;
   const visibleMessages = model.messages.filter((message) => !message.queued);
+  const routineItems = model.routineItems ?? [];
   const placementKey = `${visibleMessages.at(-1)?.id ?? "empty"}:${currentTurn?.turnOrdinal ?? ""}`;
   const topDate = formatConversationDateDivider(visibleMessages[0]?.createdAt ?? "");
   const [scrolledAway, setScrolledAway] = useState(false);
@@ -161,6 +166,8 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
       group.messageId === messageId
       && (!turn || group.conversationTurnOrdinal === turn.turnOrdinal)
     ));
+  const routineDetailState = model.routineDetail;
+  const routineDetail = routineDetailState?.detail;
 
   return (
     <ConversationShell shellRef={shellRef} className={styles.frameProduction} accent={model.ally.accent} scrolled={scrolledAway || docked}>
@@ -220,7 +227,7 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
             </FrameError>
           ) : null}
 
-          {!model.timeline.isLoading && !model.timeline.loadError && model.messages.length === 0 ? (
+          {!model.timeline.isLoading && !model.timeline.loadError && model.messages.length === 0 && routineItems.length === 0 ? (
             <p className={styles.frameQuietState}>No messages yet</p>
           ) : null}
 
@@ -266,6 +273,21 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
               </div>
             );
           })}
+
+          {routineItems.length > 0 ? (
+            <section className={styles.frameRoutineProjectionSection} aria-label="Routine updates">
+              <h2>Routine updates</h2>
+              {routineItems.map((item) => (
+                <RoutineProjection
+                  key={`${item.kind}:${item.id}`}
+                  item={item}
+                  actionState={model.routineAction}
+                  onOpen={() => actions.onOpenRoutine?.(item.routineId)}
+                  onAction={actions.onRoutineAction}
+                />
+              ))}
+            </section>
+          ) : null}
 
           <div className={styles.framePresenceRow} data-docked={docked}>
             <span ref={threadAnchorRef} className={styles.framePresenceThreadSlot} aria-hidden="true" />
@@ -350,8 +372,193 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
           onCompositionEnd={actions.onCompositionEnd}
         />
       </footer>
+
+      {routineDetailState?.routineId ? (
+        <BottomSheet title="Routine details" modal onClose={() => actions.onCloseRoutine?.()} className={styles.frameRoutineDetailOverlay}>
+          {routineDetail ? (
+            <RoutineChatDetail
+              title={routineDetail.title}
+              schedule={formatRoutineSchedule(routineDetail.schedule)}
+              scheduleState={formatRoutineScheduleState(routineDetail.scheduleState)}
+              revision={routineDetail.revision}
+              scheduleGeneration={routineDetail.scheduleGeneration}
+              nextRunAt={formatRoutineDate(routineDetail.nextRunAt)}
+              executionPrompt={routineDetail.executionPrompt}
+              canPauseResume={routineDetail.schedule.kind === "recurring"
+                && (routineDetail.scheduleState === "active" || routineDetail.scheduleState === "paused")}
+              canDelete={routineDetail.scheduleState !== "deleted"}
+              pauseResumeLabel={routineDetail.scheduleState === "active"
+                ? "Pause"
+                : routineDetail.scheduleState === "paused" ? "Resume" : null}
+              actionPending={model.routineAction?.routineId === routineDetailState.routineId && model.routineAction.status === "sending"}
+              actionSent={model.routineAction?.routineId === routineDetailState.routineId && model.routineAction.status === "sent"}
+              onPauseResume={() => {
+                if (!actions.onRoutineAction) return;
+                const action = routineDetail.scheduleState === "active" ? "pause" : "resume";
+                if (action !== "pause" && action !== "resume") return;
+                void actions.onRoutineAction({
+                  action,
+                  routineId: routineDetail.routineId,
+                  routineRevision: routineDetail.revision,
+                  titleSnapshot: routineDetail.title,
+                });
+              }}
+              onDelete={() => {
+                if (!actions.onRoutineAction) return;
+                void actions.onRoutineAction({
+                  action: "delete",
+                  routineId: routineDetail.routineId,
+                  routineRevision: routineDetail.revision,
+                  titleSnapshot: routineDetail.title,
+                });
+              }}
+            />
+          ) : null}
+          {routineDetailState.loading ? <p className={styles.frameQuietState} role="status">Loading routine details…</p> : null}
+          {routineDetailState.error ? (
+            <FrameError action="Try again" onAction={actions.onRetryRoutineDetail}>
+              {routineDetailState.error}
+            </FrameError>
+          ) : null}
+        </BottomSheet>
+      ) : null}
     </ConversationShell>
   );
+}
+
+function RoutineProjection({
+  item,
+  actionState,
+  onOpen,
+  onAction,
+}: {
+  item: NonNullable<ProductionConversationFrameModel["routineItems"]>[number];
+  actionState?: ProductionConversationFrameModel["routineAction"];
+  onOpen: () => void;
+  onAction?: (request: RoutineActionRequest) => Promise<boolean>;
+}) {
+  const actionLocked = Boolean(actionState
+    && actionState.routineId === item.routineId
+    && (actionState.action === "pause"
+      || actionState.action === "resume"
+      || actionState.action === "delete"
+      ? item.kind === "created"
+      : item.kind === "running"
+        && (actionState.runId === null || actionState.runId === undefined || actionState.runId === item.runId)
+        && (actionState.approvalRequestId === null || actionState.approvalRequestId === undefined || actionState.approvalRequestId === item.approvalRequestId)));
+  const request = (action: RoutineActionRequest["action"]): RoutineActionRequest => ({
+    action,
+    routineId: item.routineId,
+    routineRevision: item.routineRevision,
+    titleSnapshot: item.titleSnapshot,
+    runId: item.runId,
+    approvalRequestId: item.approvalRequestId,
+    approvalId: item.approvalId,
+    executionId: item.executionId,
+    attemptId: item.attemptId,
+    generation: item.generation,
+    actionAttemptId: item.actionAttemptId,
+  });
+  const dispatch = (action: RoutineActionRequest["action"]) => {
+    if (!onAction || actionLocked) return;
+    void onAction(request(action));
+  };
+  const approvalPending = item.kind === "running"
+    && item.approvalRequestId !== null
+    && item.approvalStatus === "pending";
+
+  return (
+    <RoutineChatProjectionCard
+      name={item.titleSnapshot}
+      schedule={formatRoutineSchedule(item.schedule)}
+      status={routineProjectionStatus(item)}
+      onOpen={onOpen}
+    >
+      <p className={styles.frameRoutineProjectionDetail}>
+        <span>Revision {item.routineRevision}</span>
+        <span>Generation {item.scheduleGeneration}</span>
+        {item.delayed ? <span>Delayed run</span> : null}
+      </p>
+      {item.kind === "running" && item.approvalStatus === "pending" ? (
+        <p className={styles.frameRoutineProjectionDetail} role="status">
+          Approval requested{item.approvalExpiresAt ? ` · expires ${formatRoutineDate(item.approvalExpiresAt)}` : ""}
+        </p>
+      ) : null}
+      {item.kind === "result" && item.resultInsertion === "pending" ? (
+        <p className={styles.frameRoutineProjectionDetail} role="status">Pending insertion — waiting to appear in chat.</p>
+      ) : null}
+      {item.kind === "result" && item.resultInsertion === "inserted" ? (
+        <p className={styles.frameRoutineProjectionDetail} role="status">Added to chat.</p>
+      ) : null}
+      {item.kind === "result" && item.resultInsertion === "inserted" && item.text ? <p className={styles.frameRoutineProjectionText}>{item.text}</p> : null}
+      {item.kind === "result" && item.resultInsertion === "inserted" && item.references.length > 0 ? (
+        <ul className={styles.frameRoutineReferenceList} aria-label="Routine references">
+          {item.references.map((reference) => (
+            <li key={`${reference.url}:${reference.label}`}><a href={reference.url} target="_blank" rel="noreferrer">{reference.label}</a></li>
+          ))}
+        </ul>
+      ) : null}
+      {approvalPending && onAction ? (
+        <div className={styles.frameRoutineProjectionActions}>
+          <button type="button" className={styles.frameNeutralAction} onClick={() => dispatch("reject")} disabled={actionLocked}>Reject</button>
+          <button type="button" className={styles.frameAccentAction} onClick={() => dispatch("approve")} disabled={actionLocked}>Approve</button>
+          <button type="button" className={styles.frameNeutralAction} onClick={() => dispatch("cancel")} disabled={actionLocked}>Cancel</button>
+        </div>
+      ) : null}
+      {actionLocked ? <p className={styles.frameRoutineActionNotice} role="status">{actionState?.status === "sending" ? "Sending request…" : "Request sent to Ally; waiting for confirmation."}</p> : null}
+    </RoutineChatProjectionCard>
+  );
+}
+
+function routineProjectionStatus(item: NonNullable<ProductionConversationFrameModel["routineItems"]>[number]): string {
+  if (item.kind === "created") return "Routine created";
+  if (item.kind === "running") {
+    if (item.approvalStatus && item.approvalStatus !== "pending") {
+      return `Approval ${formatRoutineToken(item.approvalStatus)}`;
+    }
+    return {
+      queued: "Run queued",
+      working: "Routine is running",
+      approval_waiting: "Waiting for approval",
+      succeeded: "Run completed",
+      failed: "Run failed",
+      cancelled: "Run cancelled",
+      expired: "Approval expired",
+    }[item.status] ?? formatRoutineToken(item.status);
+  }
+  if (item.status === "changed") return "Completed · changed";
+  if (item.status === "unchanged") return "Completed · no changes";
+  if (item.status === "failed") return "Run failed";
+  return formatRoutineToken(item.status);
+}
+
+function formatRoutineSchedule(schedule: NonNullable<ProductionConversationFrameModel["routineItems"]>[number]["schedule"]): string {
+  if (schedule.kind === "once") return `Once · ${schedule.localAt} (${schedule.timezone})`;
+  const localTime = schedule.localTime?.slice(0, 5) ?? "the scheduled time";
+  if (schedule.frequency === "daily") return `Daily · ${localTime} (${schedule.timezone})`;
+  if (schedule.frequency === "weekly") {
+    const days = (schedule.daysOfWeek ?? []).map((day) => ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day] ?? "").filter(Boolean).join(", ");
+    return `Weekly · ${days} at ${localTime} (${schedule.timezone})`;
+  }
+  return `Monthly · day ${schedule.dayOfMonth ?? "—"} at ${localTime} (${schedule.timezone})`;
+}
+
+function formatRoutineDate(value: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function formatRoutineScheduleState(value: string): string {
+  return formatRoutineToken(value);
+}
+
+function formatRoutineToken(value: string): string {
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 function isTerminalActivityState(state: ProductionConversationFrameModel["activityState"]): boolean {

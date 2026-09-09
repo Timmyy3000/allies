@@ -1,4 +1,4 @@
-import type { AllyViewModel, AssistantReplyViewModel, MessageViewModel } from "@allies/cloud-client";
+import type { AllyViewModel, AssistantReplyViewModel, MessageViewModel, RoutineChatItemViewModel } from "@allies/cloud-client";
 import { EMPTY_ACTIVITY_PROJECTION } from "@allies/cloud-client";
 import { describe, expect, it } from "vitest";
 
@@ -7,6 +7,9 @@ import {
   mergeActivityPresentation,
 } from "../../lib/allies/activity-presentation";
 import {
+  buildRoutineActionIdempotencyKey,
+  buildRoutineActionEvidence,
+  buildRoutineActionMessage,
   buildProductionConversationFrameModel,
   conversationDateDividerAt,
   formatConversationDateDivider,
@@ -297,6 +300,101 @@ describe("buildProductionConversationFrameModel", () => {
     expect(model.streaming).toBe(false);
     expect(model.composer.draft).toBe("");
     expect(model.composer.disabled).toBe(true);
+  });
+});
+
+describe("routine action requests", () => {
+  const request = {
+    action: "approve" as const,
+    routineId: "00000000-0000-4000-8000-000000000010",
+    routineRevision: 2,
+    titleSnapshot: "Morning brief; review",
+    runId: "00000000-0000-4000-8000-000000000012",
+    approvalId: "00000000-0000-4000-8000-000000000017",
+    approvalRequestId: "00000000-0000-4000-8000-000000000016",
+    executionId: "00000000-0000-4000-8000-000000000013",
+    attemptId: "00000000-0000-4000-8000-000000000014",
+    generation: 7,
+    actionAttemptId: "00000000-0000-4000-8000-000000000018",
+  };
+
+  it("keeps action keys stable and within the Cloud idempotency bound", () => {
+    const key = buildRoutineActionIdempotencyKey(request);
+    expect(key).toBe(buildRoutineActionIdempotencyKey({ ...request }));
+    expect(key.length).toBeGreaterThanOrEqual(16);
+    expect(key.length).toBeLessThanOrEqual(128);
+    expect(buildRoutineActionIdempotencyKey({ ...request, action: "reject" })).not.toBe(key);
+  });
+
+  it("includes the exact title, revision, and approval identities in the chat request", () => {
+    const content = buildRoutineActionMessage(request);
+    expect(content).toContain('title_snapshot="Morning brief; review"');
+    expect(content).toContain("routine_id=00000000-0000-4000-8000-000000000010");
+    expect(content).toContain("expected_revision=2");
+    expect(content).toContain("approval_request_id=00000000-0000-4000-8000-000000000016");
+    expect(content).toContain("execution_id=00000000-0000-4000-8000-000000000013");
+    expect(content).toContain("attempt_id=00000000-0000-4000-8000-000000000014");
+    expect(content).toContain("generation=7");
+    expect(content).toContain("action_attempt_id=00000000-0000-4000-8000-000000000018");
+  });
+
+  it("tracks only the submitted routine projection", () => {
+    const target: RoutineChatItemViewModel = {
+      id: request.routineId,
+      kind: "created",
+      routineId: request.routineId,
+      conversationId: "00000000-0000-4000-8000-000000000003",
+      titleSnapshot: request.titleSnapshot,
+      routineRevision: request.routineRevision,
+      scheduleGeneration: 1,
+      status: "active",
+      schedule: { kind: "once", localAt: "2026-09-10T09:30:00", timezone: "UTC" },
+      occurredAt: "2026-09-09T08:00:00Z",
+      occurrenceId: null,
+      runId: null,
+      executionId: null,
+      attemptId: null,
+      generation: null,
+      resultId: null,
+      resultInsertion: null,
+      text: null,
+      references: [],
+      delayed: null,
+      approvalId: null,
+      approvalRequestId: null,
+      approvalStatus: null,
+      approvalDecision: null,
+      actionDigest: null,
+      actionAttemptId: null,
+      approvalExpiresAt: null,
+    };
+    const unrelated = {
+      ...target,
+      id: "00000000-0000-4000-8000-000000000099",
+      routineId: "00000000-0000-4000-8000-000000000099",
+    };
+    const action = { ...request, action: "pause" as const };
+    expect(buildRoutineActionEvidence(action, [target, unrelated])).toBe(
+      buildRoutineActionEvidence(action, [target, { ...unrelated, status: "paused" }]),
+    );
+    expect(buildRoutineActionEvidence(action, [{ ...target, routineRevision: 3 }, unrelated])).not.toBe(
+      buildRoutineActionEvidence(action, [target, unrelated]),
+    );
+
+    const running: RoutineChatItemViewModel = {
+      ...target,
+      id: request.runId!,
+      kind: "running",
+      status: "approval_waiting",
+      occurrenceId: "00000000-0000-4000-8000-000000000011",
+      runId: request.runId,
+      approvalRequestId: request.approvalRequestId,
+      approvalStatus: "pending",
+    };
+    const approvalAction = { ...request, action: "approve" as const };
+    expect(buildRoutineActionEvidence(approvalAction, [running])).not.toBe(
+      buildRoutineActionEvidence(approvalAction, [{ ...running, approvalRequestId: "00000000-0000-4000-8000-000000000019" }]),
+    );
   });
 });
 
