@@ -163,6 +163,30 @@ def test_allies_collection_openapi_declares_list_envelope_and_safe_errors():
     )
 
 
+def test_routine_discovery_openapi_publishes_concrete_read_source():
+    schema = api.get_openapi_schema()
+    list_operation = schema["paths"]["/api/v1/workspaces/{workspace_id}/routines"][
+        "get"
+    ]
+    detail_operation = schema["paths"][
+        "/api/v1/workspaces/{workspace_id}/routines/{routine_id}"
+    ]["get"]
+
+    assert set(list_operation["responses"]) == {200, 401, 404, 422, 500}
+    assert set(detail_operation["responses"]) == {200, 401, 404, 500}
+    assert {
+        parameter["name"]
+        for parameter in list_operation["parameters"]
+        if parameter["in"] == "query"
+    } == {"limit", "cursor", "ally_id"}
+    assert list_operation["responses"][200]["content"]["application/json"]["schema"][
+        "$ref"
+    ].endswith("/SuccessResponse_RoutinePageResponse_")
+    assert detail_operation["responses"][200]["content"]["application/json"]["schema"][
+        "$ref"
+    ].endswith("/SuccessResponse_RoutineDetailResponse_")
+
+
 def test_unhandled_error_logs_only_safe_metadata_and_returns_generic_envelope(caplog):
     request = RequestFactory().get("/api/v1/test")
     error = RuntimeError("private failure detail")

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from datetime import datetime
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -39,10 +41,14 @@ from .contracts import (
     ExecutionCommand,
     ExecutionReceipt,
     ReconciliationReceipt,
+    RoutineApprovalReceipt,
+    RoutineCancelWaitReceipt,
+    RoutineDispatchReceipt,
     canonical_json_bytes,
 )
 
 _UUID_PATTERN = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+_ROUTINE_COMMAND_MAX_BYTES = 64 * 1024
 
 
 class ProfileProvisioningRequest(BaseModel):
@@ -243,6 +249,136 @@ def create_execution_intent(
     return _receipt(
         _request(method="POST", path="api/v1/internal/executions", body=body)
     )
+
+
+def _routine_command_body(
+    command: bytes | Mapping[str, Any] | BaseModel | None,
+    *,
+    raw_body: bytes | None,
+    expected_kind: str,
+    operation: str,
+) -> bytes:
+    not_canonical = f"foundry {operation} bytes are not canonical"
+    invalid = f"foundry {operation} command is invalid"
+    if raw_body is not None and not isinstance(raw_body, bytes):
+        raise FoundryGatewayInvalid(not_canonical)
+    if raw_body is not None:
+        if isinstance(command, bytes) and command != raw_body:
+            raise FoundryGatewayInvalid(not_canonical)
+        if command is not None and not isinstance(command, bytes):
+            try:
+                value = (
+                    command.model_dump(mode="json")
+                    if isinstance(command, BaseModel)
+                    else dict(command)
+                )
+                expected_body = canonical_json_bytes(value)
+            except (TypeError, ValueError) as exc:
+                raise FoundryGatewayInvalid(invalid) from exc
+            if raw_body != expected_body:
+                raise FoundryGatewayInvalid(not_canonical)
+        body = raw_body
+    elif isinstance(command, bytes):
+        body = command
+    elif command is None:
+        raise FoundryGatewayInvalid(invalid)
+    else:
+        try:
+            value = (
+                command.model_dump(mode="json")
+                if isinstance(command, BaseModel)
+                else dict(command)
+            )
+            body = canonical_json_bytes(value)
+        except (TypeError, ValueError) as exc:
+            raise FoundryGatewayInvalid(invalid) from exc
+
+    if len(body) > _ROUTINE_COMMAND_MAX_BYTES:
+        raise FoundryGatewayInvalid(f"foundry {operation} command too large")
+    try:
+        parsed = json.loads(body)
+        canonical_body = canonical_json_bytes(parsed)
+    except (TypeError, ValueError, UnicodeDecodeError) as exc:
+        raise FoundryGatewayInvalid(invalid) from exc
+    if not isinstance(parsed, dict) or body != canonical_body:
+        raise FoundryGatewayInvalid(not_canonical)
+    if parsed.get("kind") != expected_kind:
+        raise FoundryGatewayInvalid(invalid)
+    return body
+
+
+def accept_routine_dispatch(
+    command: bytes | Mapping[str, Any] | BaseModel | None = None,
+    *,
+    raw_body: bytes | None = None,
+) -> RoutineDispatchReceipt:
+    """Deliver one persisted rev9 routine.dispatch envelope to Foundry."""
+
+    body = _routine_command_body(
+        command,
+        raw_body=raw_body,
+        expected_kind="routine.dispatch",
+        operation="routine dispatch",
+    )
+    raw = _request(
+        method="POST",
+        path="api/v1/internal/routines/dispatch",
+        body=body,
+    )
+    try:
+        return RoutineDispatchReceipt.model_validate_json(raw)
+    except ValueError as exc:
+        raise FoundryGatewayInvalid("foundry routine dispatch receipt invalid") from exc
+
+
+def decide_routine_approval(
+    command: bytes | Mapping[str, Any] | BaseModel | None = None,
+    *,
+    raw_body: bytes | None = None,
+) -> RoutineApprovalReceipt:
+    """Deliver one persisted rev9 routine.approval_decision envelope."""
+
+    body = _routine_command_body(
+        command,
+        raw_body=raw_body,
+        expected_kind="routine.approval_decision",
+        operation="routine approval",
+    )
+    raw = _request(
+        method="POST",
+        path="api/v1/internal/routines/approval-decision",
+        body=body,
+    )
+    try:
+        return RoutineApprovalReceipt.model_validate_json(raw)
+    except ValueError as exc:
+        raise FoundryGatewayInvalid("foundry routine approval receipt invalid") from exc
+
+
+def cancel_routine_wait(
+    command: bytes | Mapping[str, Any] | BaseModel | None = None,
+    *,
+    raw_body: bytes | None = None,
+) -> RoutineCancelWaitReceipt:
+    """Deliver one persisted rev9 routine.cancel_wait envelope."""
+
+    body = _routine_command_body(
+        command,
+        raw_body=raw_body,
+        expected_kind="routine.cancel_wait",
+        operation="routine cancel-wait",
+    )
+    raw = _request(
+        method="POST",
+        path="api/v1/internal/routines/cancel-wait",
+        body=body,
+    )
+    try:
+        return RoutineCancelWaitReceipt.model_validate_json(raw)
+    except ValueError as exc:
+        raise FoundryGatewayInvalid(
+            "foundry routine cancel-wait receipt invalid"
+        ) from exc
 
 
 def submit_approval_decision(

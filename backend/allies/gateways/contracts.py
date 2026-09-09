@@ -12,7 +12,15 @@ from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, StrictInt, StrictStr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    model_validator,
+)
 
 SCHEMA_VERSION = "v1"
 FINGERPRINT_PREFIX = "canonical-json-sha256:v1:"
@@ -137,6 +145,87 @@ def canonical_fingerprint(value: BaseModel | Mapping[str, Any]) -> str:
 
 class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
+
+
+class RoutineScope(ContractModel):
+    kind: Literal["workspace"]
+    workspace_id: UUID
+    owner_user_id: UUID
+    ally_id: UUID
+    cloud_binding_id: UUID
+
+
+class RoutineEnvelope(ContractModel):
+    schema_version: Literal["v1"]
+    producer: Literal["cloud", "foundry"]
+    service_identity: StrictStr
+    scope: RoutineScope
+    issued_at: datetime
+    deadline_at: datetime
+    fingerprint: StrictStr = Field(pattern=FINGERPRINT_PATTERN)
+
+    @model_validator(mode="after")
+    def validate_common(self) -> RoutineEnvelope:
+        if self.producer == "cloud" and self.service_identity != "cloud-service":
+            raise ValueError("cloud messages require cloud-service identity")
+        if self.producer == "foundry" and self.service_identity != "foundry-service":
+            raise ValueError("Foundry messages require foundry-service identity")
+        if self.issued_at.tzinfo is None or self.deadline_at.tzinfo is None:
+            raise ValueError("routine timestamps must include a timezone")
+        lifetime = (self.deadline_at - self.issued_at).total_seconds()
+        if lifetime <= 0 or lifetime > MAX_CONTRACT_LIFETIME_SECONDS:
+            raise ValueError("routine deadline is outside the bounded window")
+        if self.fingerprint != canonical_fingerprint(self):
+            raise ValueError("routine fingerprint is invalid")
+        return self
+
+
+class RoutineDispatchReceipt(RoutineEnvelope):
+    kind: Literal["routine.dispatch_receipt"]
+    producer: Literal["foundry"]
+    service_identity: Literal["foundry-service"]
+    command_id: UUID
+    idempotency_key: UUID
+    outcome: Literal["accepted", "duplicate"]
+    occurrence_id: UUID
+    run_id: UUID
+    execution_id: UUID
+    attempt_id: UUID
+    generation: StrictInt = Field(ge=0)
+    acceptance_is_completion: Literal[False]
+
+
+class RoutineApprovalReceipt(RoutineEnvelope):
+    kind: Literal["routine.approval_receipt"]
+    producer: Literal["foundry"]
+    service_identity: Literal["foundry-service"]
+    command_id: UUID
+    idempotency_key: UUID
+    result_code: StrictStr = Field(min_length=1, max_length=64)
+    request_status: Literal[
+        "authorizing", "rejected", "expired", "cancelled", "pending"
+    ]
+    run_status: Literal["working", "approval_waiting", "failed", "cancelled", "expired"]
+    permission_consumed: StrictBool
+    action_attempt_state: Literal[
+        "pre_dispatch",
+        "dispatching",
+        "completed",
+        "unknown",
+        "manual_reconciliation",
+    ]
+
+
+class RoutineCancelWaitReceipt(ContractModel):
+    code: StrictStr = Field(min_length=1, max_length=64)
+    routine_execution_id: UUID
+    fence: StrictInt = Field(ge=0)
+    status: Literal["pending", "authorizing", "rejected", "expired", "cancelled"]
+    replayed: StrictBool
+
+
+# Foundry names this bounded route response RoutineCancelReceipt internally.
+RoutineCancelReceipt = RoutineCancelWaitReceipt
 
 
 class WorkspaceScope(ContractModel):
@@ -478,6 +567,12 @@ __all__ = [
     "FoundryEventEnvelope",
     "FoundryIdentity",
     "ReconciliationReceipt",
+    "RoutineApprovalReceipt",
+    "RoutineCancelReceipt",
+    "RoutineCancelWaitReceipt",
+    "RoutineDispatchReceipt",
+    "RoutineEnvelope",
+    "RoutineScope",
     "canonical_fingerprint",
     "canonical_json_bytes",
 ]
