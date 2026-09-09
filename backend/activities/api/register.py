@@ -6,7 +6,7 @@ from typing import Annotated
 from django.conf import settings
 from django.db import DatabaseError, close_old_connections
 from django.http import HttpRequest, JsonResponse, StreamingHttpResponse
-from ninja import Header, Query
+from ninja import Body, Header, Query
 from ninja_extra import (
     ControllerBase,
     NinjaExtraAPI,
@@ -15,7 +15,7 @@ from ninja_extra import (
     http_post,
 )
 
-from allies.gateways.contracts import FoundryEventEnvelope
+from allies.gateways.contracts import FoundryEventEnvelope, RoutineDispatchReceipt
 from auths.api.common import (
     _require_origin,
     _session,
@@ -28,6 +28,25 @@ from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_limit
 from chat.services.messages import assistant_reply_response
 from common.uuids import CanonicalUUID
+from routines.services.approvals import (
+    RoutineApprovalConflict,
+    RoutineApprovalInvalid,
+    RoutineApprovalUnavailable,
+    apply_routine_approval_requested_event,
+)
+from routines.services.dispatch import (
+    RoutineDispatchReconciliationConflict,
+    RoutineDispatchReconciliationUnavailable,
+    reconcile_late_routine_dispatch_receipt,
+)
+from routines.services.results import (
+    RoutineResultConflict,
+    RoutineResultEvent,
+    RoutineResultInvalid,
+    RoutineResultUnavailable,
+    complete_pending_routine_results,
+    project_routine_result,
+)
 
 from ..exceptions import (
     ApprovalConflict,
@@ -469,17 +488,125 @@ def register(api: NinjaExtraAPI) -> None:
         "/internal/foundry/events",
         auth=_foundry_token_valid,
     )
-    def foundry_event(request: HttpRequest, payload: FoundryEventEnvelope):
+    def foundry_event(request: HttpRequest, payload: Annotated[dict, Body(...)]):
+        kind = payload.get("kind") if isinstance(payload, dict) else None
+        dispatch_receipt = kind == "routine.dispatch_receipt"
+        routine_event = kind == "routine.result"
+        approval_event = kind == "routine.approval_requested"
+        if dispatch_receipt:
+            if not getattr(settings, "ALLIES_ROUTINE_RESULT_INGESTION_ENABLED", False):
+                return JsonResponse(
+                    {"event_id": payload.get("command_id"), "status": "disabled"},
+                    status=503,
+                )
+            try:
+                receipt = RoutineDispatchReceipt.model_validate(payload)
+                status = reconcile_late_routine_dispatch_receipt(receipt)
+            except RoutineDispatchReconciliationUnavailable:
+                return JsonResponse(
+                    {"command_id": payload.get("command_id"), "status": "unavailable"},
+                    status=404,
+                )
+            except RoutineDispatchReconciliationConflict:
+                return JsonResponse(
+                    {"command_id": payload.get("command_id"), "status": "conflict"},
+                    status=409,
+                )
+            except ValueError:
+                return JsonResponse(
+                    {"command_id": payload.get("command_id"), "status": "invalid"},
+                    status=422,
+                )
+            return JsonResponse(
+                {"command_id": str(receipt.command_id), "status": status},
+                status=202,
+            )
+        if routine_event:
+            if not getattr(settings, "ALLIES_ROUTINE_RESULT_INGESTION_ENABLED", False):
+                return JsonResponse(
+                    {"event_id": payload.get("event_id"), "status": "disabled"},
+                    status=503,
+                )
+            try:
+                event = RoutineResultEvent.model_validate(payload)
+                result = project_routine_result(event.model_dump(mode="json"))
+            except RoutineResultUnavailable:
+                return JsonResponse(
+                    {"event_id": payload.get("event_id"), "status": "unavailable"},
+                    status=404,
+                )
+            except RoutineResultConflict:
+                return JsonResponse(
+                    {"event_id": payload.get("event_id"), "status": "conflict"},
+                    status=409,
+                )
+            except (RoutineResultInvalid, ValueError):
+                return JsonResponse(
+                    {"event_id": payload.get("event_id"), "status": "invalid"},
+                    status=422,
+                )
+            try:
+                complete_pending_routine_results(
+                    conversation_id=result.result.main_conversation_id
+                )
+            except (RoutineResultConflict, RoutineResultInvalid):
+                # The durable result receipt remains pending and is retried at
+                # the next main-turn boundary when the context fits safely.
+                pass
+            return JsonResponse(
+                {"event_id": str(result.event_id), "status": result.status},
+                status=202,
+            )
+
+        if approval_event:
+            if not getattr(settings, "ALLIES_ROUTINE_APPROVAL_ENABLED", False):
+                return JsonResponse(
+                    {"event_id": payload.get("event_id"), "status": "disabled"},
+                    status=503,
+                )
+            try:
+                event_result = apply_routine_approval_requested_event(payload)
+            except RoutineApprovalUnavailable:
+                return JsonResponse(
+                    {"event_id": payload.get("event_id"), "status": "unavailable"},
+                    status=404,
+                )
+            except RoutineApprovalConflict:
+                return JsonResponse(
+                    {"event_id": payload.get("event_id"), "status": "conflict"},
+                    status=409,
+                )
+            except (RoutineApprovalInvalid, ValueError):
+                return JsonResponse(
+                    {"event_id": payload.get("event_id"), "status": "invalid"},
+                    status=422,
+                )
+            return JsonResponse(
+                {
+                    "event_id": str(event_result.event_id),
+                    "status": event_result.status,
+                },
+                status=202,
+            )
+
         if not getattr(settings, "ALLIES_FOUNDRY_EXECUTION_ENABLED", False):
             return JsonResponse(
-                {"event_id": str(payload.event_id), "status": "disabled"},
+                {
+                    "event_id": payload.get("event_id")
+                    if isinstance(payload, dict)
+                    else None,
+                    "status": "disabled",
+                },
                 status=503,
             )
         try:
-            result = project_foundry_event(payload)
+            event = FoundryEventEnvelope.model_validate(payload)
+            result = project_foundry_event(event)
+        except ValueError:
+            return error_json("validation_error", "request validation failed", 422)
         except ProjectionNotFound:
             return JsonResponse(
-                {"event_id": str(payload.event_id), "status": "unavailable"},
+                {"event_id": str(event.event_id), "status": "unavailable"},
                 status=404,
             )
         except ProjectionSequenceGap:
@@ -488,7 +615,7 @@ def register(api: NinjaExtraAPI) -> None:
             return JsonResponse({"code": "conflict"}, status=409)
         except ProjectionInvalid:
             return JsonResponse(
-                {"event_id": str(payload.event_id), "status": "invalid"},
+                {"event_id": str(event.event_id), "status": "invalid"},
                 status=422,
             )
         return JsonResponse(

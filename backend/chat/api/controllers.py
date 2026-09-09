@@ -19,6 +19,7 @@ from chat.api.schemas import (
     ConversationResponse,
     MessageAcceptanceResponse,
     MessageResponse,
+    RoutineChatItemResponse,
     SendMessageRequest,
 )
 from chat.exceptions import (
@@ -59,6 +60,10 @@ def _conversation_response(result) -> ConversationResponse:
             AssistantReplyResponse.model_validate(assistant_reply_response(reply))
             for message in result.messages
             if (reply := getattr(message, "assistant_reply", None)) is not None
+        ],
+        routine_items=[
+            RoutineChatItemResponse.model_validate(item)
+            for item in result.routine_items
         ],
         next_cursor=result.next_cursor,
     )

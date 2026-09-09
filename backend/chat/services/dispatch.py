@@ -22,6 +22,7 @@ from allies.exceptions import (
     FoundryGatewayUnknownOutcome,
 )
 from allies.gateways.contracts import (
+    MAX_COMMAND_TEXT_BYTES,
     ExecutionCommand,
     ExecutionReceipt,
     FirstTurnBootstrap,
@@ -154,7 +155,10 @@ def _command_for_message(message: Message) -> tuple[ExecutionCommand, bytes, str
         raise DispatchUnavailable("ally binding unavailable") from None
     issued_at = timezone.now()
     deadline_at = issued_at + timedelta(seconds=5)
-    payload = {"kind": "execution_input", "text": message.content}
+    payload = {
+        "kind": "execution_input",
+        "text": _model_input_text(message),
+    }
     bootstrap = _first_turn_bootstrap(message)
     if bootstrap is not None:
         payload["bootstrap"] = bootstrap.model_dump(mode="json")
@@ -187,6 +191,29 @@ def _command_for_message(message: Message) -> tuple[ExecutionCommand, bytes, str
     return command, body, hashlib.sha256(body).hexdigest()
 
 
+def _routine_contexts_for_message(message: Message):
+    from activities.models import RoutineResultContext
+
+    return tuple(
+        RoutineResultContext.objects.filter(
+            conversation_id=message.conversation_id,
+            consumed_at__isnull=True,
+        ).order_by("created_at", "id")
+    )
+
+
+def _model_input_text(message: Message) -> str:
+    contexts = _routine_contexts_for_message(message)
+    if not contexts:
+        return message.content
+    parts = [context.context_text for context in contexts]
+    parts.append(f"[User message]\n{message.content}")
+    text = "\n\n".join(parts)
+    if len(text.encode("utf-8")) > MAX_COMMAND_TEXT_BYTES:
+        raise DispatchConflict("routine result context exceeds command budget")
+    return text
+
+
 def _ensure_outbox_locked(message: Message) -> DispatchReceipt:
     existing = (
         DispatchOutbox.objects.select_for_update().filter(message=message).first()
@@ -213,6 +240,16 @@ def _ensure_outbox_locked(message: Message) -> DispatchReceipt:
         command_sha256=body_digest,
         command_fingerprint=command.fingerprint,
     )
+    contexts = _routine_contexts_for_message(message)
+    if contexts:
+        from activities.models import RoutineResultContext
+
+        updated = RoutineResultContext.objects.filter(
+            pk__in=[context.pk for context in contexts],
+            consumed_at__isnull=True,
+        ).update(target_message=message, consumed_at=timezone.now())
+        if updated != len(contexts):
+            raise DispatchConflict("routine result context changed during dispatch")
     return DispatchReceipt(
         message_id=message.id,
         status=outbox.status,
@@ -479,8 +516,29 @@ def _mark_prior_turn_pending(pk: UUID, fence: int, *, now) -> bool:
     )
 
 
+def _insert_pending_routine_context(conversation: Conversation, *, now) -> tuple:
+    from routines.services.results import (
+        RoutineResultConflict,
+        RoutineResultInvalid,
+        complete_pending_routine_results_locked,
+    )
+
+    try:
+        return complete_pending_routine_results_locked(
+            conversation=conversation,
+            now=now,
+        )
+    except (RoutineResultConflict, RoutineResultInvalid):
+        # Keep the result receipt pending when the model-input budget cannot
+        # accommodate it. The next turn remains fail-closed and can retry once
+        # the boundary has a safe command budget.
+        return ()
+
+
 def _release_next_locked(conversation: Conversation, *, now) -> Message | None:
     from .messages import _claim_next_turn_locked
+
+    _insert_pending_routine_context(conversation, now=now)
 
     next_message = _claim_next_turn_locked(conversation=conversation, now=now)
     if next_message is None:

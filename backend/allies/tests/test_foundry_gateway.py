@@ -12,14 +12,27 @@ from allies.exceptions import (
     FoundryGatewayConflict,
     FoundryGatewayInvalid,
     FoundryGatewayNotFound,
+    FoundryGatewayRejected,
+    FoundryGatewayRetryable,
+    FoundryGatewayUnknownOutcome,
     ProvisioningRejected,
     ProvisioningRetryable,
 )
-from allies.gateways.contracts import ExecutionCommand
+from allies.gateways.contracts import (
+    ExecutionCommand,
+    RoutineApprovalReceipt,
+    RoutineCancelWaitReceipt,
+    RoutineDispatchReceipt,
+    canonical_fingerprint,
+    canonical_json_bytes,
+)
 from allies.gateways.foundry import (
     ProfileProvisioningRequest,
     RuntimeIntentReceipt,
+    accept_routine_dispatch,
     activate_workspace,
+    cancel_routine_wait,
+    decide_routine_approval,
     provision_profile,
     reconcile_execution_intent,
     request_runtime_intent,
@@ -66,6 +79,140 @@ def receipt(**overrides):
         "request_fingerprint": "a" * 64,
         "status": "pending",
         "evidence_digest": "b" * 64,
+        **overrides,
+    }
+
+
+ROUTINE_SCOPE = {
+    "kind": "workspace",
+    "workspace_id": "00000000-0000-4000-8000-000000000001",
+    "owner_user_id": "00000000-0000-4000-8000-000000000002",
+    "ally_id": "00000000-0000-4000-8000-000000000003",
+    "cloud_binding_id": "00000000-0000-4000-8000-000000000009",
+}
+
+
+def _routine_command(kind: str, **fields):
+    value = {
+        "schema_version": "v1",
+        "kind": kind,
+        "producer": "cloud",
+        "service_identity": "cloud-service",
+        "scope": ROUTINE_SCOPE,
+        "issued_at": "2026-09-11T08:00:00Z",
+        "deadline_at": "2026-09-11T08:01:00Z",
+        "fingerprint": "",
+        **fields,
+    }
+    value["fingerprint"] = canonical_fingerprint(value)
+    return value
+
+
+def routine_dispatch_command():
+    return _routine_command(
+        "routine.dispatch",
+        command_id="00000000-0000-4000-8000-00000000001e",
+        idempotency_key="00000000-0000-4000-8000-00000000001f",
+        routine_id="00000000-0000-4000-8000-000000000004",
+        routine_revision=3,
+        schedule_generation=2,
+        occurrence_id="00000000-0000-4000-8000-000000000005",
+        run_id="00000000-0000-4000-8000-000000000006",
+        scheduled_at="2026-09-11T08:02:00Z",
+        delayed=False,
+        occurrence_disposition="admitted",
+        main_conversation_id="00000000-0000-4000-8000-000000000007",
+        run_conversation_id="00000000-0000-4000-8000-000000000008",
+        cloud_binding_id=ROUTINE_SCOPE["cloud_binding_id"],
+        execution_prompt="Check the saved routine condition.",
+        title_snapshot="Morning check",
+    )
+
+
+def routine_approval_command():
+    return _routine_command(
+        "routine.approval_decision",
+        command_id="00000000-0000-4000-8000-000000000020",
+        idempotency_key="00000000-0000-4000-8000-000000000021",
+        approval_request_id="00000000-0000-4000-8000-00000000000c",
+        action_attempt_id="00000000-0000-4000-8000-00000000000d",
+        run_id="00000000-0000-4000-8000-000000000006",
+        attempt_id="00000000-0000-4000-8000-00000000000b",
+        generation=7,
+        decision="approve",
+        decided_at="2026-09-11T08:04:30Z",
+    )
+
+
+def routine_cancel_command():
+    return _routine_command(
+        "routine.cancel_wait",
+        command_id="00000000-0000-4000-8000-000000000022",
+        idempotency_key="00000000-0000-4000-8000-000000000023",
+        approval_request_id="00000000-0000-4000-8000-00000000000c",
+        run_id="00000000-0000-4000-8000-000000000006",
+        attempt_id="00000000-0000-4000-8000-00000000000b",
+        generation=7,
+        reason="replacement",
+        replacing_occurrence_id="00000000-0000-4000-8000-00000000001e",
+    )
+
+
+def routine_dispatch_receipt(command, *, outcome="accepted", **overrides):
+    value = {
+        "schema_version": "v1",
+        "kind": "routine.dispatch_receipt",
+        "producer": "foundry",
+        "service_identity": "foundry-service",
+        "command_id": command["command_id"],
+        "idempotency_key": command["idempotency_key"],
+        "outcome": outcome,
+        "occurrence_id": command["occurrence_id"],
+        "run_id": command["run_id"],
+        "execution_id": "00000000-0000-4000-8000-00000000000a",
+        "attempt_id": "00000000-0000-4000-8000-00000000000b",
+        "generation": 7,
+        "acceptance_is_completion": False,
+        "scope": command["scope"],
+        "issued_at": "2026-09-11T08:00:02Z",
+        "deadline_at": "2026-09-11T08:01:02Z",
+        "fingerprint": "",
+        **overrides,
+    }
+    value["fingerprint"] = canonical_fingerprint(value)
+    return value
+
+
+def routine_approval_receipt(command, **overrides):
+    value = {
+        "schema_version": "v1",
+        "kind": "routine.approval_receipt",
+        "producer": "foundry",
+        "service_identity": "foundry-service",
+        "command_id": command["command_id"],
+        "idempotency_key": command["idempotency_key"],
+        "result_code": "APPROVAL_AUTHORIZED",
+        "request_status": "authorizing",
+        "run_status": "working",
+        "permission_consumed": True,
+        "action_attempt_state": "pre_dispatch",
+        "scope": command["scope"],
+        "issued_at": "2026-09-11T08:04:31Z",
+        "deadline_at": "2026-09-11T08:05:31Z",
+        "fingerprint": "",
+        **overrides,
+    }
+    value["fingerprint"] = canonical_fingerprint(value)
+    return value
+
+
+def routine_cancel_receipt(**overrides):
+    return {
+        "code": "WAIT_CANCELLED",
+        "routine_execution_id": "00000000-0000-4000-8000-00000000000a",
+        "fence": 4,
+        "status": "cancelled",
+        "replayed": False,
         **overrides,
     }
 
@@ -375,3 +522,242 @@ def test_execution_command_fixture_round_trips_through_gateway_dto():
     assert command.fingerprint.endswith(
         "b4e253ef34e4710692d1eaba026071ccbe9468d7be6baf8115242624d676b663"
     )
+
+
+@pytest.mark.parametrize("outcome", ["accepted", "duplicate"])
+def test_routine_dispatch_sends_persisted_canonical_body_and_validates_receipt(
+    monkeypatch, settings, outcome
+):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    command = routine_dispatch_command()
+    body = canonical_json_bytes(command)
+    captured = {}
+
+    class Opener:
+        def open(self, request, *, timeout):
+            captured["url"] = request.full_url
+            captured["authorization"] = request.get_header("Authorization")
+            captured["body"] = request.data
+            captured["timeout"] = timeout
+            return Response(routine_dispatch_receipt(command, outcome=outcome))
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+
+    result = accept_routine_dispatch(raw_body=body)
+
+    assert isinstance(result, RoutineDispatchReceipt)
+    assert result.outcome == outcome
+    assert captured == {
+        "url": "https://foundry.example.test/api/v1/internal/routines/dispatch",
+        "authorization": "Bearer service-secret",
+        "body": body,
+        "timeout": settings.ALLIES_FOUNDRY_TIMEOUT_SECONDS,
+    }
+
+
+def test_routine_transport_rejects_noncanonical_persisted_body_before_network(
+    monkeypatch, settings
+):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    monkeypatch.setattr(
+        "allies.gateways.foundry._request",
+        lambda **_kwargs: pytest.fail("noncanonical routine body reached the network"),
+    )
+
+    with pytest.raises(FoundryGatewayInvalid):
+        accept_routine_dispatch(
+            raw_body=canonical_json_bytes(routine_dispatch_command()) + b"\n"
+        )
+
+
+def test_routine_approval_and_cancel_wait_use_confirmed_routes(monkeypatch, settings):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    approval = routine_approval_command()
+    cancel = routine_cancel_command()
+    captured = []
+
+    class Opener:
+        def open(self, request, *, timeout):
+            captured.append(
+                {
+                    "url": request.full_url,
+                    "authorization": request.get_header("Authorization"),
+                    "body": request.data,
+                    "timeout": timeout,
+                }
+            )
+            if request.full_url.endswith("approval-decision"):
+                return Response(routine_approval_receipt(approval))
+            return Response(routine_cancel_receipt())
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+
+    approval_result = decide_routine_approval(raw_body=canonical_json_bytes(approval))
+    cancel_result = cancel_routine_wait(raw_body=canonical_json_bytes(cancel))
+
+    assert isinstance(approval_result, RoutineApprovalReceipt)
+    assert approval_result.result_code == "APPROVAL_AUTHORIZED"
+    assert isinstance(cancel_result, RoutineCancelWaitReceipt)
+    assert cancel_result.code == "WAIT_CANCELLED"
+    assert [entry["url"] for entry in captured] == [
+        "https://foundry.example.test/api/v1/internal/routines/approval-decision",
+        "https://foundry.example.test/api/v1/internal/routines/cancel-wait",
+    ]
+    assert [entry["authorization"] for entry in captured] == [
+        "Bearer service-secret",
+        "Bearer service-secret",
+    ]
+    assert [entry["body"] for entry in captured] == [
+        canonical_json_bytes(approval),
+        canonical_json_bytes(cancel),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("operation", "response"),
+    [
+        (
+            "dispatch",
+            lambda: routine_dispatch_receipt(
+                routine_dispatch_command(), unexpected="field"
+            ),
+        ),
+        (
+            "approval",
+            lambda: {
+                **routine_approval_receipt(routine_approval_command()),
+                "fingerprint": "canonical-json-sha256:v1:" + "0" * 64,
+            },
+        ),
+        (
+            "cancel",
+            lambda: routine_cancel_receipt(status="succeeded"),
+        ),
+    ],
+)
+def test_routine_transport_rejects_invalid_receipts(
+    monkeypatch, settings, operation, response
+):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+
+    class Opener:
+        def open(self, *_args, **_kwargs):
+            return Response(response())
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+
+    with pytest.raises(FoundryGatewayInvalid):
+        if operation == "dispatch":
+            accept_routine_dispatch(
+                raw_body=canonical_json_bytes(routine_dispatch_command())
+            )
+        elif operation == "approval":
+            decide_routine_approval(
+                raw_body=canonical_json_bytes(routine_approval_command())
+            )
+        else:
+            cancel_routine_wait(raw_body=canonical_json_bytes(routine_cancel_command()))
+
+
+@pytest.mark.parametrize(
+    ("status", "error"),
+    [
+        (401, FoundryGatewayRejected),
+        (404, FoundryGatewayNotFound),
+        (409, FoundryGatewayConflict),
+        (422, FoundryGatewayInvalid),
+        (503, FoundryGatewayRetryable),
+    ],
+)
+def test_routine_transport_maps_http_errors(monkeypatch, settings, status, error):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+
+    class Opener:
+        def open(self, *_args, **_kwargs):
+            raise HTTPError(
+                "https://foundry.example.test/api/v1/internal/routines/dispatch",
+                status,
+                "failure",
+                {},
+                BytesIO(),
+            )
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+
+    with pytest.raises(error):
+        accept_routine_dispatch(
+            raw_body=canonical_json_bytes(routine_dispatch_command())
+        )
+
+
+@pytest.mark.parametrize(
+    "network_error", [URLError("timeout"), TimeoutError("timeout")]
+)
+def test_routine_transport_maps_unknown_network_outcomes(
+    monkeypatch, settings, network_error
+):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+
+    class Opener:
+        def open(self, *_args, **_kwargs):
+            raise network_error
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+
+    with pytest.raises(FoundryGatewayUnknownOutcome):
+        accept_routine_dispatch(
+            raw_body=canonical_json_bytes(routine_dispatch_command())
+        )
+
+
+def test_routine_transport_enforces_bounded_command_and_response_bodies(
+    monkeypatch, settings
+):
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "service-secret"
+    monkeypatch.setattr(
+        "allies.gateways.foundry._request",
+        lambda **_kwargs: pytest.fail("oversized routine command reached the network"),
+    )
+
+    with pytest.raises(FoundryGatewayInvalid):
+        accept_routine_dispatch(raw_body=b"{" + b" " * (64 * 1024))
+    monkeypatch.undo()
+
+    class OversizedResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def read(self, _limit):
+            return b"x" * (64 * 1024 + 1)
+
+    class Opener:
+        def open(self, *_args, **_kwargs):
+            return OversizedResponse()
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.build_opener", lambda *_handlers: Opener()
+    )
+    with pytest.raises(FoundryGatewayInvalid):
+        accept_routine_dispatch(
+            raw_body=canonical_json_bytes(routine_dispatch_command())
+        )

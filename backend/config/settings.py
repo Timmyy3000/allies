@@ -172,6 +172,7 @@ INSTALLED_APPS = [
     "workspaces",
     "waitlist",
     "allies",
+    "routines",
     "chat",
     "activities",
     "devtools",
@@ -623,6 +624,12 @@ ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN = os.environ.get(
     "ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN", ""
 )
 ALLIES_FOUNDRY_EXECUTION_ENABLED = env_bool("ALLIES_FOUNDRY_EXECUTION_ENABLED", False)
+ALLIES_ROUTINE_SCHEDULER_ENABLED = env_bool("ALLIES_ROUTINE_SCHEDULER_ENABLED", False)
+ALLIES_ROUTINE_DISPATCH_ENABLED = env_bool("ALLIES_ROUTINE_DISPATCH_ENABLED", False)
+ALLIES_ROUTINE_APPROVAL_ENABLED = env_bool("ALLIES_ROUTINE_APPROVAL_ENABLED", False)
+ALLIES_ROUTINE_RESULT_INGESTION_ENABLED = env_bool(
+    "ALLIES_ROUTINE_RESULT_INGESTION_ENABLED", False
+)
 ALLIES_ACTIVITY_SSE_ENABLED = env_bool("ALLIES_ACTIVITY_SSE_ENABLED", False)
 # Keep provider transmission disabled until Foundry producer redaction evidence
 # is recorded for every supported approval action kind.
@@ -664,6 +671,29 @@ CELERY_BEAT_SCHEDULE["dispatch-pending-approvals"] = {
     "schedule": 15.0,
     "options": {"queue": "cloud"},
 }
+if ALLIES_ROUTINE_SCHEDULER_ENABLED:
+    CELERY_BEAT_SCHEDULE["admit-due-routine-occurrences"] = {
+        "task": "routines.admit_due_occurrences",
+        "schedule": 15.0,
+        "options": {"queue": "cloud"},
+    }
+if ALLIES_ROUTINE_DISPATCH_ENABLED:
+    CELERY_BEAT_SCHEDULE["dispatch-pending-routine-outboxes"] = {
+        "task": "routines.dispatch_pending_outboxes",
+        "schedule": 15.0,
+        "options": {"queue": "cloud"},
+    }
+if ALLIES_ROUTINE_APPROVAL_ENABLED:
+    CELERY_BEAT_SCHEDULE["dispatch-pending-routine-approvals"] = {
+        "task": "routines.dispatch_pending_approval_commands",
+        "schedule": 15.0,
+        "options": {"queue": "cloud"},
+    }
+    CELERY_BEAT_SCHEDULE["expire-routine-approvals"] = {
+        "task": "routines.expire_approvals",
+        "schedule": 60.0,
+        "options": {"queue": "cloud"},
+    }
 CELERY_BEAT_SCHEDULE["cleanup-expired-onboarding-attempts"] = {
     "task": "allies.cleanup_expired_onboarding_attempts",
     "schedule": 900.0,
