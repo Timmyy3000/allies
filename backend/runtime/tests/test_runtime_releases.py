@@ -196,6 +196,23 @@ def test_current_machine_only_starts_and_backfills_legacy_images(
     assert workspace.applied_images == OLD
 
 
+def test_routine_admission_gate_does_not_become_pending_release(
+    release_setup, monkeypatch
+):
+    workspace, provider, _ = release_setup
+    monkeypatch.setenv("HERMES_IMAGE", OLD["hermes"])
+    monkeypatch.setenv("RUNTIME_IMAGE", OLD["allies-runtime"])
+    gate = {"routine_admission": {"enabled": True}}
+    workspace.release_target = gate
+    workspace.save()
+
+    assert reconcile_workspace_release(workspace.id, provider=provider) == "current"
+
+    workspace.refresh_from_db()
+    assert workspace.release_target == gate
+    assert workspace.applied_images == OLD
+
+
 def test_active_workspace_is_not_replaced_until_keep_warm_expires(release_setup):
     workspace, provider, store = release_setup
     provider.start_machine(workspace.fly_app_ref, workspace.machine_ref)

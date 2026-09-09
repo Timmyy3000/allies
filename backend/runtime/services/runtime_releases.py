@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import re
+from collections.abc import Mapping
 from datetime import timedelta
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
@@ -33,12 +36,47 @@ from .continuity_proof import (
     ProofDependencyCredentialHandle,
     proof_workspace_spec,
 )
+from .release_targets import is_pending_release_target
 from .runtime_readiness import advance_runtime_start_epoch_locked
 from .workspaces import WorkspaceLifecycle, WorkspaceSpec
 
 # Covers bounded lifecycle retries and secret staging, without a second worker.
 RELEASE_CLAIM_SECONDS = 1200
+_RELEASE_IMAGE_KEYS = frozenset({"allies-runtime", "hermes"})
+_IMMUTABLE_IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$", re.IGNORECASE)
 logger = logging.getLogger(__name__)
+
+
+def runtime_release_digest(images: Mapping[str, str]) -> str | None:
+    """Return the stable identity of one exact two-container release."""
+
+    if set(images) != _RELEASE_IMAGE_KEYS or any(
+        not isinstance(image, str) or not _IMMUTABLE_IMAGE.fullmatch(image)
+        for image in images.values()
+    ):
+        return None
+    payload = json.dumps(
+        {"images": sorted((str(name), image) for name, image in images.items())},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+
+
+def current_runtime_release_digest(workspace: Workspace) -> str | None:
+    """Derive the release identity from the provider-proven image pair."""
+
+    applied_images = workspace.applied_images
+    if not isinstance(applied_images, Mapping):
+        return None
+    target = workspace.release_target
+    if isinstance(target, Mapping) and "images" in target:
+        target_images = target.get("images")
+        if not isinstance(target_images, Mapping) or dict(target_images) != dict(
+            applied_images
+        ):
+            return None
+    return runtime_release_digest(applied_images)
 
 
 def resume_runtime_releases(provider, *, limit):
@@ -53,6 +91,7 @@ def resume_runtime_releases(provider, *, limit):
         .filter(
             Q(activation_claim_expires_at__isnull=True)
             | Q(activation_claim_expires_at__lte=timezone.now()),
+            release_target__has_key="attempts",
             release_target__attempts__lt=5,
         )
         .order_by("updated_at", "id")
@@ -96,7 +135,12 @@ def release_on_wake(workspace, machine, claim, provider) -> bool:
         == "false"
     ):
         return False
-    images = workspace.release_target.get("images") or desired_images()
+    target = (
+        workspace.release_target
+        if is_pending_release_target(workspace.release_target)
+        else {}
+    )
+    images = target.get("images") or desired_images()
     if not images or machine.state is not MachineState.STOPPED:
         return False
     if dict(machine.images) == images:
@@ -126,11 +170,16 @@ def reconcile_workspace_release(
     from .runtime_power import _inspect_machine, _verify_machine_binding
 
     workspace = Workspace.objects.get(pk=workspace_id)
-    images = workspace.release_target.get("images") or desired_images()
-    if not images and not workspace.release_target:
+    target = (
+        workspace.release_target
+        if is_pending_release_target(workspace.release_target)
+        else {}
+    )
+    images = target.get("images") or desired_images()
+    if not images and not target:
         raise ValueError("No desired runtime release is configured")
     machine = None
-    if not workspace.release_target:
+    if not target:
         machine = _inspect_machine(provider, workspace)
         _verify_machine_binding(workspace, machine)
         if dict(machine.images) == images:
@@ -226,7 +275,7 @@ def _claim_release(workspace_id, machine, images, wake_claim):
         and workspace.activation_claim_expires_at > now
     ):
         return None
-    if not workspace.release_target:
+    if not is_pending_release_target(workspace.release_target):
         if workspace.provisioning_phase != WorkspaceProvisioningPhase.IDLE:
             return None
         if (

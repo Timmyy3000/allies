@@ -9,9 +9,8 @@ from threading import Event
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
-import pytest
-
 import allies_runtime.hermes as hermes_module
+import pytest
 from allies_runtime.config import load_settings
 from allies_runtime.errors import (
     HermesAuthenticationError,
@@ -487,6 +486,32 @@ async def test_incremental_profile_stream_sends_stable_session_key(monkeypatch):
     assert calls[0].get_header("Authorization") == "Bearer profile-a-key"
     assert calls[0].get_header("X-hermes-session-key") == "stable-key-1"
     assert calls[0].get_header("X-allies-rich-approvals") == "1"
+    assert calls[0].get_header("X-allies-routine-result") is None
+
+
+@pytest.mark.asyncio
+async def test_routine_incremental_profile_stream_marks_typed_result_request(
+    monkeypatch,
+):
+    response = FakeResponse()
+    calls = []
+
+    def open_url(request, timeout):
+        calls.append(request)
+        return response
+
+    monkeypatch.setattr("allies_runtime.hermes.urlopen", open_url)
+    client = HermesClient(
+        load_settings({"HERMES_CREDENTIAL_REF": "ref://test"}),
+        lambda ref: "test-only-key",
+    )
+
+    stream = await client.stream_profile_incremental(
+        "ally-a", "s1", "routine", routine_result=True
+    )
+    await stream.aclose()
+
+    assert calls[0].get_header("X-allies-routine-result") == "1"
 
 
 @pytest.mark.asyncio
@@ -701,8 +726,200 @@ async def test_incremental_stream_normalizes_safe_events_and_terminal_rotation()
     assert events[3].payload == {"run_id": "r1", "status": "completed"}
 
 
-def _running_activity_stream():
-    stream = _IncrementalHTTPStream(object(), "ally-a", "s1")
+def _routine_tool_messages(
+    *,
+    outcome="changed",
+    text="Routine changed.",
+    references=None,
+    status="accepted",
+    duplicate=False,
+):
+    arguments = json.dumps(
+        {
+            "outcome": outcome,
+            "text": text,
+            "references": [] if references is None else references,
+        },
+        separators=(",", ":"),
+    )
+    call = {
+        "id": "call-routine-result",
+        "type": "function",
+        "function": {
+            "name": "allies_routine_result",
+            "arguments": arguments,
+        },
+    }
+    calls = [call, call] if duplicate else [call]
+    return [
+        {"role": "assistant", "tool_calls": calls},
+        {
+            "role": "tool",
+            "tool_call_id": "call-routine-result",
+            "content": json.dumps({"status": status}, separators=(",", ":")),
+        },
+    ]
+
+
+def test_incremental_stream_extracts_one_accepted_typed_routine_result():
+    stream = _running_activity_stream(routine_result=True)
+    messages = _routine_tool_messages(
+        references=[{"label": "Source", "url": "https://example.test/source"}]
+    )
+    messages.append({"role": "assistant", "content": "Final summary."})
+    assert (
+        stream._normalize_event(
+            "run.completed",
+            {
+                "session_id": "s1",
+                "run_id": "r1",
+                "completed": True,
+                "messages": messages,
+            },
+        )
+        is None
+    )
+    terminal = stream._normalize_event(
+        "done", {"session_id": "s1", "run_id": "r1"}
+    )
+    assert terminal is not None
+    assert terminal.payload == {
+        "run_id": "r1",
+        "status": "completed",
+        "outcome": "changed",
+        "result_text": "Routine changed.",
+        "references": [
+            {"label": "Source", "url": "https://example.test/source"}
+        ],
+    }
+
+
+def test_incremental_stream_keeps_typed_result_internal_to_routine_mode():
+    stream = _running_activity_stream()
+    assert (
+        stream._normalize_event(
+            "run.completed",
+            {
+                "session_id": "s1",
+                "run_id": "r1",
+                "completed": True,
+                "messages": _routine_tool_messages(),
+            },
+        )
+        is None
+    )
+    terminal = stream._normalize_event(
+        "done", {"session_id": "s1", "run_id": "r1"}
+    )
+    assert terminal is not None
+    assert terminal.payload == {"run_id": "r1", "status": "completed"}
+
+    generic = _running_activity_stream(routine_result=True)
+    with pytest.raises(HermesMalformedResponse, match="generic"):
+        generic._normalize_event(
+            "run.completed",
+            {
+                "session_id": "s1",
+                "run_id": "r1",
+                "completed": True,
+                "messages": [{"role": "assistant", "content": "answer"}],
+                "outcome": "changed",
+            },
+        )
+
+
+@pytest.mark.parametrize(
+    "messages, error",
+    [
+        (_routine_tool_messages(status="rejected"), "rejected"),
+        (_routine_tool_messages(duplicate=True), "duplicated"),
+        (_routine_tool_messages(references=[{"label": "bad"}]), "references"),
+    ],
+)
+def test_incremental_stream_rejects_invalid_typed_routine_result(messages, error):
+    stream = _running_activity_stream(routine_result=True)
+    with pytest.raises(HermesMalformedResponse, match=error):
+        stream._normalize_event(
+            "run.completed",
+            {
+                "session_id": "s1",
+                "run_id": "r1",
+                "completed": True,
+                "messages": messages,
+            },
+        )
+
+
+@pytest.mark.parametrize("placement", ["same_batch", "later_message"])
+def test_incremental_stream_rejects_typed_result_before_later_assistant_tool_call(
+    placement,
+):
+    messages = _routine_tool_messages()
+    later_call = {
+        "id": "call-later",
+        "type": "function",
+        "function": {"name": "other_tool", "arguments": "{}"},
+    }
+    if placement == "same_batch":
+        messages[0]["tool_calls"].append(later_call)
+    else:
+        messages.append({"role": "assistant", "tool_calls": [later_call]})
+
+    stream = _running_activity_stream(routine_result=True)
+    with pytest.raises(HermesMalformedResponse, match="final assistant"):
+        stream._normalize_event(
+            "run.completed",
+            {
+                "session_id": "s1",
+                "run_id": "r1",
+                "completed": True,
+                "messages": messages,
+            },
+        )
+
+
+def test_incremental_stream_rejects_typed_result_before_later_tool_result():
+    messages = _routine_tool_messages()
+    messages.append(
+        {
+            "role": "tool",
+            "tool_call_id": "call-later",
+            "content": "{}",
+        }
+    )
+    stream = _running_activity_stream(routine_result=True)
+    with pytest.raises(HermesMalformedResponse, match="final tool result"):
+        stream._normalize_event(
+            "run.completed",
+            {
+                "session_id": "s1",
+                "run_id": "r1",
+                "completed": True,
+                "messages": messages,
+            },
+        )
+
+
+def test_incremental_stream_rejects_typed_result_response_before_assistant_call():
+    messages = _routine_tool_messages()
+    messages.reverse()
+    stream = _running_activity_stream(routine_result=True)
+    with pytest.raises(HermesMalformedResponse, match="preceded"):
+        stream._normalize_event(
+            "run.completed",
+            {
+                "session_id": "s1",
+                "run_id": "r1",
+                "completed": True,
+                "messages": messages,
+            },
+        )
+
+
+def _running_activity_stream(*, routine_result=False):
+    stream = _IncrementalHTTPStream(
+        object(), "ally-a", "s1", routine_result=routine_result
+    )
     stream._normalize_event("run.started", {"session_id": "s1", "run_id": "r1"})
     return stream
 

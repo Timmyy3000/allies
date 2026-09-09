@@ -18,6 +18,7 @@ from runtime.models import (
     Workspace,
     WorkspaceProvisioningPhase,
 )
+from runtime.services.release_targets import is_pending_release_target
 from runtime.services.runtime_readiness import is_runtime_ready
 
 RESERVED_TENANT_PREFIX = "pool:"
@@ -151,7 +152,7 @@ def _eligible(
         or workspace.activation_claim_expires_at is not None
     ):
         return False
-    if workspace.release_target:
+    if is_pending_release_target(workspace.release_target):
         return False
     if not is_runtime_ready(workspace, now=now):
         return False

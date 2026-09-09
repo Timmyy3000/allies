@@ -34,6 +34,7 @@ __all__ = [
     "ProfileProvisioningReceipt",
     "ProfileProvisioningRequest",
     "ReconciliationReceipt",
+    "RoutineSessionBindingRequest",
     "RuntimeActivityWaitReceipt",
     "RuntimeActivityWaitRequest",
     "RuntimeIntentReceipt",
@@ -112,6 +113,11 @@ class EventRequest(Schema):
 
 class SessionBindingRequest(Schema):
     cloud_conversation_ref: str
+    expected_session_id: str | None = None
+    effective_session_id: str
+
+
+class RoutineSessionBindingRequest(Schema):
     expected_session_id: str | None = None
     effective_session_id: str
 

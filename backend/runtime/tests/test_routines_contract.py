@@ -4,7 +4,11 @@ import re
 from pathlib import Path
 from uuid import UUID
 
+import pytest
+
 from runtime.contracts import canonical_json_bytes
+from runtime.exceptions import RuntimeValidationError
+from runtime.routine_contracts import parse_routine_message, routine_fingerprint
 
 CONTRACT_ROOT = Path(__file__).resolve().parents[3] / "docs" / "contracts"
 DOCUMENT_PATH = CONTRACT_ROOT / "routines-v1.md"
@@ -130,9 +134,7 @@ def test_routines_v1_fixture_covers_shapes_and_future_owner_metadata():
     }
 
     identity = fixture["identity"]
-    uuid_fields = {
-        key for key in identity if key.endswith(("_id", "_key"))
-    }
+    uuid_fields = {key for key in identity if key.endswith(("_id", "_key"))}
     assert all(UUID(identity[key]) for key in uuid_fields)
     assert identity["main_conversation_id"] != identity["run_conversation_id"]
     assert identity["run_conversation_id"] != identity["execution_id"]
@@ -150,9 +152,7 @@ def test_routines_v1_fixture_covers_shapes_and_future_owner_metadata():
             "expected_postcondition",
             "enforcing_owner",
         } <= set(case)
-        assert len(
-            {"expected_result_code", "expected_constraint_outcome"} & set(case)
-        ) == 1
+        assert len({"expected_result_code", "expected_constraint_outcome"} & set(case)) == 1
         if "input" in case:
             assert isinstance(case["input"], str) and case["input"]
         assert case["enforcing_owner"] in allowed_owners
@@ -170,10 +170,7 @@ def test_routines_v1_fixture_covers_shapes_and_future_owner_metadata():
         "transition unknown to manual_reconciliation",
         "stop automatic processing",
     ]
-    assert (
-        manual_reconciliation["expected_result_code"]
-        == "ACTION_MANUAL_RECONCILIATION"
-    )
+    assert manual_reconciliation["expected_result_code"] == "ACTION_MANUAL_RECONCILIATION"
     assert manual_reconciliation["expected_result_code"] in error_codes
     assert manual_reconciliation["expected_postcondition"] == (
         "action attempt reaches manual_reconciliation; automatic processing stops "
@@ -248,16 +245,13 @@ def test_routines_v1_management_cases_match_durable_receipts_and_separate_stale_
         fixture["management"]["pause"]["request"]["expected_revision"]
         == fixture["management"]["update"]["receipt"]["revision"]
     )
-    assert fixture["management"]["pause"]["receipt"]["schedule_state"] == "paused"
+    assert fixture["management"]["pause"]["receipt"]["schedule_generation"] == 3
     assert fixture["management"]["create"]["receipt"]["schedule_generation"] == 1
     assert fixture["management"]["update"]["receipt"]["schedule_generation"] == 2
-    assert fixture["management"]["pause"]["receipt"]["schedule_generation"] == 3
     assert fixture["management"]["resume"]["receipt"]["schedule_generation"] == 4
     assert fixture["schedule"]["resume"]["schedule_generation"] == 4
     assert fixture["dispatch"]["command"]["schedule_generation"] == 4
-    assert fixture["dispatch"]["command"]["schedule"] == (
-        fixture["management"]["update"]["request"]["body"]["schedule"]
-    )
+    assert fixture["dispatch"]["command"]["schedule"] == update_schedule
     assert fixture["dispatch"]["command"]["schedule"]["timezone"] == "Europe/Berlin"
     assert (
         fixture["management"]["resume"]["request"]["expected_revision"]
@@ -318,14 +312,8 @@ def test_routines_v1_management_cases_match_durable_receipts_and_separate_stale_
     assert detail["next_run_at"] is None
     assert page["items"] == []
     assert page["next_cursor"] is None
-    assert (
-        fixture["management"]["get"]["request"]["issued_at"]
-        > deleted_receipt["issued_at"]
-    )
-    assert (
-        fixture["management"]["list"]["request"]["issued_at"]
-        > deleted_receipt["issued_at"]
-    )
+    assert fixture["management"]["get"]["request"]["issued_at"] > deleted_receipt["issued_at"]
+    assert fixture["management"]["list"]["request"]["issued_at"] > deleted_receipt["issued_at"]
 
 
 def test_routines_v1_message_examples_have_complete_directional_envelopes():
@@ -407,6 +395,13 @@ def test_routines_v1_message_examples_have_complete_directional_envelopes():
     result = fixture["result"]["event"]
     assert result["routine_revision"] == dispatch["routine_revision"]
     assert result["title_snapshot"] == dispatch["title_snapshot"]
+    assert dispatch["schedule"]["timezone"] == "Europe/Berlin"
+    assert all(
+        message["service_identity"] == "foundry-service"
+        for section in ("result", "approval")
+        for message in fixture[section].values()
+        if isinstance(message, dict) and message.get("producer") == "foundry"
+    )
 
 
 def test_routines_v1_canonical_fingerprint_vectors_are_reproducible():
@@ -421,3 +416,37 @@ def test_routines_v1_canonical_fingerprint_vectors_are_reproducible():
         assert encoded.decode("utf-8") == vector["canonical_json"]
         assert vector["sha256"] == digest
         assert vector["fingerprint"] == prefix + digest
+
+
+def test_unknown_fields_and_kinds_fail_closed():
+    message = dict(_fixture()["dispatch"]["command"])
+    message["unexpected"] = True
+    with pytest.raises(RuntimeValidationError):
+        parse_routine_message(message)
+
+    message = dict(_fixture()["dispatch"]["command"])
+    message["kind"] = "execution.command"
+    with pytest.raises(RuntimeValidationError):
+        parse_routine_message(message)
+
+
+def test_routine_result_composed_envelope_stays_within_transport_budget():
+    message = dict(_fixture()["result"]["event"])
+    message["text"] = "a" * (16 * 1024)
+    url = "https://example.test/" + "u" * (2048 - len("https://example.test/"))
+    message["references"] = [
+        {"label": "l" * 255, "url": url}
+        for _ in range(32)
+    ]
+    message["fingerprint"] = routine_fingerprint(message)
+
+    with pytest.raises(RuntimeValidationError):
+        parse_routine_message(message)
+
+
+def test_routine_prompt_and_event_envelope_bounds_are_utf8_bytes():
+    message = dict(_fixture()["dispatch"]["command"])
+    message["execution_prompt"] = "é" * (16 * 1024)
+    message["fingerprint"] = routine_fingerprint(message)
+    with pytest.raises(RuntimeValidationError):
+        parse_routine_message(message)

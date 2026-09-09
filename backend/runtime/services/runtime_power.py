@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, Exists, IntegerField, OuterRef, Value, When
+from django.db.models import Case, Exists, IntegerField, OuterRef, Q, Value, When
 from django.utils import timezone
 
 from observability.events import emit_event
@@ -626,13 +626,13 @@ def _claim_requested_operation(
 def _expired_operation_ids(now: datetime, limit: int) -> list[UUID]:
     return list(
         Workspace.objects.filter(
+            ~Q(release_target__has_key="images"),
             runtime_operation_state__in=(
                 RuntimeOperationState.STARTING,
                 RuntimeOperationState.STOPPING,
             ),
             activation_claim_expires_at__isnull=False,
             activation_claim_expires_at__lte=now,
-            release_target={},
         )
         .order_by("activation_claim_expires_at", "id")
         .values_list("id", flat=True)[:limit]

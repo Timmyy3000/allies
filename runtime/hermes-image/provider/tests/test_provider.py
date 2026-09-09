@@ -1,5 +1,7 @@
 import asyncio
 import json
+import threading
+import time
 from types import SimpleNamespace
 
 import allies_mnemosyne.provider as provider_module
@@ -48,7 +50,7 @@ def ready_provider(tmp_path, mode="narrow_tools", delegate=None):
     provider._mode = mode
     provider._profile_key = "ally-1"
     provider._profile_root = tmp_path / "ally-1"
-    provider._profile_root.mkdir()
+    provider._profile_root.mkdir(parents=True, exist_ok=True)
     provider._db_path = (
         provider._profile_root
         / "mnemosyne"
@@ -57,7 +59,7 @@ def ready_provider(tmp_path, mode="narrow_tools", delegate=None):
         / "ally-1"
         / "mnemosyne.db"
     )
-    provider._db_path.parent.mkdir(parents=True)
+    provider._db_path.parent.mkdir(parents=True, exist_ok=True)
     provider._delegate = delegate or FakeDelegate()
     provider._tools = ("mnemosyne_recall", "mnemosyne_remember")
     provider._schemas = {
@@ -112,6 +114,46 @@ def test_narrow_mode_validates_allowlist_and_arguments(tmp_path):
         )
     )
     assert cross_bank["reason"] == "profile_override_forbidden"
+
+
+def test_same_profile_instances_serialize_delegate_operations(tmp_path):
+    state = {"active": 0, "maximum": 0}
+    state_lock = threading.Lock()
+
+    class SlowDelegate(FakeDelegate):
+        def handle_tool_call(self, name, args, **kwargs):
+            with state_lock:
+                state["active"] += 1
+                state["maximum"] = max(state["maximum"], state["active"])
+            try:
+                time.sleep(0.05)
+                return super().handle_tool_call(name, args, **kwargs)
+            finally:
+                with state_lock:
+                    state["active"] -= 1
+
+    shared_db = tmp_path / "shared" / "mnemosyne.db"
+    providers = [
+        ready_provider(tmp_path, delegate=SlowDelegate())
+        for index in range(2)
+    ]
+    for provider in providers:
+        provider._db_path = shared_db
+    start = threading.Barrier(2)
+
+    def call(provider):
+        start.wait()
+        return provider.handle_tool_call(
+            "mnemosyne_recall", {"query": "same-profile"}
+        )
+
+    threads = [threading.Thread(target=call, args=(provider,)) for provider in providers]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=2)
+    assert all(not thread.is_alive() for thread in threads)
+    assert state["maximum"] == 1
 
 
 def test_deeply_nested_arguments_fail_soft(tmp_path):

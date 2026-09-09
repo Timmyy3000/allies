@@ -33,10 +33,14 @@ from runtime.exceptions import (
 )
 from runtime.models import (
     IN_FLIGHT_PROVISIONING_PHASES,
+    Attempt,
     AttemptStatus,
     ExecutionStatus,
     Lease,
     LeaseState,
+    RoutineExecution,
+    RoutineLeaseAcquisition,
+    RoutineRunStatus,
     RuntimeProfile,
     RuntimeProfileLifecycleState,
     Workspace,
@@ -980,32 +984,86 @@ def _cleanup_receipt(
 
 
 def _fence_profile_leases(profile_id: UUID) -> None:
-    leases = list(
-        Lease.objects.select_for_update()
-        .select_related("attempt__execution")
-        .filter(
+    lease_refs = list(
+        Lease.objects.filter(
             profile_id=profile_id,
             state__in=(LeaseState.ACTIVE, LeaseState.STOPPING),
-        )
+        ).values_list("id", "attempt_id")
     )
-    for lease in leases:
-        from .approvals import cancel_live_approval_requests
+    observed_at = timezone.now()
+    from .approvals import cancel_live_approval_requests
+    from .routines import _record_terminal_failure_result
 
-        lease.state = LeaseState.FENCED
-        lease.save(update_fields=["state", "updated_at"])
-        attempt = lease.attempt
-        if attempt.status in {
+    for lease_id, attempt_id in lease_refs:
+        routine = (
+            RoutineExecution.objects.select_for_update()
+            .filter(profile_id=profile_id, current_attempt_id=attempt_id)
+            .first()
+        )
+        routine_was_terminal = routine is not None and routine.status in {
+            RoutineRunStatus.SUCCEEDED,
+            RoutineRunStatus.FAILED,
+            RoutineRunStatus.CANCELLED,
+            RoutineRunStatus.EXPIRED,
+        }
+        routine_result_event = None
+        if routine is not None and not routine_was_terminal:
+            routine_result_event = _record_terminal_failure_result(
+                routine,
+                text="Routine profile was fenced before completion.",
+                observed_at=observed_at,
+            )
+        attempt = (
+            Attempt.objects.select_for_update()
+            .select_related("execution")
+            .filter(pk=attempt_id, execution__profile_id=profile_id)
+            .first()
+        )
+        if attempt is None:
+            continue
+        lease = (
+            Lease.objects.select_for_update()
+            .filter(pk=lease_id, profile_id=profile_id, attempt_id=attempt.id)
+            .first()
+        )
+        if lease is None:
+            continue
+        unresolved = attempt.status in {
             AttemptStatus.QUEUED,
             AttemptStatus.LEASED,
             AttemptStatus.RUNNING,
-        }:
+        }
+        if unresolved or routine_result_event is not None:
             attempt.status = AttemptStatus.UNKNOWN
             attempt.save(update_fields=["status", "updated_at"])
         execution = attempt.execution
         if execution.status == ExecutionStatus.RUNNING:
             execution.status = ExecutionStatus.FAILED
             execution.save(update_fields=["status", "updated_at"])
-        cancel_live_approval_requests(attempt)
+        if routine is not None and not routine_was_terminal:
+            routine.status = RoutineRunStatus.FAILED
+            routine.terminal_receipt = {
+                **(routine.terminal_receipt or {}),
+                "code": "PROFILE_FENCED",
+                **(
+                    {"result_event_id": str(routine_result_event.event_id)}
+                    if routine_result_event is not None
+                    else {}
+                ),
+            }
+            routine.save(update_fields=["status", "terminal_receipt", "updated_at"])
+        cancel_live_approval_requests(attempt, now=observed_at)
+        if routine is not None:
+            current = RoutineLeaseAcquisition.objects.select_for_update().filter(
+                lease_id=lease.id, current=True
+            ).first()
+            if current is not None:
+                current.current = False
+                current.retired_at = observed_at
+                current.save(update_fields=["current", "retired_at"])
+        lease.current_acquisition = None
+        lease.state = LeaseState.FENCED
+        lease.save(update_fields=["current_acquisition", "state", "updated_at"])
 
 
 def _require_context(context: RuntimeContext) -> None:

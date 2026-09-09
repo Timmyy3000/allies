@@ -125,6 +125,9 @@ _FORBIDDEN_ARGUMENT_KEYS = frozenset(
 )
 
 _INIT_ENV_LOCK = threading.RLock()
+_OPERATION_LOCKS: dict[str, threading.RLock] = {}
+_OPERATION_LOCKS_GUARD = threading.Lock()
+MEMORY_OPERATION_TIMEOUT_SECONDS = 5.0
 
 
 class _ProviderInvariantError(RuntimeError):
@@ -269,6 +272,35 @@ def _invoke(
         return "ok", callback(*args, **kwargs)
     except BaseException as exc:  # noqa: BLE001 - cancellation must fail soft
         return _safe_reason(exc), None
+
+
+def _operation_lock(db_path: Path | None) -> threading.RLock | None:
+    if db_path is None:
+        return None
+    key = str(db_path.resolve(strict=False))
+    with _OPERATION_LOCKS_GUARD:
+        lock = _OPERATION_LOCKS.get(key)
+        if lock is None:
+            lock = threading.RLock()
+            _OPERATION_LOCKS[key] = lock
+        return lock
+
+
+def _invoke_profile_operation(
+    db_path: Path | None,
+    callback: Callable[..., Any],
+    *args: Any,
+    **kwargs: Any,
+) -> tuple[str, Any]:
+    lock = _operation_lock(db_path)
+    if lock is None:
+        return "database_unavailable", None
+    if not lock.acquire(timeout=MEMORY_OPERATION_TIMEOUT_SECONDS):
+        return "memory_operation_timeout", None
+    try:
+        return _invoke(callback, *args, **kwargs)
+    finally:
+        lock.release()
 
 
 class AlliesMnemosyneProvider(MemoryProvider):
@@ -545,7 +577,8 @@ class AlliesMnemosyneProvider(MemoryProvider):
             or _text_bytes(query) > MAX_QUERY_BYTES
         ):
             return ""
-        status, value = _invoke(
+        status, value = _invoke_profile_operation(
+            self._db_path,
             self._delegate.prefetch,
             query,
             session_id=session_id or self._session_id,
@@ -649,7 +682,8 @@ class AlliesMnemosyneProvider(MemoryProvider):
         delegated_args = dict(args)
         if tool_name == "mnemosyne_remember":
             delegated_args["scope"] = "global"
-        status, value = _invoke(
+        status, value = _invoke_profile_operation(
+            self._db_path,
             self._delegate.handle_tool_call,
             tool_name,
             delegated_args,
@@ -724,7 +758,7 @@ class AlliesMnemosyneProvider(MemoryProvider):
     def shutdown(self) -> None:
         delegate, self._delegate = self._delegate, None
         if delegate is not None:
-            status, _ = _invoke(delegate.shutdown)
+            status, _ = _invoke_profile_operation(self._db_path, delegate.shutdown)
             if status != "ok":
                 logger.warning("Mnemosyne shutdown fault: %s", status)
         self._available = False

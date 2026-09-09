@@ -1,3 +1,4 @@
+import json
 import secrets
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -26,6 +27,14 @@ from runtime.management.commands.activate_fly_workspace import (
     Command as ActivateFlyWorkspaceCommand,
 )
 from runtime.models import Workspace
+from runtime.routine_contracts import (
+    MAX_ROUTINE_EVENT_BYTES,
+    RoutineApprovalDecision,
+    RoutineCancelWait,
+    RoutineDispatch,
+    parse_routine_message,
+    routine_message_bytes,
+)
 from runtime.services.activity import wait_for_workspace_activity
 from runtime.services.approvals import (
     read_runtime_approval,
@@ -46,10 +55,16 @@ from runtime.services.profiles import (
     ensure_runtime_profile,
     list_profile_reconciliation,
 )
+from runtime.services.routines import (
+    accept_routine_dispatch,
+    append_runtime_routine_result,
+    cancel_routine_wait,
+    decide_routine_approval,
+)
 from runtime.services.runtime_auth import authenticate_runtime_token
 from runtime.services.runtime_intents import request_runtime_intent
 from runtime.services.runtime_readiness import accept_runtime_readiness
-from runtime.services.sessions import update_session_binding
+from runtime.services.sessions import bind_routine_session, update_session_binding
 from runtime.services.workspaces import register_workspace
 from runtime.soul import render_default_allies_soul
 
@@ -63,6 +78,7 @@ from .schemas import (
     FailRequest,
     MaterializationReceiptRequest,
     ProfileProvisioningRequest,
+    RoutineSessionBindingRequest,
     RuntimeActivityWaitReceipt,
     RuntimeActivityWaitRequest,
     RuntimeIntentReceipt,
@@ -367,6 +383,42 @@ def register(api: NinjaExtraAPI) -> None:
         except RuntimeDomainError as exc:
             return _execution_error(exc)
 
+    @api.post("/internal/routines/dispatch", auth=_cloud_service_auth)
+    def routine_dispatch(request: HttpRequest):
+        try:
+            command = _routine_command(request, RoutineDispatch)
+            receipt = accept_routine_dispatch(command)
+            return JsonResponse(receipt.model_dump(mode="json"), status=200)
+        except RuntimeDomainError as exc:
+            return _routine_error(exc)
+
+    @api.post("/internal/routines/approval-decision", auth=_cloud_service_auth)
+    def routine_approval_decision(request: HttpRequest):
+        try:
+            command = _routine_command(request, RoutineApprovalDecision)
+            receipt = decide_routine_approval(command)
+            return JsonResponse(receipt.model_dump(mode="json"), status=200)
+        except RuntimeDomainError as exc:
+            return _routine_error(exc)
+
+    @api.post("/internal/routines/cancel-wait", auth=_cloud_service_auth)
+    def routine_cancel_wait(request: HttpRequest):
+        try:
+            command = _routine_command(request, RoutineCancelWait)
+            receipt = cancel_routine_wait(command)
+            return JsonResponse(
+                {
+                    "code": receipt.code,
+                    "routine_execution_id": str(receipt.routine_execution_id),
+                    "fence": receipt.fence,
+                    "status": receipt.status,
+                    "replayed": receipt.replayed,
+                },
+                status=200,
+            )
+        except RuntimeDomainError as exc:
+            return _routine_error(exc)
+
     @api.post(
         "/internal/approvals/{approval_request_id}/decision", auth=_cloud_service_auth
     )
@@ -460,6 +512,45 @@ def register(api: NinjaExtraAPI) -> None:
         except RuntimeDomainError as exc:
             return _error(exc)
 
+    @api.put("/runtime/attempts/{attempt_id}/routine-session-binding", auth=None)
+    def routine_session_binding(
+        request: HttpRequest,
+        attempt_id,
+        payload: RoutineSessionBindingRequest,
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            receipt = bind_routine_session(
+                context,
+                attempt_id,
+                _lease_token(request),
+                payload.expected_session_id,
+                payload.effective_session_id,
+            )
+            return JsonResponse({"session_id": receipt.session_id}, status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post("/runtime/attempts/{attempt_id}/routine-result", auth=None)
+    def routine_result(request: HttpRequest, attempt_id):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            body = _json_body(request)
+            result = append_runtime_routine_result(
+                context,
+                attempt_id,
+                _lease_token(request),
+                event_id=body.get("event_id"),
+                sequence=body.get("sequence"),
+                outcome=body.get("outcome"),
+                text=body.get("text"),
+                references=body.get("references", []),
+                delayed=body.get("delayed"),
+            )
+            return JsonResponse(result, status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
     @api.post("/runtime/attempts/{attempt_id}/stopped", auth=None)
     def stopped(request: HttpRequest, attempt_id, payload: StoppedRequest):
         try:
@@ -536,6 +627,26 @@ def _bearer(request: HttpRequest) -> str:
     return token
 
 
+def _json_body(request: HttpRequest) -> dict:
+    try:
+        value = json.loads(request.body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeValidationError("request body must be JSON") from exc
+    if not isinstance(value, dict):
+        raise RuntimeValidationError("request body must be an object")
+    return value
+
+
+def _routine_command(request: HttpRequest, expected_type):
+    if len(request.body) > MAX_ROUTINE_EVENT_BYTES:
+        raise RuntimeValidationError("routine message envelope is too large")
+    command = parse_routine_message(_json_body(request))
+    if not isinstance(command, expected_type):
+        raise RuntimeValidationError("routine command kind is invalid")
+    routine_message_bytes(command)
+    return command
+
+
 def _authenticate_cloud_service(request: HttpRequest) -> None:
     token = _bearer(request)
     configured = getattr(settings, "ALLIES_CLOUD_SERVICE_TOKEN", None)
@@ -609,6 +720,31 @@ def _execution_error(exc: RuntimeDomainError) -> JsonResponse:
     )
 
 
+def _routine_error(exc: RuntimeDomainError) -> JsonResponse:
+    if isinstance(exc, RuntimeAuthorizationError):
+        return JsonResponse(
+            {"code": "INVALID_CREDENTIAL", "message": "request is not authorized"},
+            status=401,
+        )
+    if isinstance(exc, RuntimeNotFoundError):
+        return JsonResponse(
+            {"code": "NOT_FOUND", "message": "routine binding is unavailable"},
+            status=404,
+        )
+    if isinstance(exc, RuntimeValidationError):
+        return JsonResponse(
+            {"code": "INVALID_REQUEST", "message": "request is invalid"},
+            status=422,
+        )
+    return JsonResponse(
+        {
+            "code": getattr(exc, "code", "CONFLICT"),
+            "message": "routine request conflicts with existing state",
+        },
+        status=409,
+    )
+
+
 def _lease_token(request: HttpRequest) -> str:
     value = request.headers.get("X-Foundry-Lease-Token", "")
     if not value:
@@ -662,6 +798,7 @@ def _claim_json(claim):
         "expires_at": _timestamp(claim.expires_at),
         "payload": claim.payload,
         "claim_id": str(claim.claim_id),
+        "routine_id": str(claim.routine_id) if claim.routine_id is not None else None,
     }
 
 
