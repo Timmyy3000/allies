@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -45,6 +46,7 @@ class ConversationRead:
     messages: tuple[Message, ...]
     queue: tuple[Message, ...]
     next_cursor: str | None
+    routine_items: tuple[dict[str, Any], ...] = ()
 
 
 def _handoff_text(value: object) -> str:
@@ -467,4 +469,17 @@ def retrieve_conversation(
         conversation=conversation, limit=limit, cursor=cursor
     )
     queue = _queue_messages(conversation=conversation)
-    return ConversationRead(conversation, messages, queue, next_cursor)
+    from routines.services.chat_projection import routine_chat_items
+
+    routine_items = routine_chat_items(
+        user=user,
+        workspace_id=context.workspace.id,
+        conversation_id=conversation.id,
+    )
+    return ConversationRead(
+        conversation=conversation,
+        messages=messages,
+        queue=queue,
+        next_cursor=next_cursor,
+        routine_items=routine_items,
+    )

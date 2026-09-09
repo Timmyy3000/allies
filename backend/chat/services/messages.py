@@ -492,6 +492,9 @@ def complete_turn(*, message_id: UUID | str, status: str) -> Message:
             raise TurnConflict("turn is not active")
         message.status = status
         message.save(update_fields=("status", "updated_at"))
+        from .dispatch import _insert_pending_routine_context
+
+        _insert_pending_routine_context(conversation, now=timezone.now())
         next_message = _claim_next_turn_locked(conversation=conversation)
         if next_message is not None:
             from .dispatch import ensure_dispatch_after_accept

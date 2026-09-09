@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 
 from django.db import models
-from django.db.models import BooleanField, Q, Value
+from django.db.models import BooleanField, F, Q, Value
 from django.db.models.expressions import CombinedExpression
 from django.db.models.functions import Length
 
@@ -295,5 +295,216 @@ class FoundryEventReceipt(models.Model):
             models.Index(
                 fields=("conversation", "created_at"),
                 name="activities_receipt_conv_idx",
+            ),
+        ]
+
+
+class RoutineResultOutcome(models.TextChoices):
+    CHANGED = "changed", "Changed"
+    UNCHANGED = "unchanged", "Unchanged"
+    FAILED = "failed", "Failed"
+
+
+class RoutineResultInsertionState(models.TextChoices):
+    PENDING = "pending", "Pending"
+    INSERTED = "inserted", "Inserted"
+
+
+class RoutineResultProjection(models.Model):
+    """Immutable Cloud receipt and projection for one terminal routine result."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    event_id = models.UUIDField(unique=True, editable=False)
+    event_sequence = models.PositiveIntegerField()
+    routine = models.ForeignKey(
+        "routines.Routine",
+        on_delete=models.PROTECT,
+        related_name="result_projections",
+    )
+    occurrence = models.ForeignKey(
+        "routines.RoutineOccurrence",
+        on_delete=models.PROTECT,
+        related_name="result_projections",
+    )
+    run = models.OneToOneField(
+        "routines.RoutineRunSnapshot",
+        on_delete=models.PROTECT,
+        related_name="result_projection",
+    )
+    routine_revision = models.PositiveIntegerField()
+    execution_id = models.UUIDField()
+    attempt_id = models.UUIDField()
+    generation = models.PositiveIntegerField()
+    main_conversation_id = models.UUIDField()
+    run_conversation_id = models.UUIDField()
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        on_delete=models.PROTECT,
+        related_name="routine_result_projections",
+    )
+    owner = models.ForeignKey(
+        "auths.User",
+        on_delete=models.PROTECT,
+        related_name="routine_result_projections",
+    )
+    ally = models.ForeignKey(
+        "allies.Ally",
+        on_delete=models.PROTECT,
+        related_name="routine_result_projections",
+    )
+    binding = models.ForeignKey(
+        "allies.AllyBinding",
+        on_delete=models.PROTECT,
+        related_name="routine_result_projections",
+    )
+    title_snapshot = models.CharField(max_length=120)
+    outcome = models.CharField(max_length=16, choices=RoutineResultOutcome.choices)
+    text = models.TextField(max_length=16_384)
+    references = models.JSONField(default=list)
+    delayed = models.BooleanField(default=False)
+    issued_at = models.DateTimeField()
+    deadline_at = models.DateTimeField()
+    fingerprint = models.CharField(max_length=90)
+    insertion_state = models.CharField(
+        max_length=16,
+        choices=RoutineResultInsertionState.choices,
+        default=RoutineResultInsertionState.PENDING,
+    )
+    insertion_watermark = models.PositiveIntegerField(null=True, blank=True)
+    inserted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("created_at", "id")
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(event_sequence__gt=0)
+                    & Q(routine_revision__gt=0)
+                    & ~Q(main_conversation_id=F("run_conversation_id"))
+                    & (
+                        Q(
+                            insertion_state=RoutineResultInsertionState.INSERTED,
+                            insertion_watermark__isnull=False,
+                            inserted_at__isnull=False,
+                        )
+                        | Q(
+                            insertion_state=RoutineResultInsertionState.PENDING,
+                            insertion_watermark__isnull=True,
+                            inserted_at__isnull=True,
+                        )
+                    )
+                ),
+                name="routine_result_state_coherent",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    fingerprint__regex=r"^canonical-json-sha256:v1:[0-9a-f]{64}$"
+                ),
+                name="routine_result_fingerprint_valid",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("main_conversation_id", "insertion_state", "created_at"),
+                name="routine_result_insert_idx",
+            ),
+            models.Index(
+                fields=("workspace", "owner", "created_at"),
+                name="routine_result_scope_idx",
+            ),
+        ]
+
+
+class RoutineResultReceipt(models.Model):
+    """Durable acknowledgement separate from main-turn insertion completion."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    result = models.OneToOneField(
+        RoutineResultProjection,
+        on_delete=models.PROTECT,
+        related_name="receipt",
+    )
+    event_id = models.UUIDField(unique=True, editable=False)
+    event_sequence = models.PositiveIntegerField()
+    disposition = models.CharField(max_length=16, default="applied")
+    result_insertion = models.CharField(
+        max_length=16,
+        choices=RoutineResultInsertionState.choices,
+        default=RoutineResultInsertionState.PENDING,
+    )
+    insertion_watermark = models.PositiveIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(event_sequence__gt=0),
+                name="routine_result_receipt_sequence_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        result_insertion=RoutineResultInsertionState.INSERTED,
+                        insertion_watermark__isnull=False,
+                    )
+                    | Q(
+                        result_insertion=RoutineResultInsertionState.PENDING,
+                        insertion_watermark__isnull=True,
+                    )
+                ),
+                name="routine_result_receipt_state_coherent",
+            ),
+        ]
+
+
+class RoutineResultContext(models.Model):
+    """Durable additive context inserted into the next main-chat turn."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    result = models.OneToOneField(
+        RoutineResultProjection,
+        on_delete=models.PROTECT,
+        related_name="context_entry",
+    )
+    conversation = models.ForeignKey(
+        Conversation,
+        on_delete=models.PROTECT,
+        related_name="routine_result_contexts",
+    )
+    target_message = models.ForeignKey(
+        Message,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="routine_result_contexts",
+    )
+    context_text = models.TextField(max_length=16_384)
+    insertion_watermark = models.PositiveIntegerField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("created_at", "id")
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(insertion_watermark__gt=0),
+                name="routine_result_context_watermark_positive",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    models.Q(consumed_at__isnull=True, target_message__isnull=True)
+                    | models.Q(consumed_at__isnull=False, target_message__isnull=False)
+                ),
+                name="routine_result_context_consumption_coherent",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("conversation", "consumed_at", "created_at"),
+                name="routine_context_pending_idx",
             ),
         ]
