@@ -1,0 +1,104 @@
+diff --git a/agent/memory_manager.py b/agent/memory_manager.py
+index 6f3bbadd6..7558fbc8b 100644
+--- a/agent/memory_manager.py
++++ b/agent/memory_manager.py
+@@ -401,6 +401,51 @@ class MemoryManager:
+ 
+     # -- Registration --------------------------------------------------------
+ 
++    def _index_provider_tools(self, provider: MemoryProvider) -> None:
++        """Index the provider's currently published tools for dispatch."""
++        from toolsets import _HERMES_CORE_TOOLS
++
++        core_tool_names = set(_HERMES_CORE_TOOLS)
++        try:
++            raw_schemas = provider.get_tool_schemas()
++        except Exception as e:
++            logger.warning(
++                "Memory provider '%s' get_tool_schemas() failed: %s",
++                provider.name,
++                e,
++            )
++            return
++        for raw_schema in raw_schemas:
++            schema = normalize_tool_schema(raw_schema)
++            if schema is None:
++                continue
++            tool_name = schema["name"]
++            if tool_name in core_tool_names:
++                logger.warning(
++                    "Memory provider '%s' tool '%s' shadows a reserved core "
++                    "tool name; registration ignored. Core tools always win — "
++                    "rename the provider's tool to something unique.",
++                    provider.name,
++                    tool_name,
++                )
++                continue
++            if tool_name and tool_name not in self._tool_to_provider:
++                self._tool_to_provider[tool_name] = provider
++            elif tool_name in self._tool_to_provider:
++                logger.warning(
++                    "Memory tool name conflict: '%s' already registered by %s, "
++                    "ignoring from %s",
++                    tool_name,
++                    self._tool_to_provider[tool_name].name,
++                    provider.name,
++                )
++
++    def _rebuild_tool_index(self) -> None:
++        """Re-index schemas after provider lifecycle changes."""
++        self._tool_to_provider.clear()
++        for provider in self._providers:
++            self._index_provider_tools(provider)
++
+     def add_provider(self, provider: MemoryProvider) -> None:
+         """Register a memory provider.
+ 
+@@ -427,41 +472,7 @@ class MemoryManager:
+ 
+         self._providers.append(provider)
+ 
+-        # Core tool names are reserved — a memory provider must never register
+-        # a tool that shadows a built-in (e.g. ``clarify``, ``delegate_task``).
+-        # Built-ins always win, so such a tool is dropped at agent init and
+-        # would otherwise linger in ``_tool_to_provider`` and hijack dispatch
+-        # (#40466). Reject it here, at the door, so it never enters the routing
+-        # table at all — matching the built-ins-always-win invariant used by
+-        # the TTS/browser/search provider registries.
+-        from toolsets import _HERMES_CORE_TOOLS
+-
+-        _core_tool_names = set(_HERMES_CORE_TOOLS)
+-
+-        # Index tool names → provider for routing
+-        for raw_schema in provider.get_tool_schemas():
+-            schema = normalize_tool_schema(raw_schema)
+-            if schema is None:
+-                continue
+-            tool_name = schema["name"]
+-            if tool_name in _core_tool_names:
+-                logger.warning(
+-                    "Memory provider '%s' tool '%s' shadows a reserved core "
+-                    "tool name; registration ignored. Core tools always win — "
+-                    "rename the provider's tool to something unique.",
+-                    provider.name, tool_name,
+-                )
+-                continue
+-            if tool_name and tool_name not in self._tool_to_provider:
+-                self._tool_to_provider[tool_name] = provider
+-            elif tool_name in self._tool_to_provider:
+-                logger.warning(
+-                    "Memory tool name conflict: '%s' already registered by %s, "
+-                    "ignoring from %s",
+-                    tool_name,
+-                    self._tool_to_provider[tool_name].name,
+-                    provider.name,
+-                )
++        self._rebuild_tool_index()
+ 
+         logger.info(
+             "Memory provider '%s' registered (%d tools)",
+@@ -1239,3 +1250,4 @@ class MemoryManager:
+                     "Memory provider '%s' initialize failed: %s",
+                     provider.name, e,
+                 )
++        self._rebuild_tool_index()

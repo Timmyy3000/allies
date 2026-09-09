@@ -26,6 +26,8 @@ DEFAULT_HERMES_IMAGE = (
 )
 PINNED_HERMES_SOURCE_COMMIT = "36cb5ae5530a75def7df3195e49b7a4aa2add482"
 MAX_TIMEOUT_SECONDS = 180.0
+DEFAULT_HERMES_REQUEST_TIMEOUT = 30.0
+DEFAULT_HERMES_STREAM_TIMEOUT = 30.0
 MAX_PROOF_SLOTS = 32
 MAX_WIDE_EVENT_BYTES = 16 * 1024
 MAX_WIDE_EVENT_QUEUE_SIZE = 4096
@@ -265,8 +267,8 @@ class RuntimeSettings:
     credential_ref: CredentialReference = field(
         default_factory=lambda: CredentialReference("ref://hermes/api")
     )
-    request_timeout: float = 5.0
-    stream_timeout: float = 15.0
+    request_timeout: float = DEFAULT_HERMES_REQUEST_TIMEOUT
+    stream_timeout: float = DEFAULT_HERMES_STREAM_TIMEOUT
     proof_slots: int = 2
     volume_root: str = DEFAULT_VOLUME_ROOT
     marker_path: str = DEFAULT_MARKER_PATH
@@ -329,8 +331,12 @@ def load_settings(env: Mapping[str, object] | None = None) -> RuntimeSettings:
         foundry_origin=foundry_origin,
         foundry_credential_ref=foundry_ref,
         credential_ref=ref,
-        request_timeout=_float_setting(values, "HERMES_REQUEST_TIMEOUT", 5.0),
-        stream_timeout=_float_setting(values, "HERMES_STREAM_TIMEOUT", 15.0),
+        request_timeout=_float_setting(
+            values, "HERMES_REQUEST_TIMEOUT", DEFAULT_HERMES_REQUEST_TIMEOUT
+        ),
+        stream_timeout=_float_setting(
+            values, "HERMES_STREAM_TIMEOUT", DEFAULT_HERMES_STREAM_TIMEOUT
+        ),
         proof_slots=_int_setting(values, "PROOF_SLOTS", 2),
         volume_root=str(root),
         marker_path=marker,

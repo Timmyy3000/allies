@@ -39,6 +39,7 @@ class AttemptStatus(models.TextChoices):
     QUEUED = "queued", "Queued"
     LEASED = "leased", "Leased"
     RUNNING = "running", "Running"
+    APPROVAL_WAITING = "approval_waiting", "Approval waiting"
     SUCCEEDED = "succeeded", "Succeeded"
     FAILED = "failed", "Failed"
     CANCELLED = "cancelled", "Cancelled"
@@ -1008,6 +1009,270 @@ class ApprovalRequest(models.Model):
         ]
 
 
+class RoutineRunStatus(models.TextChoices):
+    QUEUED = "queued", "Queued"
+    WORKING = "working", "Working"
+    APPROVAL_WAITING = "approval_waiting", "Approval waiting"
+    SUCCEEDED = "succeeded", "Succeeded"
+    FAILED = "failed", "Failed"
+    CANCELLED = "cancelled", "Cancelled"
+    EXPIRED = "expired", "Expired"
+
+
+class RoutineApprovalStatus(models.TextChoices):
+    PENDING = "pending", "Pending"
+    AUTHORIZING = "authorizing", "Authorizing"
+    REJECTED = "rejected", "Rejected"
+    EXPIRED = "expired", "Expired"
+    CANCELLED = "cancelled", "Cancelled"
+
+
+class RoutineActionState(models.TextChoices):
+    PRE_DISPATCH = "pre_dispatch", "Pre-dispatch"
+    DISPATCHING = "dispatching", "Dispatching"
+    COMPLETED = "completed", "Completed"
+    UNKNOWN = "unknown", "Unknown"
+    MANUAL_RECONCILIATION = "manual_reconciliation", "Manual reconciliation"
+
+
+class RoutineExecution(models.Model):
+    """Immutable Cloud dispatch snapshot plus Foundry-owned run state."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    execution = models.OneToOneField(
+        Execution,
+        on_delete=models.CASCADE,
+        related_name="routine_execution",
+    )
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="routine_executions",
+    )
+    profile = models.ForeignKey(
+        RuntimeProfile,
+        on_delete=models.CASCADE,
+        related_name="routine_executions",
+    )
+    routine_id = models.UUIDField()
+    routine_revision = models.PositiveIntegerField()
+    schedule_generation = models.PositiveIntegerField()
+    occurrence_id = models.UUIDField()
+    run_id = models.UUIDField()
+    scheduled_at = models.DateTimeField()
+    delayed = models.BooleanField(default=False)
+    occurrence_disposition = models.CharField(max_length=24, default="admitted")
+    main_conversation_id = models.UUIDField()
+    run_conversation_id = models.UUIDField()
+    hermes_session_id = models.CharField(max_length=255, null=True, blank=True)
+    cloud_binding_id = models.UUIDField()
+    owner_user_id = models.UUIDField()
+    ally_id = models.UUIDField()
+    title_snapshot = models.CharField(max_length=255)
+    execution_prompt = models.TextField()
+    generation = models.PositiveBigIntegerField(default=0)
+    fence = models.PositiveBigIntegerField(default=0)
+    status = models.CharField(
+        max_length=24,
+        choices=RoutineRunStatus,
+        default=RoutineRunStatus.QUEUED,
+    )
+    current_attempt = models.ForeignKey(
+        Attempt,
+        on_delete=models.PROTECT,
+        related_name="current_routine_executions",
+        null=True,
+        blank=True,
+    )
+    dispatch_receipt = models.JSONField(default=dict, blank=True)
+    terminal_receipt = models.JSONField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["workspace", "occurrence_id"],
+                name="runtime_routine_workspace_occurrence_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["workspace", "run_id"],
+                name="runtime_routine_workspace_run_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["workspace", "run_conversation_id"],
+                name="runtime_routine_workspace_run_conversation_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["profile", "routine_id"],
+                condition=Q(
+                    status__in=[
+                        RoutineRunStatus.QUEUED,
+                        RoutineRunStatus.WORKING,
+                        RoutineRunStatus.APPROVAL_WAITING,
+                    ]
+                ),
+                name="runtime_routine_profile_active_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(routine_revision__gt=0) & Q(schedule_generation__gt=0),
+                name="runtime_routine_revision_generation_positive",
+            ),
+            models.CheckConstraint(
+                condition=~Q(main_conversation_id=models.F("run_conversation_id")),
+                name="runtime_routine_conversations_distinct",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=RoutineRunStatus.values),
+                name="runtime_routine_status_valid",
+            ),
+        ]
+        indexes: ClassVar = [
+            models.Index(
+                fields=["profile", "status", "created_at"],
+                name="rt_routine_profile_status_idx",
+            ),
+            models.Index(
+                fields=["status", "created_at"],
+                name="rt_routine_status_created_idx",
+            ),
+        ]
+
+
+class RoutineLeaseAcquisition(models.Model):
+    """Rotatable authority for one Lease without creating a second Lease."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    lease = models.ForeignKey(
+        "Lease",
+        on_delete=models.CASCADE,
+        related_name="acquisitions",
+    )
+    ordinal = models.PositiveIntegerField()
+    claim_id = models.UUIDField(unique=True)
+    token_digest = models.CharField(max_length=64, unique=True)
+    machine_generation = models.PositiveIntegerField()
+    current = models.BooleanField(default=True)
+    issued_at = models.DateTimeField(auto_now_add=True)
+    retired_at = models.DateTimeField(null=True, blank=True)
+    claim_receipt = models.JSONField(default=dict, blank=True)
+    session_request_digest = models.CharField(max_length=64, null=True, blank=True)
+    stop_request_digest = models.CharField(max_length=64, null=True, blank=True)
+    terminal_request_digest = models.CharField(max_length=64, null=True, blank=True)
+    session_receipt = models.JSONField(null=True, blank=True)
+    stop_receipt = models.JSONField(null=True, blank=True)
+    terminal_receipt = models.JSONField(null=True, blank=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["lease", "ordinal"],
+                name="runtime_routine_lease_acquisition_ordinal_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["lease"],
+                condition=Q(current=True),
+                name="runtime_routine_lease_current_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(ordinal__gt=0),
+                name="runtime_routine_lease_ordinal_positive",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not re.fullmatch(r"[0-9a-f]{64}", self.token_digest):
+            raise RuntimeValidationError(
+                "routine acquisition token_digest must be a SHA-256 hex digest"
+            )
+        return super().save(*args, **kwargs)
+
+
+class RoutineApprovalAction(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    routine_execution = models.ForeignKey(
+        RoutineExecution,
+        on_delete=models.CASCADE,
+        related_name="approval_actions",
+    )
+    attempt = models.ForeignKey(
+        Attempt,
+        on_delete=models.PROTECT,
+        related_name="routine_approval_actions",
+    )
+    approval_request_id = models.UUIDField(unique=True)
+    action_attempt_id = models.UUIDField(unique=True)
+    generation = models.PositiveBigIntegerField()
+    status = models.CharField(
+        max_length=24,
+        choices=RoutineApprovalStatus,
+        default=RoutineApprovalStatus.PENDING,
+    )
+    permission_consumed = models.BooleanField(default=False)
+    action_digest = models.CharField(max_length=64)
+    provider_idempotency_key = models.CharField(max_length=255)
+    created_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    action_state = models.CharField(
+        max_length=32,
+        choices=RoutineActionState,
+        null=True,
+        blank=True,
+    )
+    continuation = models.JSONField(default=dict, blank=True)
+    provider_receipt = models.JSONField(null=True, blank=True)
+    decision = models.CharField(max_length=16, null=True, blank=True)
+    decision_digest = models.CharField(max_length=64, null=True, blank=True)
+    created_event_id = models.UUIDField(null=True, blank=True)
+    created_event_sequence = models.PositiveIntegerField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["routine_execution", "action_attempt_id"],
+                name="runtime_routine_action_attempt_unique",
+            ),
+            models.UniqueConstraint(
+                fields=["routine_execution"],
+                condition=Q(status=RoutineApprovalStatus.PENDING),
+                name="runtime_routine_pending_approval_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(status__in=RoutineApprovalStatus.values),
+                name="runtime_routine_approval_status_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(action_state__isnull=True)
+                | Q(action_state__in=RoutineActionState.values),
+                name="runtime_routine_action_state_valid",
+            ),
+        ]
+
+
+class RoutineCommandReceipt(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="routine_command_receipts",
+    )
+    command_id = models.UUIDField(unique=True)
+    idempotency_key = models.UUIDField()
+    kind = models.CharField(max_length=64)
+    fingerprint = models.CharField(max_length=100)
+    response = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["workspace", "idempotency_key"],
+                name="runtime_routine_command_receipt_key_unique",
+            ),
+        ]
+
+
 class Lease(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     attempt = models.OneToOneField(
@@ -1020,6 +1285,7 @@ class Lease(models.Model):
         on_delete=models.CASCADE,
         related_name="leases",
     )
+    scope_key = models.CharField(max_length=100, default="main")
     token_digest = models.CharField(max_length=64, unique=True)
     claim_id = models.UUIDField(null=True, blank=True)
     expires_at = models.DateTimeField()
@@ -1029,15 +1295,22 @@ class Lease(models.Model):
         choices=LeaseState,
         default=LeaseState.ACTIVE,
     )
+    current_acquisition = models.ForeignKey(
+        "RoutineLeaseAcquisition",
+        on_delete=models.SET_NULL,
+        related_name="current_for_leases",
+        null=True,
+        blank=True,
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         constraints: ClassVar = [
             models.UniqueConstraint(
-                fields=["profile"],
+                fields=["profile", "scope_key"],
                 condition=Q(state__in=[LeaseState.ACTIVE, LeaseState.STOPPING]),
-                name="runtime_lease_profile_unresolved_unique",
+                name="runtime_lease_profile_scope_unresolved_unique",
             ),
             models.CheckConstraint(
                 condition=Q(state__in=LeaseState.values),

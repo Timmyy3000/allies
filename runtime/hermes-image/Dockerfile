@@ -54,26 +54,57 @@ RUN site=$(/opt/hermes/.venv/bin/python -c 'import sysconfig; print(sysconfig.ge
 # registration bridge separate from the installed wrapper package.
 COPY plugins/memory/allies_mnemosyne/ /opt/hermes/plugins/memory/allies_mnemosyne/
 
+# This tool is only added to the agent's enabled toolsets for the marked
+# scheduled-routine stream. Its handler is side-effect-free and the runtime
+# validates the typed call again from Hermes' terminal transcript.
+COPY plugins/routine-result/ /opt/hermes/plugins/routine-result/
+
 # Keep the private Allies transcript seam as a small, pinned-source overlay.
 # A rejected hunk must fail the image build instead of silently shipping an
 # image without the capability the runtime expects.
 COPY patches/first-turn-transcript-bootstrap.patch /tmp/allies-first-turn-transcript-bootstrap.patch
 RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-first-turn-transcript-bootstrap.patch \
     && git apply --check --whitespace=nowarn /tmp/allies-first-turn-transcript-bootstrap.patch \
     && git apply --whitespace=nowarn /tmp/allies-first-turn-transcript-bootstrap.patch \
     && rm -f /tmp/allies-first-turn-transcript-bootstrap.patch
 
 COPY patches/meaningful-activity.patch /tmp/allies-meaningful-activity.patch
 RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-meaningful-activity.patch \
     && git apply --check --whitespace=nowarn /tmp/allies-meaningful-activity.patch \
     && git apply --whitespace=nowarn /tmp/allies-meaningful-activity.patch \
     && rm -f /tmp/allies-meaningful-activity.patch
 
 COPY patches/approval-flow.patch /tmp/allies-approval-flow.patch
 RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-approval-flow.patch \
     && git apply --check --whitespace=nowarn /tmp/allies-approval-flow.patch \
     && git apply --whitespace=nowarn /tmp/allies-approval-flow.patch \
     && rm -f /tmp/allies-approval-flow.patch
+
+# The provider publishes its narrow tool schemas during initialization.  Keep
+# Hermes dispatch in sync with that lifecycle so advertised memory tools route
+# in the active profile instead of falling through as unknown tools.
+COPY patches/memory-provider-tool-routing.patch /tmp/allies-memory-provider-tool-routing.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-memory-provider-tool-routing.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-memory-provider-tool-routing.patch \
+    && git apply --whitespace=nowarn /tmp/allies-memory-provider-tool-routing.patch \
+    && rm -f /tmp/allies-memory-provider-tool-routing.patch
+
+# Marked routine streams receive a bounded ephemeral instruction and the
+# isolated typed-result toolset. Keep this source-pinned overlay fail-closed.
+COPY patches/routine-result-protocol.patch /tmp/allies-routine-result-protocol.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-routine-result-protocol.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-routine-result-protocol.patch \
+    && git apply --whitespace=nowarn /tmp/allies-routine-result-protocol.patch \
+    && rm -f /tmp/allies-routine-result-protocol.patch
+
+COPY smoke_routine_result_tool.py /tmp/allies-smoke-routine-result-tool.py
+RUN /opt/hermes/.venv/bin/python /tmp/allies-smoke-routine-result-tool.py \
+    && rm -f /tmp/allies-smoke-routine-result-tool.py
 
 LABEL org.opencontainers.image.title="Allies Hermes with Mnemosyne" \
       org.opencontainers.image.description="Policy-fenced profile-local Mnemosyne provider" \

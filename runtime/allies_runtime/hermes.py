@@ -100,6 +100,14 @@ _ACTIVITY_KIND_ALIASES = {
 }
 _ACTIVITY_ID = re.compile(r"^activity-[0-9a-f]{32}$")
 _TOOL_CALL_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
+_ROUTINE_RESULT_TOOL = "allies_routine_result"
+_ROUTINE_OUTCOMES = frozenset({"changed", "unchanged", "failed"})
+_MAX_ROUTINE_REFERENCE_COUNT = 32
+_MAX_ROUTINE_LABEL_BYTES = 255
+_MAX_ROUTINE_URL_BYTES = 2048
+_MAX_ROUTINE_ARGUMENT_BYTES = 64 * 1024
+_MAX_ROUTINE_EVENT_BYTES = 64 * 1024
+_MAX_ROUTINE_FIXED_BYTES = 4 * 1024
 
 
 @dataclass(frozen=True, slots=True)
@@ -492,6 +500,172 @@ class _ObservedHermesStream:
     cancel = aclose
 
 
+def _routine_result_references(value: Any) -> list[dict[str, str]]:
+    if not isinstance(value, list) or len(value) > _MAX_ROUTINE_REFERENCE_COUNT:
+        raise HermesMalformedResponse("Hermes routine result references were invalid")
+    references: list[dict[str, str]] = []
+    for reference in value:
+        if not isinstance(reference, Mapping) or set(reference) != {"label", "url"}:
+            raise HermesMalformedResponse(
+                "Hermes routine result references were invalid"
+            )
+        label = reference.get("label")
+        url = reference.get("url")
+        if (
+            not isinstance(label, str)
+            or not 1 <= len(label.encode("utf-8")) <= _MAX_ROUTINE_LABEL_BYTES
+            or "\x00" in label
+            or not isinstance(url, str)
+            or not 1 <= len(url.encode("utf-8")) <= _MAX_ROUTINE_URL_BYTES
+            or "\x00" in url
+            or not url.startswith(("http://", "https://"))
+        ):
+            raise HermesMalformedResponse(
+                "Hermes routine result references were invalid"
+            )
+        references.append({"label": label, "url": url})
+    return references
+
+
+def _routine_result_value(value: Any) -> dict[str, Any]:
+    if not isinstance(value, Mapping) or set(value) != {
+        "outcome",
+        "text",
+        "references",
+    }:
+        raise HermesMalformedResponse("Hermes routine result arguments were invalid")
+    outcome = value.get("outcome")
+    text = value.get("text")
+    if outcome not in _ROUTINE_OUTCOMES:
+        raise HermesMalformedResponse("Hermes routine result outcome was invalid")
+    if (
+        not isinstance(text, str)
+        or not text
+        or len(text.encode("utf-8")) > MAX_SAFE_TEXT_BYTES
+        or "\x00" in text
+    ):
+        raise HermesMalformedResponse("Hermes routine result text was invalid")
+    references = _routine_result_references(value.get("references"))
+    variable_payload = json.dumps(
+        {"references": references, "text": text},
+        allow_nan=False,
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    ).encode("utf-8")
+    if len(variable_payload) + _MAX_ROUTINE_FIXED_BYTES > _MAX_ROUTINE_EVENT_BYTES:
+        raise HermesMalformedResponse("Hermes routine result envelope was too large")
+    return {"outcome": outcome, "result_text": text, "references": references}
+
+
+def _routine_result_from_transcript(messages: list[Any]) -> dict[str, Any] | None:
+    """Extract the one typed routine result call from a Hermes transcript."""
+
+    calls: list[tuple[int, int, str, Any]] = []
+    last_assistant_tool_call: tuple[int, int] | None = None
+    for message_index, message in enumerate(messages):
+        if not isinstance(message, Mapping) or message.get("role") != "assistant":
+            continue
+        if "tool_calls" not in message:
+            continue
+        raw_calls = message.get("tool_calls")
+        if not isinstance(raw_calls, list):
+            raise HermesMalformedResponse(
+                "Hermes routine result assistant tool calls were invalid"
+            )
+        for call_index, tool_call in enumerate(raw_calls):
+            last_assistant_tool_call = (message_index, call_index)
+            if not isinstance(tool_call, Mapping):
+                continue
+            function = tool_call.get("function")
+            if not isinstance(function, Mapping) or function.get("name") != _ROUTINE_RESULT_TOOL:
+                continue
+            call_id = tool_call.get("id")
+            if not isinstance(call_id, str) or not _TOOL_CALL_ID.fullmatch(call_id):
+                raise HermesMalformedResponse(
+                    "Hermes routine result tool call identity was invalid"
+                )
+            arguments = function.get("arguments")
+            if not isinstance(arguments, str) or not arguments:
+                raise HermesMalformedResponse(
+                    "Hermes routine result tool arguments were invalid"
+                )
+            if len(arguments.encode("utf-8")) > _MAX_ROUTINE_ARGUMENT_BYTES:
+                raise HermesMalformedResponse(
+                    "Hermes routine result tool arguments were too large"
+                )
+            try:
+                decoded = json.loads(arguments)
+            except json.JSONDecodeError as exc:
+                raise HermesMalformedResponse(
+                    "Hermes routine result tool arguments were not JSON"
+                ) from exc
+            calls.append((message_index, call_index, call_id, decoded))
+
+    if not calls:
+        return None
+    if len(calls) != 1:
+        raise HermesMalformedResponse("Hermes routine result tool call was duplicated")
+
+    call_message_index, call_index, call_id, arguments = calls[0]
+    if last_assistant_tool_call != (call_message_index, call_index):
+        raise HermesMalformedResponse(
+            "Hermes routine result tool call was not the final assistant tool call"
+        )
+    matching_results: list[Any] = []
+    matching_result_positions: list[int] = []
+    tool_result_positions: list[int] = []
+    for result_message_index, message in enumerate(messages):
+        if not isinstance(message, Mapping) or message.get("role") != "tool":
+            continue
+        tool_result_positions.append(result_message_index)
+        tool_call_id = message.get("tool_call_id")
+        if not isinstance(tool_call_id, str) or not _TOOL_CALL_ID.fullmatch(
+            tool_call_id
+        ):
+            raise HermesMalformedResponse(
+                "Hermes routine result tool response identity was invalid"
+            )
+        if (
+            tool_call_id == call_id
+        ):
+            content = message.get("content")
+            if not isinstance(content, str) or not content:
+                raise HermesMalformedResponse(
+                    "Hermes routine result tool response was invalid"
+                )
+            if len(content.encode("utf-8")) > _MAX_ROUTINE_ARGUMENT_BYTES:
+                raise HermesMalformedResponse(
+                    "Hermes routine result tool response was too large"
+                )
+            try:
+                matching_results.append(json.loads(content))
+            except json.JSONDecodeError as exc:
+                raise HermesMalformedResponse(
+                    "Hermes routine result tool response was not JSON"
+                ) from exc
+            matching_result_positions.append(result_message_index)
+    if len(matching_results) != 1:
+        raise HermesMalformedResponse(
+            "Hermes routine result tool response was missing or duplicated"
+        )
+    if matching_result_positions[0] <= call_message_index:
+        raise HermesMalformedResponse(
+            "Hermes routine result tool response preceded its assistant tool call"
+        )
+    if (
+        not tool_result_positions
+        or tool_result_positions[-1] not in matching_result_positions
+    ):
+        raise HermesMalformedResponse(
+            "Hermes routine result tool response was not the final tool result"
+        )
+    result = matching_results[0]
+    if not isinstance(result, Mapping) or result.get("status") != "accepted":
+        raise HermesMalformedResponse("Hermes routine result tool response was rejected")
+    return _routine_result_value(arguments)
+
+
 class _IncrementalHTTPStream:
     """Validate and normalize one bounded Hermes session stream."""
 
@@ -502,14 +676,18 @@ class _IncrementalHTTPStream:
         session_id: str,
         *,
         stream_timeout: float | None = None,
+        routine_result: bool = False,
     ):
         if stream_timeout is not None and (
             isinstance(stream_timeout, bool) or stream_timeout <= 0
         ):
             raise ValueError("Hermes stream timeout must be positive")
+        if type(routine_result) is not bool:
+            raise ValueError("Hermes routine-result mode must be boolean")
         self.response = response
         self.profile_id = profile_id
         self.session_id = session_id
+        self.routine_result = routine_result
         self.deadline = (
             time.monotonic() + stream_timeout if stream_timeout is not None else None
         )
@@ -923,11 +1101,23 @@ class _IncrementalHTTPStream:
                 payload_session
             ):
                 raise HermesMalformedResponse("Hermes terminal session was invalid")
+            terminal_payload: dict[str, Any] = {
+                "run_id": self.run_id,
+                "status": "completed",
+            }
+            if self.routine_result:
+                routine_result = _routine_result_from_transcript(messages)
+                if "outcome" in payload:
+                    raise HermesMalformedResponse(
+                        "Hermes generic run outcome was not a typed routine result"
+                    )
+                if routine_result is not None:
+                    terminal_payload.update(routine_result)
             self.state = "run_completed"
             self.terminal_event = self._event(
                 "execution.completed",
                 payload_session,
-                {"run_id": self.run_id, "status": "completed"},
+                terminal_payload,
             )
             return None
         raise HermesMalformedResponse("Hermes stream event type was not allowed")
@@ -1091,11 +1281,16 @@ def _session_key_header(session_key: str | None) -> Mapping[str, str]:
 
 
 def _session_stream_headers(
-    settings: Any, session_key: str | None
+    settings: Any,
+    session_key: str | None,
+    *,
+    routine_result: bool = False,
 ) -> Mapping[str, str]:
     headers = dict(_session_key_header(session_key))
     if getattr(settings, "rich_approvals_enabled", True):
         headers["X-Allies-Rich-Approvals"] = "1"
+    if routine_result:
+        headers["X-Allies-Routine-Result"] = "1"
     return headers
 
 
@@ -1526,6 +1721,7 @@ class HermesClient:
         *,
         session_key: str | None = None,
         reasoning_effort: str | None = None,
+        routine_result: bool = False,
     ) -> HermesStreamResult:
         """Run one profile-scoped SSE turn with bounded response handling."""
 
@@ -1550,7 +1746,11 @@ class HermesClient:
                     path=path,
                     token=token,
                     body=body,
-                    headers=_session_stream_headers(self.settings, session_key),
+                    headers=_session_stream_headers(
+                        self.settings,
+                        session_key,
+                        routine_result=routine_result,
+                    ),
                 )
 
                 async def collect() -> HermesStreamResult:
@@ -1559,6 +1759,7 @@ class HermesClient:
                         profile_id,
                         session_id,
                         stream_timeout=self.settings.stream_timeout,
+                        routine_result=routine_result,
                     )
                     try:
                         events: list[HermesEvent] = []
@@ -1767,6 +1968,7 @@ class HermesClient:
         *,
         session_key: str | None = None,
         reasoning_effort: str | None = None,
+        routine_result: bool = False,
     ) -> HermesStreamResult:
         reasoning_effort = validate_reasoning_effort(reasoning_effort)
         started_at = time.monotonic()
@@ -1787,6 +1989,7 @@ class HermesClient:
                 message,
                 session_key=session_key,
                 reasoning_effort=reasoning_effort,
+                routine_result=routine_result,
             )
         except BaseException as error:
             emit_runtime_event(
@@ -1823,6 +2026,7 @@ class HermesClient:
         *,
         session_key: str | None = None,
         reasoning_effort: str | None = None,
+        routine_result: bool = False,
     ) -> _ObservedHermesStream:
         """Open an SSE response and yield events without buffering the body."""
 
@@ -1873,7 +2077,11 @@ class HermesClient:
                     path=path,
                     token=token,
                     body=body,
-                    headers=_session_stream_headers(self.settings, session_key),
+                    headers=_session_stream_headers(
+                        self.settings,
+                        session_key,
+                        routine_result=routine_result,
+                    ),
                 ),
                 self.settings.stream_timeout,
             )
@@ -1889,6 +2097,7 @@ class HermesClient:
                         profile_id,
                         session_id,
                         stream_timeout=self.settings.stream_timeout,
+                        routine_result=routine_result,
                     )
                 ),
                 finish,

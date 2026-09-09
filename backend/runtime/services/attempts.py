@@ -19,6 +19,7 @@ from runtime.models import (
     ExecutionStatus,
     Lease,
     LeaseState,
+    RoutineExecution,
     RuntimeProfile,
     Workspace,
 )
@@ -84,6 +85,36 @@ def fail_attempt(
     if receipt is None:
         receipt = {"code": code}
     receipt = validate_bounded_receipt(receipt)
+    routine = RoutineExecution.objects.filter(current_attempt_id=attempt_id).first()
+    if routine is not None:
+        from .routines import append_runtime_routine_result
+
+        terminal_event_id = (
+            terminal_event.get("event_id") if terminal_event is not None else uuid4()
+        )
+        terminal_sequence = (
+            terminal_event.get("sequence")
+            if terminal_event is not None
+            else MAX_TERMINAL_SEQUENCE
+        )
+        result = append_runtime_routine_result(
+            context,
+            attempt_id,
+            lease_token,
+            event_id=terminal_event_id,
+            sequence=terminal_sequence,
+            outcome="failed",
+            text="Routine failed before completion.",
+            references=[],
+            delayed=None,
+        )
+        return TerminalReceipt(
+            attempt_id=UUID(str(result["attempt_id"])),
+            status=result["status"],
+            receipt_id=UUID(str(result["receipt_id"])),
+            requeued=bool(result.get("requeued", False)),
+            receipt=result.get("receipt"),
+        )
     normalized_terminal_event = _terminal_event(terminal_event, "execution.failed")
     if retryable and normalized_terminal_event is not None:
         raise RuntimeValidationError(
@@ -138,6 +169,7 @@ def _finish_attempt(
             Attempt.objects.select_for_update()
             .select_related("execution")
             .filter(pk=attempt_uuid, execution__workspace_id=workspace.id)
+            .exclude(execution__source_kind="routine_dispatch")
             .first()
         )
         if attempt is None:

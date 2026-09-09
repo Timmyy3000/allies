@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import pytest
-
 from allies_runtime.config import (
     CredentialReference,
     RuntimeSettings,
@@ -17,6 +16,13 @@ def test_settings_use_loopback_and_opaque_reference():
     assert settings.credential_ref == "vault://tenant/hermes"
     assert "vault://" not in repr(settings.credential_ref)
     assert settings.proof_slots >= 2
+
+
+def test_hermes_timeouts_default_to_bounded_cold_start_budget():
+    settings = load_settings({})
+
+    assert settings.request_timeout == 30.0
+    assert settings.stream_timeout == 30.0
 
 
 def test_settings_accept_validated_foundry_runtime_connection():

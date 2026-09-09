@@ -28,6 +28,7 @@ from runtime.models import (
     ExecutionEvent,
     ExecutionEventDelivery,
 )
+from runtime.routine_contracts import parse_routine_message
 
 DELIVERY_LEASE_SECONDS = 60
 MAX_DELIVERY_ATTEMPTS = 8
@@ -493,10 +494,19 @@ def _identifier_values(
 def _post_to_cloud(envelope_bytes: bytes) -> tuple[int, str]:
     if not getattr(settings, "ALLIES_CLOUD_EVENT_DELIVERY_ENABLED", False):
         return 503, "delivery_disabled"
+    expected_event_id = None
     try:
-        event = FoundryEventEnvelope.model_validate_json(envelope_bytes)
-        validate_event(event)
-    except (TypeError, ValueError):
+        decoded = json.loads(envelope_bytes.decode("utf-8"))
+        if not isinstance(decoded, dict):
+            return 503, "delivery_envelope_invalid"
+        if decoded.get("kind") in {"routine.result", "routine.approval_requested"}:
+            event = parse_routine_message(decoded)
+            expected_event_id = event.event_id
+        else:
+            event = FoundryEventEnvelope.model_validate(decoded)
+            validate_event(event)
+            expected_event_id = event.event_id
+    except (RuntimeValidationError, TypeError, ValueError):
         return 503, "delivery_envelope_invalid"
     base_url = _validated_cloud_url(getattr(settings, "ALLIES_CLOUD_URL", None))
     token = getattr(settings, "ALLIES_CLOUD_EVENT_SERVICE_TOKEN", None)
@@ -523,7 +533,7 @@ def _post_to_cloud(envelope_bytes: bytes) -> tuple[int, str]:
                     receipt = EventDeliveryReceipt.model_validate_json(body)
                 except (TypeError, ValueError):
                     return 503, "delivery_receipt_invalid"
-                if receipt.event_id != event.event_id:
+                if receipt.event_id != expected_event_id:
                     return 503, "delivery_receipt_mismatch"
                 return status, ""
             return status, _safe_response_code(body)

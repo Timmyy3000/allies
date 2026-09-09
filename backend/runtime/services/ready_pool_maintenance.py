@@ -35,6 +35,7 @@ from runtime.models import (
 )
 from runtime.providers import ContainerState, MachineState, ProviderError
 from runtime.services.ready_pool import RESERVED_TENANT_PREFIX
+from runtime.services.release_targets import is_pending_release_target
 from runtime.services.runtime_readiness import is_runtime_ready
 
 MAX_MAINTENANCE_LIMIT = 8
@@ -754,7 +755,7 @@ def _db_blank_ready(workspace: Workspace, now: datetime) -> bool:
         workspace.tenant_ref.startswith(RESERVED_TENANT_PREFIX)
         and workspace.provisioning_phase == WorkspaceProvisioningPhase.IDLE
         and workspace.runtime_operation_state == RuntimeOperationState.IDLE
-        and not workspace.release_target
+        and not is_pending_release_target(workspace.release_target)
         and workspace.activation_claim_token is None
         and workspace.activation_claim_expires_at is None
         and workspace.provisioning_claim_token is None
@@ -878,7 +879,7 @@ def _record_fresh_blank_volume(
                 RuntimeOperationState.IDLE,
                 RuntimeOperationState.AWAITING_READINESS,
             }
-            or workspace.release_target
+            or is_pending_release_target(workspace.release_target)
             or workspace.activation_claim_token is not None
             or workspace.activation_claim_expires_at is not None
             or workspace.provisioning_claim_token is not None

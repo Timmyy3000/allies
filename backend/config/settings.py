@@ -221,6 +221,16 @@ if ALLIES_RUNTIME_READINESS_FRESHNESS_SECONDS <= 30:
         "the 15-second runtime heartbeat interval"
     )
 
+ALLIES_RUNTIME_ROUTINE_RELEASE_DIGEST = os.getenv(
+    "ALLIES_RUNTIME_ROUTINE_RELEASE_DIGEST", ""
+).strip()
+if ALLIES_RUNTIME_ROUTINE_RELEASE_DIGEST and not re.fullmatch(
+    r"sha256:[0-9a-f]{64}", ALLIES_RUNTIME_ROUTINE_RELEASE_DIGEST
+):
+    raise ImproperlyConfigured(
+        "ALLIES_RUNTIME_ROUTINE_RELEASE_DIGEST must be a sha256 digest"
+    )
+
 ALLIES_CLOUD_SERVICE_TOKEN = os.getenv("ALLIES_CLOUD_SERVICE_TOKEN")
 if not DEBUG and not ALLIES_CLOUD_SERVICE_TOKEN:
     raise ImproperlyConfigured(

@@ -66,6 +66,7 @@ from runtime.providers import (
 from runtime.providers.protocol import WorkspaceProvider, provider_workspace_context
 
 from .ready_pool import assign_ready_workspace
+from .release_targets import is_pending_release_target
 from .retry import run_with_sqlite_lock_retry
 from .runtime_readiness import advance_runtime_start_epoch_locked
 from .timing import observed_timing_phase
@@ -1042,7 +1043,7 @@ class WorkspaceLifecycle:
                 provider_resource_id=workspace.machine_ref,
             ):
                 self._wait_healthy(app_name, workspace.machine_ref, spec, deadline)
-            if workspace.release_target:
+            if is_pending_release_target(workspace.release_target):
                 machine = self._inspect_machine_by_id(app_name, workspace.machine_ref)
                 if (
                     machine is None
@@ -1392,7 +1393,7 @@ class WorkspaceLifecycle:
                     claim.operation_id,
                 ).containers
             }
-            if workspace.release_target:
+            if is_pending_release_target(workspace.release_target):
                 workspace.release_target = {}
                 workspace.activation_claim_token = None
                 workspace.activation_claim_expires_at = None

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -17,6 +18,8 @@ from runtime.models import (
     ConversationBinding,
     Lease,
     LeaseState,
+    RoutineExecution,
+    RoutineLeaseAcquisition,
     RuntimeProfile,
     Workspace,
 )
@@ -67,6 +70,7 @@ def update_session_binding(
             Attempt.objects.select_for_update()
             .select_related("execution")
             .filter(pk=attempt_uuid, execution__workspace_id=workspace.id)
+            .exclude(execution__source_kind="routine_dispatch")
             .first()
         )
         if attempt is None:
@@ -276,3 +280,100 @@ def bind_conversation(
         hermes_session_id,
         cloud_conversation_ref=cloud_conversation_ref,
     )
+
+
+@dataclass(frozen=True, slots=True)
+class RoutineSessionReceipt:
+    session_id: str
+
+
+def bind_routine_session(
+    context,
+    attempt_id: UUID,
+    lease_token: str,
+    expected_session_id: str | None,
+    effective_session_id: str,
+) -> RoutineSessionReceipt:
+    """Bind a fresh run session without mutating the profile's main binding."""
+
+    from .leases import digest_lease_token
+    from .runtime_auth import RuntimeContext
+
+    if not isinstance(context, RuntimeContext):
+        raise RuntimeValidationError("runtime context is required")
+    validate_nonempty(effective_session_id, "effective_session_id", max_length=255)
+    if expected_session_id is not None:
+        validate_nonempty(expected_session_id, "expected_session_id", max_length=255)
+    try:
+        attempt_uuid = UUID(str(attempt_id))
+    except (TypeError, ValueError) as exc:
+        raise RuntimeValidationError("attempt_id must be a UUID") from exc
+    token_digest = digest_lease_token(lease_token)
+    request_digest = digest_payload(
+        {
+            "expected_session_id": expected_session_id,
+            "effective_session_id": effective_session_id,
+        }
+    )
+
+    @transaction.atomic
+    def bind_once() -> RoutineSessionReceipt:
+        workspace = Workspace.objects.select_for_update().get(pk=context.workspace_id)
+        if workspace.machine_generation != context.machine_generation:
+            raise RuntimeFencedError("runtime generation is stale")
+        routine = RoutineExecution.objects.select_for_update().filter(
+            workspace_id=workspace.id, current_attempt_id=attempt_uuid
+        ).first()
+        if routine is None:
+            raise RuntimeLeaseConflictError("routine session target is unavailable")
+        attempt = (
+            Attempt.objects.select_for_update()
+            .select_related("execution")
+            .filter(
+                pk=attempt_uuid,
+                execution_id=routine.execution_id,
+                execution__workspace_id=workspace.id,
+                execution__source_kind="routine_dispatch",
+            )
+            .first()
+        )
+        if attempt is None:
+            raise RuntimeLeaseConflictError("routine attempt is unavailable")
+        lease = Lease.objects.select_for_update().filter(attempt_id=attempt.id).first()
+        if lease is None or lease.token_digest != token_digest:
+            raise RuntimeLeaseConflictError("lease token does not authorize routine")
+        if lease.scope_key != f"routine:{routine.routine_id}":
+            raise RuntimeLeaseConflictError("routine lease scope is stale")
+        if lease.state != LeaseState.ACTIVE or lease.expires_at <= timezone.now():
+            raise RuntimeLeaseConflictError("routine lease is no longer active")
+        acquisition = RoutineLeaseAcquisition.objects.select_for_update().filter(
+            lease_id=lease.id, current=True, token_digest=token_digest
+        ).first()
+        if acquisition is None:
+            raise RuntimeLeaseConflictError("routine lease authority is stale")
+        if acquisition.session_request_digest is not None:
+            if (
+                acquisition.session_request_digest != request_digest
+                or acquisition.session_receipt is None
+            ):
+                raise RuntimeIdempotencyConflictError(
+                    "routine session request conflicts with its stored receipt"
+                )
+            return RoutineSessionReceipt(str(acquisition.session_receipt["session_id"]))
+        if routine.hermes_session_id is not None:
+            if expected_session_id != routine.hermes_session_id:
+                raise RuntimeLeaseConflictError("routine session binding is stale")
+            if routine.hermes_session_id != effective_session_id:
+                raise RuntimeLeaseConflictError("routine session binding is immutable")
+        elif expected_session_id is not None:
+            raise RuntimeLeaseConflictError("routine session binding does not exist")
+        routine.hermes_session_id = effective_session_id
+        routine.save(update_fields=["hermes_session_id", "updated_at"])
+        acquisition.session_request_digest = request_digest
+        acquisition.session_receipt = {"session_id": effective_session_id}
+        acquisition.save(
+            update_fields=["session_request_digest", "session_receipt"]
+        )
+        return RoutineSessionReceipt(effective_session_id)
+
+    return run_with_sqlite_lock_retry(bind_once)

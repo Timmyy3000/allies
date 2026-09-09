@@ -356,6 +356,11 @@ def event_envelope_bytes(event: FoundryEventEnvelope) -> bytes:
 def build_event_envelope(execution, attempt, event) -> FoundryEventEnvelope | None:
     """Translate one internal FND-007 event into a safe wire envelope."""
 
+    if event.event_type in {"routine.result", "routine.approval_requested"}:
+        from runtime.routine_contracts import build_routine_event_envelope
+
+        return build_routine_event_envelope(execution, attempt, event)
+
     event_type = {
         "execution.dispatched": "execution.accepted",
     }.get(event.event_type, event.event_type)

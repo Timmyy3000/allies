@@ -601,6 +601,24 @@ def test_event_delivery_requires_bounded_strict_cloud_receipt(
     assert (status, code) == (503, "delivery_receipt_invalid")
 
 
+@pytest.mark.parametrize("envelope", [b"[]", b"null", b'"text"', b"1"])
+def test_event_delivery_rejects_non_object_persisted_envelopes(
+    settings, monkeypatch, envelope
+):
+    _configure_delivery(settings)
+    called = []
+    monkeypatch.setattr(
+        event_delivery,
+        "build_opener",
+        lambda *_: called.append(True),
+    )
+
+    status, code = event_delivery._post_to_cloud(envelope)
+
+    assert (status, code) == (503, "delivery_envelope_invalid")
+    assert called == []
+
+
 def test_event_delivery_rejects_mismatched_cloud_receipt(
     delivery, settings, monkeypatch
 ):
