@@ -39,6 +39,7 @@ from chat.services.dispatch import (
     ensure_dispatch_after_accept,
 )
 from chat.services.messages import accept_message, complete_turn
+from files.services.cleanup import tombstone_ally_files
 from workspaces.models import Membership, Workspace
 
 
@@ -306,6 +307,56 @@ def test_accept_persists_outbox_while_execution_is_disabled_then_recovers(
 
     assert report.accepted == 1
     assert DispatchOutbox.objects.get(message=message).status == DispatchState.ACCEPTED
+
+
+@pytest.mark.django_db
+@override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=True)
+def test_tombstone_terminalizes_a_queued_outbox_before_claim(
+    dispatch_records, monkeypatch
+):
+    _workspace, _binding, conversation, message = dispatch_records
+    dispatch_accepted_message(message)
+    tombstone_ally_files(ally_id=conversation.ally_id)
+    monkeypatch.setattr(
+        "chat.services.dispatch.create_execution_intent",
+        lambda *_args, **_kwargs: pytest.fail("tombstoned outbox was dispatched"),
+    )
+
+    report = dispatch_pending_messages(now=timezone.now())
+
+    outbox = DispatchOutbox.objects.get(message=message)
+    assert report.claimed == 0
+    assert outbox.status == DispatchState.FAILED
+    assert outbox.safe_error_code == "ally_deleted"
+    assert outbox.command_bytes == b""
+
+
+@pytest.mark.django_db
+@override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=True)
+def test_tombstone_terminalizes_an_expired_dispatch_lease(
+    dispatch_records, monkeypatch
+):
+    _workspace, _binding, conversation, message = dispatch_records
+    dispatch_accepted_message(message)
+    now = timezone.now()
+    DispatchOutbox.objects.filter(message=message).update(
+        status=DispatchState.IN_PROGRESS,
+        attempt_count=1,
+        lease_expires_at=now - timedelta(seconds=1),
+    )
+    tombstone_ally_files(ally_id=conversation.ally_id)
+    monkeypatch.setattr(
+        "chat.services.dispatch.reconcile_execution_intent",
+        lambda *_args, **_kwargs: pytest.fail("tombstoned lease was reconciled"),
+    )
+
+    report = dispatch_pending_messages(now=now)
+
+    outbox = DispatchOutbox.objects.get(message=message)
+    assert report.claimed == 0
+    assert outbox.status == DispatchState.FAILED
+    assert outbox.safe_error_code == "ally_deleted"
+    assert outbox.lease_expires_at is None
 
 
 @pytest.mark.django_db

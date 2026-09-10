@@ -5,7 +5,7 @@ from typing import Any
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.db.models.functions import Coalesce, Length
 from django.utils import timezone
 
@@ -359,10 +359,29 @@ def _messages_page(
     if cursor:
         parsed = parse_cursor(cursor, conversation_id=str(conversation.id))
         before_sequence = parsed.before_sequence
+    from files.models import FilePublication, FileVersion, MessageFile
+
+    links = Prefetch(
+        "file_links",
+        queryset=MessageFile.objects.filter(removed_at__isnull=True)
+        .select_related("file")
+        .order_by("position", "id"),
+    )
+    publications = Prefetch(
+        "file_publications",
+        queryset=FilePublication.objects.prefetch_related(
+            Prefetch(
+                "files",
+                queryset=FileVersion.objects.order_by("created_at", "id"),
+                to_attr="prefetched_files",
+            )
+        ),
+        to_attr="prefetched_file_publications",
+    )
     query: QuerySet[Message, Message] = (
         Message.objects.filter(conversation=conversation)
         .select_related("dispatch_outbox", "assistant_reply")
-        .prefetch_related("retries")
+        .prefetch_related("retries", links, publications)
     )
     if before_sequence is not None:
         query = query.filter(sequence__lt=before_sequence)
@@ -394,6 +413,8 @@ def _messages_page(
 
 
 def _queue_messages(*, conversation: Conversation) -> tuple[Message, ...]:
+    from files.models import MessageFile
+
     return tuple(
         Message.objects.filter(
             conversation=conversation,
@@ -402,7 +423,15 @@ def _queue_messages(*, conversation: Conversation) -> tuple[Message, ...]:
             status__in=NONTERMINAL_MESSAGE_STATUSES,
             deleted_at__isnull=True,
         )
-        .prefetch_related("retries")
+        .prefetch_related(
+            "retries",
+            Prefetch(
+                "file_links",
+                queryset=MessageFile.objects.filter(removed_at__isnull=True)
+                .select_related("file")
+                .order_by("position", "id"),
+            ),
+        )
         .order_by("sequence", "id")[:101]
     )
 

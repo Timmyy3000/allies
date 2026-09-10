@@ -14,7 +14,7 @@ from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
-from allies.models import ProvisioningStatus
+from allies.models import Ally, ProvisioningStatus
 from auths.config import digest_key
 from auths.models import User
 from auths.throttle import (
@@ -47,10 +47,12 @@ from chat.models import (
     Message,
     MessageLifecycle,
     MessageOrigin,
+    MessagePreparation,
     MessageSender,
 )
 from common.cursors import b64decode, b64encode, cursor_keys
 from common.uuids import canonical_uuid
+from files.models import FileAllyTombstone
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 
@@ -77,11 +79,13 @@ def _parse_uuid(value: UUID | str) -> UUID:
         raise ConversationUnavailable("conversation unavailable") from exc
 
 
-def normalize_content(content: object) -> str:
+def normalize_content(content: object, *, allow_empty: bool = False) -> str:
     if not isinstance(content, str):
         raise MessageValidation("request validation failed")
     normalized = unicodedata.normalize("NFC", content).strip()
-    if not normalized or len(normalized) > MESSAGE_CONTENT_MAX_LENGTH:
+    if (not normalized and not allow_empty) or len(
+        normalized
+    ) > MESSAGE_CONTENT_MAX_LENGTH:
         raise MessageValidation("request validation failed")
     return normalized
 
@@ -272,11 +276,70 @@ def _conversation_for_send(*, workspace, conversation_id: UUID | str) -> Convers
         raise ConversationUnavailable("conversation unavailable") from exc
 
 
+def _file_retry_conversation(*, workspace, conversation_id: UUID | str) -> Conversation:
+    parsed_conversation_id = _parse_uuid(conversation_id)
+    try:
+        ally_id = (
+            Conversation.objects.only("ally_id")
+            .get(pk=parsed_conversation_id, ally__workspace=workspace)
+            .ally_id
+        )
+        ally = Ally.objects.select_for_update().get(pk=ally_id, workspace=workspace)
+    except (Ally.DoesNotExist, Conversation.DoesNotExist) as exc:
+        raise ConversationUnavailable("conversation unavailable") from exc
+    if FileAllyTombstone.objects.filter(ally=ally).exists():
+        raise ConversationUnavailable("conversation unavailable")
+    return _conversation_for_send(
+        workspace=workspace, conversation_id=parsed_conversation_id
+    )
+
+
+def _retry_file_ids(*, user: User, context, original: Message) -> tuple[UUID, ...]:
+    from files.models import FileDirection, FileState, FileVersion, MessageFile
+
+    links = list(
+        MessageFile.objects.select_for_update()
+        .filter(message=original, removed_at__isnull=True)
+        .order_by("position", "id")
+    )
+    if not links:
+        if original.preparation == MessagePreparation.NONE:
+            return ()
+        raise TurnConflict("message files are not retryable")
+    if original.preparation != MessagePreparation.READY or not original.send_armed:
+        raise TurnConflict("message files are not retryable")
+
+    files = (
+        FileVersion.objects.select_for_update(of=("self",))
+        .filter(pk__in=[link.file_id for link in links])
+        .order_by("id")
+    )
+    by_id = {file.id: file for file in files}
+    for link in links:
+        file = by_id.get(link.file_id)
+        if (
+            file is None
+            or file.owner_id != user.id
+            or file.workspace_id != context.workspace.id
+            or file.ally_id != original.conversation.ally_id
+            or file.source_message_id != original.id
+            or file.direction != FileDirection.INBOUND
+            or file.state != FileState.READY
+            or file.generation < 1
+            or file.actual_size != file.expected_size
+            or not file.object_key
+        ):
+            raise TurnConflict("message files are not retryable")
+    return tuple(link.file_id for link in links)
+
+
 def _claim_next_turn_locked(
     *, conversation: Conversation, now: datetime | None = None
 ) -> Message | None:
     """Claim the earliest live send while the caller holds Conversation."""
 
+    if FileAllyTombstone.objects.filter(ally_id=conversation.ally_id).exists():
+        return None
     if Message.objects.filter(
         conversation=conversation,
         sender=MessageSender.USER,
@@ -301,6 +364,13 @@ def _claim_next_turn_locked(
     )
     if message is None:
         return None
+    if message.preparation == MessagePreparation.NONE:
+        pass
+    elif message.preparation == MessagePreparation.READY and message.send_armed:
+        if not bool(getattr(settings, "ALLIES_FILE_INPUT_DELIVERY_ENABLED", False)):
+            return None
+    else:
+        return None
     message.execution_claimed_at = now or timezone.now()
     message.save(update_fields=("execution_claimed_at", "updated_at"))
     return message
@@ -314,6 +384,7 @@ def accept_message(
     content: object,
     idempotency_key: object,
     retry_of: Message | None = None,
+    retry_file_ids: tuple[UUID, ...] = (),
     client_timezone: str = "",
     routine_action: object = None,
 ) -> MessageAcceptance:
@@ -329,7 +400,7 @@ def accept_message(
         workspace_id=workspace_id,
         capability=Capability.WORKSPACE_WRITE,
     )
-    normalized = normalize_content(content)
+    normalized = normalize_content(content, allow_empty=bool(retry_file_ids))
     normalized_routine_action = _normalize_routine_action(routine_action)
     key = _validate_send_key(idempotency_key)
     key_digest = _digest(key)
@@ -368,7 +439,10 @@ def accept_message(
                 .first()
             )
             if duplicate is not None:
-                if duplicate.content_fingerprint != content_fingerprint:
+                if (
+                    duplicate.content_fingerprint != content_fingerprint
+                    or duplicate.retry_of_id != (retry_of.id if retry_of else None)
+                ):
                     raise IdempotencyConflict("idempotency key conflicts with content")
                 if (
                     duplicate.client_timezone != client_timezone
@@ -427,9 +501,25 @@ def accept_message(
                 send_key_digest=key_digest,
                 content_fingerprint=content_fingerprint,
                 retry_of=retry_of,
+                preparation=(
+                    MessagePreparation.READY
+                    if retry_file_ids
+                    else MessagePreparation.NONE
+                ),
+                preparation_revision=1 if retry_file_ids else 0,
+                send_armed=bool(retry_file_ids),
                 client_timezone=client_timezone,
                 routine_action=normalized_routine_action,
             )
+            if retry_file_ids:
+                from files.models import MessageFile
+
+                MessageFile.objects.bulk_create(
+                    [
+                        MessageFile(message=message, file_id=file_id, position=index)
+                        for index, file_id in enumerate(retry_file_ids)
+                    ]
+                )
             from .dispatch import ensure_dispatch_after_accept
 
             ensure_dispatch_after_accept(message)
@@ -456,13 +546,8 @@ def retry_message(
     )
     parsed_message_id = _parse_uuid(message_id)
     with transaction.atomic():
-        conversation = _conversation_for_send(
+        conversation = _file_retry_conversation(
             workspace=context.workspace, conversation_id=conversation_id
-        )
-        conversation = (
-            Conversation.objects.select_for_update()
-            .select_related("ally")
-            .get(pk=conversation.pk)
         )
         try:
             original = (
@@ -503,6 +588,7 @@ def retry_message(
             or not retryable
         ):
             raise TurnConflict("message is not retryable")
+        retry_file_ids = _retry_file_ids(user=user, context=context, original=original)
         return accept_message(
             user=user,
             workspace_id=workspace_id,
@@ -510,6 +596,7 @@ def retry_message(
             content=original.content,
             idempotency_key=idempotency_key,
             retry_of=original,
+            retry_file_ids=retry_file_ids,
             client_timezone=original.client_timezone,
             routine_action=original.routine_action,
         )
@@ -729,6 +816,18 @@ def message_response(message: Message) -> dict[str, Any]:
         queue_state = (
             "claimed" if message.execution_claimed_at is not None else "unclaimed"
         )
+    files = []
+    if message.preparation != MessagePreparation.NONE and message.deleted_at is None:
+        files = [
+            {
+                "id": str(link.file_id),
+                "name": link.file.original_name,
+                "size": link.file.actual_size or link.file.expected_size,
+                "state": link.file.state,
+            }
+            for link in message.file_links.all()
+            if link.removed_at is None
+        ]
     return {
         "id": str(message.id),
         "sender": message.sender,
@@ -739,18 +838,27 @@ def message_response(message: Message) -> dict[str, Any]:
         "retryable": is_message_retryable(message),
         "queue_state": queue_state,
         "deleted_at": message.deleted_at,
+        "preparation": message.preparation,
+        "revision": message.preparation_revision,
+        "files": files,
     }
 
 
-def assistant_reply_response(reply: AssistantReply) -> dict[str, Any]:
+def assistant_reply_response(
+    reply: AssistantReply, *, message: Message | None = None
+) -> dict[str, Any]:
+    source = message or reply.message
+    from files.services.publication import reply_publications
+
     return {
         "id": str(reply.id),
-        "source_message_id": str(reply.message_id),
-        "conversation_turn_ordinal": reply.message.sequence,
+        "source_message_id": str(source.id),
+        "conversation_turn_ordinal": source.sequence,
         "content": reply.content,
-        "status": reply.message.status,
+        "status": source.status,
         "has_full_prefix": reply.has_full_prefix,
         "is_truncated": reply.is_truncated,
+        "publications": reply_publications(message=source),
         "created_at": reply.created_at,
         "updated_at": reply.updated_at,
     }

@@ -204,6 +204,89 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             "deleted_at": "2026-08-20T16:02:01Z",
         },
     },
+    "SuccessResponse_FileReservationResponse_": {
+        "status": "success",
+        "message": "File message reserved",
+        "data": {
+            "message": {
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+                "sequence": 3,
+                "status": "queued",
+                "preparation": "uploading",
+                "revision": 1,
+            },
+            "files": [
+                {
+                    "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+                    "generation": 1,
+                    "state": "pending",
+                }
+            ],
+            "replayed": False,
+        },
+    },
+    "SuccessResponse_FileMessageResponse_": {
+        "status": "success",
+        "message": "File message prepared",
+        "data": {
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+            "status": "queued",
+            "preparation": "ready",
+            "revision": 2,
+        },
+    },
+    "SuccessResponse_FileDraftResponse_": {
+        "status": "success",
+        "message": "File draft read",
+        "data": {
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d88",
+            "content": "Review this report.",
+            "files": [
+                {
+                    "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+                    "name": "report.pdf",
+                    "state": "ready",
+                }
+            ],
+        },
+    },
+    "SuccessResponse_FileDraftDiscardResponse_": {
+        "status": "success",
+        "message": "File draft discarded",
+        "data": {"discarded": True},
+    },
+    "SuccessResponse_FileCancellationResponse_": {
+        "status": "success",
+        "message": "File message cancelled",
+        "data": {
+            "message": {
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+                "status": "stopped",
+                "preparation": "cancelled",
+                "revision": 2,
+            },
+            "draft": {
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d88",
+                "content": "Review this report.",
+                "files": [
+                    {
+                        "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+                        "name": "report.pdf",
+                        "state": "ready",
+                    }
+                ],
+            },
+        },
+    },
+    "SuccessResponse_UploadFileResponse_": {
+        "status": "success",
+        "message": "File accepted for validation",
+        "data": {
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+            "state": "validating",
+            "generation": 1,
+        },
+    },
     "SuccessResponse_ActivitySnapshotResponse_": {
         "status": "success",
         "message": "Activities loaded",
@@ -853,6 +936,36 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
             "X-CSRFToken",
             "Required with the browser CSRF cookie; omit for native.",
         )
+    upload = (
+        schema.get("paths", {})
+        .get(
+            "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/content",
+            {},
+        )
+        .get("put")
+    )
+    if isinstance(upload, dict):
+        upload["requestBody"] = {
+            "required": True,
+            "content": {
+                "application/octet-stream": {
+                    "schema": {
+                        "type": "string",
+                        "format": "binary",
+                        "maxLength": 25000000,
+                    }
+                }
+            },
+        }
+        for parameter in upload.get("parameters", []):
+            if parameter.get("name") == "Content-Length":
+                parameter["required"] = True
+                parameter["schema"] = {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 25000000,
+                }
+                parameter["description"] = "Exact raw byte length; maximum 25,000,000."
     for path, path_item in schema.get("paths", {}).items():
         if not path.startswith("/api/v1/auths/native/"):
             continue
