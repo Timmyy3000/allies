@@ -142,6 +142,7 @@ def execute_routine_tool(
                 title=args.title,
                 execution_prompt=args.execution_prompt,
                 schedule=args.schedule,
+                source_message=message,
                 command_id=receipt_id,
                 idempotency_key=receipt_id,
             )
@@ -174,14 +175,44 @@ def execute_routine_tool(
                 result["instruction"] = (
                     "Ask the user to confirm deletion; delete only in a subsequent user turn after confirmation."
                 )
+                routine_action = message.routine_action
+                if (
+                    isinstance(routine_action, dict)
+                    and routine_action.get("action") == "delete"
+                    and routine_action.get("confirmed") is True
+                    and routine_action.get("routine_id") == str(routine.id)
+                    and routine_action.get("expected_revision")
+                    == args.expected_revision
+                ):
+                    result["instruction"] = (
+                        "The user already confirmed this exact deletion in the UI; "
+                        "proceed with the delete call in this turn using the returned confirmation_ref."
+                    )
             elif args.action == "delete":
                 challenge = RoutineToolCall.objects.filter(
                     message__conversation_id=message.conversation_id,
                     message__sequence__lt=message.sequence,
                     response__confirmation_ref=args.confirmation_ref,
                     response__routine_id=str(routine.id),
+                    response__expected_revision=args.expected_revision,
                 ).exists()
-                if not args.confirmation_ref or not challenge:
+                same_turn_challenge = RoutineToolCall.objects.filter(
+                    message=message,
+                    response__confirmation_ref=args.confirmation_ref,
+                    response__routine_id=str(routine.id),
+                    response__expected_revision=args.expected_revision,
+                ).exists()
+                routine_action = message.routine_action
+                same_turn_confirmed = (
+                    isinstance(routine_action, dict)
+                    and routine_action.get("action") == "delete"
+                    and routine_action.get("confirmed") is True
+                    and routine_action.get("routine_id") == str(routine.id)
+                    and routine_action.get("expected_revision")
+                    == args.expected_revision
+                    and same_turn_challenge
+                )
+                if not args.confirmation_ref or not (challenge or same_turn_confirmed):
                     raise ValidationError(
                         "deletion requires a challenge from an earlier user turn"
                     )

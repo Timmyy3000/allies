@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from importlib import import_module
 from uuid import uuid4
 
@@ -11,6 +11,7 @@ from django.db.models import Exists, OuterRef
 from django.utils import timezone
 
 from activities.models import FoundryEventReceipt
+from allies.gateways.contracts import canonical_fingerprint
 from allies.models import (
     Ally,
     AllyBinding,
@@ -53,6 +54,14 @@ from chat.services.messages import (
     retry_message,
     serialize_cursor,
 )
+from routines.models import RoutineDispatchState
+from routines.services.approvals import apply_routine_approval_requested_event
+from routines.services.dispatch import (
+    claim_pending_routine_dispatches,
+    settle_routine_dispatch,
+)
+from routines.services.management import create_routine_intent
+from routines.services.scheduler import admit_due_routines
 from workspaces.models import Membership, Workspace
 
 mark_legacy_claims = import_module(
@@ -118,6 +127,371 @@ def test_onboarding_history_and_exactly_once_send(account):
             content="different",
             idempotency_key="chat-send-key-0001",
         )
+
+
+@pytest.mark.django_db
+def test_routine_action_is_private_persisted_and_idempotent(account):
+    user, workspace, ally = account
+    AllyBinding.objects.create(
+        ally=ally,
+        status=BindingStatus.BOUND,
+        receipt_digest="b" * 64,
+    )
+    conversation = ensure_default_conversation(
+        ally=ally, greeting="Hello", reply="Ready"
+    )
+    routine = create_routine_intent(
+        user=user,
+        workspace_id=workspace.id,
+        ally_id=ally.id,
+        main_conversation_id=conversation.id,
+        title="Check price",
+        execution_prompt="Check the saved product price.",
+        schedule={
+            "kind": "recurring",
+            "frequency": "daily",
+            "local_time": "09:00:00",
+            "timezone": "Europe/Berlin",
+        },
+    )
+    action = {
+        "action": "pause",
+        "routine_id": str(routine.id),
+        "expected_revision": routine.revision,
+        "title_snapshot": routine.title,
+    }
+    accepted = accept_message(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        content="Please pause it",
+        idempotency_key="routine-action-key-0001",
+        client_timezone="Europe/Berlin",
+        routine_action=action,
+    )
+    assert accepted.message.routine_action == {
+        **action,
+        "confirmed": False,
+    }
+    assert "routine_action" not in message_response(accepted.message)
+    from chat.services.dispatch import _model_input_text
+
+    dispatched = _model_input_text(accepted.message)
+    assert "[Structured routine action]" in dispatched
+    assert str(routine.id) in dispatched
+    assert accepted.message.content in dispatched
+
+    replay = accept_message(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        content="Please pause it",
+        idempotency_key="routine-action-key-0001",
+        client_timezone="Europe/Berlin",
+        routine_action=action,
+    )
+    assert replay.replayed
+    with pytest.raises(IdempotencyConflict):
+        accept_message(
+            user=user,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
+            content="Please pause it",
+            idempotency_key="routine-action-key-0001",
+            client_timezone="UTC",
+            routine_action=action,
+        )
+
+
+def _routine_action(routine, **metadata):
+    return {
+        "action": "pause",
+        "routine_id": str(routine.id),
+        "expected_revision": routine.revision,
+        "title_snapshot": routine.title,
+        **metadata,
+    }
+
+
+@pytest.mark.django_db
+def test_routine_action_rejects_foreign_owner_workspace_ally_and_conversation(
+    account,
+):
+    user, workspace, ally = account
+    AllyBinding.objects.create(
+        ally=ally,
+        status=BindingStatus.BOUND,
+        receipt_digest="b" * 64,
+    )
+    conversation = ensure_default_conversation(
+        ally=ally, greeting="Hello", reply="Ready"
+    )
+    schedule = {
+        "kind": "recurring",
+        "frequency": "daily",
+        "local_time": "09:00:00",
+        "timezone": "Europe/Berlin",
+    }
+
+    def make_routine(
+        *,
+        routine_user,
+        routine_workspace,
+        routine_ally,
+        routine_conversation,
+        title,
+    ):
+        return create_routine_intent(
+            user=routine_user,
+            workspace_id=routine_workspace.id,
+            ally_id=routine_ally.id,
+            main_conversation_id=routine_conversation.id,
+            title=title,
+            execution_prompt=f"Run {title.lower()}.",
+            schedule=schedule,
+        )
+
+    foreign_owner = User.objects.create_user()
+    Membership.objects.create(
+        workspace=workspace,
+        user=foreign_owner,
+        role="owner",
+        status="active",
+    )
+    foreign_owner_routine = make_routine(
+        routine_user=foreign_owner,
+        routine_workspace=workspace,
+        routine_ally=ally,
+        routine_conversation=conversation,
+        title="Foreign owner routine",
+    )
+
+    foreign_workspace = Workspace.objects.create(
+        owner=foreign_owner,
+        name="Foreign Workspace",
+    )
+    Membership.objects.create(
+        workspace=foreign_workspace,
+        user=foreign_owner,
+        role="owner",
+        status="active",
+    )
+    foreign_workspace_ally = Ally.objects.create(
+        workspace=foreign_workspace,
+        name="Foreign Mira",
+        job="Study partner",
+        personality="Calm",
+        appearance_catalog_version="v1",
+        appearance_key="sunrise",
+    )
+    AllyBinding.objects.create(
+        ally=foreign_workspace_ally,
+        status=BindingStatus.BOUND,
+        receipt_digest="c" * 64,
+    )
+    foreign_workspace_conversation = Conversation.objects.create(
+        ally=foreign_workspace_ally,
+        is_default=False,
+    )
+    foreign_workspace_routine = make_routine(
+        routine_user=foreign_owner,
+        routine_workspace=foreign_workspace,
+        routine_ally=foreign_workspace_ally,
+        routine_conversation=foreign_workspace_conversation,
+        title="Foreign workspace routine",
+    )
+
+    foreign_ally = Ally.objects.create(
+        workspace=workspace,
+        name="Second Mira",
+        job="Study partner",
+        personality="Calm",
+        appearance_catalog_version="v1",
+        appearance_key="sunrise",
+    )
+    AllyBinding.objects.create(
+        ally=foreign_ally,
+        status=BindingStatus.BOUND,
+        receipt_digest="d" * 64,
+    )
+    foreign_ally_conversation = Conversation.objects.create(
+        ally=foreign_ally,
+        is_default=False,
+    )
+    foreign_ally_routine = make_routine(
+        routine_user=user,
+        routine_workspace=workspace,
+        routine_ally=foreign_ally,
+        routine_conversation=foreign_ally_conversation,
+        title="Foreign ally routine",
+    )
+
+    foreign_conversation = Conversation.objects.create(
+        ally=ally,
+        is_default=False,
+    )
+    foreign_conversation_routine = make_routine(
+        routine_user=user,
+        routine_workspace=workspace,
+        routine_ally=ally,
+        routine_conversation=foreign_conversation,
+        title="Foreign conversation routine",
+    )
+
+    baseline_messages = Message.objects.count()
+    baseline_outboxes = DispatchOutbox.objects.count()
+    cases = (
+        ("owner", foreign_owner_routine),
+        ("workspace", foreign_workspace_routine),
+        ("ally", foreign_ally_routine),
+        ("conversation", foreign_conversation_routine),
+    )
+    for label, routine in cases:
+        with pytest.raises(
+            MessageValidation,
+            match="routine action is not bound to this conversation",
+        ):
+            accept_message(
+                user=user,
+                workspace_id=workspace.id,
+                conversation_id=conversation.id,
+                content=f"Please pause the {label} routine",
+                idempotency_key=f"routine-scope-{label}-0001",
+                routine_action=_routine_action(routine),
+            )
+
+        assert Message.objects.count() == baseline_messages
+        assert DispatchOutbox.objects.count() == baseline_outboxes
+
+
+@pytest.mark.django_db
+def test_routine_action_rejects_foreign_run_and_approval_identities_without_writes(
+    account,
+):
+    user, workspace, ally = account
+    binding = AllyBinding.objects.create(
+        ally=ally,
+        status=BindingStatus.BOUND,
+        receipt_digest="b" * 64,
+    )
+    conversation = ensure_default_conversation(
+        ally=ally, greeting="Hello", reply="Ready"
+    )
+    schedule = {
+        "kind": "recurring",
+        "frequency": "daily",
+        "local_time": "09:00:00",
+        "timezone": "Europe/Berlin",
+    }
+    created_at = datetime(2026, 9, 10, 6, tzinfo=UTC)
+    boundary = datetime(2026, 9, 10, 7, tzinfo=UTC)
+    current_routine = create_routine_intent(
+        user=user,
+        workspace_id=workspace.id,
+        ally_id=ally.id,
+        main_conversation_id=conversation.id,
+        title="Current routine",
+        execution_prompt="Run the current routine.",
+        schedule=schedule,
+        now=created_at,
+    )
+    foreign_routine = create_routine_intent(
+        user=user,
+        workspace_id=workspace.id,
+        ally_id=ally.id,
+        main_conversation_id=conversation.id,
+        title="Foreign identity routine",
+        execution_prompt="Run the foreign identity routine.",
+        schedule=schedule,
+        now=created_at,
+    )
+    admit_due_routines(now=boundary)
+    foreign_run = foreign_routine.run_snapshots.get()
+    foreign_outbox = foreign_run.dispatch_outbox
+    lease = next(
+        item
+        for item in claim_pending_routine_dispatches(now=boundary)
+        if item.outbox_id == foreign_outbox.id
+    )
+    assert settle_routine_dispatch(
+        lease,
+        status=RoutineDispatchState.ACCEPTED,
+        execution_id=uuid4(),
+        attempt_id=uuid4(),
+        generation=1,
+        receipt_digest="a" * 64,
+        now=boundary,
+    )
+    foreign_outbox.refresh_from_db()
+    foreign_run.refresh_from_db()
+
+    approval_event = {
+        "schema_version": "v1",
+        "kind": "routine.approval_requested",
+        "producer": "foundry",
+        "service_identity": "foundry-service",
+        "event_id": str(uuid4()),
+        "event_sequence": 1,
+        "approval_request_id": str(uuid4()),
+        "action_attempt_id": str(uuid4()),
+        "run_id": str(foreign_run.id),
+        "execution_id": str(foreign_outbox.execution_id),
+        "attempt_id": str(foreign_outbox.attempt_id),
+        "generation": foreign_outbox.generation,
+        "status": "pending",
+        "created_at": boundary.isoformat().replace("+00:00", "Z"),
+        "expires_at": (boundary + timedelta(hours=24))
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "action_digest": "c" * 64,
+        "provider_idempotency_key": "routine-approval-foreign-0001",
+        "scope": {
+            "kind": "workspace",
+            "workspace_id": str(workspace.id),
+            "owner_user_id": str(user.id),
+            "ally_id": str(ally.id),
+            "cloud_binding_id": str(binding.id),
+        },
+        "issued_at": (boundary + timedelta(seconds=1))
+        .isoformat()
+        .replace("+00:00", "Z"),
+        "deadline_at": (boundary + timedelta(seconds=31))
+        .isoformat()
+        .replace("+00:00", "Z"),
+    }
+    approval_event["fingerprint"] = canonical_fingerprint(approval_event)
+    foreign_approval = apply_routine_approval_requested_event(approval_event).approval
+
+    baseline_messages = Message.objects.count()
+    baseline_outboxes = DispatchOutbox.objects.count()
+    cases = (
+        ("run", {"run_id": str(foreign_run.id)}),
+        ("approval", {"approval_id": str(foreign_approval.id)}),
+        (
+            "approval-request",
+            {"approval_request_id": str(foreign_approval.approval_request_id)},
+        ),
+        (
+            "action-attempt",
+            {"action_attempt_id": str(foreign_approval.action_attempt_id)},
+        ),
+    )
+    for label, metadata in cases:
+        with pytest.raises(
+            MessageValidation,
+            match="routine action is not bound to this conversation",
+        ):
+            accept_message(
+                user=user,
+                workspace_id=workspace.id,
+                conversation_id=conversation.id,
+                content=f"Please pause the foreign {label}",
+                idempotency_key=f"routine-identity-{label}-0001",
+                routine_action=_routine_action(current_routine, **metadata),
+            )
+
+        assert Message.objects.count() == baseline_messages
+        assert DispatchOutbox.objects.count() == baseline_outboxes
 
 
 @pytest.mark.django_db

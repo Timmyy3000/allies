@@ -51,6 +51,7 @@ def test_create_retry_inspect_update_and_pause(tool_turn):
     replay = execute_routine_tool(**tool_turn, call_id=call_id, arguments=create_args())
     assert replay == first
     assert Routine.objects.count() == 1
+    assert Routine.objects.get().source_message_id == tool_turn["message_id"]
     assert first["status"] == "saved"
     assert first["schedule"]["timezone"] == "Europe/Berlin"
     with pytest.raises(ValueError):
@@ -110,6 +111,41 @@ def test_delete_requires_previous_turn_confirmation(tool_turn):
         ).command_fingerprint,
         call_id=uuid4(),
         arguments=args,
+    )
+    assert deleted["state"] == "deleted"
+
+
+def test_confirmed_delete_metadata_allows_same_turn_delete(tool_turn):
+    created = execute_routine_tool(
+        **tool_turn, call_id=uuid4(), arguments=create_args()
+    )
+    message = Message.objects.get(pk=tool_turn["message_id"])
+    message.routine_action = {
+        "action": "delete",
+        "routine_id": created["routine_id"],
+        "expected_revision": created["revision"],
+        "title_snapshot": created["title"],
+        "confirmed": True,
+    }
+    message.save(update_fields=("routine_action", "updated_at"))
+    fields = {
+        "routine_id": created["routine_id"],
+        "expected_revision": created["revision"],
+    }
+    challenge = execute_routine_tool(
+        **tool_turn,
+        call_id=uuid4(),
+        arguments={"action": "request_delete", **fields},
+    )
+    assert "already confirmed" in challenge["instruction"]
+    deleted = execute_routine_tool(
+        **tool_turn,
+        call_id=uuid4(),
+        arguments={
+            "action": "delete",
+            **fields,
+            "confirmation_ref": challenge["confirmation_ref"],
+        },
     )
     assert deleted["state"] == "deleted"
 
