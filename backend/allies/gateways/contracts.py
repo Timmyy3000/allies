@@ -261,17 +261,37 @@ class FirstTurnBootstrap(ContractModel):
         return self
 
 
+class FileInputV1(ContractModel):
+    file_id: UUID
+    name: StrictStr = Field(min_length=1, max_length=255)
+    media_type: StrictStr = Field(min_length=1, max_length=127)
+    size: StrictInt = Field(ge=1, le=25_000_000)
+    sha256: StrictStr = Field(pattern=r"^[0-9a-f]{64}$")
+
+
 class ExecutionInput(ContractModel):
     kind: Literal["execution_input"]
-    text: StrictStr = Field(min_length=1, max_length=MAX_COMMAND_TEXT_BYTES)
+    text: StrictStr = Field(min_length=0, max_length=MAX_COMMAND_TEXT_BYTES)
     bootstrap: FirstTurnBootstrap | None = Field(
         default=None, exclude_if=lambda value: value is None
+    )
+    files: list[FileInputV1] | None = Field(
+        default=None,
+        min_length=1,
+        max_length=10,
+        exclude_if=lambda value: value is None,
     )
 
     @model_validator(mode="after")
     def bounded_utf8(self) -> ExecutionInput:
         if len(self.text.encode("utf-8")) > MAX_COMMAND_TEXT_BYTES:
             raise ValueError("execution text is too large")
+        if "files" in self.model_fields_set and self.files is None:
+            raise ValueError("files must be omitted or a nonempty manifest")
+        if self.files and sum(file.size for file in self.files) > 50_000_000:
+            raise ValueError("file manifest exceeds the aggregate size limit")
+        if not self.text and not self.files:
+            raise ValueError("execution input requires text or files")
         return self
 
 

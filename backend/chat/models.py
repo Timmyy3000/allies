@@ -48,6 +48,15 @@ class MessageOrigin(models.TextChoices):
     ONBOARDING = "onboarding", "Onboarding"
 
 
+class MessagePreparation(models.TextChoices):
+    NONE = "none", "None"
+    UPLOADING = "uploading", "Uploading"
+    FAILED = "failed", "Failed"
+    NEEDS_RETRY = "needs_retry", "Needs retry"
+    READY = "ready", "Ready"
+    CANCELLED = "cancelled", "Cancelled"
+
+
 class Conversation(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     ally = models.ForeignKey(
@@ -88,6 +97,7 @@ class Message(models.Model):
         default=MessageLifecycle.QUEUED,
     )
     execution_claimed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    foundry_binding_id = models.UUIDField(null=True, blank=True, editable=False)
     deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
     send_key_digest = models.CharField(
         max_length=DIGEST_LENGTH, blank=True, default="", editable=False
@@ -95,6 +105,13 @@ class Message(models.Model):
     content_fingerprint = models.CharField(
         max_length=DIGEST_LENGTH, blank=True, default="", editable=False
     )
+    preparation = models.CharField(
+        max_length=16,
+        choices=MessagePreparation.choices,
+        default=MessagePreparation.NONE,
+    )
+    preparation_revision = models.PositiveIntegerField(default=0)
+    send_armed = models.BooleanField(default=False)
     retry_of = models.ForeignKey(
         "self",
         on_delete=models.SET_NULL,
@@ -242,6 +259,9 @@ class AssistantReply(models.Model):
     content = models.TextField(blank=True, default="")
     has_full_prefix = models.BooleanField(default=False)
     is_truncated = models.BooleanField(default=False)
+    pending_file_reference = models.CharField(
+        max_length=44, blank=True, default="", editable=False
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -280,6 +300,8 @@ class DispatchOutbox(models.Model):
     command_fingerprint = models.CharField(
         max_length=90, blank=True, default="", editable=False
     )
+    # Retained after command-byte redaction for accepted-file authorization.
+    file_manifest = models.JSONField(default=list, editable=False)
     status = models.CharField(
         max_length=32,
         choices=DispatchState.choices,

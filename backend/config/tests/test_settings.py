@@ -64,6 +64,10 @@ def _settings_subprocess(
                 "ALLIES_WAITLIST_PROVIDER": "openai",
                 "ALLIES_WAITLIST_OPENAI_API_KEY": "provider-key",
                 "ALLIES_WAITLIST_OPENAI_MODEL": "approved-model",
+                "ALLIES_FILE_ADMISSION_ENABLED": "false",
+                "ALLIES_FILE_STORAGE_ENABLED": "false",
+                "ALLIES_FILE_INSPECTION_ENABLED": "false",
+                "ALLIES_FILE_INPUT_DELIVERY_ENABLED": "false",
             }
         )
     env.update(overrides)
@@ -86,6 +90,28 @@ def test_activity_sse_is_disabled_by_default():
     assert result.stdout.strip() == "False"
 
 
+@pytest.mark.parametrize("disabled", [False, True])
+def test_attachment_defaults_and_explicit_shutdown(disabled):
+    names = (
+        "ALLIES_FILE_ADMISSION_ENABLED",
+        "ALLIES_FILE_STORAGE_ENABLED",
+        "ALLIES_FILE_INSPECTION_ENABLED",
+        "ALLIES_FILE_INPUT_DELIVERY_ENABLED",
+    )
+    result = _settings_subprocess(
+        {
+            "DJANGO_DEBUG": "true",
+            **({name: "false" for name in names} if disabled else {}),
+        },
+        "import config.settings as s; "
+        f"assert all(getattr(s, name) is {not disabled} for name in {names!r}); "
+        "assert s.ALLIES_FILE_STORAGE_CAPACITY_BYTES == 10_000_000_000; "
+        "assert s.ALLIES_FILE_SCANNER_PORT == 3310; "
+        "assert s.ALLIES_FILE_UPLOAD_LEASE_SECONDS == 120",
+    )
+    assert result.returncode == 0, result.stderr
+
+
 def test_production_settings_reject_missing_security_configuration():
     result = _settings_subprocess(
         {"DJANGO_DEBUG": "false", "DJANGO_SECRET_KEY": "x" * 32}
@@ -97,6 +123,56 @@ def test_production_settings_reject_missing_security_configuration():
     assert "DJANGO_ALLOWED_HOSTS" in result.stderr
     assert "CACHE_URL" in result.stderr
     assert "PostgreSQL DATABASE_URL" in result.stderr
+
+
+def test_production_settings_reject_file_admission_until_runtime_controls_exist():
+    result = _settings_subprocess(
+        {
+            "DJANGO_DEBUG": "false",
+            "DJANGO_SECRET_KEY": "d" * 32,
+            "DJANGO_ALLOWED_HOSTS": "cloud.example.test",
+            "ALLIES_TRUSTED_ORIGINS": "https://app.example.test",
+            "ALLIES_AUTH_JWT_KEY": "j" * 32,
+            "ALLIES_AUTH_DIGEST_KEY": "h" * 32,
+            "CACHE_URL": "redis://cache.internal:6379/0",
+            "DATABASE_URL": "postgresql://allies:secret@database.internal/allies",
+            "ALLIES_FILE_ADMISSION_ENABLED": "true",
+            "ALLIES_FILE_STORAGE_ENABLED": "true",
+            "ALLIES_FILE_STORAGE_ENDPOINT_URL": "https://objects.example.test",
+            "ALLIES_FILE_STORAGE_BUCKET": "private-files",
+            "ALLIES_FILE_STORAGE_ACCESS_KEY_ID": "access",
+            "ALLIES_FILE_STORAGE_SECRET_ACCESS_KEY": "secret",
+            "ALLIES_FILE_STORAGE_CAPACITY_BYTES": "100000000",
+        }
+    )
+
+    assert result.returncode != 0
+    assert (
+        "ALLIES_FILE_ADMISSION_ENABLED is release-blocked in production"
+        in result.stderr
+    )
+
+
+def test_production_settings_reject_file_delivery_until_integration_proof_exists():
+    result = _settings_subprocess(
+        {
+            "DJANGO_DEBUG": "false",
+            "DJANGO_SECRET_KEY": "d" * 32,
+            "DJANGO_ALLOWED_HOSTS": "cloud.example.test",
+            "ALLIES_TRUSTED_ORIGINS": "https://app.example.test",
+            "ALLIES_AUTH_JWT_KEY": "j" * 32,
+            "ALLIES_AUTH_DIGEST_KEY": "h" * 32,
+            "CACHE_URL": "redis://cache.internal:6379/0",
+            "DATABASE_URL": "postgresql://allies:secret@database.internal/allies",
+            "ALLIES_FILE_INPUT_DELIVERY_ENABLED": "true",
+        }
+    )
+
+    assert result.returncode != 0
+    assert (
+        "ALLIES_FILE_INPUT_DELIVERY_ENABLED is integration-blocked in production"
+        in result.stderr
+    )
 
 
 def test_production_settings_require_foundry_service_configuration():
@@ -404,6 +480,10 @@ def test_production_settings_enable_whitenoise_static_files():
                 and key not in {"CACHE_URL", "DATABASE_URL"}
             },
             "DJANGO_DEBUG": "false",
+            "ALLIES_FILE_ADMISSION_ENABLED": "false",
+            "ALLIES_FILE_STORAGE_ENABLED": "false",
+            "ALLIES_FILE_INSPECTION_ENABLED": "false",
+            "ALLIES_FILE_INPUT_DELIVERY_ENABLED": "false",
             "DJANGO_SECRET_KEY": "d" * 32,
             "DJANGO_ALLOWED_HOSTS": "cloud.example.test",
             "ALLIES_TRUSTED_ORIGINS": "https://app.example.test",

@@ -53,6 +53,13 @@ class SendMessageRequest(Schema):
     routine_action: RoutineMessageAction | None = None
 
 
+class MessageFileResponse(Schema):
+    id: UUID
+    name: str
+    size: int
+    state: str
+
+
 class MessageResponse(Schema):
     id: UUID
     sender: str
@@ -63,6 +70,9 @@ class MessageResponse(Schema):
     retryable: bool = False
     queue_state: Literal["claimed", "unclaimed"] | None = None
     deleted_at: datetime | None = None
+    preparation: str = "none"
+    revision: int = 0
+    files: list[MessageFileResponse] = Field(default_factory=list)
 
 
 class AssistantReplyResponse(Schema):
@@ -73,6 +83,7 @@ class AssistantReplyResponse(Schema):
     status: str
     has_full_prefix: bool
     is_truncated: bool
+    publications: list[dict] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

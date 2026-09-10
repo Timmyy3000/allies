@@ -19,9 +19,196 @@ from chat.models import (
     MessageLifecycle,
 )
 from chat.services.messages import assistant_reply_response, is_message_retryable
+from files.models import (
+    FileDirection,
+    FilePublication,
+    FileState,
+    FileVersion,
+    PublicationState,
+)
 
 conversation_records = test_cld005.conversation_records
 event_for = test_cld005.event_for
+
+
+def _publication_file(*, message, binding, state=PublicationState.READY):
+    publication = FilePublication.objects.create(
+        binding=binding,
+        source_message=message,
+        request_digest="a" * 64,
+        state=state,
+    )
+    return publication, FileVersion.objects.create(
+        workspace=message.conversation.ally.workspace,
+        ally=message.conversation.ally,
+        owner=message.conversation.ally.workspace.owner,
+        source_message=message,
+        publication=publication,
+        source_version_id=uuid4(),
+        direction=FileDirection.OUTBOUND,
+        original_name="result.pdf",
+        media_type="application/pdf",
+        expected_size=3,
+        actual_size=3,
+        sha256="a" * 64,
+        object_key="immutable/reply/result.pdf",
+        state=FileState.READY,
+    )
+
+
+@pytest.mark.django_db
+def test_reply_file_link_split_across_deltas_is_validated_before_projection(
+    conversation_records,
+):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    _publication, file = _publication_file(message=message, binding=binding)
+    projection.project_foundry_event(
+        event_for(
+            message,
+            binding,
+            payload={"kind": "assistant_delta", "text": "[result](/fi"},
+        )
+    )
+    reply = AssistantReply.objects.get(message=message)
+    assert reply.content == "[result"
+    assert reply.pending_file_reference == "](/fi"
+    assert Activity.objects.get(message=message).text == "[result"
+
+    projection.project_foundry_event(
+        event_for(
+            message,
+            binding,
+            attempt_sequence=2,
+            payload={
+                "kind": "assistant_delta",
+                "text": f"les/{file.id})",
+            },
+        )
+    )
+    reply.refresh_from_db()
+    assert reply.content == f"[result](/files/{file.id})"
+    assert reply.pending_file_reference == ""
+    assert assistant_reply_response(reply)["publications"] == [
+        {
+            "publication_id": str(_publication.id),
+            "revision": 1,
+            "state": PublicationState.READY,
+            "files": [
+                {
+                    "id": str(file.id),
+                    "source_version_id": str(file.source_version_id),
+                    "name": "result.pdf",
+                    "type": "application/pdf",
+                    "size": 3,
+                    "sha256": "a" * 64,
+                    "state": FileState.READY,
+                    "generation": 1,
+                    "open_path": f"/files/{file.id}",
+                }
+            ],
+            "retryable": False,
+        }
+    ]
+
+
+@pytest.mark.django_db
+def test_reply_unready_file_reference_stays_unlinked_and_keeps_publication_state(
+    conversation_records,
+):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    publication, file = _publication_file(
+        message=message, binding=binding, state=PublicationState.VALIDATING
+    )
+    projection.project_foundry_event(
+        event_for(
+            message,
+            binding,
+            payload={
+                "kind": "assistant_delta",
+                "text": f"[result](/files/{file.id})",
+            },
+        )
+    )
+    reply = AssistantReply.objects.get(message=message)
+    assert "/files/" not in reply.content
+    assert "](" not in reply.content
+    publication.refresh_from_db()
+    assert publication.state == PublicationState.VALIDATING
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("partial", ("/fi", "/files/abc", "](/files/550e8400-e29b"))
+def test_terminal_flushes_a_partial_file_path_without_changing_external_url(
+    conversation_records,
+    partial,
+):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    external = "https://example.test/files/550e8400-e29b-41d4-a716-446655440001"
+    projection.project_foundry_event(
+        event_for(
+            message,
+            binding,
+            payload={"kind": "assistant_delta", "text": external + " then " + partial},
+        )
+    )
+    projection.project_foundry_event(
+        event_for(
+            message,
+            binding,
+            attempt_sequence=2,
+            event_type="execution.completed",
+            payload={"status": "completed"},
+        )
+    )
+    reply = AssistantReply.objects.get(message=message)
+    assert external in reply.content
+    assert " then " + partial not in reply.content
+    assert "File publication failed" in reply.content
+
+
+@pytest.mark.django_db
+def test_split_markdown_opener_cannot_leave_a_foreign_file_link_clickable(
+    conversation_records,
+):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    foreign_file_id = uuid4()
+    for sequence, text in enumerate(
+        ("[name](", "/fi", f"les/{foreign_file_id})"), start=1
+    ):
+        projection.project_foundry_event(
+            event_for(
+                message,
+                binding,
+                attempt_sequence=sequence,
+                payload={"kind": "assistant_delta", "text": text},
+            )
+        )
+
+    reply = AssistantReply.objects.get(message=message)
+    assert "](" not in reply.content
+    assert f"/files/{foreign_file_id}" not in reply.content
+    assert "File publication failed" in reply.content
+
+
+@pytest.mark.django_db
+def test_split_external_file_url_is_not_treated_as_a_product_path(conversation_records):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    file_id = uuid4()
+    for sequence, text in enumerate(
+        ("https://example.test", "/fi", f"les/{file_id}"), start=1
+    ):
+        projection.project_foundry_event(
+            event_for(
+                message,
+                binding,
+                attempt_sequence=sequence,
+                payload={"kind": "assistant_delta", "text": text},
+            )
+        )
+
+    assert AssistantReply.objects.get(message=message).content == (
+        f"https://example.test/files/{file_id}"
+    )
 
 
 def test_queued_turn_does_not_retransmit_previous_reply(conversation_records):
@@ -344,3 +531,51 @@ def test_terminal_slot_is_reserved_in_wire_contract(conversation_records):
             event_type="execution.completed",
             payload={"status": "completed"},
         )
+
+
+@pytest.mark.django_db
+def test_plain_reply_chunks_do_not_query_publication_files(django_assert_num_queries):
+    from files.services.publication import sanitize_reply_file_links
+
+    pending = ""
+    with django_assert_num_queries(0):
+        for chunk in ("Plain text", " and a bracket]", " remains text", " /fi"):
+            _visible, pending = sanitize_reply_file_links(
+                message_id=uuid4(),
+                binding_id=uuid4(),
+                text=chunk,
+                pending=pending,
+            )
+    assert pending == "/fi"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("split", (False, True))
+@pytest.mark.parametrize("ready", (False, True))
+def test_uppercase_file_reference_is_validated(conversation_records, split, ready):
+    from files.services.publication import sanitize_reply_file_links
+
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    _publication, file = _publication_file(
+        message=message,
+        binding=binding,
+        state=PublicationState.READY if ready else PublicationState.VALIDATING,
+    )
+    reference = f"[result](/FILES/{str(file.id).upper()})"
+    chunks = (reference[:13], reference[13:]) if split else (reference,)
+    visible, pending = "", ""
+    for chunk in chunks:
+        text, pending = sanitize_reply_file_links(
+            message_id=message.id,
+            binding_id=binding.id,
+            text=chunk,
+            pending=pending,
+            prior_context=visible[-1:],
+        )
+        visible += text
+    assert not pending
+    if ready:
+        assert visible == f"[result](/files/{file.id})"
+    else:
+        assert "](" not in visible
+        assert "File publication failed" in visible

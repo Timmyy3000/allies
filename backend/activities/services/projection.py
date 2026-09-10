@@ -12,7 +12,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Func, IntegerField, Max, Sum
+from django.db.models import Func, IntegerField, Max, Prefetch, Sum
 from django.utils import timezone
 
 from allies.gateways.contracts import MAX_TERMINAL_SEQUENCE, FoundryEventEnvelope
@@ -29,6 +29,7 @@ from chat.models import (
 )
 from common.cursors import b64decode, b64encode, cursor_keys
 from common.uuids import canonical_uuid
+from files.services.publication import sanitize_reply_file_links
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 
@@ -681,6 +682,35 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         if envelope.event_type == "message.delta"
         else default_text
     )
+    reply, created = AssistantReply.objects.get_or_create(
+        message=message,
+        defaults={
+            "has_full_prefix": foundry.attempt_sequence == 1
+            and current_execution is None
+        },
+    )
+    if not created and current_generation != foundry.generation:
+        raise ProjectionConflict("reply attempt cannot change after projection")
+    reply_text = ""
+    pending = reply.pending_file_reference
+    if envelope.event_type == "message.delta":
+        text, pending = sanitize_reply_file_links(
+            message_id=message.id,
+            binding_id=envelope.cloud.cloud_binding_id,
+            text=text,
+            pending=pending,
+            prior_context=reply.content[-1:],
+        )
+        reply_text = text
+    elif message_status in _TERMINAL_STATES and pending:
+        reply_text, pending = sanitize_reply_file_links(
+            message_id=message.id,
+            binding_id=envelope.cloud.cloud_binding_id,
+            text="",
+            pending=pending,
+            prior_context=reply.content[-1:],
+            final=True,
+        )
     activity_id = envelope.payload.get("activity_id")
     activity_kind = envelope.payload.get("activity_kind")
     outcome = envelope.payload.get("status") if activity_id else None
@@ -705,23 +735,25 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
     if envelope.event_type == "execution.approval_resolved":
         visible_activity_allowed = False
     visible_activity_allowed = visible_activity_allowed and not duplicate_activity
-    reply, created = AssistantReply.objects.get_or_create(
-        message=message,
-        defaults={
-            "has_full_prefix": foundry.attempt_sequence == 1
-            and current_execution is None
-        },
-    )
-    if not created and current_generation != foundry.generation:
-        raise ProjectionConflict("reply attempt cannot change after projection")
-    if envelope.event_type == "message.delta" and not reply.is_truncated:
+    if reply_text and not reply.is_truncated:
         current_bytes = len(reply.content.encode("utf-8"))
-        text_bytes = len(text.encode("utf-8"))
+        text_bytes = len(reply_text.encode("utf-8"))
         if current_bytes + text_bytes > ASSISTANT_REPLY_MAX_BYTES:
             reply.is_truncated = True
+            pending = ""
         else:
-            reply.content += text
-    reply.save(update_fields=("content", "is_truncated", "updated_at"))
+            reply.content += reply_text
+    if reply.is_truncated:
+        pending = ""
+    reply.pending_file_reference = pending
+    reply.save(
+        update_fields=(
+            "content",
+            "is_truncated",
+            "pending_file_reference",
+            "updated_at",
+        )
+    )
     activity = None
     product_sequence = None
     if visible_activity_allowed:
@@ -944,6 +976,19 @@ def read_activity_snapshot(
                 latest_receipt.attempt_id,
                 latest_receipt.generation,
             )
+    from files.models import FilePublication, FileVersion
+
+    publications = Prefetch(
+        "message__file_publications",
+        queryset=FilePublication.objects.prefetch_related(
+            Prefetch(
+                "files",
+                queryset=FileVersion.objects.order_by("created_at", "id"),
+                to_attr="prefetched_files",
+            )
+        ),
+        to_attr="prefetched_file_publications",
+    )
     return ActivitySnapshot(
         conversation,
         rows,
@@ -956,6 +1001,7 @@ def read_activity_snapshot(
         latest_sequence,
         retention_gap,
         AssistantReply.objects.select_related("message")
+        .prefetch_related(publications)
         .filter(message=reply_message)
         .first(),
         active.id if active is not None else None,
