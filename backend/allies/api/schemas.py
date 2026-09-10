@@ -2,8 +2,17 @@ from typing import Literal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import AwareDatetime, ConfigDict, Field, field_validator
+from pydantic import (
+    AwareDatetime,
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictInt,
+    StrictStr,
+    field_validator,
+)
 
+from allies.services.labels import normalize_label
 from allies.services.onboarding import normalize_multiline_field
 
 
@@ -57,10 +66,26 @@ class AllyResponse(Schema):
     appearance: AppearanceInput
     provisioning_state: str
     retryable: bool
+    label: str = ""
+    show_label: bool = False
+    settings_revision: int = 0
 
 
 class AllyListResponse(Schema):
     allies: list[AllyResponse]
+
+
+class AllySettingsRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    label: StrictStr = Field(max_length=80)
+    show_label: StrictBool
+    settings_revision: StrictInt = Field(ge=0)
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def _normalize_label(cls, value: str) -> str:
+        return normalize_label(value)
 
 
 class RuntimeIntentRequest(Schema):

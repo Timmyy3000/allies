@@ -2,11 +2,12 @@ from typing import Annotated
 
 from django.http import HttpRequest
 from ninja import Header
-from ninja_extra import ControllerBase, api_controller, http_get, http_post
+from ninja_extra import ControllerBase, api_controller, http_get, http_patch, http_post
 
 from allies.api.schemas import (
     AllyListResponse,
     AllyResponse,
+    AllySettingsRequest,
     CreateAllyRequest,
     OnboardingAttemptRequest,
     OnboardingAttemptResponse,
@@ -30,6 +31,12 @@ from allies.gateways.foundry import (
 )
 from allies.models import Ally, ProvisioningStatus
 from allies.services.creation import create_ally, list_allies, retrieve_ally
+from allies.services.labels import (
+    LabelSettingsConflict,
+    LabelSettingsUnavailable,
+    LabelValidationError,
+    update_ally_settings,
+)
 from allies.services.onboarding import begin_onboarding, digest_value
 from allies.services.runtime_intents import (
     request_runtime_intent,
@@ -104,6 +111,9 @@ def _response(ally: Ally) -> AllyResponse:
         },
         provisioning_state=ally.provisioning_state,
         retryable=operation.status == ProvisioningStatus.RETRYABLE,
+        label=ally.label,
+        show_label=ally.show_label,
+        settings_revision=ally.settings_revision,
     )
 
 
@@ -354,6 +364,54 @@ class AllyController(ControllerBase):
         except (Ally.DoesNotExist, WorkspaceAccessDenied, ValueError):
             return error_json("ally_unavailable", "Ally unavailable", 404)
         return success_json(_response(ally), "Ally loaded")
+
+    @http_patch(
+        "/{ally_id}/settings",
+        response={
+            200: SuccessResponse[AllyResponse],
+            **error_responses(401, 403, 404, 409, 422, 500),
+        },
+    )
+    def settings(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        ally_id: CanonicalUUID,
+        payload: AllySettingsRequest,
+    ):
+        native_request = bool(
+            request.headers.get("Authorization")
+        ) and not _has_browser_signal(request)
+        if native_request and not native_enabled():
+            return error_json("session_invalid", "session invalid", 401)
+        if rejected := _require_origin(request, allow_native_bearer=True):
+            return rejected
+        try:
+            session = _session(
+                request,
+                expected_client_kind=(
+                    SessionClientKind.NATIVE
+                    if native_request
+                    else SessionClientKind.BROWSER
+                ),
+            )
+            ally = update_ally_settings(
+                user=session.user,
+                workspace_id=workspace_id,
+                ally_id=ally_id,
+                label=payload.label,
+                show_label=payload.show_label,
+                settings_revision=payload.settings_revision,
+            )
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        except LabelSettingsConflict:
+            return error_json("settings_conflict", "settings conflict", 409)
+        except LabelValidationError:
+            return error_json("validation_error", "request validation failed", 422)
+        except (WorkspaceAccessDenied, LabelSettingsUnavailable):
+            return error_json("ally_unavailable", "Ally unavailable", 404)
+        return success_json(_response(ally), "Ally settings updated")
 
 
 @api_controller("/allies", tags=["Allies"])
