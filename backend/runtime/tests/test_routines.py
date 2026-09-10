@@ -8,7 +8,6 @@ from time import monotonic
 from uuid import UUID, uuid4, uuid5
 
 import pytest
-from django.conf import settings
 from django.db import close_old_connections, connection, transaction
 from django.db.models.query import QuerySet
 from django.test import Client
@@ -111,18 +110,8 @@ def routine_context(db, monkeypatch):
     )
     release_digest = current_runtime_release_digest(workspace)
     assert release_digest is not None
-    monkeypatch.setattr(
-        settings,
-        "ALLIES_RUNTIME_ROUTINE_RELEASE_DIGEST",
-        release_digest,
-        raising=False,
-    )
-    enable_routine_admission(
-        workspace.id,
-        release_digest=release_digest,
-        machine_generation=workspace.machine_generation,
-        runtime_start_epoch=workspace.runtime_start_epoch,
-    )
+    monkeypatch.setenv("RUNTIME_IMAGE", applied_images["allies-runtime"])
+    monkeypatch.setenv("HERMES_IMAGE", applied_images["hermes"])
     issued = issue_runtime_credential(workspace.id, "routine-runtime-secret")
     context = authenticate_runtime_token(issued.raw_token)
     return {
@@ -199,7 +188,7 @@ def dispatch(
     return command, RoutineExecution.objects.get(execution_id=receipt.execution_id)
 
 
-def test_routine_admission_requires_the_approved_current_release(routine_context):
+def test_routine_resume_requires_the_deployed_current_release(routine_context):
     state = routine_context
 
     with pytest.raises(RuntimeNotReadyError):
@@ -246,20 +235,75 @@ def test_routine_claim_replay_rechecks_admission_gate(routine_context):
         claim_next_execution(state["context"], claim.claim_id, 2)
 
 
-def test_stale_admission_release_fences_routine_claims(routine_context):
+def test_changed_deployment_images_fence_routine_claims(routine_context, monkeypatch):
     state = routine_context
     _command, _routine = dispatch(state)
-    workspace = Workspace.objects.get(pk=state["workspace"].id)
-    target = dict(workspace.release_target)
-    target["routine_admission"] = {
-        **target["routine_admission"],
-        "release_digest": "sha256:" + "0" * 64,
-    }
-    workspace.release_target = target
-    workspace.save(update_fields=["release_target", "updated_at"])
+    monkeypatch.setenv("HERMES_IMAGE", "hermes@sha256:" + "c" * 64)
 
     with pytest.raises(RuntimeFencedError):
         claim_next_execution(state["context"], uuid4(), 2)
+
+
+def test_current_runtime_admits_routines_without_manual_enablement(routine_context):
+    state = routine_context
+    assert state["workspace"].release_target == {}
+    _command, routine = dispatch(state)
+    claim = claim_next_execution(state["context"], uuid4(), 2)
+    assert claim is not None and claim.execution_id == routine.execution_id
+
+
+@pytest.mark.parametrize("image", ["", "hermes:latest", "hermes@sha256:invalid"])
+def test_missing_or_mutable_release_cannot_admit_routines(
+    routine_context, monkeypatch, image
+):
+    monkeypatch.setenv("HERMES_IMAGE", image)
+    with pytest.raises(RuntimeNotReadyError):
+        dispatch(routine_context)
+    assert not RoutineExecution.objects.exists()
+
+
+@pytest.mark.parametrize("field", ["ready_generation", "ready_start_epoch"])
+def test_automatic_admission_still_requires_current_readiness(routine_context, field):
+    _command, routine = dispatch(routine_context)
+    Workspace.objects.filter(pk=routine_context["workspace"].id).update(**{field: 99})
+    with pytest.raises(RuntimeNotReadyError):
+        claim_next_execution(routine_context["context"], uuid4(), 2)
+    routine.refresh_from_db()
+    assert routine.status == RoutineRunStatus.QUEUED
+
+
+def test_sleeping_current_runtime_queues_routine_and_requests_wake(routine_context):
+    state = routine_context
+    Workspace.objects.filter(pk=state["workspace"].id).update(
+        ready_boot_id=None,
+        runtime_last_seen_at=None,
+    )
+    _command, routine = dispatch(state)
+    workspace = Workspace.objects.get(pk=state["workspace"].id)
+    assert workspace.runtime_operation_state == "requested"
+    assert workspace.runtime_operation_trigger == "execution"
+    assert routine.status == RoutineRunStatus.QUEUED
+    with pytest.raises(RuntimeNotReadyError):
+        claim_next_execution(state["context"], uuid4(), 2)
+
+
+def test_legacy_enablement_does_not_require_renewal_after_restart(routine_context):
+    state = routine_context
+    Workspace.objects.filter(pk=state["workspace"].id).update(
+        runtime_start_epoch=1,
+        ready_start_epoch=1,
+        release_target={
+            "routine_admission": {
+                "enabled": True,
+                "runtime_start_epoch": 0,
+                "machine_generation": 6,
+                "release_digest": "sha256:" + "0" * 64,
+            }
+        },
+    )
+    _command, routine = dispatch(state)
+    claim = claim_next_execution(state["context"], uuid4(), 2)
+    assert claim is not None and claim.execution_id == routine.execution_id
 
 
 def test_generic_attempt_failure_is_projected_as_a_routine_result(routine_context):
@@ -753,8 +797,9 @@ def test_rejected_routine_emits_a_failed_result_before_terminalizing(
     assert routine.terminal_receipt["result_event_id"] == str(event.event_id)
 
 
+@pytest.mark.parametrize("reason", ["replacement", "expiry"])
 def test_routine_cancel_wait_endpoint_returns_the_existing_fence_receipt(
-    routine_context, settings
+    routine_context, settings, reason
 ):
     settings.ALLIES_CLOUD_SERVICE_TOKEN = "test-cloud-service-token"
     state = routine_context
@@ -774,6 +819,10 @@ def test_routine_cancel_wait_endpoint_returns_the_existing_fence_receipt(
     action = RoutineApprovalAction.objects.get(routine_execution=routine)
 
     payload = cancel_wait_payload(state, routine, action)
+    payload["reason"] = reason
+    if reason == "expiry":
+        payload["replacing_occurrence_id"] = str(routine.occurrence_id)
+    payload["fingerprint"] = routine_fingerprint(payload)
     response = post_internal_routine(
         "/api/v1/internal/routines/cancel-wait",
         payload,

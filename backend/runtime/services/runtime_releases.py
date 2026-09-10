@@ -324,7 +324,13 @@ def _claim_release(workspace_id, machine, images, wake_claim):
             or parsed.fragment
         ):
             raise ValueError("FOUNDRY_ORIGIN is required for image updates")
+        admission = {
+            key: value
+            for key, value in (workspace.release_target or {}).items()
+            if key == "routine_admission"
+        }
         workspace.release_target = {
+            **admission,
             "images": images,
             "source_generation": workspace.machine_generation,
             "credential_id": str(uuid4()),

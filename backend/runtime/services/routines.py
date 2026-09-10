@@ -7,7 +7,6 @@ from datetime import datetime, timedelta
 from typing import Any
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
 
-from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -55,7 +54,11 @@ from .event_delivery import enqueue_event_delivery
 from .retry import run_with_sqlite_lock_retry
 from .runtime_intents import request_execution_wake_locked
 from .runtime_readiness import is_runtime_ready
-from .runtime_releases import current_runtime_release_digest
+from .runtime_releases import (
+    current_runtime_release_digest,
+    desired_images,
+    runtime_release_digest,
+)
 from .validation import digest_lease_token, digest_payload, validate_object_payload
 
 PROFILE_ID_NAMESPACE = uuid5(NAMESPACE_URL, "allies-foundry-profile-v1")
@@ -87,7 +90,7 @@ def enable_routine_admission(
     machine_generation: int,
     runtime_start_epoch: int,
 ) -> Workspace:
-    """Record the reviewed runtime capability gate for routine admission."""
+    """Clear an explicit pause after checking the current deployed release."""
 
     if not isinstance(release_digest, str) or not release_digest.strip():
         raise RuntimeValidationError("release_digest is required")
@@ -104,7 +107,7 @@ def enable_routine_admission(
             raise RuntimeFencedError("runtime release generation is stale")
         if workspace.runtime_start_epoch != runtime_start_epoch:
             raise RuntimeFencedError("runtime release epoch is stale")
-        approved_digest = getattr(settings, "ALLIES_RUNTIME_ROUTINE_RELEASE_DIGEST", "")
+        approved_digest = _desired_routine_release_digest()
         if not approved_digest or release_digest != approved_digest:
             raise RuntimeNotReadyError("runtime release is not approved for routines")
         if not is_runtime_ready(workspace):
@@ -159,7 +162,7 @@ def _accept_routine_dispatch_once(
     observed_at: datetime,
 ) -> RoutineDispatchReceipt:
     workspace, profile = _resolve_scope(command.scope.workspace_id, command.scope.ally_id, command.scope.cloud_binding_id)
-    _require_routine_admission(workspace)
+    _require_routine_admission(workspace, require_readiness=False)
     binding = _ensure_main_binding(profile, command.main_conversation_id)
     if binding.cloud_conversation_ref != str(command.main_conversation_id):
         raise RuntimeConflictError("routine main conversation is not the profile binding")
@@ -1231,25 +1234,29 @@ def _ensure_main_binding(profile: RuntimeProfile, main_conversation_id: UUID) ->
     return binding
 
 
-def _require_routine_admission(workspace: Workspace) -> None:
+def _require_routine_admission(
+    workspace: Workspace, *, require_readiness: bool = True
+) -> None:
     gate = (workspace.release_target or {}).get("routine_admission")
-    if not isinstance(gate, dict) or gate.get("enabled") is not True:
-        raise RuntimeNotReadyError("routine admission is disabled")
-    release_digest = gate.get("release_digest")
-    if (
-        gate.get("machine_generation") != workspace.machine_generation
-        or gate.get("runtime_start_epoch") != workspace.runtime_start_epoch
-        or not isinstance(release_digest, str)
-        or not release_digest
+    if gate is not None and (
+        not isinstance(gate, dict) or gate.get("enabled") is not True
     ):
-        raise RuntimeFencedError("routine admission release is stale")
-    approved_digest = getattr(settings, "ALLIES_RUNTIME_ROUTINE_RELEASE_DIGEST", "")
-    if not approved_digest or release_digest != approved_digest:
-        raise RuntimeFencedError("routine admission release is not approved")
-    if not is_runtime_ready(workspace):
+        raise RuntimeNotReadyError("routine admission is disabled")
+    release_digest = _desired_routine_release_digest()
+    if require_readiness and not is_runtime_ready(workspace):
         raise RuntimeNotReadyError("runtime readiness receipt is missing or stale")
     if current_runtime_release_digest(workspace) != release_digest:
         raise RuntimeFencedError("runtime image release is stale")
+
+
+def _desired_routine_release_digest() -> str:
+    try:
+        digest = runtime_release_digest(desired_images())
+    except ValueError as exc:
+        raise RuntimeNotReadyError("runtime image release is invalid") from exc
+    if digest is None:
+        raise RuntimeNotReadyError("runtime image release is not configured")
+    return digest
 
 
 def _ensure_command_replay(stored: RoutineCommandReceipt, command: Any) -> None:
