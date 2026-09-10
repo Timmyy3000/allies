@@ -66,6 +66,7 @@ class Claim:
     claim_id: UUID
     routine_id: UUID | None = None
     reasoning_effort: str | None = None
+    command_id: UUID | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -649,6 +650,7 @@ def _claim_from_records(
         or attempt.id,
         routine_id=routine.routine_id if routine is not None else None,
         reasoning_effort=settings.ALLIES_RUNTIME_REASONING_EFFORT,
+        command_id=attempt.execution.command_id,
     )
 
 

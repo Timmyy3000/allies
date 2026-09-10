@@ -16,6 +16,7 @@ from .foundry import (
 from .hermes import CredentialResolver, HermesClient
 from .observability import configure_runtime_observability
 from .profile_store import ProfileStore
+from .publication_bridge import PublicationBridge
 from .reconciliation import ProfileReconciler
 
 
@@ -29,6 +30,7 @@ class RuntimeComposition:
     profile_store: ProfileStore
     profile_reconciler: ProfileReconciler
     worker: FoundryWorker
+    publication_bridge: PublicationBridge | None
 
 
 def compose_runtime(
@@ -79,6 +81,11 @@ def compose_runtime(
         profile_store,
         correlation_id=correlation_id,
     )
+    publication_bridge = (
+        PublicationBridge(foundry, profile_store, settings.volume_root)
+        if settings.file_publication_enabled
+        else None
+    )
     worker = FoundryWorker(
         foundry,
         hermes_client,
@@ -87,6 +94,9 @@ def compose_runtime(
         profile_reconcile_interval=profile_reconcile_interval,
         activity_wait_enabled=settings.activity_wait_enabled,
         activity_wait_seconds=settings.activity_wait_seconds,
+        profile_store=profile_store,
+        file_input_enabled=settings.file_input_enabled,
+        publication_bridge=publication_bridge,
         boot_id=correlation_id,
     )
     return RuntimeComposition(
@@ -96,6 +106,7 @@ def compose_runtime(
         profile_store=profile_store,
         profile_reconciler=profile_reconciler,
         worker=worker,
+        publication_bridge=publication_bridge,
     )
 
 
@@ -120,11 +131,18 @@ async def run_worker(
 ) -> tuple[Any, ...]:
     """Run the explicitly composed worker entrypoint."""
 
-    return await composition.worker.run(
-        max_turns=max_turns,
-        idle_cycles=idle_cycles,
-        idle_delay=idle_delay,
-    )
+    bridge = composition.publication_bridge
+    if bridge is not None:
+        await bridge.start()
+    try:
+        return await composition.worker.run(
+            max_turns=max_turns,
+            idle_cycles=idle_cycles,
+            idle_delay=idle_delay,
+        )
+    finally:
+        if bridge is not None:
+            await bridge.close()
 
 
 __all__ = [

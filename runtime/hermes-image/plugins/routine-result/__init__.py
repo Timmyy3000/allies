@@ -1,3 +1,4 @@
+# ruff: noqa: N999  # Hermes discovers this required hyphenated plugin ID.
 """Typed result producer for the Allies scheduled-routine boundary."""
 
 from __future__ import annotations

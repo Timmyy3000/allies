@@ -38,6 +38,8 @@ def run_settings_probe(**overrides):
         "ALLIES_RUNTIME_IDLE_STOP_ENABLED",
         "ALLIES_RUNTIME_POWER_PROOF_ENABLED",
         "ALLIES_RUNTIME_READINESS_HINT_ENABLED",
+        "ALLIES_RUNTIME_FILE_INPUT_ENABLED",
+        "ALLIES_RUNTIME_FILE_PUBLICATION_ENABLED",
         "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED",
         "ALLIES_RICH_APPROVALS_ENABLED",
         "ALLIES_RUNTIME_REASONING_EFFORT",
@@ -65,6 +67,9 @@ def run_settings_probe(**overrides):
     ):
         environment.pop(name, None)
     environment["ALLIES_CLOUD_SERVICE_TOKEN"] = "s" * 32
+    if overrides.get("DJANGO_DEBUG") == "false":
+        environment["ALLIES_CLOUD_URL"] = "https://cloud.example.test"
+        environment["ALLIES_CLOUD_EVENT_SERVICE_TOKEN"] = "c" * 32
     environment.update(overrides)
     return subprocess.run(
         [sys.executable, "-c", PROBE],
@@ -83,6 +88,41 @@ def test_development_mode_keeps_sqlite_fallback():
     assert "True" in result.stdout
     assert "False" in result.stdout
     assert "django.db.backends.sqlite3" in result.stdout
+
+
+@pytest.mark.parametrize("disabled", [False, True])
+def test_file_features_default_on_with_explicit_shutdown(monkeypatch, disabled):
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "PROBE",
+        "import config.settings as s; "
+        f"assert s.ALLIES_RUNTIME_FILE_INPUT_ENABLED is {not disabled}; "
+        f"assert s.ALLIES_RUNTIME_FILE_PUBLICATION_ENABLED is {not disabled}",
+    )
+    overrides = {"DJANGO_DEBUG": "true"}
+    if disabled:
+        overrides.update(
+            ALLIES_RUNTIME_FILE_INPUT_ENABLED="false",
+            ALLIES_RUNTIME_FILE_PUBLICATION_ENABLED="false",
+        )
+    result = run_settings_probe(**overrides)
+    assert result.returncode == 0, result.stderr
+
+
+def test_production_file_features_require_cloud_connection():
+    result = run_settings_probe(
+        DJANGO_DEBUG="false",
+        DJANGO_SECRET_KEY="synthetic-test-secret",
+        DJANGO_ALLOWED_HOSTS="localhost",
+        DATABASE_URL="sqlite:///test-production.sqlite3",
+        ALLIES_CLOUD_URL="",
+        ALLIES_CLOUD_EVENT_SERVICE_TOKEN="",
+    )
+    assert result.returncode != 0
+    assert (
+        "ALLIES_CLOUD_URL and ALLIES_CLOUD_EVENT_SERVICE_TOKEN are required"
+        in result.stderr
+    )
 
 
 def test_profile_provisioning_defaults_to_hermes_openai_api_provider():
@@ -456,7 +496,12 @@ def test_readiness_defaults_and_rollback(monkeypatch, overrides, expected):
         "PROBE",
         "import json; import config.settings as s; print(json.dumps([s.ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED, s.ALLIES_RUNTIME_READINESS_HINT_ENABLED, s.ALLIES_RUNTIME_IDLE_STOP_ENABLED, s.READY_WORKSPACE_POOL_TARGET]))",
     )
-    result = run_settings_probe(DJANGO_DEBUG="true", **overrides)
+    result = run_settings_probe(
+        DJANGO_DEBUG="true",
+        ALLIES_RUNTIME_FILE_INPUT_ENABLED="false",
+        ALLIES_RUNTIME_FILE_PUBLICATION_ENABLED="false",
+        **overrides,
+    )
     assert result.returncode == 0, result.stderr
     assert json.loads(result.stdout) == expected
 

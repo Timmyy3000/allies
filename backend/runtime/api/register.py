@@ -4,7 +4,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.conf import settings
 from django.core.management.base import CommandError
-from django.http import HttpRequest, HttpResponse, JsonResponse
+from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from ninja.errors import ValidationError as NinjaValidationError
 from ninja.security import HttpBearer
 from ninja_extra import NinjaExtraAPI
@@ -47,6 +47,7 @@ from runtime.services.executions import (
     create_execution_intent,
     reconcile_execution_intent,
 )
+from runtime.services.files import open_incoming_file
 from runtime.services.leases import acknowledge_stopped, renew_lease
 from runtime.services.profiles import (
     ProfileSeed,
@@ -54,6 +55,16 @@ from runtime.services.profiles import (
     accept_materialization_receipt,
     ensure_runtime_profile,
     list_profile_reconciliation,
+)
+from runtime.services.publications import (
+    MAX_PUBLICATION_FILE_BYTES,
+    acknowledge_frozen_publication,
+    claim_publication_retries,
+    create_publication_intent,
+    get_publication,
+    record_publication_retry,
+    register_publication,
+    upload_publication_file,
 )
 from runtime.services.routine_tools import call_routine_tool, routine_tool_token
 from runtime.services.routines import (
@@ -79,6 +90,11 @@ from .schemas import (
     FailRequest,
     MaterializationReceiptRequest,
     ProfileProvisioningRequest,
+    PublicationFrozenRequest,
+    PublicationIntentRequest,
+    PublicationRegisterRequest,
+    PublicationRetryClaimRequest,
+    PublicationRetryResultRequest,
     RoutineSessionBindingRequest,
     RuntimeActivityWaitReceipt,
     RuntimeActivityWaitRequest,
@@ -215,6 +231,183 @@ def register(api: NinjaExtraAPI) -> None:
                 },
                 status=200,
             )
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.get("/runtime/attempts/{attempt_id}/files/{file_id}/content", auth=None)
+    def incoming_file_content(
+        request: HttpRequest,
+        attempt_id: UUID,
+        file_id: UUID,
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            content = open_incoming_file(
+                context,
+                attempt_id,
+                _lease_token(request),
+                file_id,
+            )
+            response = StreamingHttpResponse(
+                content.chunks,
+                content_type=content.content_type,
+            )
+            response["Content-Length"] = str(content.content_length)
+            response["Cache-Control"] = "no-store"
+            return response
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post("/runtime/attempts/{attempt_id}/file-publication-intents", auth=None)
+    def publication_intent(
+        request: HttpRequest,
+        attempt_id: UUID,
+        payload: PublicationIntentRequest,
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            receipt = create_publication_intent(
+                context,
+                attempt_id,
+                _lease_token(request),
+                payload.tool_call_id,
+                [item.model_dump(mode="json") for item in payload.files],
+            )
+            return JsonResponse(
+                {"publication_id": str(receipt.publication_id), "state": receipt.state},
+                status=200,
+            )
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post(
+        "/runtime/profiles/{profile_id}/file-publication-intents/{publication_id}/frozen",
+        auth=None,
+    )
+    def frozen_publication_intent(
+        request: HttpRequest,
+        profile_id: UUID,
+        publication_id: UUID,
+        payload: PublicationFrozenRequest,
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            receipt = acknowledge_frozen_publication(
+                context,
+                profile_id,
+                publication_id,
+                [item.model_dump(mode="json") for item in payload.files],
+            )
+            return JsonResponse(
+                {"publication_id": str(receipt.publication_id), "state": receipt.state},
+                status=200,
+            )
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post("/runtime/attempts/{attempt_id}/file-publications", auth=None)
+    def register_file_publication(
+        request: HttpRequest,
+        attempt_id: UUID,
+        payload: PublicationRegisterRequest,
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            status, body = register_publication(
+                context,
+                attempt_id,
+                _lease_token(request),
+                payload.publication_id,
+                [item.model_dump(mode="json") for item in payload.files],
+            )
+            return JsonResponse(body, status=status)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.put(
+        "/runtime/profiles/{profile_id}/file-publications/{publication_id}/files/{file_id}/content",
+        auth=None,
+    )
+    def upload_file_publication(
+        request: HttpRequest,
+        profile_id: UUID,
+        publication_id: UUID,
+        file_id: UUID,
+        generation: int,
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            revision = request.headers.get("X-Allies-Publication-Revision", "")
+            try:
+                revision_value = int(revision)
+            except ValueError as exc:
+                raise RuntimeValidationError("publication revision is invalid") from exc
+            lease_value = request.headers.get("X-Allies-Publication-Lease-Token")
+            lease_token = UUID(lease_value) if lease_value else None
+            status, body = upload_publication_file(
+                context,
+                profile_id,
+                publication_id,
+                file_id,
+                generation,
+                request.read(MAX_PUBLICATION_FILE_BYTES + 1),
+                revision_value,
+                lease_token,
+            )
+            return JsonResponse(body, status=status)
+        except (RuntimeDomainError, ValueError) as exc:
+            return _error(
+                exc
+                if isinstance(exc, RuntimeDomainError)
+                else RuntimeValidationError("publication lease token is invalid")
+            )
+
+    @api.get(
+        "/runtime/profiles/{profile_id}/file-publications/{publication_id}", auth=None
+    )
+    def file_publication(request: HttpRequest, profile_id: UUID, publication_id: UUID):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            status, body = get_publication(context, profile_id, publication_id)
+            return JsonResponse(body, status=status)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post(
+        "/runtime/profiles/{profile_id}/file-publication-retries/claim", auth=None
+    )
+    def claim_file_publication_retries(
+        request: HttpRequest, profile_id: UUID, payload: PublicationRetryClaimRequest
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            items = claim_publication_retries(context, profile_id, payload.limit)
+            return JsonResponse({"items": list(items)}, status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post(
+        "/runtime/profiles/{profile_id}/file-publications/{publication_id}/retry-result",
+        auth=None,
+    )
+    def file_publication_retry_result(
+        request: HttpRequest,
+        profile_id: UUID,
+        publication_id: UUID,
+        payload: PublicationRetryResultRequest,
+    ):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            status, body = record_publication_retry(
+                context,
+                profile_id,
+                publication_id,
+                payload.revision,
+                payload.lease_token,
+                payload.outcome,
+                payload.safe_error_code,
+            )
+            return JsonResponse(body, status=status)
         except RuntimeDomainError as exc:
             return _error(exc)
 
@@ -810,6 +1003,7 @@ def _claim_json(claim):
     return {
         "attempt_id": str(claim.attempt_id),
         "execution_id": str(claim.execution_id),
+        "command_id": str(claim.command_id) if claim.command_id is not None else None,
         "profile_id": str(claim.profile_id),
         "hermes_profile_key": claim.hermes_profile_key,
         "model": claim.model,

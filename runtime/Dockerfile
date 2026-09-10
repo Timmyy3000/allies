@@ -5,6 +5,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 WORKDIR /app
 
+RUN groupadd --gid 10001 allies-publication
+
 COPY allies_runtime /app/allies_runtime
 COPY pyproject.toml uv.lock /app/
 

@@ -178,7 +178,7 @@ async def test_run_worker_can_keep_polling_until_the_worker_is_fenced():
             calls.append((max_turns, idle_cycles, idle_delay))
             return ()
 
-    composition = SimpleNamespace(worker=Worker())
+    composition = SimpleNamespace(worker=Worker(), publication_bridge=None)
 
     assert await run_worker(composition, idle_cycles=None, idle_delay=0.25) == ()
     assert calls == [(None, None, 0.25)]

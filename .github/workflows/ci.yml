@@ -55,6 +55,9 @@ jobs:
       - name: Verify runtime image dependencies
         run: docker build --tag allies/runtime:ci --file runtime/Dockerfile runtime
 
+      - name: Verify deployed runtime identity and file access
+        run: uv run --locked --project backend python scripts/check_runtime_identity.py allies/runtime:ci
+
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
@@ -80,6 +83,8 @@ jobs:
           DJANGO_TRUST_PROXY_HEADERS: "true"
           DJANGO_TRUSTED_PROXY_IPS: "127.0.0.1/32"
           ALLIES_CLOUD_SERVICE_TOKEN: ci-only-cloud-service-token-32-bytes
+          ALLIES_CLOUD_URL: https://cloud.example.test
+          ALLIES_CLOUD_EVENT_SERVICE_TOKEN: ci-only-cloud-event-token-32-bytes
           # A non-routable URL exercises dj-database-url's PostgreSQL path
           # without requiring a live service for this settings/static check.
           DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/foundry

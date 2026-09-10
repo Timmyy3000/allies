@@ -186,6 +186,10 @@ def _create_contract_execution_once(
         "message": command.payload.text,
         "cloud_conversation_ref": str(command.cloud.conversation_id),
     }
+    if command.payload.files is not None:
+        payload["files"] = [
+            file.model_dump(mode="json") for file in command.payload.files
+        ]
     if command.payload.bootstrap is not None:
         payload["bootstrap"] = command.payload.bootstrap.model_dump(
             mode="json", exclude_none=True

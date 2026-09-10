@@ -5,6 +5,7 @@ import runpy
 from pathlib import Path
 
 import pytest
+
 from allies_runtime.hermes import _routine_result_value
 
 TOOL = runpy.run_path(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+
 from allies_runtime.config import (
     CredentialReference,
     RuntimeSettings,
@@ -16,6 +17,19 @@ def test_settings_use_loopback_and_opaque_reference():
     assert settings.credential_ref == "vault://tenant/hermes"
     assert "vault://" not in repr(settings.credential_ref)
     assert settings.proof_slots >= 2
+
+
+@pytest.mark.parametrize(
+    "field, variable",
+    [
+        ("file_input_enabled", "ALLIES_RUNTIME_FILE_INPUT_ENABLED"),
+        ("file_publication_enabled", "ALLIES_RUNTIME_FILE_PUBLICATION_ENABLED"),
+    ],
+)
+def test_file_features_default_on_with_explicit_shutdown(field, variable):
+    assert getattr(RuntimeSettings(), field)
+    assert getattr(load_settings({}), field)
+    assert not getattr(load_settings({variable: "false"}), field)
 
 
 def test_hermes_timeouts_default_to_bounded_cold_start_budget():

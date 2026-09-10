@@ -3,6 +3,7 @@ from time import sleep
 from django.core.management.base import BaseCommand, CommandError
 
 from runtime.services.event_delivery import publish_pending_event_deliveries
+from runtime.services.publications import wake_due_publications
 from runtime.services.runtime_intents import cleanup_runtime_intents
 from runtime.services.runtime_power import (
     process_runtime_wakes,
@@ -24,7 +25,7 @@ class Command(BaseCommand):
             type=int,
             default=None,
             metavar="SECONDS",
-            help="Seconds between idle or unsuccessful watch runs (1-3600; default: 60).",
+            help="Seconds between idle or unsuccessful watch runs (1-3600; default: 30).",
         )
         parser.add_argument(
             "--max-runs",
@@ -38,6 +39,7 @@ class Command(BaseCommand):
         watch = options["watch"]
         interval = options["interval"]
         max_runs = options["max_runs"]
+        self._publication_cursor = None
         if not watch:
             if interval is not None or max_runs is not None:
                 raise CommandError("--interval and --max-runs require --watch")
@@ -45,7 +47,7 @@ class Command(BaseCommand):
             return
         if max_runs is not None and not 1 <= max_runs <= 1440:
             raise CommandError("--max-runs must be between 1 and 1440")
-        interval = 60 if interval is None else interval
+        interval = 30 if interval is None else interval
         if not 1 <= interval <= 3600:
             raise CommandError("--interval must be between 1 and 3600 seconds")
 
@@ -57,6 +59,14 @@ class Command(BaseCommand):
                 sleep(interval)
 
     def _run_once(self):
+        try:
+            publication_wakes = wake_due_publications(
+                limit=20, cursor=self._publication_cursor
+            )
+            self._publication_cursor = publication_wakes.next_cursor
+        except Exception as exc:  # noqa: BLE001 - recovery wake cannot halt delivery
+            publication_wakes = None
+            self.stderr.write(f"Publication wake pass failed: {type(exc).__name__}")
         try:
             # Bound Fly latency ahead of the durable event queue. Execution
             # wakes are ordered ahead of speculative intent by the service.
@@ -93,15 +103,16 @@ class Command(BaseCommand):
         wake_unavailable = wake.unavailable if wake is not None else 0
         idle_stopped = idle.stopped if idle is not None else 0
         idle_unavailable = idle.unavailable if idle is not None else 0
+        publication_woken = publication_wakes.woken if publication_wakes else 0
         self.stdout.write(
-            f"Wake started {wake_started}; wake failed {wake_failed}; "
+            f"Publication wakes {publication_woken}; Wake started {wake_started}; wake failed {wake_failed}; "
             f"wake unavailable {wake_unavailable}; "
             f"Delivered {delivered} event(s); deferred {deferred}; "
             f"exhausted {exhausted}; repair pending {repair_pending}; "
             f"recovered {recovered}; expired {expired} intent(s); "
             f"idle stopped {idle_stopped}; idle unavailable {idle_unavailable}."
         )
-        return delivered
+        return delivered + publication_woken
 
 
 def _publish_one_delivery():
