@@ -1,2 +1,4 @@
 # Product field name, not a credential.
 74024a6023d8aa9d11ef5d96533740673c133c78:backend/allies/services/onboarding.py:generic-api-key:70
+# Synthetic provider idempotency key in the tenant-boundary test, not a credential.
+1cb456d929f6e3985875d204d3751315d7ba8e64:backend/chat/tests/test_services.py:generic-api-key:447

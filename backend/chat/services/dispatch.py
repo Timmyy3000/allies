@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import random
 from dataclasses import dataclass
 from datetime import timedelta
@@ -204,7 +205,8 @@ def _routine_contexts_for_message(message: Message):
 
 def _model_input_text(message: Message) -> str:
     contexts = _routine_contexts_for_message(message)
-    if not contexts and not message.client_timezone:
+    routine_action = getattr(message, "routine_action", None)
+    if not contexts and not message.client_timezone and routine_action is None:
         return message.content
     parts = [context.context_text for context in contexts]
     if message.client_timezone:
@@ -212,6 +214,13 @@ def _model_input_text(message: Message) -> str:
             f"[Conversation context]\nBrowser timezone: {message.client_timezone}\n"
             f"Message sent at: {message.created_at.isoformat()}\n"
             "Use this timezone for new schedules unless the user explicitly specifies another."
+        )
+    if routine_action is not None:
+        parts.append(
+            "[Structured routine action]\n"
+            + json.dumps(
+                routine_action, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+            )
         )
     parts.append(f"[User message]\n{message.content}")
     text = "\n\n".join(parts)

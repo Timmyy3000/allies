@@ -58,6 +58,7 @@ IMMUTABLE_ANCESTRY_FIELDS = (
     "ally_id",
     "binding_id",
     "main_conversation_id",
+    "source_message_id",
 )
 
 
@@ -86,6 +87,13 @@ class Routine(models.Model):
         related_name="routines",
     )
     main_conversation_id = models.UUIDField()
+    source_message = models.ForeignKey(
+        "chat.Message",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_routines",
+    )
     title = models.CharField(max_length=ROUTINE_TITLE_MAX_LENGTH)
     execution_prompt = models.TextField(max_length=ROUTINE_PROMPT_MAX_BYTES)
     schedule = models.JSONField()

@@ -100,6 +100,127 @@ def _fingerprint(content: str) -> str:
     return hashlib.sha256(content.encode("utf-8")).hexdigest()
 
 
+def _normalize_routine_action(value: object) -> dict[str, object] | None:
+    if value is None:
+        return None
+    try:
+        from chat.api.schemas import RoutineMessageAction
+
+        parsed = (
+            value
+            if isinstance(value, RoutineMessageAction)
+            else RoutineMessageAction.model_validate(value)
+        )
+    except (TypeError, ValueError):
+        raise MessageValidation("request validation failed") from None
+    return parsed.model_dump(mode="json", exclude_none=True)
+
+
+def _validate_routine_action_binding(
+    *,
+    action: dict[str, object] | None,
+    conversation: Conversation,
+    user: User,
+) -> None:
+    """Keep every structured action identity inside the caller's routine scope."""
+
+    if action is None:
+        return
+    from activities.models import RoutineResultProjection
+    from routines.models import Routine, RoutineApprovalProjection, RoutineRunSnapshot
+
+    try:
+        routine_id = canonical_uuid(action["routine_id"])
+    except (KeyError, TypeError, ValueError):
+        raise MessageValidation(
+            "routine action is not bound to this conversation"
+        ) from None
+
+    routine = Routine.objects.filter(
+        pk=routine_id,
+        workspace_id=conversation.ally.workspace_id,
+        owner_id=user.id,
+        ally_id=conversation.ally_id,
+        main_conversation_id=conversation.id,
+    ).first()
+    if routine is None:
+        raise MessageValidation("routine action is not bound to this conversation")
+
+    def _uuid_field(name: str) -> UUID | None:
+        value = action.get(name)
+        if value is None:
+            return None
+        try:
+            return canonical_uuid(value)
+        except (TypeError, ValueError):
+            raise MessageValidation("request validation failed") from None
+
+    run_id = _uuid_field("run_id")
+    approval_id = _uuid_field("approval_id")
+    approval_request_id = _uuid_field("approval_request_id")
+    execution_id = _uuid_field("execution_id")
+    attempt_id = _uuid_field("attempt_id")
+    action_attempt_id = _uuid_field("action_attempt_id")
+    generation = action.get("generation")
+
+    scope = {
+        "routine_id": routine.id,
+        "workspace_id": conversation.ally.workspace_id,
+        "owner_id": user.id,
+        "ally_id": conversation.ally_id,
+        "routine__main_conversation_id": conversation.id,
+    }
+    if run_id is not None:
+        run_scope = {
+            **scope,
+            "pk": run_id,
+            "main_conversation_id": conversation.id,
+        }
+        if not RoutineRunSnapshot.objects.filter(**run_scope).exists():
+            raise MessageValidation("routine action is not bound to this conversation")
+
+    approval_identity_present = any(
+        value is not None
+        for value in (approval_id, approval_request_id, action_attempt_id)
+    )
+    if approval_identity_present:
+        approval_scope = {
+            **scope,
+            "run__main_conversation_id": conversation.id,
+        }
+        if approval_id is not None:
+            approval_scope["pk"] = approval_id
+        if approval_request_id is not None:
+            approval_scope["approval_request_id"] = approval_request_id
+        if run_id is not None:
+            approval_scope["run_id"] = run_id
+        if execution_id is not None:
+            approval_scope["execution_id"] = execution_id
+        if attempt_id is not None:
+            approval_scope["attempt_id"] = attempt_id
+        if action_attempt_id is not None:
+            approval_scope["action_attempt_id"] = action_attempt_id
+        if generation is not None:
+            approval_scope["generation"] = generation
+        if not RoutineApprovalProjection.objects.filter(**approval_scope).exists():
+            raise MessageValidation("routine action is not bound to this conversation")
+    elif any(value is not None for value in (execution_id, attempt_id, generation)):
+        result_scope = {
+            **scope,
+            "main_conversation_id": conversation.id,
+        }
+        if run_id is not None:
+            result_scope["run_id"] = run_id
+        if execution_id is not None:
+            result_scope["execution_id"] = execution_id
+        if attempt_id is not None:
+            result_scope["attempt_id"] = attempt_id
+        if generation is not None:
+            result_scope["generation"] = generation
+        if not RoutineResultProjection.objects.filter(**result_scope).exists():
+            raise MessageValidation("routine action is not bound to this conversation")
+
+
 def _bounded_setting(name: str, default: int, minimum: int, maximum: int) -> int:
     try:
         value = int(getattr(settings, name, default))
@@ -194,6 +315,7 @@ def accept_message(
     idempotency_key: object,
     retry_of: Message | None = None,
     client_timezone: str = "",
+    routine_action: object = None,
 ) -> MessageAcceptance:
     from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -208,6 +330,7 @@ def accept_message(
         capability=Capability.WORKSPACE_WRITE,
     )
     normalized = normalize_content(content)
+    normalized_routine_action = _normalize_routine_action(routine_action)
     key = _validate_send_key(idempotency_key)
     key_digest = _digest(key)
     content_fingerprint = _fingerprint(normalized)
@@ -247,10 +370,23 @@ def accept_message(
             if duplicate is not None:
                 if duplicate.content_fingerprint != content_fingerprint:
                     raise IdempotencyConflict("idempotency key conflicts with content")
+                if (
+                    duplicate.client_timezone != client_timezone
+                    or duplicate.routine_action != normalized_routine_action
+                ):
+                    raise IdempotencyConflict(
+                        "idempotency key conflicts with request metadata"
+                    )
                 from .dispatch import ensure_dispatch_after_accept
 
                 ensure_dispatch_after_accept(duplicate)
                 return MessageAcceptance(conversation, duplicate, True)
+
+            _validate_routine_action_binding(
+                action=normalized_routine_action,
+                conversation=conversation,
+                user=user,
+            )
 
             if len(normalized.encode("utf-8")) > MESSAGE_CONTENT_MAX_LENGTH:
                 raise MessageValidation("request validation failed")
@@ -292,6 +428,7 @@ def accept_message(
                 content_fingerprint=content_fingerprint,
                 retry_of=retry_of,
                 client_timezone=client_timezone,
+                routine_action=normalized_routine_action,
             )
             from .dispatch import ensure_dispatch_after_accept
 
@@ -374,6 +511,7 @@ def retry_message(
             idempotency_key=idempotency_key,
             retry_of=original,
             client_timezone=original.client_timezone,
+            routine_action=original.routine_action,
         )
 
 

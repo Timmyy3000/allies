@@ -18,7 +18,7 @@ from django.utils import timezone
 
 from allies.models import Ally, AllyBinding
 from allies.services.onboarding import digest_value
-from chat.models import Conversation
+from chat.models import Conversation, Message, MessageOrigin, MessageSender
 from common.uuids import canonical_uuid
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
@@ -233,6 +233,7 @@ def create_routine_intent(
     title: str,
     execution_prompt: str,
     schedule: Mapping[str, object],
+    source_message: Message | None = None,
     now: datetime | None = None,
     command_id: UUID | str | None = None,
     idempotency_key: UUID | str | None = None,
@@ -269,6 +270,21 @@ def create_routine_intent(
         raise ValidationError(
             {"main_conversation_id": "conversation is outside the routine ally"}
         )
+    source_message_id = None
+    if source_message is not None:
+        source_message_id = getattr(source_message, "pk", source_message)
+        if not Message.objects.filter(
+            pk=source_message_id,
+            conversation_id=conversation_id,
+            conversation__ally_id=parsed_ally_id,
+            conversation__ally__workspace_id=scope.workspace_id,
+            sender=MessageSender.USER,
+            origin=MessageOrigin.SEND,
+            deleted_at__isnull=True,
+        ).exists():
+            raise ValidationError(
+                {"source_message": "source message is outside the routine conversation"}
+            )
 
     now = now or timezone.now()
     routine = Routine(
@@ -277,6 +293,7 @@ def create_routine_intent(
         ally=ally,
         binding=binding,
         main_conversation_id=conversation_id,
+        source_message_id=source_message_id,
         title=title,
         execution_prompt=execution_prompt,
         schedule=canonical_schedule,

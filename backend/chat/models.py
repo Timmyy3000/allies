@@ -73,6 +73,7 @@ class Conversation(models.Model):
 
 class Message(models.Model):
     client_timezone = models.CharField(max_length=64, blank=True, default="")
+    routine_action = models.JSONField(null=True, blank=True, default=None)
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     conversation = models.ForeignKey(
         Conversation, on_delete=models.CASCADE, related_name="messages"
