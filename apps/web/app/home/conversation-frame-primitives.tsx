@@ -63,6 +63,7 @@ export function ConversationHeader({
   sleepingAvatar,
   homeHref = "/home",
   settingsHref = "/account",
+  onSettings,
   sleeping = false,
   statusContent,
 }: {
@@ -72,6 +73,7 @@ export function ConversationHeader({
   sleepingAvatar?: FrameAvatar;
   homeHref?: string;
   settingsHref?: string;
+  onSettings?: () => void;
   sleeping?: boolean;
   statusContent?: ReactNode;
 }) {
@@ -91,13 +93,26 @@ export function ConversationHeader({
           <span>{name} is asleep</span>
         </div>
       ) : null)}
-      <Link className={`${styles.frameIconHit} ${styles.frameSettingsMobile}`} href={settingsHref} aria-label="Account settings">
-        <SettingsIcon />
-      </Link>
+      {onSettings ? (
+        <button type="button" className={`${styles.frameIconHit} ${styles.frameSettingsMobile}`} onClick={onSettings} aria-label={`${name} settings`}>
+          <SettingsIcon />
+        </button>
+      ) : (
+        <Link className={`${styles.frameIconHit} ${styles.frameSettingsMobile}`} href={settingsHref} aria-label="Account settings">
+          <SettingsIcon />
+        </Link>
+      )}
+      {onSettings ? (
+        <button type="button" className={`${styles.frameSettingsDesktop} ${styles.frameSettingsDesktopButton}`} onClick={onSettings} aria-label={`${name} settings`}>
+          <FrameIcon name="settings-desktop" className={styles.frameSettingsIcon} />
+          <span>{name} settings</span>
+        </button>
+      ) : (
         <span className={styles.frameSettingsDesktop}>
           <FrameIcon name="settings-desktop" className={styles.frameSettingsIcon} />
-        <span>{name} settings</span>
-      </span>
+          <span>{name} settings</span>
+        </span>
+      )}
     </header>
   );
 }

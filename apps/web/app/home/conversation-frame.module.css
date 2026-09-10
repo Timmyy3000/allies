@@ -96,6 +96,7 @@
 }
 
 .frameIconHit:focus-visible,
+.frameSettingsDesktop:focus-visible,
 .frameSheetClose:focus-visible,
 .frameLightboxClose:focus-visible,
 .frameComposer button:focus-visible,
@@ -198,6 +199,7 @@
 
 .frameSettingsMobile {
   margin-left: auto;
+  padding: 0;
 }
 
 .frameSettingsDesktop {
@@ -208,6 +210,14 @@
   color: var(--text-secondary);
   font-size: 14px;
   line-height: 18px;
+}
+
+.frameSettingsDesktopButton {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
 }
 
 .frameSettingsDesktop svg {

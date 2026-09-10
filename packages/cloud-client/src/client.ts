@@ -7,9 +7,11 @@ import { parsePublicCloudUrl } from "./environment";
 import { toAccountViewModel, type AccountViewModel } from "./mappers/account";
 import {
   activitySnapshotResponseSchema,
+  allyLabelSchema,
   allyListResponseSchema,
   allySeedInputSchema,
   allyResponseSchema,
+  allySettingsInputSchema,
   conversationResponseSchema,
   createAllyInputSchema,
   messageAcceptanceResponseSchema,
@@ -27,6 +29,7 @@ import {
   type ActivitySnapshotViewModel,
   type AllySeedInput,
   type AllyViewModel,
+  type AllySettingsInput,
   type ConversationViewModel,
   type CreateAllyInput,
   type MessageAcceptanceViewModel,
@@ -65,6 +68,11 @@ function isChatReadRequest(request: Request): boolean {
 
 const successEnvelope = <T extends z.ZodType>(data: T) =>
   z.object({ status: z.literal("success"), message: z.string(), data }).loose();
+const savedAllySettingsSchema = allyResponseSchema.extend({
+  label: allyLabelSchema,
+  show_label: z.boolean(),
+  settings_revision: z.number().int().nonnegative(),
+});
 const profileSchema = z
   .object({ display_name: z.string(), avatar_url: externalHttpsUrlSchema.nullable().optional() })
   .loose();
@@ -649,6 +657,31 @@ export function createCloudClient(options: CloudClientOptions) {
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => toAllyViewModel(successEnvelope(allyResponseSchema).parse(data).data),
+        [200],
+      );
+    },
+
+    async updateAllySettings(
+      workspaceId: string,
+      allyId: string,
+      input: AllySettingsInput,
+      signal?: AbortSignal,
+    ): Promise<AllyViewModel> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const ally = parsePathSegment(allyId);
+      const settings = parseInput(allySettingsInputSchema, input);
+      return unwrap(
+        api.PATCH("/api/v1/workspaces/{workspace_id}/allies/{ally_id}/settings", {
+          params: { path: { workspace_id: workspace, ally_id: ally } },
+          body: {
+            label: settings.label,
+            show_label: settings.showLabel,
+            settings_revision: settings.settingsRevision,
+          },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toAllyViewModel(successEnvelope(savedAllySettingsSchema).parse(data).data),
         [200],
       );
     },

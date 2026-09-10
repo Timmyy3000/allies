@@ -66,6 +66,7 @@ function conversation(sent: boolean) {
 
 async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false, seedConversation = false, withActivity = false, withRoutine = false, withResult = false) {
   let sent = seedConversation;
+  let settings = { label: "chief of staff", show_label: false, settings_revision: 0 };
   let sentRequest: { body: string | null; csrf: string | undefined } | null = null;
   let releaseSend: (() => void) | null = null;
   let approvalStatus = "pending";
@@ -78,7 +79,7 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
       "access-control-allow-origin": request.headers().origin ?? "http://127.0.0.1:3012",
       "access-control-allow-credentials": "true",
       "access-control-allow-headers": "content-type, idempotency-key, x-csrftoken",
-      "access-control-allow-methods": "GET, POST, OPTIONS",
+      "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
       "access-control-expose-headers": "x-csrftoken",
     };
     if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers });
@@ -92,7 +93,14 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
       return route.fulfill({ status: 204, headers: { ...headers, "x-csrftoken": csrfToken } });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies`) {
-      return route.fulfill({ status: 200, headers, json: success({ allies: [ally()] }) });
+      return route.fulfill({ status: 200, headers, json: success({ allies: [{ ...ally(), ...settings }] }) });
+    }
+    if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}/settings` && request.method() === "PATCH") {
+      expect(request.headers()["x-csrftoken"]).toBe(csrfToken);
+      const payload = request.postDataJSON();
+      expect(payload.settings_revision).toBe(settings.settings_revision);
+      settings = { ...payload, settings_revision: settings.settings_revision + 1 };
+      return route.fulfill({ status: 200, headers, json: success({ ...ally(), ...settings }) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}/conversation`) {
       const payload = conversation(sent);
@@ -459,6 +467,43 @@ test("opens an Ally and keeps a sent reply after reload", async ({ page }) => {
   expect(cloudinaryRequests).toEqual([]);
   await page.goto("/home/new");
   await expect(page.getByTestId("name-ally")).toBeVisible();
+});
+
+test("edits an Ally label, opts into roster display, and persists hiding it", async ({ page }, testInfo) => {
+  await page.emulateMedia({ colorScheme: "dark" });
+  await fixtureCloud(page, "signed-in");
+  await page.goto("/home");
+  await expect(page.getByText("chief of staff", { exact: true })).toHaveCount(0);
+  await page.getByRole("link", { name: /Ada/ }).click();
+  const settingsButton = page.getByRole("button", { name: "Ada settings", exact: true });
+  await settingsButton.click();
+  const dialog = page.getByRole("dialog", { name: "Ada settings" });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Label", { exact: true })).toHaveValue("chief of staff");
+  await expect(dialog.getByRole("checkbox", { name: /Show label/ })).not.toBeChecked();
+  await dialog.getByRole("button", { name: "Close", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByLabel("Label", { exact: true })).toBeFocused();
+  await dialog.getByLabel("Label", { exact: true }).fill("calendar manager");
+  await dialog.getByRole("checkbox", { name: /Show label/ }).check();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(dialog.getByRole("status")).toHaveText("Settings saved.");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("ally-settings.png"), fullPage: true });
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(settingsButton).toBeFocused();
+  await page.goto("/home");
+  await page.reload();
+  await expect(page.getByRole("link", { name: /Ada/ }).getByText("calendar manager", { exact: true })).toBeVisible();
+  await page.getByRole("link", { name: /Ada/ }).click();
+  await settingsButton.click();
+  await dialog.getByRole("checkbox", { name: /Show label/ }).uncheck();
+  await dialog.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(dialog.getByRole("status")).toHaveText("Settings saved.");
+  await page.goto("/home");
+  await page.reload();
+  await expect(page.getByText("calendar manager", { exact: true })).toHaveCount(0);
 });
 
 for (const colorScheme of ["light", "dark"] as const) {

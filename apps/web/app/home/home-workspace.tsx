@@ -69,6 +69,7 @@ import {
   type ConversationAccessFailure,
 } from "./conversation-access-error";
 import { ConversationFrame } from "./conversation-frame";
+import { AllySettingsDialog } from "./ally-settings-dialog";
 import { useConversationFiles } from "./attachments/use-conversation-files";
 import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
 import { MobileHomeRosterExact } from "./_exact/mobile-home-roster-exact";
@@ -105,6 +106,14 @@ type AcceptedOnboardingHandoff = {
   greeting: string;
   reply: string;
 };
+
+function allySettingsRevision(ally: AllyViewModel): number {
+  return ally.settingsRevision ?? 0;
+}
+
+function mergeUpdatedAlly(current: AllyViewModel | undefined, updated: AllyViewModel): AllyViewModel {
+  return current && allySettingsRevision(current) > allySettingsRevision(updated) ? current : updated;
+}
 
 export function hasOnboardingExchange(
   messages: readonly MessageViewModel[],
@@ -270,6 +279,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   const isMobileHome = useIsMobileHome();
   const isDesktopDashboard = !isMobileHome;
   const [createOverlayOpen, setCreateOverlayOpen] = useState(false);
+  const [settingsAllyId, setSettingsAllyId] = useState<string | null>(null);
   const [dismissedCreateRoute, setDismissedCreateRoute] = useState(false);
   const [acceptedHandoff, setAcceptedHandoff] = useState<AcceptedOnboardingHandoff | null>(null);
   const [handoffReleased, setHandoffReleased] = useState(false);
@@ -289,6 +299,31 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
       ?? (activeHandoff?.ally.id === selectedAllyId ? activeHandoff.ally : null)
     : null;
   const conversationAlly = selectedAlly ?? activeHandoff?.ally ?? null;
+  const settingsAlly = settingsAllyId
+    ? allies.find((ally) => ally.id === settingsAllyId)
+      ?? (activeHandoff?.ally.id === settingsAllyId ? activeHandoff.ally : null)
+    : null;
+  const openAllySettings = useCallback((allyId: string) => setSettingsAllyId(allyId), []);
+  const replaceAlly = useCallback((updated: AllyViewModel) => {
+    let mergedResult = updated;
+    queryClient.setQueryData<AllyViewModel[]>(alliesQueryKey(workspaceId), (current) => {
+      if (!current) return [updated];
+      const existing = current.find((ally) => ally.id === updated.id);
+      const merged = mergeUpdatedAlly(existing, updated);
+      mergedResult = merged;
+      if (!existing) return [...current, updated];
+      if (merged === existing) return current;
+      return current.map((ally) => ally.id === updated.id ? merged : ally);
+    });
+
+    const currentHandoff = acceptedHandoffRef.current;
+    if (currentHandoff?.ally.id !== updated.id) return;
+    const mergedHandoffAlly = mergeUpdatedAlly(currentHandoff.ally, mergedResult);
+    if (mergedHandoffAlly === currentHandoff.ally) return;
+    const nextHandoff = { ...currentHandoff, ally: mergedHandoffAlly };
+    acceptedHandoffRef.current = nextHandoff;
+    setAcceptedHandoff(nextHandoff);
+  }, [queryClient, workspaceId]);
 
   if (!creatingAlly && dismissedCreateRoute) {
     setDismissedCreateRoute(false);
@@ -434,6 +469,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
       workspaceId={workspaceId}
       canApprove={accountQuery.data.workspace.capabilities.includes("profile.write")}
       ally={conversationAlly}
+      onOpenSettings={() => openAllySettings(conversationAlly.id)}
       onActivity={() => recordAllyActivity(conversationAlly.id)}
       stateReady={sleepClock !== null && Boolean(allyPreviews.get(conversationAlly.id)) && !allyPreviews.get(conversationAlly.id)?.isPending}
       sleeping={isAllySleeping(conversationAlly, allyPreviews.get(conversationAlly.id)?.latestMessage ?? null, sleepClock, recentActivityByAlly[conversationAlly.id])}
@@ -581,6 +617,14 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
           {threadBody}
         </section>
       ) : null}
+      {settingsAlly ? (
+        <AllySettingsDialog
+          ally={settingsAlly}
+          workspaceId={workspaceId}
+          onClose={() => setSettingsAllyId(null)}
+          onSaved={replaceAlly}
+        />
+      ) : null}
       {createOverlay}
       {!selectedAllyId && !createOverlayOpen ? <InstallInvitation /> : null}
     </main>
@@ -700,6 +744,9 @@ function AllyConversationRow({
           <strong>{ally.name}</strong>
           {latestMessage ? <time dateTime={latestMessage.createdAt}>{previewTimestamp(latestMessage.createdAt)}</time> : null}
         </span>
+        {ally.showLabel && ally.label?.trim() ? (
+          <span className={styles.allyLabel} title={ally.label.trim()}>{ally.label.trim()}</span>
+        ) : null}
         <span className={preview?.isPending ? styles.allyPreviewPending : styles.allyPreview}>
           {preview === undefined || preview.isError
             ? allySecondaryLine(ally)
@@ -719,6 +766,7 @@ function ConversationPane({
   workspaceId,
   canApprove,
   ally,
+  onOpenSettings,
   onActivity,
   workspaceRefreshError,
   onRetryWorkspace,
@@ -733,6 +781,7 @@ function ConversationPane({
   workspaceId: string;
   canApprove: boolean;
   ally: AllyViewModel;
+  onOpenSettings?: () => void;
   onActivity: () => void;
   sleeping: boolean;
   stateReady: boolean;
@@ -2372,7 +2421,7 @@ function ConversationPane({
   };
 
   const restoreFileText = (content: string) => { const combined = [content, draftRef.current].filter(Boolean).join("\n\n"); draftRef.current = combined; setDraft(combined); void conversationQuery.refetch(); };
-  const frame = <><ConversationFrame stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} canvasRef={messageCanvasRef}
+  const frame = <><ConversationFrame stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} onOpenSettings={onOpenSettings} canvasRef={messageCanvasRef}
     fileRecovery={attachments.cancelled.map(record => <div className={attachmentStyles.savedDraft} key={record.id} role="group" aria-label="Saved cancelled file message"><span>Saved cancelled message · {record.files.length} files</span><button type="button" onClick={() => { attachments.restoreDraft(record); restoreFileText(record.content); }}>Restore draft</button><button type="button" onClick={() => attachments.discard(record.id)}>Discard saved copy</button></div>)}
     attachments={attachments.tray} onAttach={preparingFiles ? undefined : attachments.open}
     onFileOpen={attachments.openFile}
