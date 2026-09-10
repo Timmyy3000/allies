@@ -116,6 +116,14 @@ def test_narrow_mode_validates_allowlist_and_arguments(tmp_path):
     assert cross_bank["reason"] == "profile_override_forbidden"
 
 
+def test_narrow_mode_prompt_names_the_reviewed_memory_tools(tmp_path):
+    prompt = ready_provider(tmp_path).system_prompt_block()
+
+    assert "mnemosyne_recall" in prompt
+    assert "mnemosyne_remember" in prompt
+    assert "Automatic conversation capture and consolidation are disabled." in prompt
+
+
 def test_same_profile_instances_serialize_delegate_operations(tmp_path):
     state = {"active": 0, "maximum": 0}
     state_lock = threading.Lock()

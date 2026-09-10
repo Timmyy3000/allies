@@ -5,6 +5,7 @@ import asyncio
 import importlib.util
 import json
 import os
+import subprocess
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -22,6 +23,7 @@ def main():
     parser.add_argument("--phase", choices=("create", "verify"), required=True)
     args = parser.parse_args()
     assert os.getuid() == 10000
+    subprocess.run(["xurl", "--help"], check=True, capture_output=True, timeout=10)
     os.environ["HERMES_HOME"] = str(args.root)
     from hermes_constants import reset_hermes_home_override, set_hermes_home_override
     from tools.skill_manager_tool import skill_manage

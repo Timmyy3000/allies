@@ -57,7 +57,8 @@ from .validation import digest_payload, validate_nonempty
 PROFILE_SEED_VERSION = 1
 PROFILE_FINGERPRINT_VERSION = 2
 DEFAULT_MEMORY_PROVIDER = "allies_mnemosyne"
-DEFAULT_MEMORY_MODE = "context_only"
+CONTEXT_ONLY_MEMORY_MODE = "context_only"
+DEFAULT_MEMORY_MODE = "narrow_tools"
 DEFAULT_MEMORY_POLICY_VERSION = "allies-mnemosyne-v1"
 MEMORY_MODES = frozenset({"context_only", "narrow_tools"})
 MEMORY_TOOLS = frozenset(
@@ -72,6 +73,7 @@ MEMORY_TOOLS = frozenset(
         "mnemosyne_update",
     }
 )
+DEFAULT_MEMORY_TOOL_ALLOWLIST = tuple(sorted(MEMORY_TOOLS))
 CLEANUP_GRACE_SECONDS = 60
 MAX_PROFILE_SEED_BYTES = 128 * 1024
 _OPAQUE_REFERENCE = re.compile(
@@ -100,7 +102,7 @@ class ProfileSeed:
     memory_provider: str = DEFAULT_MEMORY_PROVIDER
     memory_mode: str = DEFAULT_MEMORY_MODE
     memory_policy_version: str = DEFAULT_MEMORY_POLICY_VERSION
-    memory_tool_allowlist: tuple[str, ...] = ()
+    memory_tool_allowlist: tuple[str, ...] = DEFAULT_MEMORY_TOOL_ALLOWLIST
     memory_profile_isolation: bool = True
     memory_sync_roles: tuple[str, ...] = ()
 
@@ -801,11 +803,12 @@ def _normalize_seed(seed: ProfileSeed | Mapping[str, Any]) -> dict[str, Any]:
     if memory_policy_version != DEFAULT_MEMORY_POLICY_VERSION:
         raise RuntimeValidationError("unsupported memory policy version")
     memory_tool_allowlist = _memory_string_list(
-        values.get("memory_tool_allowlist", []), "memory_tool_allowlist"
+        values.get("memory_tool_allowlist", DEFAULT_MEMORY_TOOL_ALLOWLIST),
+        "memory_tool_allowlist",
     )
     if not set(memory_tool_allowlist).issubset(MEMORY_TOOLS):
         raise RuntimeValidationError("unsupported memory tool allowlist")
-    if memory_mode == DEFAULT_MEMORY_MODE and memory_tool_allowlist:
+    if memory_mode == CONTEXT_ONLY_MEMORY_MODE and memory_tool_allowlist:
         raise RuntimeValidationError("context-only memory cannot advertise tools")
     if values.get("memory_profile_isolation", True) is not True:
         raise RuntimeValidationError("memory profile isolation is required")

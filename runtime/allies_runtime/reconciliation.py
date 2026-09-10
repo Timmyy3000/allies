@@ -19,6 +19,7 @@ from .profile_store import (
     DEFAULT_MEMORY_MODE,
     DEFAULT_MEMORY_POLICY_VERSION,
     DEFAULT_MEMORY_PROVIDER,
+    DEFAULT_MEMORY_TOOL_ALLOWLIST,
     ProfileCleanupStatus,
     ProfileProvisionStatus,
     ProfileSeed,
@@ -245,7 +246,11 @@ def _runtime_seed(profile: ProfileDesiredState, operation_id: str) -> ProfileSee
             memory_policy_version=_optional_text(
                 payload, "memory_policy_version", DEFAULT_MEMORY_POLICY_VERSION
             ),
-            memory_tool_allowlist=_optional_list(payload, "memory_tool_allowlist"),
+            memory_tool_allowlist=_optional_list(
+                payload,
+                "memory_tool_allowlist",
+                DEFAULT_MEMORY_TOOL_ALLOWLIST,
+            ),
             memory_profile_isolation=payload.get("memory_profile_isolation", True),
             memory_sync_roles=_optional_list(payload, "memory_sync_roles"),
         )
@@ -278,8 +283,10 @@ def _optional_text(payload: dict[str, Any], key: str, default: str) -> str:
     return value
 
 
-def _optional_list(payload: dict[str, Any], key: str) -> tuple[str, ...]:
-    value = payload.get(key, ())
+def _optional_list(
+    payload: dict[str, Any], key: str, default: tuple[str, ...] = ()
+) -> tuple[str, ...]:
+    value = payload.get(key, default)
     if not isinstance(value, (list, tuple)) or not all(
         isinstance(item, str) for item in value
     ):

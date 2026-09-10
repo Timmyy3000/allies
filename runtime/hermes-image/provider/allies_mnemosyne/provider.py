@@ -33,7 +33,8 @@ logger = logging.getLogger(__name__)
 POLICY_VERSION = "allies-mnemosyne-v1"
 PROVIDER_VERSION = "0.1.0"
 MNEMOSYNE_HERMES_VERSION = "0.5.0"
-DEFAULT_MODE = "context_only"
+CONTEXT_ONLY_MODE = "context_only"
+DEFAULT_MODE = "narrow_tools"
 MODES = frozenset({"context_only", "narrow_tools"})
 
 ALLOWED_TOOLS = (
@@ -46,6 +47,7 @@ ALLOWED_TOOLS = (
     "mnemosyne_remember_canonical",
     "mnemosyne_update",
 )
+DEFAULT_TOOLS = ALLOWED_TOOLS
 _ALLOWED_TOOL_SET = frozenset(ALLOWED_TOOLS)
 _WRITE_TOOLS = frozenset(
     {
@@ -425,7 +427,7 @@ class AlliesMnemosyneProvider(MemoryProvider):
                 return None, None, None, "shared_surface_forbidden"
             requested = kwargs.get(
                 "memory_tool_allowlist",
-                kwargs.get("tools", memory_config.get("tools", [])),
+                kwargs.get("tools", memory_config.get("tools", DEFAULT_TOOLS)),
             )
             if requested is None:
                 requested = []
@@ -434,7 +436,7 @@ class AlliesMnemosyneProvider(MemoryProvider):
             selected_tools = tuple(sorted({str(item) for item in requested}))
             if not set(selected_tools).issubset(_ALLOWED_TOOL_SET):
                 return None, None, None, "memory_tool_not_approved"
-            if mode == DEFAULT_MODE:
+            if mode == CONTEXT_ONLY_MODE:
                 selected_tools = ()
             self._mode = mode
             self._tools = selected_tools
@@ -556,7 +558,7 @@ class AlliesMnemosyneProvider(MemoryProvider):
     def system_prompt_block(self) -> str:
         if not self._available:
             return "# Allies Memory\nStatus: temporarily unavailable; continue without durable memory."
-        if self._mode == DEFAULT_MODE:
+        if self._mode == CONTEXT_ONLY_MODE:
             return (
                 "# Allies Memory\n"
                 "Relevant durable context may be supplied silently. Automatic conversation capture "
@@ -564,7 +566,8 @@ class AlliesMnemosyneProvider(MemoryProvider):
             )
         return (
             "# Allies Memory\n"
-            "Use the approved durable-memory tools only for explicit, policy-approved facts. "
+            "Use mnemosyne_recall and mnemosyne_remember for explicit, policy-approved "
+            "durable profile memory in ordinary and routine sessions. "
             "Automatic conversation capture and consolidation are disabled."
         )
 
@@ -605,7 +608,7 @@ class AlliesMnemosyneProvider(MemoryProvider):
         return None
 
     def get_tool_schemas(self) -> list[dict[str, Any]]:
-        if not self._available or self._mode == DEFAULT_MODE:
+        if not self._available or self._mode == CONTEXT_ONLY_MODE:
             return []
         schemas = self._discover_schemas()
         return [schemas[name] for name in self._tools if name in schemas]
@@ -614,7 +617,7 @@ class AlliesMnemosyneProvider(MemoryProvider):
         return bool(tool_name in self._tools and tool_name in self.get_tool_names())
 
     def get_tool_names(self) -> tuple[str, ...]:
-        if not self._available or self._mode == DEFAULT_MODE:
+        if not self._available or self._mode == CONTEXT_ONLY_MODE:
             return ()
         schemas = self._discover_schemas()
         return tuple(name for name in self._tools if name in schemas)
@@ -664,7 +667,7 @@ class AlliesMnemosyneProvider(MemoryProvider):
     ) -> str:
         if not self._available or self._delegate is None:
             return _json_result("memory_unavailable", self._reason)
-        if self._mode == DEFAULT_MODE or not self.has_tool(tool_name):
+        if self._mode == CONTEXT_ONLY_MODE or not self.has_tool(tool_name):
             return _json_result("tool_rejected", "tool_not_advertised")
         schema = self._schemas.get(tool_name)
         if schema is None:
@@ -733,7 +736,7 @@ class AlliesMnemosyneProvider(MemoryProvider):
             {
                 "key": "tools",
                 "description": "Explicit approved tools for narrow_tools mode.",
-                "default": [],
+                "default": list(DEFAULT_TOOLS),
             },
         ]
 

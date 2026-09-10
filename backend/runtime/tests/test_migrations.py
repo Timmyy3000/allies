@@ -115,6 +115,7 @@ from django.db.migrations.executor import MigrationExecutor
 
 MIGRATION_FROM = ("runtime", "0013_workspace_activation_claim")
 MIGRATION_TO = ("runtime", "0014_profile_memory_seed_v2")
+MIGRATION_DEFAULTS_TO = ("runtime", "0024_enable_mnemosyne_memory_defaults")
 database_path = sys.argv[1]
 connections.databases["default"]["NAME"] = database_path
 connections["default"].settings_dict["NAME"] = database_path
@@ -204,6 +205,28 @@ assert profile.materialization_request_digest == ""
 assert profile.materialization_receipt_id is None
 assert profile.materialization_result_code == ""
 assert profile.lifecycle_state == "active"
+
+migrate(MIGRATION_TO)
+migrate(MIGRATION_DEFAULTS_TO)
+_, enabled_model = models_at(MIGRATION_DEFAULTS_TO)
+profile = enabled_model.objects.get(pk=profile_id)
+assert profile.seed_payload["memory_mode"] == "narrow_tools"
+assert profile.seed_payload["memory_tool_allowlist"] == [
+    "mnemosyne_forget",
+    "mnemosyne_forget_canonical",
+    "mnemosyne_invalidate",
+    "mnemosyne_recall",
+    "mnemosyne_recall_canonical",
+    "mnemosyne_remember",
+    "mnemosyne_remember_canonical",
+    "mnemosyne_update",
+]
+assert profile.seed_fingerprint == "a45b4934f41eb21ac298b42b568e213822834e8263e5a9d0cb338c6d4ee74e28"
+assert profile.materialized_generation == 0
+assert profile.materialization_operation_id is None
+assert profile.materialization_request_digest == ""
+assert profile.materialization_receipt_id is None
+assert profile.materialization_result_code == ""
 """
 
 

@@ -14,6 +14,8 @@ import yaml
 
 import allies_runtime.profile_store as profile_store_module
 from allies_runtime.profile_store import (
+    CONTEXT_ONLY_MEMORY_MODE,
+    DEFAULT_MEMORY_TOOL_ALLOWLIST,
     HERMES_PROFILE_DIRECTORIES,
     MANIFEST_NAME,
     ProfileCleanupStatus,
@@ -182,8 +184,13 @@ def test_failed_catalog_config_write_preserves_old_config(tmp_path, monkeypatch)
     assert path.read_bytes() == old
 
 
-def test_memory_policy_is_bounded_and_changes_seed_fingerprint():
-    context_only = make_seed()
+def test_memory_policy_defaults_to_reviewed_tools_and_keeps_context_only_explicit():
+    default = make_seed()
+    context_only = replace(
+        default,
+        memory_mode=CONTEXT_ONLY_MEMORY_MODE,
+        memory_tool_allowlist=(),
+    )
     narrow = ProfileSeed(
         foundry_profile_id=PROFILE_ID,
         ally_name="Aster",
@@ -195,12 +202,13 @@ def test_memory_policy_is_bounded_and_changes_seed_fingerprint():
         memory_mode="narrow_tools",
         memory_tool_allowlist=("mnemosyne_recall", "mnemosyne_remember"),
     )
+    assert default.memory_tool_allowlist == DEFAULT_MEMORY_TOOL_ALLOWLIST
     assert context_only.memory_tool_allowlist == ()
     assert narrow.memory_tool_allowlist == (
         "mnemosyne_recall",
         "mnemosyne_remember",
     )
-    assert context_only.fingerprint != narrow.fingerprint
+    assert default.fingerprint != context_only.fingerprint
     contract_seed = ProfileSeed(
         foundry_profile_id="00000000-0000-0000-0000-000000000001",
         ally_name="ally-a",
@@ -210,9 +218,8 @@ def test_memory_policy_is_bounded_and_changes_seed_fingerprint():
         first_chat_instruction="i",
         credential_refs={"PROVIDER_API": "vault://p"},
     )
-    assert contract_seed.fingerprint == (
-        "cd995ea7543b218b8380d61d6b051548da09af3a13a9bfcc529b33fca9a95db9"
-    )
+    assert contract_seed.memory_mode == "narrow_tools"
+    assert contract_seed.memory_tool_allowlist == DEFAULT_MEMORY_TOOL_ALLOWLIST
     with pytest.raises(ProfileInputError):
         ProfileSeed(
             foundry_profile_id=PROFILE_ID,
@@ -244,8 +251,11 @@ def test_memory_policy_is_bounded_and_changes_seed_fingerprint():
         {"memory_mode": "broad_tools"},
         {"memory_sync_roles": ("push",)},
         {"memory_profile_isolation": False},
-        {"memory_tool_allowlist": ("mnemosyne_recall",)},
         {"memory_tool_allowlist": {"mnemosyne_recall"}},
+        {
+            "memory_mode": CONTEXT_ONLY_MEMORY_MODE,
+            "memory_tool_allowlist": ("mnemosyne_recall",),
+        },
         {
             "memory_mode": "narrow_tools",
             "memory_tool_allowlist": (
@@ -292,7 +302,7 @@ def test_first_publish_exact_layout_manifest_and_secret_permissions(tmp_path):
     config = (profile / "config.yaml").read_text(encoding="utf-8")
     assert 'model:\n  provider: "openai"\n  default: "gpt-test"\n' in config
     assert 'memory:\n  provider: "allies_mnemosyne"' in config
-    assert '  mode: "context_only"' in config
+    assert '  mode: "narrow_tools"' in config
     assert "    shared_surface_read: false" in config
     assert PROFILE_SECRET in (profile / ".env").read_text(encoding="utf-8")
     if os.name != "nt":
@@ -305,8 +315,8 @@ def test_first_publish_exact_layout_manifest_and_secret_permissions(tmp_path):
     assert manifest["seed_fingerprint"] == seed.fingerprint
     assert manifest["completion_state"] == "complete"
     assert manifest["memory_provider"] == "allies_mnemosyne"
-    assert manifest["memory_mode"] == "context_only"
-    assert manifest["memory_tools"] == []
+    assert manifest["memory_mode"] == "narrow_tools"
+    assert manifest["memory_tools"] == list(DEFAULT_MEMORY_TOOL_ALLOWLIST)
     assert PROFILE_SECRET not in json.dumps(manifest)
     assert PROFILE_SECRET not in json.dumps(receipt.to_dict())
 
@@ -607,7 +617,11 @@ def test_partial_and_incompatible_state_fail_closed(tmp_path):
 
 def test_legacy_manifest_is_upgraded_without_replacing_profile_state(tmp_path):
     store = make_store(tmp_path)
-    seed = make_seed()
+    seed = replace(
+        make_seed(),
+        memory_mode=CONTEXT_ONLY_MEMORY_MODE,
+        memory_tool_allowlist=(),
+    )
     assert store.materialize(seed).status is ProfileProvisionStatus.CREATED
     manifest_path = profile_path(store, seed) / MANIFEST_NAME
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -627,6 +641,86 @@ def test_legacy_manifest_is_upgraded_without_replacing_profile_state(tmp_path):
     assert "memory:\n" in (profile_path(store, seed) / "config.yaml").read_text(
         encoding="utf-8"
     )
+
+
+def test_legacy_memory_default_is_upgraded_without_replacing_profile_state(tmp_path):
+    store = make_store(tmp_path)
+    legacy_seed = replace(
+        make_seed(),
+        memory_mode=CONTEXT_ONLY_MEMORY_MODE,
+        memory_tool_allowlist=(),
+    )
+    assert store.materialize(legacy_seed).status is ProfileProvisionStatus.CREATED
+    marker = profile_path(store, legacy_seed) / "sessions" / "preserved"
+    marker.write_text("keep", encoding="utf-8")
+    config_path = profile_path(store, legacy_seed) / "config.yaml"
+    config_path.write_text(
+        config_path.read_text(encoding="utf-8") + "custom: retained\n",
+        encoding="utf-8",
+    )
+
+    receipt = store.materialize(make_seed())
+
+    assert receipt.status is ProfileProvisionStatus.EXISTING
+    assert marker.read_text(encoding="utf-8") == "keep"
+    profile = profile_path(store, legacy_seed)
+    manifest = json.loads((profile / MANIFEST_NAME).read_text(encoding="utf-8"))
+    assert manifest["seed_fingerprint"] == make_seed().fingerprint
+    assert manifest["memory_mode"] == "narrow_tools"
+    assert manifest["memory_tools"] == list(DEFAULT_MEMORY_TOOL_ALLOWLIST)
+    config = yaml.safe_load((profile / "config.yaml").read_text(encoding="utf-8"))
+    assert config["memory"]["mode"] == "narrow_tools"
+    assert config["custom"] == "retained"
+
+
+def test_legacy_memory_upgrade_retries_after_manifest_write_failure(tmp_path, monkeypatch):
+    store = make_store(tmp_path)
+    legacy_seed = replace(
+        make_seed(),
+        memory_mode=CONTEXT_ONLY_MEMORY_MODE,
+        memory_tool_allowlist=(),
+    )
+    assert store.materialize(legacy_seed).status is ProfileProvisionStatus.CREATED
+    manifest_path = profile_path(store, legacy_seed) / MANIFEST_NAME
+    original_write = store._write_json_atomic
+    failed = False
+
+    def fail_once(path, value, *, mode):
+        nonlocal failed
+        if path == manifest_path and not failed:
+            failed = True
+            raise ProfileStoreError("write failed")
+        return original_write(path, value, mode=mode)
+
+    monkeypatch.setattr(store, "_write_json_atomic", fail_once)
+    assert store.materialize(make_seed()).status is ProfileProvisionStatus.REPAIR_REQUIRED
+    assert store.materialize(make_seed()).status is ProfileProvisionStatus.EXISTING
+
+
+def test_legacy_memory_upgrade_preserves_concurrent_config_edit(tmp_path, monkeypatch):
+    store = make_store(tmp_path)
+    legacy_seed = replace(
+        make_seed(),
+        memory_mode=CONTEXT_ONLY_MEMORY_MODE,
+        memory_tool_allowlist=(),
+    )
+    assert store.materialize(legacy_seed).status is ProfileProvisionStatus.CREATED
+    path = profile_path(store, legacy_seed) / "config.yaml"
+    parse_config = profile_store_module._config_with_catalog
+
+    def edit_while_parsing(content):
+        path.write_text("model: user-edit\n", encoding="utf-8")
+        return parse_config(content)
+
+    monkeypatch.setattr(
+        profile_store_module, "_config_with_catalog", edit_while_parsing
+    )
+
+    result = store.materialize(make_seed())
+
+    assert result.status is ProfileProvisionStatus.REPAIR_REQUIRED
+    assert result.repair_code == "skills_config_requires_repair"
+    assert path.read_text(encoding="utf-8") == "model: user-edit\n"
 
 
 def test_legacy_manifest_with_an_unverified_fingerprint_requires_repair(tmp_path):
