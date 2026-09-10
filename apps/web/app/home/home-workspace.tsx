@@ -69,11 +69,13 @@ import {
   type ConversationAccessFailure,
 } from "./conversation-access-error";
 import { ConversationFrame } from "./conversation-frame";
+import { useConversationFiles } from "./attachments/use-conversation-files";
 import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
 import { MobileHomeRosterExact } from "./_exact/mobile-home-roster-exact";
 import { HomeReadySplash } from "./home-ready-splash";
 import { useIsMobileHome } from "./use-is-mobile-home";
 import styles from "./home.module.css";
+import attachmentStyles from "./attachments/attachments.module.css";
 
 const ACTIVITY_INTERVAL_MS = 500;
 const DURABLE_REPLY_SNAPSHOT_INTERVAL_MS = 3_000;
@@ -114,6 +116,7 @@ export function hasOnboardingExchange(
 }
 
 type QueuedMessage = {
+  fileTransferId?: string;
   id: string;
   content: string;
   intentKey: string;
@@ -748,6 +751,12 @@ function ConversationPane({
     getApproval: (workspace, conversation, approval, signal) => session.runCloudOperation((operationSignal) => session.client.getApproval(workspace, conversation, approval, operationSignal), { signal }),
     decideApproval: (workspace, conversation, approval, decision, key, signal) => session.runCloudOperation((operationSignal) => session.client.decideApproval(workspace, conversation, approval, decision, key, operationSignal), { signal, csrf: true, retryTransient: false }),
   }), [session]);
+  const attachments = useConversationFiles(userId, workspaceId, ally.id);
+  const fileManager = attachments.manager;
+  const fileScope = attachments.scope;
+  const preparingFilesRef = useRef(false);
+  const [preparingFiles, setPreparingFiles] = useState(false);
+  const changeAttachments = attachments.change;
   const queryClient = useQueryClient();
   const [olderMessages, setOlderMessages] = useState<MessageViewModel[]>([]);
   const [nextCursorOverride, setNextCursorOverride] = useState<string | null | undefined>(undefined);
@@ -942,6 +951,7 @@ function ConversationPane({
   });
   const conversation = conversationQuery.data;
   const latestConversationMessages = conversation?.messages ?? EMPTY_MESSAGES;
+  useEffect(() => { fileManager.observe(latestConversationMessages); }, [fileManager, latestConversationMessages]);
   const latestConversationAssistantReplies = conversation?.assistantReplies ?? EMPTY_ASSISTANT_REPLIES;
   const nextCursor = nextCursorOverride === undefined
     ? conversation?.nextCursor ?? null
@@ -1208,6 +1218,8 @@ function ConversationPane({
   ));
   const timelineMessages = messages.filter((message) => (
     !isLiveQueuedMessage(message)
+    || Boolean(message.files?.length)
+    || Boolean(message.preparation && message.preparation !== "none")
     || immediateMessageIds.has(message.id)
     || message.id === activeMessageId
     || !visibleQueueMessages.some((queued) => queued.id === message.id)
@@ -1542,7 +1554,9 @@ function ConversationPane({
     setSendError(null);
     setQueuePersistenceError(null);
     try {
-      const accepted = await session.runCloudOperation(
+      const fileTransferId = queuedMessagesRef.current.find(message => message.id === queuedMessageId)?.fileTransferId;
+      if (fileTransferId) await fileManager.restore(fileScope);
+      const accepted = fileTransferId ? { conversationId: conversation.id, message: await fileManager.admit(fileTransferId), execution: null, replayed: false } : await session.runCloudOperation(
         (signal) => session.client.sendMessage(workspaceId, conversation.id, content, key, signal, Intl.DateTimeFormat().resolvedOptions().timeZone,
           routineRequest ? buildRoutineActionContext(routineRequest) : undefined),
         { csrf: true },
@@ -1611,7 +1625,7 @@ function ConversationPane({
       if (applyConversationAccessFailure(error)) {
         return false;
       }
-      if (queuedMessageId !== undefined && isDefinitiveMessageRejection(error)) {
+      if (queuedMessageId !== undefined && !queuedMessagesRef.current.find(message => message.id === queuedMessageId)?.fileTransferId && isDefinitiveMessageRejection(error)) {
         const removed = removeLocalQueuedMessage(queuedMessageId);
         if (removed) {
           blockedQueuedMessageIdsRef.current.delete(queuedMessageId);
@@ -1653,6 +1667,8 @@ function ConversationPane({
     preserveLatestConversationWindow,
     refreshActivitySnapshot,
     removeLocalQueuedMessage,
+    fileManager,
+    fileScope,
     session,
     turnInProgress,
     workspaceId,
@@ -1685,10 +1701,11 @@ function ConversationPane({
     sendMessageContent,
   ]);
 
-  const submit = async (showImmediately = false) => {
+  const submit = useCallback(async (showImmediately = false) => {
+    if (preparingFilesRef.current) return;
     if (conversationAccessFailure || !conversation || !queuedMessagesReady || !canChat(ally)) return;
     const content = draft.trim();
-    if (!content) return;
+    if (!content && !attachments.files.length) return;
     const signature = `${conversation.id}:${content}`;
     const key = intentRef.current?.signature === signature
       && intentRef.current.draftRevision === draftRevisionRef.current
@@ -1703,10 +1720,12 @@ function ConversationPane({
     const blockedHead = queuedMessagesSnapshot[0];
     const retryingBlockedHead = blockedHead
       && blockedQueuedMessageIdsRef.current.has(blockedHead.id)
-      && blockedHead.content === content;
+      && blockedHead.content === content
+      && (!blockedHead.fileTransferId || fileManager.find(blockedHead.fileTransferId)?.files.map(f => f.id).join() === attachments.files.map(f => f.id).join());
     if (retryingBlockedHead) {
       blockedQueuedMessageIdsRef.current.delete(blockedHead.id);
       const accepted = await sendMessageContent(content, blockedHead.intentKey, true, blockedHead.id);
+      if (accepted && blockedHead.fileTransferId) attachments.change([]);
       if (!accepted) blockedQueuedMessageIdsRef.current.add(blockedHead.id);
       return;
     }
@@ -1714,10 +1733,26 @@ function ConversationPane({
       setQueuePersistenceError(`You can queue up to ${MAX_QUEUED_MESSAGES} messages. Send or remove one before adding another.`);
       return;
     }
+    let fileTransferId: string | undefined;
+    if (attachments.files.length) {
+      preparingFilesRef.current = true;
+      setPreparingFiles(true);
+      try {
+        const transfer = await fileManager.prepare(fileScope, workspaceId, ally.id, conversation.id, content, attachments.files);
+        fileTransferId = transfer.id;
+      } catch (error) {
+        setSendError(error instanceof Error ? error.message : "Your files could not be saved. Try again.");
+        return;
+      } finally {
+        preparingFilesRef.current = false;
+        setPreparingFiles(false);
+      }
+    }
     const nextMessage = {
       id: `queued-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`}`,
       content,
       intentKey: key,
+      ...(fileTransferId ? { fileTransferId } : {}),
       queuedAt: Math.max(Date.now(), (queuedMessagesSnapshot.at(-1)?.queuedAt ?? 0) + 1),
     };
     if (!commitQueuedMessages((messages) => [...messages, nextMessage])) {
@@ -1735,8 +1770,9 @@ function ConversationPane({
     }
     draftRef.current = "";
     setDraft("");
+    attachments.change([]);
     intentRef.current = null;
-  };
+  }, [conversationAccessFailure, conversation, queuedMessagesReady, ally, draft, attachments, queuedMessagesStorageKey, sendMessageContent, fileManager, fileScope, workspaceId, commitQueuedMessages, turnInProgress]);
 
   useEffect(() => {
     const removedIds = readQueuedMessageTombstones(queuedMessagesStorageKey);
@@ -1746,6 +1782,8 @@ function ConversationPane({
     ).filter((message) => !removedIds.has(message.id));
     const nextMessage = liveMessages.find((message) => !blockedQueuedMessageIdsRef.current.has(message.id));
     if (
+      (liveMessages[0]?.fileTransferId && blockedQueuedMessageIdsRef.current.has(liveMessages[0].id))
+      ||
       !nextMessage
       || !queuedMessagesReady
       || sending
@@ -1770,6 +1808,10 @@ function ConversationPane({
         if (!queuedMessagesRef.current.some((message) => message.id === nextMessage.id)) return;
         blockedQueuedMessageIdsRef.current.add(nextMessage.id);
         if (!mountedRef.current) return;
+        if (nextMessage.fileTransferId) {
+          const transfer = fileManager.find(nextMessage.fileTransferId);
+          if (transfer && !(fileManager.drafts.get(fileScope)?.length)) changeAttachments(transfer.files);
+        }
         const currentDraft = draftRef.current;
         if (!currentDraft.trim()) {
           draftRef.current = nextMessage.content;
@@ -1790,6 +1832,9 @@ function ConversationPane({
     commitQueuedMessages,
     sendMessageContent,
     sending,
+    fileManager,
+    fileScope,
+    changeAttachments,
   ]);
 
   const retry = async (message: MessageViewModel) => {
@@ -2212,6 +2257,17 @@ function ConversationPane({
   });
   const removeQueuedMessage = async (id: string) => {
     const localMessage = queuedMessagesRef.current.find((message) => message.id === id);
+    if (localMessage?.fileTransferId) {
+      try {
+        await fileManager.restore(fileScope);
+        const recovered = await fileManager.cancel(localMessage.fileTransferId);
+        if (!removeLocalQueuedMessage(id)) throw new Error(QUEUED_MESSAGE_REMOVAL_ERROR);
+        blockedQueuedMessageIdsRef.current.delete(id);
+        attachments.change([...recovered.files, ...(fileManager.drafts.get(fileScope) ?? [])]);
+        restoreFileText(recovered.content);
+      } catch { setQueuePersistenceError("Cancellation could not be confirmed. Your file draft is still saved."); }
+      return;
+    }
     const cloudMessage = conversationQueueMessages.find((message) => message.id === id);
     if (cloudMessage) {
       if (!isCloudQueueMessageRemovable(cloudMessage) || !conversation) return;
@@ -2253,7 +2309,8 @@ function ConversationPane({
       setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
     }
   };
-  const visibleFrameMessages = baseFrameModel.messages.map((message) => immediateMessageIds.has(message.id)
+  const fileMessageIds = new Set(timelineMessages.filter(message => message.files?.length || message.preparation && message.preparation !== "none").map(message => message.id));
+  const visibleFrameMessages = baseFrameModel.messages.map((message) => immediateMessageIds.has(message.id) || fileMessageIds.has(message.id)
     ? { ...message, queued: false } : message);
   const lastSequence = Math.max(0, ...visibleFrameMessages.map((message) => message.sequence));
   const immediateFrameMessages = queuedMessages.filter((message) => !baseFrameModel.timeline.accessCopy && immediateMessageIds.has(message.id)).map((message, index) => ({
@@ -2268,8 +2325,9 @@ function ConversationPane({
   }));
   const frameModel = {
     ...baseFrameModel,
+    composer: { ...baseFrameModel.composer, disabled: baseFrameModel.composer.disabled || preparingFiles },
     messages: [...visibleFrameMessages, ...immediateFrameMessages],
-    queuedMessages: baseFrameModel.queuedMessages.filter((message) => !immediateMessageIds.has(message.id)),
+    queuedMessages: baseFrameModel.queuedMessages.filter((message) => !immediateMessageIds.has(message.id) && !fileMessageIds.has(message.id)),
   };
   const frameActions: ProductionConversationFrameActions = {
     onDraftChange: (value) => {
@@ -2313,7 +2371,18 @@ function ConversationPane({
     },
   };
 
-  const frame = <ConversationFrame stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} canvasRef={messageCanvasRef} />;
+  const restoreFileText = (content: string) => { const combined = [content, draftRef.current].filter(Boolean).join("\n\n"); draftRef.current = combined; setDraft(combined); void conversationQuery.refetch(); };
+  const frame = <><ConversationFrame stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} canvasRef={messageCanvasRef}
+    fileRecovery={attachments.cancelled.map(record => <div className={attachmentStyles.savedDraft} key={record.id} role="group" aria-label="Saved cancelled file message"><span>Saved cancelled message · {record.files.length} files</span><button type="button" onClick={() => { attachments.restoreDraft(record); restoreFileText(record.content); }}>Restore draft</button><button type="button" onClick={() => attachments.discard(record.id)}>Discard saved copy</button></div>)}
+    attachments={attachments.tray} onAttach={preparingFiles ? undefined : attachments.open}
+    onFileOpen={attachments.openFile}
+    publications={id => attachments.publications(id, assistantReplies.filter(reply => reply.sourceMessageId === id).flatMap(reply => reply.publications ?? []))}
+    messageAttachments={id => {
+      const message = timelineMessages.find(message => message.id === id);
+      const local = queuedMessages.find(message => message.id === id);
+      return message ? attachments.render(message, restoreFileText, conversationId ?? "") : local?.fileTransferId ? attachments.pending(local.fileTransferId) : null;
+    }}
+  />{attachments.overlays(allyAccent)}</>;
   return <ConversationApprovals
     client={approvalClient}
     workspaceId={workspaceId}
@@ -2661,7 +2730,7 @@ function parseQueuedMessages(stored: string | null): QueuedMessage[] {
       const item = message as Partial<QueuedMessage>;
       const valid = typeof item.id === "string"
         && typeof item.content === "string"
-        && item.content.length > 0
+        && (item.content.length > 0 || typeof item.fileTransferId === "string" && /^[0-9a-f-]{36}$/.test(item.fileTransferId))
         && item.content.length <= 16_000
         && typeof item.intentKey === "string";
       if (!valid || seenIds.has(item.id as string) || seenIntentKeys.has(item.intentKey as string)) return [];
@@ -2671,6 +2740,7 @@ function parseQueuedMessages(stored: string | null): QueuedMessage[] {
         id: item.id as string,
         content: item.content as string,
         intentKey: item.intentKey as string,
+        ...(typeof item.fileTransferId === "string" && /^[0-9a-f-]{36}$/.test(item.fileTransferId) ? { fileTransferId: item.fileTransferId } : {}),
         queuedAt: typeof item.queuedAt === "number" && Number.isFinite(item.queuedAt) ? item.queuedAt : index,
         ...(typeof item.attemptedAt === "number" && Number.isFinite(item.attemptedAt)
           ? { attemptedAt: item.attemptedAt }

@@ -3,7 +3,7 @@
 import { Streamdown } from "streamdown";
 import { RoutineUserText, routineLinkComponents } from "./routine-mention";
 import { ShinyText } from "../../components/text-animations/shiny-text";
-import { useEffect, useRef, useState, type Ref, type UIEvent } from "react";
+import { useEffect, useRef, useState, type Ref, type UIEvent, type ReactNode } from "react";
 import { ConversationPresence } from "./conversation-presence";
 import { ConversationApprovalSlot } from "./conversation-approvals";
 
@@ -47,9 +47,15 @@ export interface ConversationFrameProps {
   sleeping?: boolean;
   stateReady?: boolean;
   runtimeIntentStatus?: ProductionRuntimeIntentStatus;
+  attachments?: ReactNode;
+  fileRecovery?: ReactNode;
+  onAttach?: (anchor: HTMLElement) => void;
+  messageAttachments?: (id: string) => ReactNode;
+  publications?: (messageId: string) => ReactNode;
+  onFileOpen?: (fileId: string) => void;
 }
 
-export function ConversationFrame({ model, actions, canvasRef, sleeping = false, stateReady = true, runtimeIntentStatus = null }: ConversationFrameProps) {
+export function ConversationFrame({ model, actions, canvasRef, sleeping = false, stateReady = true, runtimeIntentStatus = null, attachments, fileRecovery, onAttach, messageAttachments, publications, onFileOpen }: ConversationFrameProps) {
   useEffect(() => {
     // Markdown dialogs portal outside the conversation's accent scope.
     const previous = document.body.style.getPropertyValue("--active-chat-accent");
@@ -60,6 +66,20 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
     };
   }, [model.ally.accent]);
   const shellRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell || !onFileOpen) return;
+    const openFile = (event: MouseEvent) => {
+      const anchor = (event.target as Element).closest?.("a[href]");
+      if (!anchor) return;
+      let url: URL;
+      try { url = new URL(anchor.getAttribute("href")!, window.location.href); } catch { return; }
+      const match = url.origin === window.location.origin && url.pathname.match(/^\/files\/([0-9a-f-]{36})$/i);
+      if (match) { event.preventDefault(); event.stopPropagation(); onFileOpen(match[1]); }
+    };
+    shell.addEventListener("click", openFile, true);
+    return () => shell.removeEventListener("click", openFile, true);
+  }, [onFileOpen]);
   const headerAnchorRef = useRef<HTMLSpanElement>(null);
   const threadAnchorRef = useRef<HTMLSpanElement>(null);
   const latestUser = model.messages.findLast((message) => message.sender === "user" && !message.queued);
@@ -278,6 +298,7 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
                     retrying={model.retryingMessageId === message.id}
                     onRetry={() => actions.onRetryMessage(message.id)}
                   >
+                    {messageAttachments?.(message.id)}
                     <RoutineUserText text={message.content} onOpen={actions.onOpenRoutine} />
                   </UserBubble>
                 ) : (
@@ -291,6 +312,7 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
                 )}
 
                 {turn ? <TurnMessage model={model} turn={turn} onOpenRoutine={actions.onOpenRoutine} /> : null}
+                {publications?.(message.id)}
                 {activityGroups.filter((group) => docked || group.key !== currentGroup?.key).map((group) => (
                   <ActivityGroup key={group.key} group={group} />
                 ))}
@@ -364,6 +386,7 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
         headerRef={headerAnchorRef} threadRef={threadAnchorRef} /> : null}
 
       <footer className={styles.frameComposerArea}>
+        {fileRecovery}
         {model.composer.unavailableNotice ? (
           <p className={styles.frameComposerNotice}>{model.composer.unavailableNotice}</p>
         ) : null}
@@ -372,6 +395,8 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
           <QueueStack items={model.queuedMessages} onRemove={actions.onRemoveQueuedMessage} />
         ) : null}
         <ConversationComposer
+          attachments={attachments}
+          onAttach={onAttach}
           allyName={model.ally.name}
           value={model.composer.draft}
           placeholder={model.composer.placeholder}

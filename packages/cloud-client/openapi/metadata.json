@@ -1,13 +1,14 @@
 {
   "source": "https://github.com/alliesai/allies-cloud",
-  "sourceRevision": "1cb456d929f6e3985875d204d3751315d7ba8e64",
+  "sourceRevision": "857b4f308a030bcb7fddf03cdb0976abc6b65be5",
   "sourceDirty": false,
   "retrievedAt": "2026-09-10",
   "title": "Allies Cloud API",
   "version": "0.1.0",
-  "byteLength": 263809,
-  "sha256": "5499b9b9ffafcf027bb1b79b84c56681b80339febb555e56dfbd5e617f0a9b18",
+  "byteLength": 331963,
+  "sha256": "2be355124b17f32e2e893f50000131afe24d1df1da15320a67e4e53225ec651a",
   "generators": {
     "openapi-typescript": "7.13.0"
-  }
+  },
+  "contractSource": "alliesai/allies-cloud PR 40, 857b4f3; exported locally with Django get_openapi_schema"
 }

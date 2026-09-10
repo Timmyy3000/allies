@@ -1,5 +1,6 @@
 import { Children, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode, type Ref, type UIEvent } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { AllyAvatar, type AllyShape } from "../../components/ally-avatar";
 import { ShinyText } from "../../components/text-animations/shiny-text";
@@ -385,6 +386,8 @@ export function ConversationComposer({
   onSubmit,
   onCompositionStart,
   onCompositionEnd,
+  attachments,
+  onAttach,
 }: {
   allyName: string;
   value: string;
@@ -395,8 +398,11 @@ export function ConversationComposer({
   onSubmit: () => void;
   onCompositionStart?: () => void;
   onCompositionEnd?: (value: string) => void;
+  attachments?: ReactNode;
+  onAttach?: (anchor: HTMLElement) => void;
 }) {
   const isMobileHome = useIsMobileHome();
+  const reduceAttachmentMotion = useReducedMotion();
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const previewRef = useRef<HTMLDialogElement>(null);
   const [pasteError, setPasteError] = useState("");
@@ -434,7 +440,7 @@ export function ConversationComposer({
       }
     }
   };
-  const hasText = Boolean(value.trim());
+  const hasText = Boolean(value.trim()) || Boolean(attachments);
   const [expanded, setExpanded] = useState(value.includes("\n") || value.length > 48);
 
   useLayoutEffect(() => {
@@ -452,14 +458,27 @@ export function ConversationComposer({
     <div
       className={styles.frameComposer}
       data-testid="conversation-composer"
-      data-expanded={compact || expanded ? "true" : "false"}
+      data-expanded={compact || expanded || attachments ? "true" : "false"}
+      data-has-attachments={attachments ? "true" : undefined}
+      data-attachment-enabled={onAttach ? "true" : undefined}
       data-has-paste={compact ? "true" : undefined}
     >
       <label className={styles.frameSrOnly} htmlFor="ally-message">Message {allyName}</label>
-      <span className={styles.frameComposerPlus} aria-hidden="true">
+      {onAttach ? <button type="button" className={styles.frameAttachButton} onClick={event => onAttach(event.currentTarget)} disabled={disabled} aria-label="Add attachment"><img src="/home/chat/plus.svg" alt="" width={13} height={13} /></button> : <span className={styles.frameComposerPlus} aria-hidden="true">
         <img src="/home/chat/plus.svg" alt="" width={13} height={13} />
-      </span>
+      </span>}
       <div className={styles.frameComposerContent}>
+      <AnimatePresence initial={false}>
+        {attachments ? <motion.div
+          key="attachments"
+          data-attachment-reveal="true"
+          initial={{ height: 0 }}
+          animate={{ height: "auto" }}
+          exit={{ height: 0, opacity: 0 }}
+          transition={{ duration: reduceAttachmentMotion ? 0 : .46, ease: [.22, 1, .36, 1] }}
+          style={{ overflow: "hidden" }}
+        >{attachments}</motion.div> : null}
+      </AnimatePresence>
       {compact ? <div className={styles.framePasteCard}><button
         type="button"
         className={styles.framePastedText}

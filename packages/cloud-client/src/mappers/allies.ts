@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { messageFileSchema, preparationSchema, publicationSchema, type MessageFile, type FilePublication } from "../files";
 import { activityApprovalSchema, toActivityApproval, type ActivityApproval } from "./approvals";
 import {
   canonicalRoutineUuidSchema,
@@ -89,6 +90,9 @@ export const messageResponseSchema = z
     retryable: z.boolean().default(false),
     queue_state: z.enum(["claimed", "unclaimed"]).nullable().optional(),
     deleted_at: timestampSchema.nullable().optional(),
+    preparation: preparationSchema.optional(),
+    revision: z.number().int().nonnegative().optional(),
+    files: z.array(messageFileSchema).max(10).optional(),
   })
   .loose();
 
@@ -101,6 +105,7 @@ export const assistantReplyResponseSchema = z
     status: messageStatusSchema,
     has_full_prefix: z.boolean(),
     is_truncated: z.boolean().default(false),
+    publications: z.array(publicationSchema).max(100).optional(),
     created_at: timestampSchema,
     updated_at: timestampSchema,
   })
@@ -305,6 +310,9 @@ export interface OnboardingAttemptViewModel {
 }
 
 export interface MessageViewModel {
+  preparation?: z.infer<typeof preparationSchema>;
+  revision?: number;
+  files?: MessageFile[];
   id: string;
   sender: MessageSender;
   content: string;
@@ -317,6 +325,7 @@ export interface MessageViewModel {
 }
 
 export interface AssistantReplyViewModel {
+  publications?: FilePublication[];
   id: string;
   sourceMessageId: string;
   conversationTurnOrdinal: number;
@@ -454,12 +463,16 @@ export function toMessageViewModel(input: unknown): MessageViewModel {
     retryable: message.retryable,
     queueState: message.queue_state,
     deletedAt: message.deleted_at,
+    ...(message.preparation === undefined ? {} : { preparation: message.preparation }),
+    ...(message.revision === undefined ? {} : { revision: message.revision }),
+    ...(message.files === undefined ? {} : { files: message.files }),
   };
 }
 
 function toAssistantReplyViewModel(input: unknown): AssistantReplyViewModel {
   const reply = assistantReplyResponseSchema.parse(input);
   return {
+    ...(reply.publications === undefined ? {} : { publications: reply.publications }),
     id: reply.id,
     sourceMessageId: reply.source_message_id,
     conversationTurnOrdinal: reply.conversation_turn_ordinal,
