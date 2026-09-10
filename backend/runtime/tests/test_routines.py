@@ -169,9 +169,9 @@ def dispatch_payload(
             "cloud_binding_id": str(state["cloud_binding_id"]),
         },
         "issued_at": base.isoformat().replace("+00:00", "Z"),
-        "deadline_at": (base + timedelta(seconds=60)).isoformat().replace(
-            "+00:00", "Z"
-        ),
+        "deadline_at": (base + timedelta(seconds=60))
+        .isoformat()
+        .replace("+00:00", "Z"),
         "fingerprint": "",
     }
     value["fingerprint"] = routine_fingerprint(value)
@@ -330,6 +330,41 @@ def test_generic_attempt_failure_is_projected_as_a_routine_result(routine_contex
     assert routine.status == RoutineRunStatus.FAILED
 
 
+def test_result_preserves_cloud_workspace_when_foundry_id_differs(routine_context):
+    state = routine_context
+    cloud_workspace_id = uuid4()
+    state["workspace"].tenant_ref = str(cloud_workspace_id)
+    state["workspace"].save(update_fields=["tenant_ref"])
+    payload = dispatch_payload(state)
+    payload["scope"]["workspace_id"] = str(cloud_workspace_id)
+    payload["fingerprint"] = routine_fingerprint(payload)
+    accept_routine_dispatch(RoutineDispatch.model_validate(payload))
+    claim = claim_next_execution(state["context"], uuid4(), 2)
+    assert claim is not None
+    event_id = uuid4()
+    append_runtime_routine_result(
+        state["context"],
+        claim.attempt_id,
+        claim.lease_token,
+        event_id=event_id,
+        sequence=1,
+        outcome="unchanged",
+        text="Checked.",
+        references=[],
+        delayed=False,
+    )
+    from runtime.routine_contracts import build_routine_event_envelope
+
+    event = ExecutionEvent.objects.select_related("attempt__execution").get(
+        event_id=event_id
+    )
+    envelope = build_routine_event_envelope(
+        event.attempt.execution, event.attempt, event
+    )
+    assert cloud_workspace_id != state["workspace"].id
+    assert envelope.scope.workspace_id == cloud_workspace_id
+
+
 def test_routine_result_locking_supports_postgres_normal_and_failed_replays(
     routine_context,
 ):
@@ -452,7 +487,8 @@ def test_postgres_result_and_expiry_race_has_one_terminal_outcome(
         while monotonic() < deadline:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    "SELECT pg_blocking_pids(%s)", [worker_pid],
+                    "SELECT pg_blocking_pids(%s)",
+                    [worker_pid],
                 )
                 blockers = cursor.fetchone()[0]
                 if controller_pid in blockers or worker_pids.get("expiry") in blockers:
@@ -464,8 +500,11 @@ def test_postgres_result_and_expiry_race_has_one_terminal_outcome(
             set_lock_timeout("result")
             if operation == "session-bind":
                 bind_routine_session(
-                    state["context"], claim.attempt_id, claim.lease_token,
-                    None, "late-routine-session",
+                    state["context"],
+                    claim.attempt_id,
+                    claim.lease_token,
+                    None,
+                    "late-routine-session",
                 )
                 return "bound"
             append_runtime_routine_result(
@@ -542,8 +581,12 @@ def test_stopped_routine_is_terminalized_with_a_failed_result(routine_context):
     attempt = routine.current_attempt
     attempt.refresh_from_db()
     assert attempt.status == AttemptStatus.FAILED
-    assert Execution.objects.get(pk=routine.execution_id).status == ExecutionStatus.FAILED
-    event = ExecutionEvent.objects.get(attempt_id=attempt.id, event_type="routine.result")
+    assert (
+        Execution.objects.get(pk=routine.execution_id).status == ExecutionStatus.FAILED
+    )
+    event = ExecutionEvent.objects.get(
+        attempt_id=attempt.id, event_type="routine.result"
+    )
     assert event.payload["outcome"] == "failed"
     assert Lease.objects.get(attempt_id=attempt.id).state == LeaseState.RELEASED
 
@@ -559,7 +602,9 @@ def test_stopped_routine_is_terminalized_with_a_failed_result(routine_context):
     assert replacement.routine_id == command.routine_id
 
 
-def approval_decision_payload(state, routine, action, *, decision: str = "approve") -> dict:
+def approval_decision_payload(
+    state, routine, action, *, decision: str = "approve"
+) -> dict:
     base = state["base"] + timedelta(minutes=10)
     value = {
         "schema_version": "v1",
@@ -583,9 +628,9 @@ def approval_decision_payload(state, routine, action, *, decision: str = "approv
             "cloud_binding_id": str(state["cloud_binding_id"]),
         },
         "issued_at": base.isoformat().replace("+00:00", "Z"),
-        "deadline_at": (base + timedelta(seconds=60)).isoformat().replace(
-            "+00:00", "Z"
-        ),
+        "deadline_at": (base + timedelta(seconds=60))
+        .isoformat()
+        .replace("+00:00", "Z"),
         "fingerprint": "",
     }
     value["fingerprint"] = routine_fingerprint(value)
@@ -615,9 +660,9 @@ def cancel_wait_payload(state, routine, action) -> dict:
             "cloud_binding_id": str(state["cloud_binding_id"]),
         },
         "issued_at": base.isoformat().replace("+00:00", "Z"),
-        "deadline_at": (base + timedelta(seconds=60)).isoformat().replace(
-            "+00:00", "Z"
-        ),
+        "deadline_at": (base + timedelta(seconds=60))
+        .isoformat()
+        .replace("+00:00", "Z"),
         "fingerprint": "",
     }
     value["fingerprint"] = routine_fingerprint(value)
@@ -668,9 +713,7 @@ def test_routine_dispatch_endpoint_replays_the_stored_rev9_receipt(
         "attempt_id",
         "generation",
     }
-    assert (
-        Execution.objects.filter(source_kind="routine_dispatch").count() == 1
-    )
+    assert Execution.objects.filter(source_kind="routine_dispatch").count() == 1
 
 
 def test_routine_dispatch_endpoint_rejects_a_different_routine_kind(
@@ -712,6 +755,7 @@ def test_routine_approval_endpoint_replays_and_fences_changed_idempotency(
 ):
     settings.ALLIES_CLOUD_SERVICE_TOKEN = "test-cloud-service-token"
     state = routine_context
+    state["base"] = django_timezone.now()
     _command, routine = dispatch(state)
     claim = claim_next_execution(state["context"], uuid4(), 2)
     assert claim is not None
@@ -1002,7 +1046,9 @@ def test_same_profile_routines_have_distinct_leases_and_sessions(routine_context
     assert main_claim.execution_id == main_execution.id
     assert main_claim.routine_id is None
 
-    first_claim = first_claim if first_claim.routine_id == first.routine_id else second_claim
+    first_claim = (
+        first_claim if first_claim.routine_id == first.routine_id else second_claim
+    )
     first_session = bind_routine_session(
         state["context"],
         first_claim.attempt_id,
@@ -1094,7 +1140,9 @@ def test_approval_wait_retires_and_reacquires_one_lease(routine_context):
     decision = RoutineApprovalDecision.model_validate(
         approval_decision_payload(state, routine, action)
     )
-    receipt = decide_routine_approval(decision, now=state["base"] + timedelta(minutes=1))
+    receipt = decide_routine_approval(
+        decision, now=state["base"] + timedelta(minutes=1)
+    )
 
     assert receipt.result_code == "APPROVAL_AUTHORIZED"
     assert receipt.request_status == RoutineApprovalStatus.AUTHORIZING
@@ -1103,7 +1151,9 @@ def test_approval_wait_retires_and_reacquires_one_lease(routine_context):
     routine.refresh_from_db()
     paused_lease = Lease.objects.get(pk=old_lease_id)
     acquisitions = list(
-        RoutineLeaseAcquisition.objects.filter(lease_id=old_lease_id).order_by("ordinal")
+        RoutineLeaseAcquisition.objects.filter(lease_id=old_lease_id).order_by(
+            "ordinal"
+        )
     )
     assert len(acquisitions) == 1
     assert acquisitions[0].current is False
@@ -1130,7 +1180,9 @@ def test_approval_wait_retires_and_reacquires_one_lease(routine_context):
     }
     new_lease = Lease.objects.get(pk=old_lease_id)
     acquisitions = list(
-        RoutineLeaseAcquisition.objects.filter(lease_id=old_lease_id).order_by("ordinal")
+        RoutineLeaseAcquisition.objects.filter(lease_id=old_lease_id).order_by(
+            "ordinal"
+        )
     )
     assert len(acquisitions) == 2
     assert acquisitions[0].current is False
@@ -1226,7 +1278,9 @@ def test_expired_routine_lease_reuses_one_lease_with_a_new_acquisition(routine_c
     assert second_claim is not None
     assert second_claim.lease_id == old_lease_id
     acquisitions = list(
-        RoutineLeaseAcquisition.objects.filter(lease_id=old_lease_id).order_by("ordinal")
+        RoutineLeaseAcquisition.objects.filter(lease_id=old_lease_id).order_by(
+            "ordinal"
+        )
     )
     assert [acquisition.current for acquisition in acquisitions] == [False, True]
     routine.refresh_from_db()

@@ -578,7 +578,10 @@ def _routine_result_from_transcript(messages: list[Any]) -> dict[str, Any] | Non
             if not isinstance(tool_call, Mapping):
                 continue
             function = tool_call.get("function")
-            if not isinstance(function, Mapping) or function.get("name") != _ROUTINE_RESULT_TOOL:
+            if (
+                not isinstance(function, Mapping)
+                or function.get("name") != _ROUTINE_RESULT_TOOL
+            ):
                 continue
             call_id = tool_call.get("id")
             if not isinstance(call_id, str) or not _TOOL_CALL_ID.fullmatch(call_id):
@@ -626,9 +629,7 @@ def _routine_result_from_transcript(messages: list[Any]) -> dict[str, Any] | Non
             raise HermesMalformedResponse(
                 "Hermes routine result tool response identity was invalid"
             )
-        if (
-            tool_call_id == call_id
-        ):
+        if tool_call_id == call_id:
             content = message.get("content")
             if not isinstance(content, str) or not content:
                 raise HermesMalformedResponse(
@@ -662,7 +663,9 @@ def _routine_result_from_transcript(messages: list[Any]) -> dict[str, Any] | Non
         )
     result = matching_results[0]
     if not isinstance(result, Mapping) or result.get("status") != "accepted":
-        raise HermesMalformedResponse("Hermes routine result tool response was rejected")
+        raise HermesMalformedResponse(
+            "Hermes routine result tool response was rejected"
+        )
     return _routine_result_value(arguments)
 
 
@@ -1285,12 +1288,22 @@ def _session_stream_headers(
     session_key: str | None,
     *,
     routine_result: bool = False,
+    routine_tool_token: str | None = None,
 ) -> Mapping[str, str]:
     headers = dict(_session_key_header(session_key))
     if getattr(settings, "rich_approvals_enabled", True):
         headers["X-Allies-Rich-Approvals"] = "1"
     if routine_result:
         headers["X-Allies-Routine-Result"] = "1"
+    elif routine_tool_token:
+        if (
+            not isinstance(routine_tool_token, str)
+            or len(routine_tool_token) > 2048
+            or any(c.isspace() for c in routine_tool_token)
+        ):
+            raise HermesMalformedResponse("Invalid routine tool capability")
+        headers["X-Allies-Routine-Tool"] = routine_tool_token
+        headers["X-Allies-Foundry-Origin"] = settings.foundry_origin
     return headers
 
 
@@ -1722,6 +1735,7 @@ class HermesClient:
         session_key: str | None = None,
         reasoning_effort: str | None = None,
         routine_result: bool = False,
+        routine_tool_token: str | None = None,
     ) -> HermesStreamResult:
         """Run one profile-scoped SSE turn with bounded response handling."""
 
@@ -1750,6 +1764,7 @@ class HermesClient:
                         self.settings,
                         session_key,
                         routine_result=routine_result,
+                        routine_tool_token=routine_tool_token,
                     ),
                 )
 
@@ -1969,6 +1984,7 @@ class HermesClient:
         session_key: str | None = None,
         reasoning_effort: str | None = None,
         routine_result: bool = False,
+        routine_tool_token: str | None = None,
     ) -> HermesStreamResult:
         reasoning_effort = validate_reasoning_effort(reasoning_effort)
         started_at = time.monotonic()
@@ -1990,6 +2006,7 @@ class HermesClient:
                 session_key=session_key,
                 reasoning_effort=reasoning_effort,
                 routine_result=routine_result,
+                routine_tool_token=routine_tool_token,
             )
         except BaseException as error:
             emit_runtime_event(
@@ -2027,6 +2044,7 @@ class HermesClient:
         session_key: str | None = None,
         reasoning_effort: str | None = None,
         routine_result: bool = False,
+        routine_tool_token: str | None = None,
     ) -> _ObservedHermesStream:
         """Open an SSE response and yield events without buffering the body."""
 
@@ -2081,6 +2099,7 @@ class HermesClient:
                         self.settings,
                         session_key,
                         routine_result=routine_result,
+                        routine_tool_token=routine_tool_token,
                     ),
                 ),
                 self.settings.stream_timeout,

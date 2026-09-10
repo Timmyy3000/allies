@@ -139,7 +139,9 @@ def _routine_references(
             len(variable_payload) + MAX_ROUTINE_RESULT_FIXED_BYTES
             > MAX_ROUTINE_EVENT_BYTES
         ):
-            raise HermesMalformedResponse("Hermes routine result envelope was too large")
+            raise HermesMalformedResponse(
+                "Hermes routine result envelope was too large"
+            )
     return references
 
 
@@ -266,6 +268,7 @@ class FoundryClaim:
     claim_id: str
     routine_id: str | None = None
     reasoning_effort: str | None = None
+    routine_tool_token: str | None = None
 
     def __repr__(self) -> str:  # pragma: no cover - defensive redaction
         return (
@@ -789,6 +792,7 @@ class FoundryClient:
                 else None
             ),
             reasoning_effort=reasoning_effort,
+            routine_tool_token=payload.get("routine_tool_token"),
         )
 
     async def reconciliation_snapshot(self) -> RuntimeReconciliationSnapshot:
@@ -1354,19 +1358,20 @@ async def _stream_events(
     session_key: str,
     reasoning_effort: str | None = None,
     routine_result: bool = False,
+    routine_tool_token: str | None = None,
 ) -> Any:
     stream_kwargs: dict[str, Any] = {"session_key": session_key}
     if reasoning_effort is not None:
         stream_kwargs["reasoning_effort"] = reasoning_effort
     if routine_result:
         stream_kwargs["routine_result"] = True
+    elif routine_tool_token:
+        stream_kwargs["routine_tool_token"] = routine_tool_token
     method = getattr(hermes, "stream_profile_incremental", None)
     if callable(method):
         result = method(profile_id, session_id, message, **stream_kwargs)
     else:
-        result = hermes.stream_profile(
-            profile_id, session_id, message, **stream_kwargs
-        )
+        result = hermes.stream_profile(profile_id, session_id, message, **stream_kwargs)
     if inspect.isawaitable(result):
         result = await result
     if hasattr(result, "__aiter__"):
@@ -1755,7 +1760,9 @@ class FoundryWorker:
             try:
                 message = validate_stream_message(
                     claim.payload.get(
-                        "execution_prompt" if claim.routine_id is not None else "message"
+                        "execution_prompt"
+                        if claim.routine_id is not None
+                        else "message"
                     )
                 )
             except ValueError:
@@ -1888,6 +1895,7 @@ class FoundryWorker:
                 session_key=identifiers.session_key,
                 reasoning_effort=claim.reasoning_effort,
                 routine_result=claim.routine_id is not None,
+                routine_tool_token=claim.routine_tool_token,
             )
             renewal = asyncio.create_task(self._renew_loop(claim, stream, lost))
             terminal: HermesEvent | None = None
@@ -2326,7 +2334,9 @@ class FoundryWorker:
                     )
                 routine_text = typed_text
                 if len(routine_text.encode("utf-8")) > MAX_ROUTINE_TEXT_BYTES:
-                    raise HermesMalformedResponse("Hermes routine result text was too large")
+                    raise HermesMalformedResponse(
+                        "Hermes routine result text was too large"
+                    )
                 references = _routine_references(
                     terminal.payload.get("references", []),
                     text=routine_text,

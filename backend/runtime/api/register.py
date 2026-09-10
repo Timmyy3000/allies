@@ -55,6 +55,7 @@ from runtime.services.profiles import (
     ensure_runtime_profile,
     list_profile_reconciliation,
 )
+from runtime.services.routine_tools import call_routine_tool, routine_tool_token
 from runtime.services.routines import (
     accept_routine_dispatch,
     append_runtime_routine_result,
@@ -108,6 +109,29 @@ _cloud_service_auth = CloudServiceAuth()
 
 def register(api: NinjaExtraAPI) -> None:
     api.add_exception_handler(NinjaValidationError, _validation_error)
+
+    @api.post("/runtime/routines/tool", auth=None)
+    def routine_tool(request: HttpRequest):
+        try:
+            if len(request.body) > 64 * 1024:
+                raise RuntimeValidationError("routine request too large")
+            try:
+                body = json.loads(request.body)
+                if (
+                    not isinstance(body, dict)
+                    or set(body) != {"call_id", "arguments"}
+                    or not isinstance(body["arguments"], dict)
+                ):
+                    raise ValueError("invalid fields")
+                call_id = UUID(body["call_id"])
+            except (ValueError, TypeError, KeyError) as exc:
+                raise RuntimeValidationError("invalid routine request") from exc
+            status, result = call_routine_tool(
+                _bearer(request), call_id=call_id, arguments=body["arguments"]
+            )
+            return JsonResponse(result, status=status)
+        except RuntimeDomainError as exc:
+            return _error(exc)
 
     @api.post("/runtime/claims", auth=None)
     def claims(request: HttpRequest, payload: ClaimRequest):
@@ -799,6 +823,7 @@ def _claim_json(claim):
         "payload": claim.payload,
         "claim_id": str(claim.claim_id),
         "routine_id": str(claim.routine_id) if claim.routine_id is not None else None,
+        "routine_tool_token": routine_tool_token(claim),
     }
 
 
