@@ -204,9 +204,15 @@ def _routine_contexts_for_message(message: Message):
 
 def _model_input_text(message: Message) -> str:
     contexts = _routine_contexts_for_message(message)
-    if not contexts:
+    if not contexts and not message.client_timezone:
         return message.content
     parts = [context.context_text for context in contexts]
+    if message.client_timezone:
+        parts.append(
+            f"[Conversation context]\nBrowser timezone: {message.client_timezone}\n"
+            f"Message sent at: {message.created_at.isoformat()}\n"
+            "Use this timezone for new schedules unless the user explicitly specifies another."
+        )
     parts.append(f"[User message]\n{message.content}")
     text = "\n\n".join(parts)
     if len(text.encode("utf-8")) > MAX_COMMAND_TEXT_BYTES:

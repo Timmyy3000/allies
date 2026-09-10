@@ -207,6 +207,7 @@ class ConversationController(ControllerBase):
                 workspace_id=workspace_id,
                 conversation_id=conversation_id,
                 content=payload.content,
+                client_timezone=payload.timezone,
                 idempotency_key=idempotency_key,
             )
         except Exception as exc:

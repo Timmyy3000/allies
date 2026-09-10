@@ -25,6 +25,21 @@ ROUTINE_APPROVAL_MAX_ATTEMPTS = 5
 ROUTINE_APPROVAL_EXPIRY_SECONDS = 24 * 60 * 60
 
 
+class RoutineToolCall(models.Model):
+    message = models.ForeignKey("chat.Message", on_delete=models.CASCADE)
+    call_id = models.UUIDField()
+    request_digest = models.CharField(max_length=64)
+    response = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("message", "call_id"), name="routine_tool_message_call_uniq"
+            )
+        ]
+
+
 class RoutineState(models.TextChoices):
     ACTIVE = "active", "Active"
     PAUSED = "paused", "Paused"

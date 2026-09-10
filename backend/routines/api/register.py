@@ -1,7 +1,9 @@
 import secrets
 from typing import Annotated
+from uuid import UUID
 
 from django.conf import settings
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.http import HttpRequest, JsonResponse
 from ninja import Header, Query
 from ninja_extra import (
@@ -11,6 +13,7 @@ from ninja_extra import (
     http_get,
     http_post,
 )
+from pydantic import BaseModel, ConfigDict
 
 from auths.api.common import (
     _require_origin,
@@ -33,6 +36,7 @@ from ..services.approvals import (
 )
 from ..services.management import (
     RoutineCursorInvalid,
+    RoutineRevisionConflict,
     owner_routine,
     owner_routine_page,
 )
@@ -44,6 +48,7 @@ from ..services.results import (
     complete_pending_routine_results,
     project_routine_result,
 )
+from ..services.tools import execute_routine_tool
 from .schemas import (
     RoutineApprovalDecisionRequest,
     RoutineApprovalResponse,
@@ -232,7 +237,42 @@ class RoutineController(ControllerBase):
         )
 
 
+class RoutineToolEnvelope(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    message_id: UUID
+    binding_id: UUID
+    command_fingerprint: str
+    call_id: UUID
+    arguments: dict
+
+
 def register(api: NinjaExtraAPI) -> None:
+    @api.post("/internal/foundry/routines/tool", auth=_foundry_token_valid)
+    def routine_tool(request: HttpRequest, payload: RoutineToolEnvelope):
+        if len(request.body) > 64 * 1024:
+            return JsonResponse({"error": "request_too_large"}, status=413)
+        try:
+            result = execute_routine_tool(**payload.model_dump())
+        except (ObjectDoesNotExist, PermissionError, WorkspaceAccessDenied):
+            return JsonResponse({"error": "routine_unavailable"}, status=403)
+        except RoutineRevisionConflict:
+            return JsonResponse(
+                {
+                    "error": "revision_conflict",
+                    "instruction": "Inspect the routine before retrying.",
+                },
+                status=409,
+            )
+        except (ValidationError, ValueError):
+            return JsonResponse(
+                {
+                    "error": "invalid_routine_request",
+                    "instruction": "Check the action fields and explicit schedule; ask the user for missing information.",
+                },
+                status=422,
+            )
+        return JsonResponse(result)
+
     @api.post(
         "/internal/foundry/routines/results",
         auth=_foundry_token_valid,
