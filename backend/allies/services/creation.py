@@ -9,7 +9,13 @@ from uuid import UUID
 from django.db import IntegrityError, transaction
 
 from allies.exceptions import IdempotencyConflict, OnboardingInvalid
-from allies.models import Ally, AllyBinding, OnboardingAttempt, ProvisioningOperation
+from allies.models import (
+    Ally,
+    AllyBinding,
+    LabelGenerationState,
+    OnboardingAttempt,
+    ProvisioningOperation,
+)
 from allies.services.onboarding import (
     _native_attempt_binding,
     digest_value,
@@ -224,6 +230,7 @@ def create_ally(
                 raise OnboardingInvalid("onboarding content changed")
             ally = Ally.objects.create(
                 workspace=context.workspace,
+                label_generation_state=LabelGenerationState.PENDING,
                 **{key: value for key, value in values.items() if key != "reply"},
             )
             binding = AllyBinding.objects.create(ally=ally)
@@ -241,6 +248,9 @@ def create_ally(
                 reply=values["reply"],
             )
             transaction.on_commit(_enqueue_dispatch)
+            transaction.on_commit(
+                lambda ally_id=ally.pk: _enqueue_label_generation(ally_id)
+            )
             return AllyCreationResult(ally, operation, False)
     except IntegrityError:
         if existing := existing_result():
@@ -256,6 +266,15 @@ def _enqueue_dispatch() -> None:
     # The operation is durable and beat will claim it; broker failure must not
     # turn a committed create into a false API failure.
     except Exception:  # noqa: BLE001
+        return
+
+
+def _enqueue_label_generation(ally_id: UUID) -> None:
+    try:
+        from allies.tasks import generate_ally_label_task
+
+        generate_ally_label_task.delay(str(ally_id))
+    except Exception:  # noqa: BLE001 - beat recovery owns broker failures.
         return
 
 

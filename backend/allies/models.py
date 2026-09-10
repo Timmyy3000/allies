@@ -16,6 +16,7 @@ from django.utils import timezone
 ALLY_NAME_MAX_LENGTH = 80
 ALLY_JOB_MAX_LENGTH = 200
 ALLY_PERSONALITY_MAX_LENGTH = 4000
+ALLY_LABEL_MAX_LENGTH = 80
 APPEARANCE_CATALOG_VERSION_MAX_LENGTH = 32
 APPEARANCE_KEY_MAX_LENGTH = 128
 ONBOARDING_TEXT_MAX_LENGTH = 4000
@@ -38,6 +39,13 @@ class ProvisioningStatus(models.TextChoices):
     EXPIRED = "expired", "Expired"
 
 
+class LabelGenerationState(models.TextChoices):
+    PENDING = "pending", "Pending"
+    CLAIMED = "claimed", "Claimed"
+    COMPLETE = "complete", "Complete"
+    UNAVAILABLE = "unavailable", "Unavailable"
+
+
 class Ally(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(
@@ -48,6 +56,14 @@ class Ally(models.Model):
     name = models.CharField(max_length=ALLY_NAME_MAX_LENGTH)
     job = models.CharField(max_length=ALLY_JOB_MAX_LENGTH)
     personality = models.TextField(max_length=ALLY_PERSONALITY_MAX_LENGTH)
+    label = models.CharField(max_length=ALLY_LABEL_MAX_LENGTH, blank=True, default="")
+    show_label = models.BooleanField(default=False)
+    settings_revision = models.PositiveIntegerField(default=0)
+    label_generation_state = models.CharField(
+        max_length=16,
+        choices=LabelGenerationState.choices,
+        default=LabelGenerationState.UNAVAILABLE,
+    )
     appearance_catalog_version = models.CharField(
         max_length=APPEARANCE_CATALOG_VERSION_MAX_LENGTH
     )
@@ -61,7 +77,11 @@ class Ally(models.Model):
             models.Index(
                 fields=("workspace", "created_at"),
                 name="ally_workspace_created_idx",
-            )
+            ),
+            models.Index(
+                fields=("label_generation_state", "updated_at"),
+                name="ally_label_state_updated_idx",
+            ),
         ]
 
     def __str__(self) -> str:
