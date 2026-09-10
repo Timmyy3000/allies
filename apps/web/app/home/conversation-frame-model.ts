@@ -68,6 +68,7 @@ export interface RoutineActionRequest {
   routineId: string;
   routineRevision: number;
   titleSnapshot: string;
+  confirmed?: boolean;
   runId?: string | null;
   approvalRequestId?: string | null;
   approvalId?: string | null;
@@ -143,28 +144,40 @@ export function buildRoutineActionEvidence(
 }
 
 export function buildRoutineActionMessage(request: RoutineActionRequest): string {
-  const identity = [
-    `routine_id=${request.routineId}`,
-    `expected_revision=${request.routineRevision}`,
-    `title_snapshot=${JSON.stringify(request.titleSnapshot)}`,
-    request.runId ? `run_id=${request.runId}` : "",
-    request.approvalId ? `approval_id=${request.approvalId}` : "",
-    request.approvalRequestId ? `approval_request_id=${request.approvalRequestId}` : "",
-    request.executionId ? `execution_id=${request.executionId}` : "",
-    request.attemptId ? `attempt_id=${request.attemptId}` : "",
-    request.generation === null || request.generation === undefined ? "" : `generation=${request.generation}`,
-    request.actionAttemptId ? `action_attempt_id=${request.actionAttemptId}` : "",
-  ].filter(Boolean).join("; ");
+  const title = request.titleSnapshot.replace(/[\\[\]]/g, "\\$&").replace(/\r?\n/g, " ");
+  const reference = `[${title}](#routine/${request.routineId})`;
   if (request.action === "pause" || request.action === "resume") {
-    return `Please ${request.action} the routine ${JSON.stringify(request.titleSnapshot)}. ${identity}`;
+    return `Please ${request.action} the routine ${reference}.`;
   }
   if (request.action === "delete") {
-    return `Please start the confirmation flow to delete the routine ${JSON.stringify(request.titleSnapshot)}. ${identity}`;
+    return `${request.confirmed ? "I confirm: delete" : "Please delete"} the routine ${reference}.`;
   }
   if (request.action === "approve" || request.action === "reject") {
-    return `Please record my ${request.action} decision for the pending routine action. decision=${request.action}; ${identity}`;
+    return `I ${request.action} the pending action for ${reference}.`;
   }
-  return `Please cancel the pending routine wait. ${identity}`;
+  return `Please cancel the pending wait for ${reference}.`;
+}
+
+export function buildRoutineActionContext(request: RoutineActionRequest) {
+  return {
+    action: request.action === "cancel" ? "cancel_wait" as const : request.action,
+    routine_id: request.routineId,
+    expected_revision: request.routineRevision,
+    title_snapshot: request.titleSnapshot,
+    confirmed: request.confirmed ?? false,
+    run_id: request.runId ?? null,
+    approval_id: request.approvalId ?? null,
+    approval_request_id: request.approvalRequestId ?? null,
+    execution_id: request.executionId ?? null,
+    attempt_id: request.attemptId ?? null,
+    generation: request.generation ?? null,
+    action_attempt_id: request.actionAttemptId ?? null,
+  };
+}
+
+export function routineMessageAnchor(item: RoutineChatItemViewModel, messages: readonly ProductionConversationMessageModel[]): string | null {
+  if (item.kind === "created" && item.sourceMessageId) return item.sourceMessageId;
+  return messages.findLast((message) => Date.parse(message.createdAt) <= Date.parse(item.occurredAt))?.id ?? null;
 }
 
 export interface ProductionConversationFrameModel {

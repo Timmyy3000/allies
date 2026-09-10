@@ -1,6 +1,7 @@
 "use client";
 
 import { Streamdown } from "streamdown";
+import { RoutineUserText, routineLinkComponents } from "./routine-mention";
 import { ShinyText } from "../../components/text-animations/shiny-text";
 import { useEffect, useRef, useState, type Ref, type UIEvent } from "react";
 import { ConversationPresence } from "./conversation-presence";
@@ -17,6 +18,7 @@ import type {
 import {
   conversationDateDividerAt,
   formatConversationDateDivider,
+  routineMessageAnchor,
 } from "./conversation-frame-model";
 import {
   ActivityDisclosure,
@@ -28,10 +30,12 @@ import {
   ConversationRail,
   ConversationShell,
   DateDivider,
+  DeleteRoutineSheet,
   FrameError,
   QueueStack,
   RoutineChatDetail,
   RoutineChatProjectionCard,
+  RoutineRunDetail,
   UserBubble,
 } from "./conversation-frame-primitives";
 import styles from "./conversation-frame.module.css";
@@ -91,6 +95,26 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
     : undefined;
   const visibleMessages = model.messages.filter((message) => !message.queued);
   const routineItems = model.routineItems ?? [];
+  const [selectedRun, setSelectedRun] = useState<(typeof routineItems)[number] | null>(null);
+  const runDetail = selectedRun ? routineItems.find((item) => selectedRun.runId && item.kind === "result" && item.runId === selectedRun.runId && item.routineId === selectedRun.routineId && item.conversationId === selectedRun.conversationId)
+    ?? routineItems.find((item) => item.id === selectedRun.id && item.kind === selectedRun.kind) : null;
+  const triggeredAt = runDetail?.runId ? routineItems.find((item) => item.kind === "running" && item.runId === runDetail.runId && item.routineId === runDetail.routineId && item.conversationId === runDetail.conversationId)?.occurredAt : null;
+  const routinesByMessage = new Map<string | null, typeof routineItems>();
+  for (const item of routineItems) {
+    const anchor = routineMessageAnchor(item, visibleMessages);
+    const group = routinesByMessage.get(anchor) ?? [];
+    group.push(item);
+    routinesByMessage.set(anchor, group);
+  }
+  const [deleteFailed, setDeleteFailed] = useState(false);
+  const [deletingRoutineId, setDeletingRoutineId] = useState<string | null>(null);
+  const deleteButtonRef = useRef<HTMLButtonElement>(null);
+  const routineSelectionRef = useRef(model.routineDetail?.routineId);
+  useEffect(() => { routineSelectionRef.current = model.routineDetail?.routineId; }, [model.routineDetail?.routineId]);
+  const renderRoutine = (item: (typeof routineItems)[number]) => (
+    <RoutineProjection key={`${item.kind}:${item.id}`} item={item} actionState={model.routineAction}
+      onOpen={() => { if (item.kind === "created") { setSelectedRun(null); actions.onOpenRoutine?.(item.routineId); } else { actions.onCloseRoutine?.(); setSelectedRun(item); } }} onAction={actions.onRoutineAction} />
+  );
   const placementKey = `${visibleMessages.at(-1)?.id ?? "empty"}:${currentTurn?.turnOrdinal ?? ""}`;
   const topDate = formatConversationDateDivider(visibleMessages[0]?.createdAt ?? "");
   const [scrolledAway, setScrolledAway] = useState(false);
@@ -231,6 +255,7 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
             <p className={styles.frameQuietState}>No messages yet</p>
           ) : null}
 
+          {routinesByMessage.get(null)?.map(renderRoutine)}
           {visibleMessages.map((message, index) => {
             const turn = message.sender === "user"
               ? turnForMessage(message.id, message.sequence)
@@ -253,41 +278,27 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
                     retrying={model.retryingMessageId === message.id}
                     onRetry={() => actions.onRetryMessage(message.id)}
                   >
-                    {message.content}
+                    <RoutineUserText text={message.content} onOpen={actions.onOpenRoutine} />
                   </UserBubble>
                 ) : (
                   <>
                     <AssistantMessage createdAt={message.createdAt}>
-                      <Streamdown mode="static" parseIncompleteMarkdown tableMaxHeight="none">
+                      <Streamdown mode="static" parseIncompleteMarkdown tableMaxHeight="none" components={routineLinkComponents(actions.onOpenRoutine)}>
                         {message.content}
                       </Streamdown>
                     </AssistantMessage>
                   </>
                 )}
 
-                {turn ? <TurnMessage model={model} turn={turn} /> : null}
+                {turn ? <TurnMessage model={model} turn={turn} onOpenRoutine={actions.onOpenRoutine} /> : null}
                 {activityGroups.filter((group) => docked || group.key !== currentGroup?.key).map((group) => (
                   <ActivityGroup key={group.key} group={group} />
                 ))}
                 {docked || message.id !== currentGroup?.messageId ? <ConversationApprovalSlot messageId={message.id} /> : null}
+                {routinesByMessage.get(message.id)?.map(renderRoutine)}
               </div>
             );
           })}
-
-          {routineItems.length > 0 ? (
-            <section className={styles.frameRoutineProjectionSection} aria-label="Routine updates">
-              <h2>Routine updates</h2>
-              {routineItems.map((item) => (
-                <RoutineProjection
-                  key={`${item.kind}:${item.id}`}
-                  item={item}
-                  actionState={model.routineAction}
-                  onOpen={() => actions.onOpenRoutine?.(item.routineId)}
-                  onAction={actions.onRoutineAction}
-                />
-              ))}
-            </section>
-          ) : null}
 
           <div className={styles.framePresenceRow} data-docked={docked}>
             <span ref={threadAnchorRef} className={styles.framePresenceThreadSlot} aria-hidden="true" />
@@ -373,16 +384,38 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
         />
       </footer>
 
-      {routineDetailState?.routineId ? (
-        <BottomSheet title="Routine details" modal onClose={() => actions.onCloseRoutine?.()} className={styles.frameRoutineDetailOverlay}>
-          {routineDetail ? (
+      {runDetail ? (
+        <BottomSheet title="Routine run details" modal onClose={() => setSelectedRun(null)} className={styles.frameRoutineDetailOverlay}>
+          <RoutineRunDetail title={runDetail.titleSnapshot} status={routineProjectionStatus(runDetail)}
+            schedule={formatRoutineSchedule(runDetail.schedule)}
+            triggeredAt={formatRoutineDate(triggeredAt ?? null, runDetail.schedule.timezone)}
+            reportedAt={runDetail.kind === "result" ? formatRoutineDate(runDetail.occurredAt, runDetail.schedule.timezone) : null}
+            failed={runDetail.status === "failed"}
+            text={runDetail.resultInsertion === "inserted" ? runDetail.text : null} />
+        </BottomSheet>
+      ) : routineDetailState?.routineId ? (
+        <BottomSheet title={deletingRoutineId === routineDetailState.routineId ? "Delete routine" : "Routine details"} modal closeDisabled={model.routineAction?.status === "sending"} onClose={() => { setDeletingRoutineId(null); actions.onCloseRoutine?.(); }} className={`${styles.frameRoutineDetailOverlay} ${deletingRoutineId === routineDetailState.routineId ? styles.frameRoutineDeleteOverlay : ""}`}>
+          {routineDetail && deletingRoutineId === routineDetail.routineId ? (
+            <DeleteRoutineSheet embedded failed={deleteFailed} title={routineDetail.title} disabled={model.routineAction?.status === "sending"}
+              onCancel={() => { setDeletingRoutineId(null); window.requestAnimationFrame(() => deleteButtonRef.current?.focus()); }}
+              onDelete={() => {
+                if (!actions.onRoutineAction) return;
+                setDeleteFailed(false);
+                void actions.onRoutineAction({ action: "delete", routineId: routineDetail.routineId,
+                  routineRevision: routineDetail.revision, titleSnapshot: routineDetail.title, confirmed: true,
+                }).then((accepted) => {
+                  if (routineSelectionRef.current !== routineDetail.routineId) return;
+                  if (accepted) { setDeletingRoutineId(null); actions.onCloseRoutine?.(); }
+                  else setDeleteFailed(true);
+                }).catch(() => { if (routineSelectionRef.current === routineDetail.routineId) setDeleteFailed(true); });
+              }} />
+          ) : routineDetail ? (
             <RoutineChatDetail
               title={routineDetail.title}
               schedule={formatRoutineSchedule(routineDetail.schedule)}
               scheduleState={formatRoutineScheduleState(routineDetail.scheduleState)}
-              revision={routineDetail.revision}
-              scheduleGeneration={routineDetail.scheduleGeneration}
-              nextRunAt={formatRoutineDate(routineDetail.nextRunAt)}
+              deleteButtonRef={deleteButtonRef}
+              nextRunAt={formatRoutineDate(routineDetail.nextRunAt, routineDetail.schedule.timezone)}
               executionPrompt={routineDetail.executionPrompt}
               canPauseResume={routineDetail.schedule.kind === "recurring"
                 && (routineDetail.scheduleState === "active" || routineDetail.scheduleState === "paused")}
@@ -404,13 +437,8 @@ export function ConversationFrame({ model, actions, canvasRef, sleeping = false,
                 });
               }}
               onDelete={() => {
-                if (!actions.onRoutineAction) return;
-                void actions.onRoutineAction({
-                  action: "delete",
-                  routineId: routineDetail.routineId,
-                  routineRevision: routineDetail.revision,
-                  titleSnapshot: routineDetail.title,
-                });
+                setDeleteFailed(false);
+                setDeletingRoutineId(routineDetail.routineId);
               }}
             />
           ) : null}
@@ -467,18 +495,21 @@ function RoutineProjection({
     && item.approvalRequestId !== null
     && item.approvalStatus === "pending";
 
+  if (item.kind === "created") {
+    return <RoutineChatProjectionCard name={item.titleSnapshot}
+      schedule={formatRoutineSchedule(item.schedule, false)} status="" onOpen={onOpen} />;
+  }
+  const runStatus = item.kind === "result" && (item.status === "changed" || item.status === "unchanged" || item.status === "succeeded")
+    ? "Succeeded" : item.status === "failed" ? "Failed" : routineProjectionStatus(item);
   return (
-    <RoutineChatProjectionCard
-      name={item.titleSnapshot}
-      schedule={formatRoutineSchedule(item.schedule)}
-      status={routineProjectionStatus(item)}
-      onOpen={onOpen}
-    >
-      <p className={styles.frameRoutineProjectionDetail}>
-        <span>Revision {item.routineRevision}</span>
-        <span>Generation {item.scheduleGeneration}</span>
-        {item.delayed ? <span>Delayed run</span> : null}
-      </p>
+    <section className={styles.frameRoutineRun} aria-label="Routine run">
+      <div className={styles.frameRoutineEvent}>
+        <button type="button" className={styles.frameRoutineRunLink} onClick={onOpen} aria-label={`${item.titleSnapshot} · ${runStatus}`}>
+          <svg aria-hidden="true" viewBox="0 0 24 24"><use href="/ally/icons/chat-routine.svg#icon" /></svg>
+          <span className={styles.frameRoutineRunName} title={item.titleSnapshot}>{item.titleSnapshot}</span>
+          <span className={styles.frameRoutineRunStatus} data-outcome={runStatus === "Succeeded" ? "success" : runStatus === "Failed" ? "failure" : undefined}>· {runStatus}</span>
+        </button>
+      </div>
       {item.kind === "running" && item.approvalStatus === "pending" ? (
         <p className={styles.frameRoutineProjectionDetail} role="status">
           Approval requested{item.approvalExpiresAt ? ` · expires ${formatRoutineDate(item.approvalExpiresAt)}` : ""}
@@ -487,10 +518,13 @@ function RoutineProjection({
       {item.kind === "result" && item.resultInsertion === "pending" ? (
         <p className={styles.frameRoutineProjectionDetail} role="status">Pending insertion — waiting to appear in chat.</p>
       ) : null}
-      {item.kind === "result" && item.resultInsertion === "inserted" ? (
-        <p className={styles.frameRoutineProjectionDetail} role="status">Added to chat.</p>
+      {item.kind === "result" && item.resultInsertion === "inserted" && item.text ? (
+        <div>
+          <AssistantMessage createdAt={item.occurredAt}>
+            <Streamdown mode="static" parseIncompleteMarkdown tableMaxHeight="none">{item.text}</Streamdown>
+          </AssistantMessage>
+        </div>
       ) : null}
-      {item.kind === "result" && item.resultInsertion === "inserted" && item.text ? <p className={styles.frameRoutineProjectionText}>{item.text}</p> : null}
       {item.kind === "result" && item.resultInsertion === "inserted" && item.references.length > 0 ? (
         <ul className={styles.frameRoutineReferenceList} aria-label="Routine references">
           {item.references.map((reference) => (
@@ -505,13 +539,13 @@ function RoutineProjection({
           <button type="button" className={styles.frameNeutralAction} onClick={() => dispatch("cancel")} disabled={actionLocked}>Cancel</button>
         </div>
       ) : null}
-      {actionLocked ? <p className={styles.frameRoutineActionNotice} role="status">{actionState?.status === "sending" ? "Sending request…" : "Request sent to Ally; waiting for confirmation."}</p> : null}
-    </RoutineChatProjectionCard>
+      {actionLocked ? <p className={styles.frameRoutineActionNotice} role="status">{actionState?.status === "sending" ? "Sending request…" : "Request sent to Ally."}</p> : null}
+    </section>
   );
 }
 
 function routineProjectionStatus(item: NonNullable<ProductionConversationFrameModel["routineItems"]>[number]): string {
-  if (item.kind === "created") return "Routine created";
+  if (item.kind === "created") return "";
   if (item.kind === "running") {
     if (item.approvalStatus && item.approvalStatus !== "pending") {
       return `Approval ${formatRoutineToken(item.approvalStatus)}`;
@@ -532,22 +566,26 @@ function routineProjectionStatus(item: NonNullable<ProductionConversationFrameMo
   return formatRoutineToken(item.status);
 }
 
-function formatRoutineSchedule(schedule: NonNullable<ProductionConversationFrameModel["routineItems"]>[number]["schedule"]): string {
-  if (schedule.kind === "once") return `Once · ${schedule.localAt} (${schedule.timezone})`;
+function formatRoutineSchedule(schedule: NonNullable<ProductionConversationFrameModel["routineItems"]>[number]["schedule"], includeTimezone = true): string {
+  const timezone = includeTimezone ? ` · ${schedule.timezone}` : "";
+  if (schedule.kind === "once") {
+    const date = new Date(`${schedule.localAt}Z`);
+    return `${date.toLocaleString([], { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })}${timezone}`;
+  }
   const localTime = schedule.localTime?.slice(0, 5) ?? "the scheduled time";
-  if (schedule.frequency === "daily") return `Daily · ${localTime} (${schedule.timezone})`;
+  if (schedule.frequency === "daily") return `${localTime} every day${timezone}`;
   if (schedule.frequency === "weekly") {
     const days = (schedule.daysOfWeek ?? []).map((day) => ["", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"][day] ?? "").filter(Boolean).join(", ");
-    return `Weekly · ${days} at ${localTime} (${schedule.timezone})`;
+    return `${localTime} every ${days}${timezone}`;
   }
-  return `Monthly · day ${schedule.dayOfMonth ?? "—"} at ${localTime} (${schedule.timezone})`;
+  return `Monthly · day ${schedule.dayOfMonth ?? "—"} at ${localTime}${timezone}`;
 }
 
-function formatRoutineDate(value: string | null): string | null {
+function formatRoutineDate(value: string | null, timeZone?: string): string | null {
   if (!value) return null;
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  return date.toLocaleString([], { dateStyle: "medium", timeStyle: "short", timeZone });
 }
 
 function formatRoutineScheduleState(value: string): string {
@@ -568,9 +606,11 @@ function isTerminalActivityState(state: ProductionConversationFrameModel["activi
 function TurnMessage({
   model,
   turn,
+  onOpenRoutine,
 }: {
   model: ProductionConversationFrameModel;
   turn: ProductionConversationTurnModel;
+  onOpenRoutine?: (id: string) => void;
 }) {
   const pending = turn.state === "queued" || turn.state === "running" || turn.state === "awaiting_action";
   const [presentation, setPresentation] = useState({ state: turn.state, reveal: false });
@@ -599,6 +639,7 @@ function TurnMessage({
   return (
     <AssistantMessage createdAt={turn.createdAt} testId={`activity-reply-${turn.turnOrdinal}`}>
       {turn.assistantText ? <Streamdown
+        components={routineLinkComponents(onOpenRoutine)}
         tableMaxHeight="none"
         mode={reveal ? "streaming" : "static"}
         animated={reveal ? { animation: "blurIn", sep: "word", duration: 180, stagger: 24, maxBacklogMs: 2400 } : false}

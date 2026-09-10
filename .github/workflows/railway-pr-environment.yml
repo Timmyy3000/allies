@@ -228,15 +228,18 @@ jobs:
           set -eu
           attempts=0
           while [ "$attempts" -lt 60 ]; do
-            railway domain status "$PR_PREVIEW_DOMAIN" \
+            if railway domain status "$PR_PREVIEW_DOMAIN" \
               --project "$RAILWAY_PROJECT_ID" \
               --environment "$PR_ENVIRONMENT" \
               --service "$RAILWAY_WEB_SERVICE_ID" \
-              --json > /tmp/railway-preview-domain-status.json
-            if grep -q '"verified"[[:space:]]*:[[:space:]]*true' /tmp/railway-preview-domain-status.json && \
+              --json > /tmp/railway-preview-domain-status.json; then
+              if grep -q '"verified"[[:space:]]*:[[:space:]]*true' /tmp/railway-preview-domain-status.json && \
               grep -Eq 'CERTIFICATE_STATUS_TYPE_(ISSUED|VALID)' /tmp/railway-preview-domain-status.json; then
-              echo "Custom preview domain is ready"
-              break
+                echo "Custom preview domain is ready"
+                break
+              fi
+            else
+              echo "Railway domain status request failed; retrying"
             fi
             attempts=$((attempts + 1))
             sleep 10

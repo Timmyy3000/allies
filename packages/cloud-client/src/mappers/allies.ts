@@ -141,6 +141,7 @@ export const routineChatItemResponseSchema = z
     kind: z.enum(["created", "running", "result"]),
     routine_id: canonicalRoutineUuidSchema,
     conversation_id: canonicalRoutineUuidSchema,
+    source_message_id: canonicalRoutineUuidSchema.nullish(),
     title_snapshot: routineChatTitleSchema,
     routine_revision: z.number().int().min(1).max(100_000_000),
     schedule_generation: z.number().int().min(1).max(100_000_000),
@@ -349,6 +350,7 @@ export interface RoutineChatItemViewModel {
   kind: RoutineChatItemKind;
   routineId: string;
   conversationId: string;
+  sourceMessageId?: string | null;
   titleSnapshot: string;
   routineRevision: number;
   scheduleGeneration: number;
@@ -480,6 +482,7 @@ export function toRoutineChatItemViewModel(input: unknown, expectedConversationI
     kind: item.kind,
     routineId: item.routine_id,
     conversationId: item.conversation_id,
+    sourceMessageId: item.source_message_id ?? null,
     titleSnapshot: item.title_snapshot,
     routineRevision: item.routine_revision,
     scheduleGeneration: item.schedule_generation,
