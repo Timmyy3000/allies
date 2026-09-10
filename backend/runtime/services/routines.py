@@ -217,6 +217,7 @@ def _accept_routine_dispatch_once(
             input_payload=payload,
             payload_digest=payload_digest,
             source_kind="routine_dispatch",
+            cloud_workspace_id=command.scope.workspace_id,
             status=ExecutionStatus.QUEUED,
         )
         attempt = Attempt.objects.create(
@@ -1336,7 +1337,7 @@ def _next_event_sequence(attempt_id: UUID) -> int:
 def _routine_scope(routine: RoutineExecution) -> dict[str, str]:
     return {
         "kind": "workspace",
-        "workspace_id": str(routine.workspace_id),
+        "workspace_id": str(routine.execution.cloud_workspace_id or routine.workspace_id),
         "owner_user_id": str(routine.owner_user_id),
         "ally_id": str(routine.ally_id),
         "cloud_binding_id": str(routine.cloud_binding_id),

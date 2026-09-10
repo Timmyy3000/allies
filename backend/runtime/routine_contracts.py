@@ -344,7 +344,7 @@ def build_routine_event_envelope(execution: Any, attempt: Any, event: Any) -> Ro
         raise RuntimeValidationError("routine event timestamp is invalid")
     scope = {
         "kind": "workspace",
-        "workspace_id": str(routine.workspace_id),
+        "workspace_id": str(execution.cloud_workspace_id or routine.workspace_id),
         "owner_user_id": str(routine.owner_user_id),
         "ally_id": str(routine.ally_id),
         "cloud_binding_id": str(routine.cloud_binding_id),

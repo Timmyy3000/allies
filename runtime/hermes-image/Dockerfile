@@ -106,6 +106,19 @@ COPY smoke_routine_result_tool.py /tmp/allies-smoke-routine-result-tool.py
 RUN /opt/hermes/.venv/bin/python /tmp/allies-smoke-routine-result-tool.py \
     && rm -f /tmp/allies-smoke-routine-result-tool.py
 
+COPY plugins/routines/ /opt/hermes/plugins/routines/
+COPY allies_routines.py /opt/hermes/tools/allies_routines.py
+COPY patches/routine-management-tool.patch /tmp/allies-routine-management-tool.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-routine-management-tool.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-routine-management-tool.patch \
+    && git apply --whitespace=nowarn /tmp/allies-routine-management-tool.patch \
+    && rm -f /tmp/allies-routine-management-tool.patch
+
+COPY smoke_routine_management.py /tmp/allies-smoke-routine-management.py
+RUN /opt/hermes/.venv/bin/python /tmp/allies-smoke-routine-management.py \
+    && rm -f /tmp/allies-smoke-routine-management.py
+
 LABEL org.opencontainers.image.title="Allies Hermes with Mnemosyne" \
       org.opencontainers.image.description="Policy-fenced profile-local Mnemosyne provider" \
       org.opencontainers.image.version="${ALLIES_WRAPPER_VERSION}" \
