@@ -73,7 +73,15 @@ diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
  _ALLIES_ROUTINE_RESULT_HEADER = "X-Allies-Routine-Result"
  _ALLIES_ROUTINE_RESULT_TOOLSET = "allies-routine-result"
  _ALLIES_ROUTINE_RESULT_SYSTEM_PROMPT = (
-@@ -3657,7 +3711,17 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -3653,11 +3707,27 @@ class APIServerAdapter(BasePlatformAdapter):
+-        user_message, err = _session_chat_user_message(body)
++        if body.get("message") == "" and body.get("allies_file_context") is not None:
++            user_message, err = "", None
++        else:
++            user_message, err = _session_chat_user_message(body)
+         if err is not None:
+             return err
+         system_prompt = body.get("system_message") or body.get("instructions")
          if system_prompt is not None and not isinstance(system_prompt, str):
              return web.json_response(_openai_error("system_message must be a string", code="invalid_system_message"), status=400)
 +        try:
@@ -87,7 +95,15 @@ diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
          )
 +        if incoming_file_prompt is not None and routine_result_requested:
 +            return web.json_response(_openai_error("routine streams cannot use allies_file_context", code="invalid_allies_file_context"), status=400)
++        display_user_message = user_message
 +        if incoming_file_prompt is not None:
-+            system_prompt = incoming_file_prompt
++            if not isinstance(user_message, str):
++                return web.json_response(_openai_error("file messages must use text", code="invalid_message"), status=400)
++            user_message = user_message + "\n\n" + incoming_file_prompt
          if routine_result_requested:
              system_prompt = _ALLIES_ROUTINE_RESULT_SYSTEM_PROMPT
+@@ -3890,3 +3955,3 @@
+                 await queue.put(_event_payload("run.started", {
+-                    "user_message": {"role": "user", "content": user_message},
++                    "user_message": {"role": "user", "content": display_user_message},
+                     "runtime": runtime_meta,

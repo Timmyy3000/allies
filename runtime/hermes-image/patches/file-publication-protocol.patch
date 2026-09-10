@@ -205,7 +205,7 @@ index 277bbbb..70fa4fd 100644
 +            "allies_file_publication": file_publication,
              "session_id": session_id,
              "platform": "api_server",
-@@ -3890,12 +3927,15 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -3890,15 +3927,18 @@ class APIServerAdapter(BasePlatformAdapter):
              incoming_file_prompt = _allies_incoming_file_context_prompt(
                  body.get("allies_file_context")
              )
@@ -220,8 +220,11 @@ index 277bbbb..70fa4fd 100644
 -        if incoming_file_prompt is not None and routine_result_requested:
 +        if (incoming_file_prompt is not None or publication_context is not None) and routine_result_requested:
              return web.json_response(_openai_error("routine streams cannot use allies_file_context", code="invalid_allies_file_context"), status=400)
+         display_user_message = user_message
          if incoming_file_prompt is not None:
-             system_prompt = incoming_file_prompt
+             if not isinstance(user_message, str):
+                 return web.json_response(_openai_error("file messages must use text", code="invalid_message"), status=400)
+             user_message = user_message + "\n\n" + incoming_file_prompt
 @@ -4107,6 +4147,7 @@ class APIServerAdapter(BasePlatformAdapter):
                      agent_ref=agent_ref,
                      approval_context=approval_context,

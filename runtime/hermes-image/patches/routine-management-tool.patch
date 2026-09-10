@@ -23,7 +23,7 @@ index fcfcbdf..15be238 100644
  
          # Load fallback provider chain so the API server platform has the
 @@ -3941,6 +3947,17 @@ class APIServerAdapter(BasePlatformAdapter):
-             system_prompt = incoming_file_prompt
+             user_message = user_message + "\n\n" + incoming_file_prompt
          if routine_result_requested:
              system_prompt = _ALLIES_ROUTINE_RESULT_SYSTEM_PROMPT
 +        routine_tool_context = None

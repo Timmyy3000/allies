@@ -4,10 +4,103 @@ import asyncio
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from gateway.platforms.api_server import _allies_incoming_file_context_prompt
+from aiohttp import web
+from aiohttp.test_utils import TestClient, TestServer
+from gateway.config import GatewayConfig, PlatformConfig
+from gateway.platforms.api_server import (
+    APIServerAdapter,
+    _allies_incoming_file_context_prompt,
+)
+from hermes_state import SessionDB
 from tools.image_source import ResolveContext, resolve_image_source
+
+
+async def check_stream(context):
+    with (
+        TemporaryDirectory() as directory,
+        patch.dict("os.environ", {"HERMES_HOME": directory}),
+    ):
+        profile = Path(directory) / "profiles" / "ally-file-smoke"
+        profile.mkdir(parents=True)
+        key = "file-smoke-profile-key-0000001"
+        (profile / ".env").write_text(f"API_SERVER_KEY={key}\n")
+        database = SessionDB(profile / "state.db")
+        database.create_session("file-smoke", "api_server")
+        database.close()
+        adapter = APIServerAdapter(PlatformConfig(extra={"key": key}))
+        adapter.gateway_runner = SimpleNamespace(
+            config=GatewayConfig(multiplex_profiles=True)
+        )
+        observed = []
+
+        async def run_agent(**kwargs):
+            observed.append(kwargs)
+            return {
+                "session_id": "file-smoke",
+                "final_response": "done",
+                "messages": [
+                    {"role": "user", "content": kwargs["user_message"]},
+                    {"role": "assistant", "content": "done"},
+                ],
+            }, {}
+
+        adapter._run_agent = run_agent
+        app = web.Application(middlewares=[adapter._make_profile_prefix_middleware()])
+        method, path, handler = next(
+            row
+            for row in adapter._http_route_table()
+            if row[:2] == ("POST", "/api/sessions/{session_id}/chat/stream")
+        )
+        app.router.add_route(method, f"/p/{{profile}}{path}", handler)
+        try:
+            async with TestClient(TestServer(app)) as client:
+                for message, files in (
+                    ("Look at this", context),
+                    ("", context),
+                    ("Hello", None),
+                ):
+                    payload = {"message": message}
+                    if files:
+                        payload["allies_file_context"] = files
+                    response = await client.post(
+                        "/p/ally-file-smoke/api/sessions/file-smoke/chat/stream",
+                        headers={"Authorization": f"Bearer {key}"},
+                        json=payload,
+                    )
+                    body = await response.text()
+                    assert response.status == 200, body
+                    assert str(profile) not in body
+                    delivered = observed[-1]["user_message"]
+                    if files:
+                        assert (
+                            str(profile / "workspace" / context["files"][0]["path"])
+                            in delivered
+                        )
+                        assert delivered.startswith(message + "\n\n")
+                        assert "file manifest" not in (
+                            observed[-1]["ephemeral_system_prompt"] or ""
+                        )
+                    else:
+                        assert delivered == message
+                calls = len(observed)
+                for payload in (
+                    {"message": ""},
+                    {"message": "", "allies_file_context": {**context, "files": []}},
+                ):
+                    response = await client.post(
+                        "/p/ally-file-smoke/api/sessions/file-smoke/chat/stream",
+                        headers={"Authorization": f"Bearer {key}"},
+                        json=payload,
+                    )
+                    await response.read()
+                    assert response.status == 400
+                assert len(observed) == calls
+        finally:
+            for database in getattr(adapter, "_session_dbs", {}).values():
+                database.close()
 
 
 def main() -> None:
@@ -63,6 +156,7 @@ def main() -> None:
                 )
             assert resolved.data == image.read_bytes()
             assert resolved.mime == "image/png"
+    asyncio.run(check_stream(context))
     print("incoming file context: PASS")
 
 
