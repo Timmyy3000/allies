@@ -2,6 +2,7 @@ import logging
 
 from celery import shared_task
 
+from allies.services.labels import generate_label_for_ally, generate_pending_labels
 from allies.services.onboarding import cleanup_expired_onboarding_attempts
 from allies.services.provisioning import dispatch_due_provisioning
 
@@ -42,3 +43,27 @@ def dispatch_due_provisioning_task(self, limit: int = 20) -> dict[str, int]:
 )
 def cleanup_expired_onboarding_attempts_task(self, limit: int = 500) -> int:
     return cleanup_expired_onboarding_attempts(limit=limit)
+
+
+@shared_task(
+    bind=True,
+    name="allies.generate_ally_label",
+    acks_late=True,
+    ignore_result=True,
+    soft_time_limit=270,
+    time_limit=300,
+)
+def generate_ally_label_task(self, ally_id: str) -> bool:
+    return generate_label_for_ally(ally_id)
+
+
+@shared_task(
+    bind=True,
+    name="allies.generate_pending_labels",
+    acks_late=True,
+    ignore_result=True,
+    soft_time_limit=270,
+    time_limit=300,
+)
+def generate_pending_labels_task(self, limit: int = 100) -> dict[str, int]:
+    return generate_pending_labels(limit=limit)
