@@ -10,6 +10,8 @@ import {
   buildRoutineActionIdempotencyKey,
   buildRoutineActionEvidence,
   buildRoutineActionMessage,
+  buildRoutineActionContext,
+  routineMessageAnchor,
   buildProductionConversationFrameModel,
   conversationDateDividerAt,
   formatConversationDateDivider,
@@ -326,16 +328,17 @@ describe("routine action requests", () => {
     expect(buildRoutineActionIdempotencyKey({ ...request, action: "reject" })).not.toBe(key);
   });
 
-  it("includes the exact title, revision, and approval identities in the chat request", () => {
+  it("keeps command identities in structured context rather than visible chat", () => {
     const content = buildRoutineActionMessage(request);
-    expect(content).toContain('title_snapshot="Morning brief; review"');
-    expect(content).toContain("routine_id=00000000-0000-4000-8000-000000000010");
-    expect(content).toContain("expected_revision=2");
-    expect(content).toContain("approval_request_id=00000000-0000-4000-8000-000000000016");
-    expect(content).toContain("execution_id=00000000-0000-4000-8000-000000000013");
-    expect(content).toContain("attempt_id=00000000-0000-4000-8000-000000000014");
-    expect(content).toContain("generation=7");
-    expect(content).toContain("action_attempt_id=00000000-0000-4000-8000-000000000018");
+    expect(content).toContain(request.titleSnapshot);
+    expect(content).toContain(`](#routine/${request.routineId})`);
+    expect(content).not.toContain("expected_revision");
+    expect(buildRoutineActionContext(request)).toMatchObject({
+      routine_id: request.routineId, expected_revision: 2,
+      approval_request_id: request.approvalRequestId, action_attempt_id: request.actionAttemptId,
+      confirmed: false,
+    });
+    expect(buildRoutineActionContext({ ...request, action: "delete", confirmed: true }).confirmed).toBe(true);
   });
 
   it("tracks only the submitted routine projection", () => {
@@ -373,6 +376,15 @@ describe("routine action requests", () => {
       id: "00000000-0000-4000-8000-000000000099",
       routineId: "00000000-0000-4000-8000-000000000099",
     };
+    const messages = ["07:00", "09:00", "10:00"].map((time, index) => ({
+      id: `message-${index}`, sender: "user" as const, content: "Next message", sequence: index + 1,
+      createdAt: `2026-09-09T${time}:00Z`, statusLabel: null, retryable: false,
+    }));
+    expect(routineMessageAnchor(target, messages)).toBe("message-0");
+    const anchored = { ...target, sourceMessageId: "message-1" };
+    expect(routineMessageAnchor(anchored, messages)).toBe("message-1");
+    expect(routineMessageAnchor(anchored, messages.slice(2))).toBe("message-1");
+    expect(routineMessageAnchor({ ...anchored, kind: "result", occurredAt: "2026-09-09T09:30:00Z" }, messages)).toBe("message-1");
     const action = { ...request, action: "pause" as const };
     expect(buildRoutineActionEvidence(action, [target, unrelated])).toBe(
       buildRoutineActionEvidence(action, [target, { ...unrelated, status: "paused" }]),

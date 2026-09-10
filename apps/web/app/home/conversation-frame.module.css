@@ -1216,7 +1216,9 @@
   justify-content: center;
   box-sizing: border-box;
   padding: 12px;
-  background: rgba(18, 18, 18, 0.22);
+  background: rgb(0 0 0 / 42%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 
 .frameSheet {
@@ -1228,8 +1230,8 @@
   box-sizing: border-box;
   padding: 24px 20px 20px;
   border-radius: 30px;
-  background: var(--canvas);
-  box-shadow: 0 22px 70px rgba(18, 18, 18, 0.18);
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 24%), 0 0 0 1px var(--divider);
 }
 
 .frameSheetTop,
@@ -1266,6 +1268,7 @@
 .frameDeleteQuestion {
   font-size: 18px;
   line-height: 22px;
+  text-align: center;
 }
 
 .frameSheetActions {
@@ -1317,6 +1320,7 @@
 }
 
 .frameNativeSheet {
+  position: fixed;
   width: 100%;
   height: 100dvh;
   max-width: none;
@@ -1324,10 +1328,25 @@
   margin: 0;
   border: 0;
   color: inherit;
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
 }
 
-.frameNativeSheet::backdrop { background: transparent; }
+.frameNativeSheet::backdrop {
+  background: rgb(0 0 0 / 42%);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
 .frameNativeSheet:not([open]) { display: none; }
+
+@media (prefers-color-scheme: dark) {
+  .frameOverlay {
+    background: rgb(0 0 0 / 64%);
+  }
+  .frameNativeSheet { background: transparent; }
+  .frameNativeSheet::backdrop { background: rgb(0 0 0 / 64%); }
+}
 
 .approvalModal .frameSheet {
   max-height: calc(100dvh - 24px);
@@ -1646,44 +1665,53 @@
   width: 100%;
   min-height: 52px;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   box-sizing: border-box;
   padding: 8px 12px;
   border: 0;
   border-radius: 16px;
-  background: var(--chat-surface);
-  color: var(--chat-ink);
+  background: color-mix(in srgb, var(--chat-accent) 15%, var(--panel));
+  color: var(--chat-accent);
   font: inherit;
   text-align: left;
   cursor: pointer;
+  transition: background-color 160ms ease, transform 160ms ease;
+}
+
+.frameRoutineCard:hover {
+  background: color-mix(in srgb, var(--chat-surface) 84%, var(--chat-accent));
+}
+
+.frameRoutineCard:active {
+  transform: scale(0.99);
 }
 
 .frameRoutineIcon {
   display: grid;
-  width: 36px;
-  height: 36px;
-  flex: 0 0 36px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   place-items: center;
-  border-radius: 50%;
-  background: var(--canvas);
 }
 
 .frameRoutineIcon svg {
-  width: 18px;
-  height: 18px;
+  width: 24px;
+  height: 24px;
+  color: var(--chat-accent);
   fill: none;
   stroke: var(--chat-accent);
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.8;
+  stroke-width: 0;
 }
 
 .frameRoutineCopy {
-  display: flex;
+  display: block;
   min-width: 0;
   flex: 1;
-  flex-direction: column;
-  gap: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .frameRoutineCopy strong,
@@ -1700,16 +1728,77 @@
 }
 
 .frameRoutineCopy span {
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 17px;
+  color: inherit;
+  font-size: 16px;
+  line-height: 19px;
 }
 
 .frameRoutineCard > svg {
   width: 18px;
   height: 18px;
-  transform: rotate(-90deg);
+  flex: 0 0 18px;
+  color: var(--chat-accent);
 }
+
+.frameRoutineRun {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  margin-top: 24px;
+}
+
+.frameRoutineEvent {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  color: var(--chat-muted);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+
+.frameRoutineRunLink {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.frameRoutineRunLink svg { width: 18px; height: 18px; flex: 0 0 18px; }
+.frameRoutineRunName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28ch; }
+.frameRoutineRunStatus { flex-shrink: 0; white-space: nowrap; }
+.frameRoutineRunLink:hover { color: var(--chat-accent); }
+.frameRoutineRunLink:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 4px; }
+
+.frameRoutineMention {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 0 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  vertical-align: baseline;
+  cursor: pointer;
+}
+
+.frameRoutineMention svg { width: 18px; height: 18px; flex: 0 0 18px; }
+.frameRoutineMention span { overflow-wrap: anywhere; }
+.frameRoutineMention:hover { text-decoration: underline; }
+.frameRoutineMention:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 
 .frameRoutineProjection {
   display: flex;
@@ -1720,6 +1809,12 @@
   box-sizing: border-box;
   border-radius: 18px;
   background: var(--chat-surface);
+}
+
+.frameRoutineProjectionCompact {
+  gap: 0;
+  padding: 0;
+  background: transparent;
 }
 
 .frameRoutineProjectionSection {
@@ -1827,17 +1922,58 @@
 
 .frameRoutinePrompt {
   margin-top: 24px;
-  padding: 12px;
+  overflow: hidden;
+  border: 1px solid var(--divider);
   border-radius: 14px;
   background: var(--chat-surface);
 }
 
-.frameRoutinePrompt strong {
-  font-size: 13px;
+.frameRoutinePrompt summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  color: var(--chat-ink);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.frameRoutinePrompt summary::-webkit-details-marker {
+  display: none;
+}
+
+.frameRoutinePrompt summary::after {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  transform: rotate(45deg) translateY(-2px);
+  transition: transform 160ms ease;
+}
+
+.frameRoutinePrompt[open] summary {
+  border-bottom: 1px solid var(--divider);
+}
+
+.frameRoutinePrompt[open] summary::after {
+  transform: rotate(225deg) translate(-2px, -1px);
+}
+
+.frameRoutinePrompt summary:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: -3px;
 }
 
 .frameRoutinePrompt p {
-  margin: 6px 0 0;
+  margin: 0;
+  padding: 12px;
   overflow-wrap: anywhere;
   color: var(--text-secondary);
   font-size: 14px;
@@ -1846,11 +1982,34 @@
 }
 
 .frameRoutineDetailOverlay .frameSheet {
-  min-height: min(520px, calc(100% - 24px));
+  position: relative;
+  box-shadow: 0 24px 80px rgb(0 0 0 / 24%);
+  min-height: min(377px, calc(100% - 24px));
+  padding: 36px 20px 24px;
   overflow-y: auto;
 }
 
+.frameRoutineDetailOverlay .frameSheetTop {
+  position: absolute;
+  top: 30px;
+  right: 24px;
+}
+
+.frameRoutineDetailOverlay .frameSheetTop h2 {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.frameRoutineDeleteOverlay .frameSheet { min-height: 233px; }
+.frameDeleteIcon { display: block; width: 32px; height: 36px; color: #ff3b30; }
+.frameDeleteIcon svg { width: 100%; height: 100%; }
+
 .frameRoutineDetailOverlay .frameRoutineDetail {
+  flex: 1;
   min-height: 0;
 }
 
@@ -1859,15 +2018,36 @@
   padding-top: 22px;
 }
 
+.frameRoutineDetailOverlay .frameRoutineDetail > .frameAccentAction {
+  margin-top: 36px;
+}
+
 .frameRoutineDetail {
   display: flex;
   width: 100%;
-  min-height: 300px;
+  min-height: 0;
   flex-direction: column;
 }
 
 .frameRoutineDetailHeader .frameSheetClose {
-  margin-top: -8px;
+  margin-top: -12px;
+}
+
+.frameRoutineDetailHeader {
+  min-height: 60px;
+}
+
+.frameRoutineDetailHeader .frameRoutineIcon {
+  width: 60px;
+  height: 60px;
+  flex-basis: 60px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--chat-accent) 15%, var(--chat-surface));
+}
+
+.frameRoutineDetailHeader .frameRoutineIcon svg {
+  width: 36px;
+  height: 36px;
 }
 
 .frameRoutineDetail h2 {
@@ -1898,11 +2078,24 @@
 }
 
 .frameRoutineRows strong {
-  font-weight: 600;
+  font-weight: 400;
+  color: var(--text-secondary);
 }
 
 .frameRoutineRows span {
-  font-weight: 500;
+  font-weight: 400;
+  text-align: right;
+}
+
+.frameRoutineDetail .frameRoutineActionGroup .frameAccentAction {
+  background: var(--chat-surface);
+  color: #ff3b30;
+}
+
+.frameRoutineDetail .frameRoutineActionGroup button {
+  flex: 1;
+  min-height: 48px;
+  font-size: 16px;
 }
 
 .frameRoutineDetail > .frameAccentAction {
@@ -2127,6 +2320,19 @@
     letter-spacing: -0.49px;
   }
 
+  .frameOverlay {
+    align-items: center;
+    padding: 24px;
+  }
+
+  .frameSheet {
+    width: min(calc(100% - 48px), 520px);
+  }
+
+  .frameRoutineDetailOverlay .frameSheet {
+    width: min(calc(100% - 48px), 460px);
+  }
+
   .approvalModal { align-items: center; }
   .approvalModal .frameSheet { width: min(calc(100% - 48px), 560px); }
 }
@@ -2140,4 +2346,11 @@
   .frameComposer {
     transition: none;
   }
+}
+
+.frameRoutineRunStatus[data-outcome="success"] { color: #24734a; }
+.frameRoutineRunStatus[data-outcome="failure"] { color: #b43e3e; }
+@media (prefers-color-scheme: dark) {
+  .frameRoutineRunStatus[data-outcome="success"] { color: #83c9a1; }
+  .frameRoutineRunStatus[data-outcome="failure"] { color: #ed9292; }
 }

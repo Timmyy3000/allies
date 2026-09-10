@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import type { ActivityProjection, ApprovalSummary, MessageViewModel, RoutineChatItemViewModel, RoutineDiscoveryDetail } from "@allies/cloud-client";
@@ -881,7 +881,7 @@ describe("ConversationFrame", () => {
     }
   });
 
-  it("renders routine projections with truthful insertion state and attributed approval actions", () => {
+  it("renders routine projections with truthful insertion state and attributed approval actions", async () => {
     const routineId = "00000000-0000-4000-8000-000000000010";
     const runId = "00000000-0000-4000-8000-000000000012";
     const approvalRequestId = "00000000-0000-4000-8000-000000000016";
@@ -941,8 +941,8 @@ describe("ConversationFrame", () => {
       onOpenRoutine,
     }} />);
 
-    expect(screen.getByRole("region", { name: "Routine updates" })).toBeTruthy();
-    expect(screen.getByText("Waiting for approval")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Routine updates" })).toBeNull();
+    expect(screen.getByText("· Waiting for approval")).toBeTruthy();
     expect(screen.getByText("Pending insertion — waiting to appear in chat.")).toBeTruthy();
     expect(screen.queryByText("Added to chat.")).toBeNull();
     expect(screen.queryByText("The brief is ready.")).toBeNull();
@@ -958,8 +958,29 @@ describe("ConversationFrame", () => {
       actionAttemptId: "00000000-0000-4000-8000-000000000018",
     }));
     fireEvent.click(screen.getAllByRole("button", { name: /Morning brief/ })[0]!);
-    expect(onOpenRoutine).toHaveBeenCalledWith(routineId);
+    expect(onOpenRoutine).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog").textContent).toContain("Run status");
 
+    cleanup();
+    render(<ConversationFrame model={{ ...model, routineItems: [approvalItem, { ...resultItem, status: "failed", resultInsertion: "inserted", text: "Routine failed before completion." }] }} actions={{ ...actions, onOpenRoutine }} />);
+    expect(screen.getByText("Routine failed before completion.").closest("article")).toBeTruthy();
+    const failureLink = screen.getByRole("button", { name: "Morning brief · Failed" });
+    expect(failureLink.closest("article")).toBeNull();
+    expect(failureLink.parentElement?.querySelector("time")).toBeNull();
+    fireEvent.click(failureLink);
+    expect(onOpenRoutine).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog").textContent).toContain("Run failed");
+    expect(screen.getByRole("dialog").textContent).toContain("Triggered");
+    expect(screen.getAllByText("Routine failed before completion.")).toHaveLength(2);
+    cleanup();
+    render(<ConversationFrame model={{ ...model, routineItems: [{ ...resultItem, resultInsertion: "inserted", text: "**The brief is ready.**" }] }} actions={{ ...actions, onOpenRoutine }} />);
+    const successLink = screen.getByRole("button", { name: "Morning brief · Succeeded" });
+    const resultMessage = screen.getByText("The brief is ready.");
+    expect(resultMessage.closest("article")).toBeTruthy();
+    expect(successLink.compareDocumentPosition(resultMessage) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Source" })).toBeTruthy();
+    fireEvent.click(successLink);
+    expect(screen.getByRole("dialog").textContent).toContain("Completed · changed");
     cleanup();
     const detail: RoutineDiscoveryDetail = {
       routineId,
@@ -984,7 +1005,8 @@ describe("ConversationFrame", () => {
       routineItems: [approvalItem],
       routineDetail: { routineId, detail, loading: false, error: null },
     }} actions={{ ...actions, onRoutineAction: onDetailAction }} />);
-    expect(screen.getByText("Full task")).toBeTruthy();
+    expect(screen.getByText("Full prompt")).toBeTruthy();
+    fireEvent.click(screen.getByText("Full prompt"));
     expect(screen.getByText(detail.executionPrompt)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Pause" }));
     expect(onDetailAction).toHaveBeenCalledWith({
@@ -993,6 +1015,21 @@ describe("ConversationFrame", () => {
       routineRevision: detail.revision,
       titleSnapshot: detail.title,
     });
+    onDetailAction.mockClear();
+    onDetailAction.mockResolvedValueOnce(false).mockRejectedValueOnce(new Error("Network error"));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onDetailAction).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
+    expect(onDetailAction).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(onDetailAction).toHaveBeenCalledWith({ action: "delete", routineId,
+      routineRevision: detail.revision, titleSnapshot: detail.title, confirmed: true });
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByRole("alert")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(within(screen.getByRole("dialog")).getByRole("alert")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 
     cleanup();
     render(<ConversationFrame model={{
@@ -1000,7 +1037,7 @@ describe("ConversationFrame", () => {
       routineItems: [approvalItem],
       routineDetail: { routineId, detail: { ...detail, scheduleState: "deleted" }, loading: false, error: null },
     }} actions={actions} />);
-    expect(screen.queryByRole("button", { name: "Ask Ally to delete" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Delete" })).toBeNull();
   });
 
   it("opens routine details as a modal and restores focus to its card", async () => {
@@ -1078,7 +1115,7 @@ describe("ConversationFrame", () => {
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
     expect(screen.getByText("Loading routine details…")).toBeTruthy();
     act(() => finishLoading());
-    await waitFor(() => expect(screen.getByText("Full task")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Full prompt")).toBeTruthy());
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));
     await waitFor(() => expect(document.activeElement).toBe(card));

@@ -288,7 +288,7 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     fireEvent.change(screen.getByRole("textbox"), { target: { value: message.content } });
     await clickSendMessage();
     await waitFor(() => expect(sendMessage).toHaveBeenCalledWith(
-      account.workspace.id, conversationId, message.content, expect.any(String), undefined, Intl.DateTimeFormat().resolvedOptions().timeZone,
+      account.workspace.id, conversationId, message.content, expect.any(String), undefined, Intl.DateTimeFormat().resolvedOptions().timeZone, undefined,
     ));
     expect(await screen.findByText("Response from the Cloud activity feed.")).toBeTruthy();
     expect(screen.queryByText(/I will keep that with the rest of today/)).toBeNull();

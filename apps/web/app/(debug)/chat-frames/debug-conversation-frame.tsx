@@ -265,7 +265,12 @@ function DebugOverlay({
       );
     case "routine":
       return (
-        <BottomSheet onClose={() => actions.onAction("close-overlay")} labelledBy="routine-detail-title">
+        <BottomSheet
+          onClose={() => actions.onAction("close-overlay")}
+          labelledBy="routine-detail-title"
+          className={frameStyles.frameRoutineDetailOverlay}
+          hideHeader
+        >
           <RoutineDetail
             onClose={() => actions.onAction("close-overlay")}
             onDelete={() => actions.onAction("delete-routine")}
