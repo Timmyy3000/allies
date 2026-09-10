@@ -1394,7 +1394,11 @@ class WorkspaceLifecycle:
                 ).containers
             }
             if is_pending_release_target(workspace.release_target):
-                workspace.release_target = {}
+                workspace.release_target = {
+                    key: value
+                    for key, value in workspace.release_target.items()
+                    if key == "routine_admission"
+                }
                 workspace.activation_claim_token = None
                 workspace.activation_claim_expires_at = None
             workspace.provisioning_phase = WorkspaceProvisioningPhase.IDLE

@@ -213,6 +213,29 @@ def test_routine_admission_gate_does_not_become_pending_release(
     assert workspace.applied_images == OLD
 
 
+def test_explicit_routine_pause_survives_image_upgrade_and_readiness(release_setup):
+    from runtime.exceptions import RuntimeNotReadyError
+    from runtime.services.routines import (
+        _require_routine_admission,
+        disable_routine_admission,
+    )
+
+    workspace, provider, _ = release_setup
+    disable_routine_admission(workspace.id)
+    workspace.refresh_from_db()
+    gate = workspace.release_target.copy()
+
+    assert wake(workspace, provider).awaiting_readiness == 1
+    workspace.refresh_from_db()
+    assert workspace.applied_images == NEW
+    assert workspace.release_target == gate
+    ready(workspace)
+    workspace.refresh_from_db()
+    assert is_runtime_ready(workspace)
+    with pytest.raises(RuntimeNotReadyError, match="routine admission is disabled"):
+        _require_routine_admission(workspace)
+
+
 def test_active_workspace_is_not_replaced_until_keep_warm_expires(release_setup):
     workspace, provider, store = release_setup
     provider.start_machine(workspace.fly_app_ref, workspace.machine_ref)
