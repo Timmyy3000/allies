@@ -19,6 +19,7 @@ def _creation_item(routine: Routine) -> dict[str, Any]:
         "kind": "created",
         "routine_id": routine.id,
         "conversation_id": routine.main_conversation_id,
+        "source_message_id": routine.source_message_id,
         "title_snapshot": routine.title,
         "routine_revision": routine.revision,
         "schedule_generation": routine.schedule_generation,

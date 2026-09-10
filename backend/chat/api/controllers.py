@@ -208,6 +208,7 @@ class ConversationController(ControllerBase):
                 conversation_id=conversation_id,
                 content=payload.content,
                 client_timezone=payload.timezone,
+                routine_action=payload.routine_action,
                 idempotency_key=idempotency_key,
             )
         except Exception as exc:

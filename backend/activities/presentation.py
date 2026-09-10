@@ -94,6 +94,18 @@ ACTIVITY_LABELS = {
     "skill_manage": ("Updating skills", "Updated skills"),
     "todo": ("Updating the work plan", "Updated the work plan"),
     "cronjob": ("Working with routines", "Finished working with routines"),
+    "routine_create": ("Creating a routine", "Created a routine"),
+    "routine_list": ("Checking routines", "Checked routines"),
+    "routine_inspect": ("Checking a routine", "Checked a routine"),
+    "routine_update": ("Updating a routine", "Updated a routine"),
+    "routine_pause": ("Pausing a routine", "Paused a routine"),
+    "routine_resume": ("Resuming a routine", "Resumed a routine"),
+    "routine_request_delete": (
+        "Preparing to delete a routine",
+        "Prepared to delete a routine",
+    ),
+    "routine_delete": ("Deleting a routine", "Deleted a routine"),
+    "routine_result": ("Checking a routine result", "Checked a routine result"),
     "delegate_task": ("Coordinating delegated work", "Finished delegated work"),
     "unknown": ("Working", "Finished an activity"),
 }
