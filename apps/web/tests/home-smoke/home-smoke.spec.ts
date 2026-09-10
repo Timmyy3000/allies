@@ -8,10 +8,12 @@ const now = "2099-01-01T12:00:37Z";
 const reply = "Keep this reply after reload.";
 const assistantReply = "This assistant reply remains durable.";
 const csrfToken = "a".repeat(32);
+const routineId = "00000000-0000-4000-8000-000000000020";
+const routineSchedule = { kind: "recurring", frequency: "daily", local_time: "09:00:00", timezone: "Europe/Berlin" };
 
 type SessionMode = "signed-in" | "signed-out";
 
-function success(data: unknown) {
+function success<T>(data: T) {
   return { status: "success", message: "ok", data };
 }
 
@@ -62,9 +64,10 @@ function conversation(sent: boolean) {
   return success({ id: conversationId, ally_id: allyId, messages, assistant_replies: assistantReplies, next_cursor: null });
 }
 
-async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false, seedConversation = false, withActivity = false) {
+async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false, seedConversation = false, withActivity = false, withRoutine = false, withResult = false) {
   let sent = seedConversation;
   let sentRequest: { body: string | null; csrf: string | undefined } | null = null;
+  let releaseSend: (() => void) | null = null;
   let approvalStatus = "pending";
   const approvalId = "00000000-0000-4000-8000-000000000010";
   const approval = () => ({ id: approvalId, message_id: sentMessageId, status: approvalStatus, expires_at: now, decided_at: approvalStatus === "pending" ? null : new Date().toISOString(), acknowledgement_deadline_at: approvalStatus === "pending" ? null : new Date(Date.now() + 30_000).toISOString() });
@@ -92,7 +95,28 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
       return route.fulfill({ status: 200, headers, json: success({ allies: [ally()] }) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}/conversation`) {
-      return route.fulfill({ status: 200, headers, json: conversation(sent) });
+      const payload = conversation(sent);
+      if (withRoutine) {
+        payload.data.messages.push({ id: "00000000-0000-4000-8000-000000000021", sender: "user", content: "A later unrelated message", sequence: 2, status: "completed", created_at: "2099-01-01T12:05:00Z", retryable: false });
+      }
+      return route.fulfill({ status: 200, headers, json: withRoutine ? { ...payload, data: { ...payload.data, routine_items: [{
+        id: routineId, kind: "created", routine_id: routineId, conversation_id: conversationId, source_message_id: sentMessageId,
+        title_snapshot: "Morning check", routine_revision: 1, schedule_generation: 1, status: "created", schedule: routineSchedule,
+        occurred_at: "2099-01-01T12:01:00Z", references: [],
+      }, ...(withResult ? [{
+        id: "00000000-0000-4000-8000-000000000025", kind: "result", routine_id: routineId, conversation_id: conversationId,
+        title_snapshot: "A very long routine name that should truncate without hiding the status or time", routine_revision: 1, schedule_generation: 1,
+        status: "changed", schedule: routineSchedule, occurred_at: "2099-01-01T12:06:00Z",
+        run_id: "00000000-0000-4000-8000-000000000026", result_id: "00000000-0000-4000-8000-000000000025", result_insertion: "inserted", text: "**AI is great**", references: [],
+      }] : [])] } } : payload });
+    }
+    if (withRoutine && url.pathname === `/api/v1/workspaces/${workspaceId}/routines/${routineId}`) {
+      return route.fulfill({ status: 200, headers, json: success({
+        id: routineId, responsible_ally_id: allyId, title: "Morning check", schedule: routineSchedule,
+        revision: 1, schedule_generation: 1, schedule_state: "active", next_run_at: "2099-01-02T08:00:00Z", created_at: now, updated_at: now,
+        workspace_id: workspaceId, owner_user_id: "00000000-0000-4000-8000-000000000005", binding_id: "00000000-0000-4000-8000-000000000007",
+        main_conversation_id: conversationId, execution_prompt: "Check the latest price and report the result, even if unchanged.",
+      }) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/activities`) {
       const activities = withActivity && sent ? [{
@@ -127,6 +151,7 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages` && request.method() === "POST") {
       sentRequest = { body: request.postData(), csrf: request.headers()["x-csrftoken"] };
+      if (withRoutine) await new Promise<void>((resolve) => { releaseSend = resolve; });
       sent = true;
       return route.fulfill({ status: 201, headers, json: success({
         conversation_id: conversationId,
@@ -145,7 +170,7 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
     }
     return route.fulfill({ status: 404, headers, json: { status: "error", message: `Unhandled ${url.pathname}` } });
   });
-  return { sentRequest: () => sentRequest };
+  return { sentRequest: () => sentRequest, releaseSend: () => releaseSend?.() };
 }
 
 test("redirects signed-out visitors to sign-in", async ({ page }) => {
@@ -153,6 +178,71 @@ test("redirects signed-out visitors to sign-in", async ({ page }) => {
   await page.goto("/home");
   await expect(page).toHaveURL(/\/sign-in\?returnTo=%2Fhome$/);
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`routine stays in its turn and confirms deletion in ${colorScheme} mode`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    const fixture = await fixtureCloud(page, "signed-in", false, true, false, true);
+    await page.goto(`/home/${allyId}`);
+    const card = page.getByRole("button", { name: /Morning check/ });
+    await expect(card).toBeVisible();
+    await expect(card).not.toContainText("Europe/Berlin");
+    await expect(card.locator(":scope > svg path")).toHaveCount(2);
+    await card.screenshot({ path: testInfo.outputPath(`routine-card-${colorScheme}.png`) });
+    const assertPosition = async () => {
+      expect(await card.evaluate((element) => {
+        const later = [...document.querySelectorAll("article")].find((article) => article.textContent?.includes("A later unrelated message"));
+        return Boolean(later && (element.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING));
+      })).toBe(true);
+    };
+    await assertPosition();
+    await page.reload();
+    await expect(card).toBeVisible();
+    await assertPosition();
+    await card.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toHaveCount(1);
+    await expect(dialog.getByText("Full prompt", { exact: true })).toBeVisible();
+    await dialog.getByText("Full prompt", { exact: true }).click();
+    await expect(dialog.getByText(/Check the latest price/)).toBeVisible();
+    await expect(dialog.getByText("Revision", { exact: true })).toHaveCount(0);
+    const box = await dialog.locator(":scope > section").boundingBox();
+    const shell = await page.getByTestId("conversation-frame-shell").boundingBox();
+    expect(box).not.toBeNull();
+    expect(shell).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(shell!.x);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(shell!.x + shell!.width);
+    if (testInfo.project.name === "desktop") {
+      expect(box!.width).toBeGreaterThan(375);
+      expect(Math.abs(box!.x + box!.width / 2 - (shell!.x + shell!.width / 2))).toBeLessThan(3);
+      expect(Math.abs(box!.y + box!.height / 2 - (shell!.y + shell!.height / 2))).toBeLessThan(3);
+    }
+    await page.screenshot({ path: testInfo.outputPath(`routine-details-${colorScheme}.png`) });
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect(dialog).toHaveCount(1);
+    await expect(dialog.getByRole("heading", { name: /Are you sure.*Morning check/ })).toBeVisible();
+    await expect(dialog.getByRole("heading", { name: /Are you sure/ })).toHaveCSS("text-align", "center");
+    expect(await dialog.locator(":scope > section").evaluate((element) => getComputedStyle(element).boxShadow.match(/rgba?\(/g)?.length)).toBe(1);
+    expect(fixture.sentRequest()).toBeNull();
+    await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    expect(fixture.sentRequest()).toBeNull();
+    await expect(dialog.getByRole("button", { name: "Delete", exact: true })).toBeFocused();
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await page.screenshot({ path: testInfo.outputPath(`routine-delete-${colorScheme}.png`) });
+    await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+    await expect.poll(() => fixture.sentRequest()).not.toBeNull();
+    await expect(dialog.getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
+    await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeVisible();
+    const request = JSON.parse(fixture.sentRequest()!.body!);
+    expect(request.content).toBe(`I confirm: delete the routine [Morning check](#routine/${routineId}).`);
+    expect(request.routine_action).toMatchObject({ action: "delete", routine_id: routineId, expected_revision: 1, confirmed: true });
+    expect(request.timezone).toBe(await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone));
+    fixture.releaseSend();
+    await expect(dialog).toHaveCount(0);
+  });
+}
 
 test("shows a real conversation approval and records the choice before runtime acknowledgement", async ({ page }, testInfo) => {
   await page.setViewportSize({ width: 375, height: 812 });
@@ -370,3 +460,30 @@ test("opens an Ally and keeps a sent reply after reload", async ({ page }) => {
   await page.goto("/home/new");
   await expect(page.getByTestId("name-ally")).toBeVisible();
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`compact routine result in ${colorScheme} mode`, async ({ page }, testInfo) => {
+    await page.emulateMedia({ colorScheme });
+    await fixtureCloud(page, "signed-in", false, true, false, true, true);
+    await page.goto(`/home/${allyId}`);
+    const run = page.getByRole("region", { name: "Routine run", exact: true });
+    await expect(run).toBeVisible();
+    const row = run.getByRole("button", { name: /Succeeded/ });
+    await expect(row).toBeVisible();
+    expect(await row.evaluate(el => el.parentElement?.querySelector("time") === null)).toBe(true);
+    await expect(run.locator("article")).toHaveText("AI is great");
+    expect(await row.locator("span").first().evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await run.evaluate(el => getComputedStyle(el).marginTop)).toBe("24px");
+    const rowBox = await row.boundingBox();
+    const messageBox = await run.locator("article").boundingBox();
+    expect(messageBox!.y - rowBox!.y - rowBox!.height).toBeGreaterThanOrEqual(16);
+    await run.locator("article").click();
+    await expect(run.locator("time")).toHaveAttribute("data-visible", "true");
+    const timestampBox = await run.locator("time").boundingBox();
+    expect(timestampBox!.y - messageBox!.y - messageBox!.height).toBeCloseTo(4, 0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await run.screenshot({ path: testInfo.outputPath(`compact-result-${colorScheme}.png`) });
+    await row.click();
+    await expect(page.getByRole("dialog")).toContainText("Completed");
+  });
+}

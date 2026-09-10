@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode, type Ref, type UIEvent } from "react";
+import { Children, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode, type Ref, type UIEvent } from "react";
 import Link from "next/link";
 
 import { AllyAvatar, type AllyShape } from "../../components/ally-avatar";
@@ -572,12 +572,12 @@ export function RoutineCard({
 }) {
   const content = (
     <>
-      <span className={styles.frameRoutineIcon}><CalendarIcon /></span>
+      <span className={styles.frameRoutineIcon}><RoutineIcon /></span>
       <span className={styles.frameRoutineCopy}>
         <strong>{name}</strong>
-        <span>{schedule}</span>
+        <span> · {schedule}</span>
       </span>
-      <ChevronIcon />
+      <svg aria-hidden="true" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 3h5v5" /><path d="M3 10v5h5" opacity=".4" /></svg>
     </>
   );
   return onOpen ? <button type="button" className={styles.frameRoutineCard} onClick={onOpen}>{content}</button> : <div className={styles.frameRoutineCard}>{content}</div>;
@@ -596,12 +596,11 @@ export function RoutineChatProjectionCard({
   onOpen: () => void;
   children?: ReactNode;
 }) {
+  const compact = !status && Children.toArray(children).length === 0;
   return (
-    <article className={styles.frameRoutineProjection}>
+    <article className={`${styles.frameRoutineProjection} ${compact ? styles.frameRoutineProjectionCompact : ""}`}>
       <RoutineCard name={name} schedule={schedule} onOpen={onOpen} />
-      <div className={styles.frameRoutineProjectionMeta}>
-        <span>{status}</span>
-      </div>
+      {status ? <div className={styles.frameRoutineProjectionMeta}><span>{status}</span></div> : null}
       {children}
     </article>
   );
@@ -671,6 +670,8 @@ export function BottomSheet({
   labelledBy,
   className = "",
   modal = false,
+  hideHeader = false,
+  closeDisabled = false,
 }: {
   title?: string;
   children: ReactNode;
@@ -678,6 +679,8 @@ export function BottomSheet({
   labelledBy?: string;
   className?: string;
   modal?: boolean;
+  hideHeader?: boolean;
+  closeDisabled?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
@@ -688,10 +691,22 @@ export function BottomSheet({
     restoreFocusRef.current = activeElement instanceof HTMLElement && activeElement !== document.body
       ? activeElement
       : null;
+    const shell = dialog.closest(`.${styles.frameShell}`);
+    const positionInChat = () => {
+      if (!shell) return;
+      const { x, y, width, height } = shell.getBoundingClientRect();
+      Object.assign(dialog.style, { left: `${x}px`, top: `${y}px`, width: `${width}px`, height: `${height}px` });
+    };
+    positionInChat();
+    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(positionInChat);
+    if (shell) observer?.observe(shell);
+    window.addEventListener("resize", positionInChat);
     dialog.showModal();
     const firstFocusable = dialog.querySelector<HTMLElement>("button, [href], input, select, textarea, [tabindex]:not([tabindex=\"-1\"])");
     firstFocusable?.focus();
     return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", positionInChat);
       if (dialog.open) dialog.close();
       const restore = restoreFocusRef.current;
       restoreFocusRef.current = null;
@@ -700,6 +715,7 @@ export function BottomSheet({
   }, [modal]);
   const label = labelledBy ?? (title ? "conversation-sheet-title" : undefined);
   const handleClose = () => {
+    if (closeDisabled) return;
     if (modal && dialogRef.current?.open) dialogRef.current.close();
     onClose();
   };
@@ -710,10 +726,10 @@ export function BottomSheet({
           aria-modal={modal ? undefined : true}
           aria-labelledby={modal ? undefined : label}
         >
-        <div className={styles.frameSheetTop}>
+        {hideHeader ? null : <div className={styles.frameSheetTop}>
           {title ? <h2 id={labelledBy ?? "conversation-sheet-title"}>{title}</h2> : <span />}
-          <button type="button" className={styles.frameSheetClose} aria-label="Close" onClick={handleClose}><CloseIcon /></button>
-        </div>
+          <button type="button" className={styles.frameSheetClose} aria-label="Close" disabled={closeDisabled} onClick={handleClose}><CloseIcon /></button>
+        </div>}
         {children}
       </section>
   );
@@ -789,18 +805,35 @@ export function CartEditor({
   );
 }
 
-export function RoutineDetail({ onClose, onDelete }: { onClose: () => void; onDelete: () => void }) {
+export function RoutineDetail({
+  onClose,
+  onDelete,
+  title = "Routine name goes in this text box",
+  startsAt = "26 Jun 2026",
+  repeats = "Every Monday",
+  tool = "Gmail",
+}: {
+  onClose: () => void;
+  onDelete: () => void;
+  title?: string;
+  startsAt?: string | null;
+  repeats?: string | null;
+  tool?: string | null;
+}) {
+  const rows = [
+    startsAt ? ["Starts", startsAt] : null,
+    repeats ? ["Repeats", repeats] : null,
+    tool ? ["Tool", tool] : null,
+  ].filter((row): row is [string, string] => row !== null);
   return (
     <section className={styles.frameRoutineDetail} aria-label="Routine details">
       <div className={styles.frameRoutineDetailHeader}>
-        <span className={styles.frameRoutineIcon}><CalendarIcon /></span>
+        <span className={styles.frameRoutineIcon}><RoutineIcon /></span>
         <button type="button" className={styles.frameSheetClose} aria-label="Close routine" onClick={onClose}><CloseIcon /></button>
       </div>
-      <h2 id="routine-detail-title">Routine name goes in this text box</h2>
+      <h2 id="routine-detail-title">{title}</h2>
       <div className={styles.frameRoutineRows}>
-        <div><strong>Starts</strong><span>26 Jun 2026</span></div>
-        <div><strong>Repeats</strong><span>Every Monday</span></div>
-        <div><strong>Tool</strong><span>Gmail</span></div>
+        {rows.map(([label, value]) => <div key={label}><strong>{label}</strong><span>{value}</span></div>)}
       </div>
       <button type="button" className={styles.frameAccentAction} onClick={onDelete}>Delete</button>
     </section>
@@ -811,10 +844,12 @@ export function RoutineChatDetail({
   title,
   schedule,
   scheduleState,
-  revision,
-  scheduleGeneration,
   nextRunAt,
   executionPrompt,
+  startsAt,
+  repeats,
+  timezone,
+  tool,
   canPauseResume,
   canDelete,
   pauseResumeLabel,
@@ -822,14 +857,17 @@ export function RoutineChatDetail({
   actionSent = false,
   onPauseResume,
   onDelete,
+  deleteButtonRef,
 }: {
   title: string;
   schedule: string;
   scheduleState: string;
-  revision: number;
-  scheduleGeneration: number;
   nextRunAt: string | null;
   executionPrompt: string;
+  startsAt?: string | null;
+  repeats?: string | null;
+  timezone?: string | null;
+  tool?: string | null;
   canPauseResume: boolean;
   canDelete: boolean;
   pauseResumeLabel: "Pause" | "Resume" | null;
@@ -837,26 +875,31 @@ export function RoutineChatDetail({
   actionSent?: boolean;
   onPauseResume: () => void;
   onDelete: () => void;
+  deleteButtonRef?: Ref<HTMLButtonElement>;
 }) {
   const actionLocked = actionPending || actionSent;
+  const rows = [
+    startsAt ? ["Starts", startsAt] : null,
+    repeats ? ["Repeats", repeats] : schedule ? ["Schedule", schedule] : null,
+    timezone ? ["Timezone", timezone] : null,
+    tool ? ["Tool", tool] : null,
+    scheduleState ? ["State", scheduleState] : null,
+    nextRunAt ? ["Next run", nextRunAt] : null,
+  ].filter((row): row is [string, string] => row !== null);
   return (
     <section className={styles.frameRoutineDetail} aria-label="Routine details">
       <div className={styles.frameRoutineDetailHeader}>
-        <span className={styles.frameRoutineIcon}><CalendarIcon /></span>
+        <span className={styles.frameRoutineIcon}><RoutineIcon /></span>
       </div>
       <h2>{title}</h2>
       <div className={styles.frameRoutineRows}>
-        <div><strong>Schedule</strong><span>{schedule}</span></div>
-        <div><strong>State</strong><span>{scheduleState}</span></div>
-        <div><strong>Revision</strong><span>{revision}</span></div>
-        <div><strong>Generation</strong><span>{scheduleGeneration}</span></div>
-        <div><strong>Next run</strong><span>{nextRunAt ?? "No next run"}</span></div>
+        {rows.map(([label, value]) => <div key={label}><strong>{label}</strong><span>{value}</span></div>)}
       </div>
-      <div className={styles.frameRoutinePrompt}>
-        <strong>Full task</strong>
+      <details className={styles.frameRoutinePrompt}>
+        <summary>Full prompt</summary>
         <p>{executionPrompt}</p>
-      </div>
-      {actionSent ? <p className={styles.frameRoutineActionNotice} role="status">Request sent to Ally; waiting for confirmation.</p> : null}
+      </details>
+      {actionSent ? <p className={styles.frameRoutineActionNotice} role="status">Request sent to Ally.</p> : null}
       <div className={styles.frameRoutineActionGroup}>
         {canPauseResume && pauseResumeLabel ? (
           <button type="button" className={styles.frameNeutralAction} onClick={onPauseResume} disabled={actionLocked}>
@@ -864,8 +907,8 @@ export function RoutineChatDetail({
           </button>
         ) : null}
         {canDelete ? (
-          <button type="button" className={styles.frameAccentAction} onClick={onDelete} disabled={actionLocked}>
-            {actionPending ? "Sending…" : "Ask Ally to delete"}
+          <button ref={deleteButtonRef} type="button" className={styles.frameAccentAction} onClick={onDelete} disabled={actionLocked}>
+            {actionPending ? "Sending…" : "Delete"}
           </button>
         ) : null}
       </div>
@@ -873,16 +916,52 @@ export function RoutineChatDetail({
   );
 }
 
-export function DeleteRoutineSheet({ onCancel, onDelete }: { onCancel: () => void; onDelete: () => void }) {
-  return (
-    <BottomSheet onClose={onCancel} labelledBy="delete-routine-title">
-      <h2 id="delete-routine-title" className={styles.frameDeleteQuestion}>Are you sure you want to delete routine name goes in here?</h2>
+export function RoutineRunDetail({ title, status, schedule, triggeredAt, reportedAt, failed, text }: {
+  title: string; status: string; schedule: string; triggeredAt: string | null;
+  reportedAt: string | null; failed: boolean; text: string | null;
+}) {
+  return <section className={styles.frameRoutineDetail} aria-label="Routine run details">
+    <div className={styles.frameRoutineDetailHeader}><span className={styles.frameRoutineIcon}><RoutineIcon /></span></div>
+    <h2>{title}</h2>
+    <div className={styles.frameRoutineRows}>
+      <div><strong>Run status</strong><span>{status}</span></div>
+      <div><strong>Schedule</strong><span>{schedule}</span></div>
+      <div><strong>Triggered</strong><span>{triggeredAt ?? "Not reported"}</span></div>
+      {reportedAt ? <div><strong>Result received</strong><span>{reportedAt}</span></div> : null}
+    </div>
+    {text ? <p className={styles.frameRoutineProjectionText}>{text}</p> : null}
+    {failed ? <p className={styles.frameRoutineProjectionDetail}>The exact failure stage was not reported.</p> : null}
+  </section>;
+}
+
+export function DeleteRoutineSheet({
+  title,
+  onCancel,
+  onDelete,
+  disabled = false,
+  embedded = false,
+  failed = false,
+}: {
+  title?: string;
+  onCancel: () => void;
+  onDelete: () => void;
+  disabled?: boolean;
+  embedded?: boolean;
+  failed?: boolean;
+}) {
+  const routineTitle = title?.trim() || "routine name goes in here";
+  const content = (
+    <>
+      <span className={styles.frameDeleteIcon}><TrashIcon /></span>
+      <h2 id="delete-routine-title" className={styles.frameDeleteQuestion}>Are you sure you want to delete {routineTitle}?</h2>
+      {failed ? <p role="alert">The delete request failed. Please try again.</p> : null}
       <div className={styles.frameSheetActions}>
-        <button type="button" className={styles.frameNeutralAction} onClick={onCancel}>Cancel</button>
-        <button type="button" className={styles.frameAccentAction} onClick={onDelete}>Delete</button>
+        <button type="button" className={styles.frameNeutralAction} onClick={onCancel} disabled={disabled}>Cancel</button>
+        <button type="button" className={styles.frameAccentAction} onClick={onDelete} disabled={disabled}>Delete</button>
       </div>
-    </BottomSheet>
+    </>
   );
+  return embedded ? content : <BottomSheet onClose={onCancel} labelledBy="delete-routine-title">{content}</BottomSheet>;
 }
 
 export function BackIcon() {
@@ -920,15 +999,15 @@ function ChevronIcon() {
   return <FrameIcon name="chevron" />;
 }
 
-function CalendarIcon() {
-  return <FrameIcon name="calendar" />;
+function RoutineIcon() {
+  return <FrameIcon name="routine" />;
 }
 
 function StoreIcon() {
   return <FrameIcon name="store" />;
 }
 
-type FrameIconName = "back" | "settings" | "settings-desktop" | "send" | "mic" | "plus" | "minus" | "trash" | "close" | "chevron" | "calendar" | "store";
+type FrameIconName = "back" | "settings" | "settings-desktop" | "send" | "mic" | "plus" | "minus" | "trash" | "close" | "chevron" | "routine" | "store";
 
 function FrameIcon({ name, className = "" }: { name: FrameIconName; className?: string }) {
   return (

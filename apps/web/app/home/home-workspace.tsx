@@ -57,6 +57,7 @@ import {
   buildRoutineActionIdempotencyKey,
   buildRoutineActionEvidence,
   buildRoutineActionMessage,
+  buildRoutineActionContext,
   buildProductionConversationFrameModel,
   type ProductionQueuedMessageModel,
   type ProductionConversationFrameActions,
@@ -1523,6 +1524,7 @@ function ConversationPane({
     key: string,
     clearSubmittedDraft: boolean,
     queuedMessageId?: string,
+    routineRequest?: RoutineActionRequest,
   ): Promise<boolean> => {
     if (conversationAccessFailure || !conversation || !canChat(ally)) return false;
     const activeMessageIdBeforeSend = activeMessageIdRef.current;
@@ -1541,10 +1543,12 @@ function ConversationPane({
     setQueuePersistenceError(null);
     try {
       const accepted = await session.runCloudOperation(
-        (signal) => session.client.sendMessage(workspaceId, conversation.id, content, key, signal, Intl.DateTimeFormat().resolvedOptions().timeZone),
+        (signal) => session.client.sendMessage(workspaceId, conversation.id, content, key, signal, Intl.DateTimeFormat().resolvedOptions().timeZone,
+          routineRequest ? buildRoutineActionContext(routineRequest) : undefined),
         { csrf: true },
       );
       if (!accepted?.message) throw { kind: "contract" };
+      if (!routineRequest) setRoutineActionState((current) => current?.status === "sent" ? null : current);
       onActivity();
       setSentMessages((current) => mergeMessages(current, [accepted.message]));
       if (queuedMessageId) setImmediateMessageIds((current) => {
@@ -1667,7 +1671,7 @@ function ConversationPane({
       approvalRequestId: request.approvalRequestId,
       status: "sending",
     });
-    const accepted = await sendMessageContent(buildRoutineActionMessage(request), key, false);
+    const accepted = await sendMessageContent(buildRoutineActionMessage(request), key, false, undefined, request);
     if (!mountedRef.current) return accepted;
     setRoutineActionState((current) => current?.key === key
       ? accepted ? { ...current, status: "sent" } : null

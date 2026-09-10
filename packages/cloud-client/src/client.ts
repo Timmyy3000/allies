@@ -1,7 +1,7 @@
 import createOpenApiClient from "openapi-fetch";
 import { z } from "zod";
 
-import type { paths } from "./generated/openapi";
+import type { paths, components } from "./generated/openapi";
 import { isCloudError, normalizeCloudError, type CloudError } from "./errors";
 import { parsePublicCloudUrl } from "./environment";
 import { toAccountViewModel, type AccountViewModel } from "./mappers/account";
@@ -728,6 +728,7 @@ export function createCloudClient(options: CloudClientOptions) {
       idempotencyKey: string,
       signal?: AbortSignal,
       timezone?: string,
+      routineAction?: components["schemas"]["RoutineMessageAction"],
     ): Promise<MessageAcceptanceViewModel> {
       rejectPreAborted(signal);
       const workspace = parsePathSegment(workspaceId);
@@ -740,7 +741,7 @@ export function createCloudClient(options: CloudClientOptions) {
             path: { workspace_id: workspace, conversation_id: conversation },
             header: { "Idempotency-Key": key },
           },
-          body: { content: body, timezone: timezone ?? "" },
+          body: { content: body, timezone: timezone ?? "", ...(routineAction ? { routine_action: routineAction } : {}) },
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => toMessageAcceptanceViewModel(successEnvelope(messageAcceptanceResponseSchema).parse(data).data),
