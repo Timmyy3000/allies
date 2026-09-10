@@ -775,6 +775,14 @@
             "title": "Is Truncated",
             "type": "boolean"
           },
+          "publications": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Publications",
+            "type": "array"
+          },
           "source_message_id": {
             "format": "uuid",
             "title": "Source Message Id",
@@ -990,6 +998,29 @@
         "title": "CreateAllyRequest",
         "type": "object"
       },
+      "DraftFileResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state"
+        ],
+        "title": "DraftFileResponse",
+        "type": "object"
+      },
       "ErrorData": {
         "description": "Machine-readable failure data kept separate from human messaging.",
         "examples": [
@@ -1071,6 +1102,165 @@
         "title": "ErrorResponse[ErrorData]",
         "type": "object"
       },
+      "FileCancellationResponse": {
+        "properties": {
+          "draft": {
+            "$ref": "#/components/schemas/FileDraftResponse"
+          },
+          "message": {
+            "$ref": "#/components/schemas/FileMessageResponse"
+          }
+        },
+        "required": [
+          "message",
+          "draft"
+        ],
+        "title": "FileCancellationResponse",
+        "type": "object"
+      },
+      "FileDraftDiscardResponse": {
+        "properties": {
+          "discarded": {
+            "title": "Discarded",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "discarded"
+        ],
+        "title": "FileDraftDiscardResponse",
+        "type": "object"
+      },
+      "FileDraftResponse": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DraftFileResponse"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "content",
+          "files"
+        ],
+        "title": "FileDraftResponse",
+        "type": "object"
+      },
+      "FileManifestRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "client_id": {
+            "format": "uuid",
+            "title": "Client Id",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[^\\\\/\\x00-\\x1f\\x7f]+$",
+            "title": "Name",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "maximum": 25000000,
+            "minimum": 1,
+            "title": "Size",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "client_id",
+          "name",
+          "size",
+          "sha256"
+        ],
+        "title": "FileManifestRequest",
+        "type": "object"
+      },
+      "FileMessageResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "preparation": {
+            "title": "Preparation",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "status",
+          "preparation",
+          "revision"
+        ],
+        "title": "FileMessageResponse",
+        "type": "object"
+      },
+      "FileReservationResponse": {
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/ReservedFileResponse"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "message": {
+            "$ref": "#/components/schemas/ReservedMessageResponse"
+          },
+          "replayed": {
+            "title": "Replayed",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "message",
+          "files",
+          "replayed"
+        ],
+        "title": "FileReservationResponse",
+        "type": "object"
+      },
+      "FileRetryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "generation": {
+            "minimum": 1,
+            "title": "Generation",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "generation"
+        ],
+        "title": "FileRetryRequest",
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "state": {
@@ -1144,6 +1334,35 @@
         "title": "MessageAcceptanceResponse",
         "type": "object"
       },
+      "MessageFileResponse": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "size",
+          "state"
+        ],
+        "title": "MessageFileResponse",
+        "type": "object"
+      },
       "MessageResponse": {
         "properties": {
           "content": {
@@ -1167,9 +1386,21 @@
             ],
             "title": "Deleted At"
           },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/MessageFileResponse"
+            },
+            "title": "Files",
+            "type": "array"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
+            "type": "string"
+          },
+          "preparation": {
+            "default": "none",
+            "title": "Preparation",
             "type": "string"
           },
           "queue_state": {
@@ -1191,6 +1422,11 @@
             "default": false,
             "title": "Retryable",
             "type": "boolean"
+          },
+          "revision": {
+            "default": 0,
+            "title": "Revision",
+            "type": "integer"
           },
           "sender": {
             "title": "Sender",
@@ -1577,6 +1813,188 @@
         "title": "ProfileUpdateRequest",
         "type": "object"
       },
+      "PublicationFileRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "pattern": "^[^\\\\/\\x00-\\x1f\\x7f]+$",
+            "title": "Name",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          },
+          "size": {
+            "maximum": 25000000,
+            "minimum": 1,
+            "title": "Size",
+            "type": "integer"
+          },
+          "source_version_id": {
+            "format": "uuid",
+            "title": "Source Version Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_version_id",
+          "name",
+          "size",
+          "sha256"
+        ],
+        "title": "PublicationFileRequest",
+        "type": "object"
+      },
+      "PublicationRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/PublicationFileRequest"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Files",
+            "type": "array"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "publication_id": {
+            "format": "uuid",
+            "title": "Publication Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "binding_id",
+          "message_id",
+          "publication_id",
+          "files"
+        ],
+        "title": "PublicationRequest",
+        "type": "object"
+      },
+      "PublicationRetryClaimRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "limit": {
+            "maximum": 20,
+            "minimum": 1,
+            "title": "Limit",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "binding_id",
+          "limit"
+        ],
+        "title": "PublicationRetryClaimRequest",
+        "type": "object"
+      },
+      "PublicationRetryRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "title": "PublicationRetryRequest",
+        "type": "object"
+      },
+      "PublicationRetryResultRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "lease_token": {
+            "format": "uuid",
+            "title": "Lease Token",
+            "type": "string"
+          },
+          "outcome": {
+            "pattern": "^(submitted|failed)$",
+            "title": "Outcome",
+            "type": "string"
+          },
+          "revision": {
+            "minimum": 1,
+            "title": "Revision",
+            "type": "integer"
+          },
+          "safe_error_code": {
+            "default": "",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "title": "Safe Error Code",
+            "type": "string"
+          }
+        },
+        "required": [
+          "revision",
+          "lease_token",
+          "outcome"
+        ],
+        "title": "PublicationRetryResultRequest",
+        "type": "object"
+      },
+      "PublicationStatusRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "error_code": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "title": "Error Code",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          },
+          "publication_id": {
+            "format": "uuid",
+            "title": "Publication Id",
+            "type": "string"
+          },
+          "state": {
+            "pattern": "^failed$",
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "binding_id",
+          "message_id",
+          "publication_id",
+          "state",
+          "error_code"
+        ],
+        "title": "PublicationStatusRequest",
+        "type": "object"
+      },
       "RedirectRequest": {
         "properties": {
           "redirect_to": {
@@ -1586,6 +2004,77 @@
           }
         },
         "title": "RedirectRequest",
+        "type": "object"
+      },
+      "ReservedFileResponse": {
+        "properties": {
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "generation",
+          "state"
+        ],
+        "title": "ReservedFileResponse",
+        "type": "object"
+      },
+      "ReservedMessageResponse": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "preparation": {
+            "title": "Preparation",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "sequence": {
+            "title": "Sequence",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "sequence",
+          "status",
+          "preparation",
+          "revision"
+        ],
+        "title": "ReservedMessageResponse",
+        "type": "object"
+      },
+      "RevisionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "minimum": 0,
+            "title": "Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revision"
+        ],
+        "title": "RevisionRequest",
         "type": "object"
       },
       "RoutineApprovalDecisionRequest": {
@@ -2620,6 +3109,31 @@
         "title": "RuntimeIntentResponse",
         "type": "object"
       },
+      "SendFilesRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "default": "",
+            "maxLength": 16000,
+            "title": "Content",
+            "type": "string"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/FileManifestRequest"
+            },
+            "maxItems": 10,
+            "minItems": 1,
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "SendFilesRequest",
+        "type": "object"
+      },
       "SendMessageRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3018,6 +3532,197 @@
           "data"
         ],
         "title": "SuccessResponse[ConversationResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_FileCancellationResponse_": {
+        "example": {
+          "data": {
+            "draft": {
+              "content": "Review this report.",
+              "files": [
+                {
+                  "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+                  "name": "report.pdf",
+                  "state": "ready"
+                }
+              ],
+              "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d88"
+            },
+            "message": {
+              "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+              "preparation": "cancelled",
+              "revision": 2,
+              "status": "stopped"
+            }
+          },
+          "message": "File message cancelled",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FileCancellationResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[FileCancellationResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_FileDraftDiscardResponse_": {
+        "example": {
+          "data": {
+            "discarded": true
+          },
+          "message": "File draft discarded",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FileDraftDiscardResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[FileDraftDiscardResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_FileDraftResponse_": {
+        "example": {
+          "data": {
+            "content": "Review this report.",
+            "files": [
+              {
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+                "name": "report.pdf",
+                "state": "ready"
+              }
+            ],
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d88"
+          },
+          "message": "File draft read",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FileDraftResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[FileDraftResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_FileMessageResponse_": {
+        "example": {
+          "data": {
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+            "preparation": "ready",
+            "revision": 2,
+            "status": "queued"
+          },
+          "message": "File message prepared",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FileMessageResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[FileMessageResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_FileReservationResponse_": {
+        "example": {
+          "data": {
+            "files": [
+              {
+                "generation": 1,
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+                "state": "pending"
+              }
+            ],
+            "message": {
+              "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+              "preparation": "uploading",
+              "revision": 1,
+              "sequence": 3,
+              "status": "queued"
+            },
+            "replayed": false
+          },
+          "message": "File message reserved",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/FileReservationResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[FileReservationResponse]",
         "type": "object"
       },
       "SuccessResponse_HealthResponse_": {
@@ -3515,6 +4220,38 @@
         "title": "SuccessResponse[RuntimeIntentResponse]",
         "type": "object"
       },
+      "SuccessResponse_UploadFileResponse_": {
+        "example": {
+          "data": {
+            "generation": 1,
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+            "state": "validating"
+          },
+          "message": "File accepted for validation",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/UploadFileResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[UploadFileResponse]",
+        "type": "object"
+      },
       "SuccessResponse_WaitlistEntryCompletionResponse_": {
         "example": {
           "data": {
@@ -3609,6 +4346,29 @@
           "data"
         ],
         "title": "SuccessResponse[WorkspaceContextResponse]",
+        "type": "object"
+      },
+      "UploadFileResponse": {
+        "properties": {
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "state": {
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "generation"
+        ],
+        "title": "UploadFileResponse",
         "type": "object"
       },
       "UserResponse": {
@@ -3863,7 +4623,7 @@
   "paths": {
     "/api/v1/allies/{ally_id}/runtime-intents": {
       "post": {
-        "operationId": "runtimeintent_request_a953ca56",
+        "operationId": "runtimeintent_request_5cc4982f",
         "parameters": [
           {
             "in": "path",
@@ -4019,7 +4779,7 @@
     },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_a0985073",
+        "operationId": "authentication_callback_e57185ad",
         "parameters": [
           {
             "in": "path",
@@ -4124,7 +4884,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_572c0157",
+        "operationId": "authentication_csrf_093f9613",
         "parameters": [],
         "responses": {
           "204": {
@@ -4154,7 +4914,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_9a35d24f",
+        "operationId": "identity_link_f618e305",
         "parameters": [
           {
             "in": "path",
@@ -4331,7 +5091,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_e0113d7d",
+        "operationId": "session_logout_ca9d78f9",
         "parameters": [],
         "responses": {
           "204": {
@@ -4376,7 +5136,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_31183f03",
+        "operationId": "profile_me_1e3ed009",
         "parameters": [],
         "responses": {
           "200": {
@@ -4433,7 +5193,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_7ee6fb96",
+        "operationId": "avatar_delete_12e102c3",
         "parameters": [],
         "responses": {
           "204": {
@@ -4543,7 +5303,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_fb906a0a",
+        "operationId": "avatar_complete_235e0478",
         "parameters": [
           {
             "in": "path",
@@ -4701,7 +5461,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_bbc75366",
+        "operationId": "avatar_read_5227d416",
         "parameters": [],
         "responses": {
           "200": {
@@ -4788,7 +5548,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_d2035579",
+        "operationId": "avatar_prepare_4d455ed8",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -4930,7 +5690,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_5cc42812",
+        "operationId": "profile_profile_9a60e285",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -5043,7 +5803,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_4ab88d34",
+        "operationId": "nativeauthentication_callback_05511510",
         "parameters": [
           {
             "in": "path",
@@ -5227,7 +5987,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_568aeae7",
+        "operationId": "nativeauthentication_logout_dc337c94",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -5319,7 +6079,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_771d6948",
+        "operationId": "nativeauthentication_sign_in_0b5c0848",
         "parameters": [
           {
             "in": "path",
@@ -5423,7 +6183,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_3b7444c2",
+        "operationId": "nativeauthentication_token_a72ccac3",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -5587,7 +6347,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_92f9735d",
+        "operationId": "nativeauthentication_refresh_ede79cf2",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -5750,7 +6510,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_9771347e",
+        "operationId": "session_refresh_5b969a12",
         "parameters": [],
         "responses": {
           "204": {
@@ -5840,7 +6600,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_7c3d7eb1",
+        "operationId": "authentication_sign_in_9eb3acc9",
         "parameters": [
           {
             "in": "path",
@@ -5987,7 +6747,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_1d109df8",
+        "operationId": "health_health_d937ad0e",
         "parameters": [],
         "responses": {
           "200": {
@@ -6127,10 +6887,325 @@
         "summary": "Routine Tool"
       }
     },
+    "/api/v1/internal/v1/accepted-files/{file_id}/content": {
+      "get": {
+        "operationId": "acceptedfile_content_051aee8c",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "binding_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Binding Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Content",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/internal/v1/file-publication-retries/claim": {
+      "post": {
+        "operationId": "filepublication_claim_033d533d",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicationRetryClaimRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Claim",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/internal/v1/file-publication-retries/due-bindings": {
+      "get": {
+        "operationId": "filepublication_due_bindings_0b628c80",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": true,
+            "schema": {
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Due Bindings",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/internal/v1/file-publication-status": {
+      "post": {
+        "operationId": "filepublication_status_4ed1c8f7",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicationStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/internal/v1/file-publications": {
+      "post": {
+        "operationId": "filepublication_reserve_be5decb2",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Reserve",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/internal/v1/file-publications/{publication_id}": {
+      "get": {
+        "operationId": "filepublication_detail_4851b39e",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publication_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Publication Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Detail",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/internal/v1/file-publications/{publication_id}/files/{file_id}/content": {
+      "put": {
+        "operationId": "filepublication_upload_d07e96a3",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publication_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Publication Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "generation",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Generation",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Allies-Publication-Revision",
+            "required": false,
+            "schema": {
+              "default": 1,
+              "minimum": 1,
+              "title": "X-Allies-Publication-Revision",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Allies-Publication-Lease-Token",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Allies-Publication-Lease-Token"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Content-Length",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Content-Length"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Upload",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/internal/v1/file-publications/{publication_id}/retry-result": {
+      "post": {
+        "operationId": "filepublication_retry_result_54f7c911",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "publication_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Publication Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicationRetryResultRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Retry Result",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
     "/api/v1/onboarding/attempts": {
       "post": {
         "description": "This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.",
-        "operationId": "onboarding_begin_68b1af71",
+        "operationId": "onboarding_begin_a50d7147",
         "parameters": [
           {
             "description": "Browser-only signal; if present it must be a configured trusted origin.",
@@ -6307,7 +7382,7 @@
     "/api/v1/onboarding/runtime-intents": {
       "post": {
         "description": "This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.",
-        "operationId": "onboarding_runtime_intent_b6e2814a",
+        "operationId": "onboarding_runtime_intent_d3434db3",
         "parameters": [
           {
             "description": "Stable UUID for repeating one runtime intent.",
@@ -6591,7 +7666,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_182ee6f0",
+        "operationId": "waitlist_create_b88ac789",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -6772,7 +7847,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_4da1ca86",
+        "operationId": "waitlist_complete_92d1fd4a",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -6942,7 +8017,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_32bc8a1b",
+        "operationId": "workspace_context_61074c1a",
         "parameters": [
           {
             "in": "path",
@@ -7025,7 +8100,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_f49d8b8a",
+        "operationId": "ally_list_7754e5fd",
         "parameters": [
           {
             "in": "path",
@@ -7102,7 +8177,7 @@
       },
       "post": {
         "description": "Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.",
-        "operationId": "ally_create_481a7a67",
+        "operationId": "ally_create_85091256",
         "parameters": [
           {
             "in": "path",
@@ -7338,7 +8413,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_33ba11a7",
+        "operationId": "ally_retrieve_8045a141",
         "parameters": [
           {
             "in": "path",
@@ -7426,7 +8501,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_80fa660e",
+        "operationId": "conversation_by_ally_2e917a1e",
         "parameters": [
           {
             "in": "path",
@@ -7555,9 +8630,628 @@
         ]
       }
     },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}": {
+      "get": {
+        "operationId": "privatefile_metadata_01bc60fb",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Metadata",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/content": {
+      "put": {
+        "operationId": "fileadmission_upload_b7006768",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "generation",
+            "required": true,
+            "schema": {
+              "minimum": 1,
+              "title": "Generation",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "Exact raw byte length; maximum 25,000,000.",
+            "in": "header",
+            "name": "Content-Length",
+            "required": true,
+            "schema": {
+              "maximum": 25000000,
+              "minimum": 1,
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/octet-stream": {
+              "schema": {
+                "format": "binary",
+                "maxLength": 25000000,
+                "type": "string"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UploadFileResponse_"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Content Too Large"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Upload",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/download": {
+      "get": {
+        "operationId": "privatefile_download_8343711f",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Download",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/preview": {
+      "get": {
+        "operationId": "privatefile_preview_74c58194",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Preview",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/retry": {
+      "post": {
+        "operationId": "fileadmission_retry_file_5bf39d3a",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FileRetryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_UploadFileResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Retry File",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/messages/{message_id}/publications/{publication_id}": {
+      "get": {
+        "operationId": "ownerpublication_detail_b0354f7c",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "publication_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Publication Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Detail",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/messages/{message_id}/publications/{publication_id}/retry": {
+      "post": {
+        "operationId": "ownerpublication_retry_aaae7f49",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "publication_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Publication Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PublicationRetryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Retry",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_95d6dc19",
+        "operationId": "conversation_by_conversation_cbec7dbc",
         "parameters": [
           {
             "in": "path",
@@ -7688,7 +9382,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_eb34eacf",
+        "operationId": "activity_snapshot_bde2c7ac",
         "parameters": [
           {
             "in": "path",
@@ -7860,7 +9554,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
       "get": {
-        "operationId": "activity_stream_21b6511e",
+        "operationId": "activity_stream_fd8999f8",
         "parameters": [
           {
             "in": "path",
@@ -7914,7 +9608,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals": {
       "get": {
         "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
-        "operationId": "activity_approvals_de90a4dc",
+        "operationId": "activity_approvals_f444a088",
         "parameters": [
           {
             "in": "path",
@@ -8053,7 +9747,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}": {
       "get": {
         "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
-        "operationId": "activity_approval_f91ef3a8",
+        "operationId": "activity_approval_2e4720aa",
         "parameters": [
           {
             "in": "path",
@@ -8190,7 +9884,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}/decision": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected. The idempotency key must be reused for an exact retry.",
-        "operationId": "activity_decide_6df0c2b7",
+        "operationId": "activity_decide_6347e6fc",
         "parameters": [
           {
             "in": "path",
@@ -8399,10 +10093,179 @@
         ]
       }
     },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/file-messages": {
+      "post": {
+        "operationId": "fileadmission_reserve_8effbe08",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 16,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SendFilesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_FileReservationResponse_"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Reserve",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_send_eff90e02",
+        "operationId": "conversation_send_0cef50fc",
         "parameters": [
           {
             "in": "path",
@@ -8619,7 +10482,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}": {
       "delete": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_delete_f05ec41e",
+        "operationId": "conversation_delete_306bea48",
         "parameters": [
           {
             "in": "path",
@@ -8780,10 +10643,550 @@
         ]
       }
     },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/cancel-files": {
+      "post": {
+        "operationId": "fileadmission_cancel_files_cabc3240",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_FileCancellationResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Cancel Files",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/file-draft": {
+      "delete": {
+        "operationId": "fileadmission_discard_draft_a3b9ce3b",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_FileDraftDiscardResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Discard Draft",
+        "tags": [
+          "Files"
+        ]
+      },
+      "get": {
+        "operationId": "fileadmission_get_draft_6fb6fd5b",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_FileDraftResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Get Draft",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/files/{file_id}": {
+      "delete": {
+        "operationId": "fileadmission_remove_file_77fc5812",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "File Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "revision",
+            "required": true,
+            "schema": {
+              "minimum": 0,
+              "title": "Revision",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_FileMessageResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Remove File",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_retry_b32d506e",
+        "operationId": "conversation_retry_bac6f4f3",
         "parameters": [
           {
             "in": "path",
@@ -8997,9 +11400,162 @@
         ]
       }
     },
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/send-files": {
+      "post": {
+        "operationId": "fileadmission_send_files_5d7278f8",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "conversation_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Conversation Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "message_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Message Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_FileMessageResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Send Files",
+        "tags": [
+          "Files"
+        ]
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/routines": {
       "get": {
-        "operationId": "routine_list_ea048f7e",
+        "operationId": "routine_list_087a309b",
         "parameters": [
           {
             "in": "path",
@@ -9138,7 +11694,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/routines/{routine_id}": {
       "get": {
-        "operationId": "routine_detail_359a11be",
+        "operationId": "routine_detail_c6deca18",
         "parameters": [
           {
             "in": "path",
@@ -9226,7 +11782,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/routines/{routine_id}/approvals/{approval_id}/decision": {
       "post": {
-        "operationId": "routine_decide_approval_4abd5f82",
+        "operationId": "routine_decide_approval_78ed0ce9",
         "parameters": [
           {
             "in": "path",

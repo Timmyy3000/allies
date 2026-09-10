@@ -1027,6 +1027,10 @@
 }
 
 .frameComposerContent { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+.frameProduction .frameComposer[data-attachment-enabled="true"] { max-height: none; transition: border-radius 460ms cubic-bezier(.22,1,.36,1), padding-top 460ms cubic-bezier(.22,1,.36,1); }
+.frameProduction .frameComposer[data-has-attachments="true"] { border-radius: 24px; padding-top: 10px; }
+.frameProduction .frameComposer button.frameAttachButton { width: 36px; height: 36px; flex: 0 0 36px; background: transparent; color: var(--chat-ink); border-radius: 50%; }
+.frameProduction .frameComposer button.frameAttachButton img { filter: var(--mono-icon-filter); width: 15px; height: 15px; }
 .frameProduction .frameComposer[data-has-paste="true"] { max-height: none; padding-top: 14px; }
 .frameComposerContent > textarea { width: 100%; flex: none; }
 .framePasteCard { display: flex; align-items: center; width: fit-content; max-width: 100%; border-radius: 16px; background: var(--surface-secondary); }

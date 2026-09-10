@@ -14,7 +14,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Request */
-        post: operations["runtimeintent_request_a953ca56"];
+        post: operations["runtimeintent_request_5cc4982f"];
         delete?: never;
         options?: never;
         head?: never;
@@ -29,7 +29,7 @@ export interface paths {
             cookie?: never;
         };
         /** Callback */
-        get: operations["authentication_callback_a0985073"];
+        get: operations["authentication_callback_e57185ad"];
         put?: never;
         post?: never;
         delete?: never;
@@ -46,7 +46,7 @@ export interface paths {
             cookie?: never;
         };
         /** Csrf */
-        get: operations["authentication_csrf_572c0157"];
+        get: operations["authentication_csrf_093f9613"];
         put?: never;
         post?: never;
         delete?: never;
@@ -65,7 +65,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Link */
-        post: operations["identity_link_9a35d24f"];
+        post: operations["identity_link_f618e305"];
         delete?: never;
         options?: never;
         head?: never;
@@ -82,7 +82,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Logout */
-        post: operations["session_logout_e0113d7d"];
+        post: operations["session_logout_ca9d78f9"];
         delete?: never;
         options?: never;
         head?: never;
@@ -97,7 +97,7 @@ export interface paths {
             cookie?: never;
         };
         /** Me */
-        get: operations["profile_me_31183f03"];
+        get: operations["profile_me_1e3ed009"];
         put?: never;
         post?: never;
         delete?: never;
@@ -117,7 +117,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete */
-        delete: operations["avatar_delete_7ee6fb96"];
+        delete: operations["avatar_delete_12e102c3"];
         options?: never;
         head?: never;
         patch?: never;
@@ -133,7 +133,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Complete */
-        post: operations["avatar_complete_fb906a0a"];
+        post: operations["avatar_complete_235e0478"];
         delete?: never;
         options?: never;
         head?: never;
@@ -148,7 +148,7 @@ export interface paths {
             cookie?: never;
         };
         /** Read */
-        get: operations["avatar_read_bbc75366"];
+        get: operations["avatar_read_5227d416"];
         put?: never;
         post?: never;
         delete?: never;
@@ -167,7 +167,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Prepare */
-        post: operations["avatar_prepare_d2035579"];
+        post: operations["avatar_prepare_4d455ed8"];
         delete?: never;
         options?: never;
         head?: never;
@@ -188,7 +188,7 @@ export interface paths {
         options?: never;
         head?: never;
         /** Profile */
-        patch: operations["profile_profile_5cc42812"];
+        patch: operations["profile_profile_9a60e285"];
         trace?: never;
     };
     "/api/v1/auths/native/callback/{provider}": {
@@ -202,7 +202,7 @@ export interface paths {
          * Callback
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        get: operations["nativeauthentication_callback_4ab88d34"];
+        get: operations["nativeauthentication_callback_05511510"];
         put?: never;
         post?: never;
         delete?: never;
@@ -224,7 +224,7 @@ export interface paths {
          * Logout
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_logout_568aeae7"];
+        post: operations["nativeauthentication_logout_dc337c94"];
         delete?: never;
         options?: never;
         head?: never;
@@ -244,7 +244,7 @@ export interface paths {
          * Sign In
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_sign_in_771d6948"];
+        post: operations["nativeauthentication_sign_in_0b5c0848"];
         delete?: never;
         options?: never;
         head?: never;
@@ -264,7 +264,7 @@ export interface paths {
          * Token
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_token_3b7444c2"];
+        post: operations["nativeauthentication_token_a72ccac3"];
         delete?: never;
         options?: never;
         head?: never;
@@ -284,7 +284,7 @@ export interface paths {
          * Refresh
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_refresh_92f9735d"];
+        post: operations["nativeauthentication_refresh_ede79cf2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -301,7 +301,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Refresh */
-        post: operations["session_refresh_9771347e"];
+        post: operations["session_refresh_5b969a12"];
         delete?: never;
         options?: never;
         head?: never;
@@ -318,7 +318,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Sign In */
-        post: operations["authentication_sign_in_7c3d7eb1"];
+        post: operations["authentication_sign_in_9eb3acc9"];
         delete?: never;
         options?: never;
         head?: never;
@@ -333,7 +333,7 @@ export interface paths {
             cookie?: never;
         };
         /** Health */
-        get: operations["health_health_1d109df8"];
+        get: operations["health_health_d937ad0e"];
         put?: never;
         post?: never;
         delete?: never;
@@ -410,6 +410,142 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/v1/accepted-files/{file_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Content */
+        get: operations["acceptedfile_content_051aee8c"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/v1/file-publication-retries/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Claim */
+        post: operations["filepublication_claim_033d533d"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/v1/file-publication-retries/due-bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Due Bindings */
+        get: operations["filepublication_due_bindings_0b628c80"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/v1/file-publication-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Status */
+        post: operations["filepublication_status_4ed1c8f7"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/v1/file-publications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reserve */
+        post: operations["filepublication_reserve_be5decb2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/v1/file-publications/{publication_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["filepublication_detail_4851b39e"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/v1/file-publications/{publication_id}/files/{file_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Upload */
+        put: operations["filepublication_upload_d07e96a3"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/v1/file-publications/{publication_id}/retry-result": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry Result */
+        post: operations["filepublication_retry_result_54f7c911"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/onboarding/attempts": {
         parameters: {
             query?: never;
@@ -423,7 +559,7 @@ export interface paths {
          * Begin
          * @description This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.
          */
-        post: operations["onboarding_begin_68b1af71"];
+        post: operations["onboarding_begin_a50d7147"];
         delete?: never;
         options?: never;
         head?: never;
@@ -443,7 +579,7 @@ export interface paths {
          * Runtime Intent
          * @description This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.
          */
-        post: operations["onboarding_runtime_intent_b6e2814a"];
+        post: operations["onboarding_runtime_intent_d3434db3"];
         delete?: never;
         options?: never;
         head?: never;
@@ -463,7 +599,7 @@ export interface paths {
          * Create
          * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
          */
-        post: operations["waitlist_create_182ee6f0"];
+        post: operations["waitlist_create_b88ac789"];
         delete?: never;
         options?: never;
         head?: never;
@@ -483,7 +619,7 @@ export interface paths {
          * Complete
          * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
          */
-        post: operations["waitlist_complete_4da1ca86"];
+        post: operations["waitlist_complete_92d1fd4a"];
         delete?: never;
         options?: never;
         head?: never;
@@ -498,7 +634,7 @@ export interface paths {
             cookie?: never;
         };
         /** Context */
-        get: operations["workspace_context_32bc8a1b"];
+        get: operations["workspace_context_61074c1a"];
         put?: never;
         post?: never;
         delete?: never;
@@ -515,13 +651,13 @@ export interface paths {
             cookie?: never;
         };
         /** List */
-        get: operations["ally_list_f49d8b8a"];
+        get: operations["ally_list_7754e5fd"];
         put?: never;
         /**
          * Create
          * @description Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.
          */
-        post: operations["ally_create_481a7a67"];
+        post: operations["ally_create_85091256"];
         delete?: never;
         options?: never;
         head?: never;
@@ -536,7 +672,7 @@ export interface paths {
             cookie?: never;
         };
         /** Retrieve */
-        get: operations["ally_retrieve_33ba11a7"];
+        get: operations["ally_retrieve_8045a141"];
         put?: never;
         post?: never;
         delete?: never;
@@ -553,9 +689,128 @@ export interface paths {
             cookie?: never;
         };
         /** By Ally */
-        get: operations["conversation_by_ally_80fa660e"];
+        get: operations["conversation_by_ally_2e917a1e"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Metadata */
+        get: operations["privatefile_metadata_01bc60fb"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Upload */
+        put: operations["fileadmission_upload_b7006768"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Download */
+        get: operations["privatefile_download_8343711f"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Preview */
+        get: operations["privatefile_preview_74c58194"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry File */
+        post: operations["fileadmission_retry_file_5bf39d3a"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/messages/{message_id}/publications/{publication_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["ownerpublication_detail_b0354f7c"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/messages/{message_id}/publications/{publication_id}/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retry */
+        post: operations["ownerpublication_retry_aaae7f49"];
         delete?: never;
         options?: never;
         head?: never;
@@ -570,7 +825,7 @@ export interface paths {
             cookie?: never;
         };
         /** By Conversation */
-        get: operations["conversation_by_conversation_95d6dc19"];
+        get: operations["conversation_by_conversation_cbec7dbc"];
         put?: never;
         post?: never;
         delete?: never;
@@ -587,7 +842,7 @@ export interface paths {
             cookie?: never;
         };
         /** Snapshot */
-        get: operations["activity_snapshot_eb34eacf"];
+        get: operations["activity_snapshot_bde2c7ac"];
         put?: never;
         post?: never;
         delete?: never;
@@ -604,7 +859,7 @@ export interface paths {
             cookie?: never;
         };
         /** Stream */
-        get: operations["activity_stream_21b6511e"];
+        get: operations["activity_stream_fd8999f8"];
         put?: never;
         post?: never;
         delete?: never;
@@ -624,7 +879,7 @@ export interface paths {
          * Approvals
          * @description Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.
          */
-        get: operations["activity_approvals_de90a4dc"];
+        get: operations["activity_approvals_f444a088"];
         put?: never;
         post?: never;
         delete?: never;
@@ -644,7 +899,7 @@ export interface paths {
          * Approval
          * @description Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.
          */
-        get: operations["activity_approval_f91ef3a8"];
+        get: operations["activity_approval_2e4720aa"];
         put?: never;
         post?: never;
         delete?: never;
@@ -666,7 +921,24 @@ export interface paths {
          * Decide
          * @description This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected. The idempotency key must be reused for an exact retry.
          */
-        post: operations["activity_decide_6df0c2b7"];
+        post: operations["activity_decide_6347e6fc"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/file-messages": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reserve */
+        post: operations["fileadmission_reserve_8effbe08"];
         delete?: never;
         options?: never;
         head?: never;
@@ -686,7 +958,7 @@ export interface paths {
          * Send
          * @description This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.
          */
-        post: operations["conversation_send_eff90e02"];
+        post: operations["conversation_send_0cef50fc"];
         delete?: never;
         options?: never;
         head?: never;
@@ -707,7 +979,59 @@ export interface paths {
          * Delete
          * @description This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.
          */
-        delete: operations["conversation_delete_f05ec41e"];
+        delete: operations["conversation_delete_306bea48"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/cancel-files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Files */
+        post: operations["fileadmission_cancel_files_cabc3240"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/file-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Draft */
+        get: operations["fileadmission_get_draft_6fb6fd5b"];
+        put?: never;
+        post?: never;
+        /** Discard Draft */
+        delete: operations["fileadmission_discard_draft_a3b9ce3b"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/files/{file_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Remove File */
+        delete: operations["fileadmission_remove_file_77fc5812"];
         options?: never;
         head?: never;
         patch?: never;
@@ -726,7 +1050,24 @@ export interface paths {
          * Retry
          * @description This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.
          */
-        post: operations["conversation_retry_b32d506e"];
+        post: operations["conversation_retry_bac6f4f3"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/send-files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send Files */
+        post: operations["fileadmission_send_files_5d7278f8"];
         delete?: never;
         options?: never;
         head?: never;
@@ -741,7 +1082,7 @@ export interface paths {
             cookie?: never;
         };
         /** List */
-        get: operations["routine_list_ea048f7e"];
+        get: operations["routine_list_087a309b"];
         put?: never;
         post?: never;
         delete?: never;
@@ -758,7 +1099,7 @@ export interface paths {
             cookie?: never;
         };
         /** Detail */
-        get: operations["routine_detail_359a11be"];
+        get: operations["routine_detail_c6deca18"];
         put?: never;
         post?: never;
         delete?: never;
@@ -777,7 +1118,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Decide Approval */
-        post: operations["routine_decide_approval_4abd5f82"];
+        post: operations["routine_decide_approval_78ed0ce9"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1091,6 +1432,10 @@ export interface components {
             id: string;
             /** Is Truncated */
             is_truncated: boolean;
+            /** Publications */
+            publications?: {
+                [key: string]: unknown;
+            }[];
             /**
              * Source Message Id
              * Format: uuid
@@ -1172,6 +1517,15 @@ export interface components {
             /** Reply */
             reply: string;
         };
+        /** DraftFileResponse */
+        DraftFileResponse: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** State */
+            state: string;
+        };
         /**
          * ErrorData
          * @description Machine-readable failure data kept separate from human messaging.
@@ -1222,6 +1576,63 @@ export interface components {
              */
             status: "error";
         };
+        /** FileCancellationResponse */
+        FileCancellationResponse: {
+            draft: components["schemas"]["FileDraftResponse"];
+            message: components["schemas"]["FileMessageResponse"];
+        };
+        /** FileDraftDiscardResponse */
+        FileDraftDiscardResponse: {
+            /** Discarded */
+            discarded: boolean;
+        };
+        /** FileDraftResponse */
+        FileDraftResponse: {
+            /** Content */
+            content: string;
+            /** Files */
+            files: components["schemas"]["DraftFileResponse"][];
+            /** Id */
+            id: string;
+        };
+        /** FileManifestRequest */
+        FileManifestRequest: {
+            /**
+             * Client Id
+             * Format: uuid
+             */
+            client_id: string;
+            /** Name */
+            name: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+        };
+        /** FileMessageResponse */
+        FileMessageResponse: {
+            /** Id */
+            id: string;
+            /** Preparation */
+            preparation: string;
+            /** Revision */
+            revision: number;
+            /** Status */
+            status: string;
+        };
+        /** FileReservationResponse */
+        FileReservationResponse: {
+            /** Files */
+            files: components["schemas"]["ReservedFileResponse"][];
+            message: components["schemas"]["ReservedMessageResponse"];
+            /** Replayed */
+            replayed: boolean;
+        };
+        /** FileRetryRequest */
+        FileRetryRequest: {
+            /** Generation */
+            generation: number;
+        };
         /** HealthResponse */
         HealthResponse: {
             /**
@@ -1252,6 +1663,20 @@ export interface components {
             /** Replayed */
             replayed: boolean;
         };
+        /** MessageFileResponse */
+        MessageFileResponse: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Name */
+            name: string;
+            /** Size */
+            size: number;
+            /** State */
+            state: string;
+        };
         /** MessageResponse */
         MessageResponse: {
             /** Content */
@@ -1263,11 +1688,18 @@ export interface components {
             created_at: string;
             /** Deleted At */
             deleted_at?: string | null;
+            /** Files */
+            files?: components["schemas"]["MessageFileResponse"][];
             /**
              * Id
              * Format: uuid
              */
             id: string;
+            /**
+             * Preparation
+             * @default none
+             */
+            preparation: string;
             /** Queue State */
             queue_state?: ("claimed" | "unclaimed") | null;
             /**
@@ -1275,6 +1707,11 @@ export interface components {
              * @default false
              */
             retryable: boolean;
+            /**
+             * Revision
+             * @default 0
+             */
+            revision: number;
             /** Sender */
             sender: string;
             /** Sequence */
@@ -1466,6 +1903,94 @@ export interface components {
             /** Display Name */
             display_name: string;
         };
+        /** PublicationFileRequest */
+        PublicationFileRequest: {
+            /** Name */
+            name: string;
+            /** Sha256 */
+            sha256: string;
+            /** Size */
+            size: number;
+            /**
+             * Source Version Id
+             * Format: uuid
+             */
+            source_version_id: string;
+        };
+        /** PublicationRequest */
+        PublicationRequest: {
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+            /** Files */
+            files: components["schemas"]["PublicationFileRequest"][];
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+            /**
+             * Publication Id
+             * Format: uuid
+             */
+            publication_id: string;
+        };
+        /** PublicationRetryClaimRequest */
+        PublicationRetryClaimRequest: {
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+            /** Limit */
+            limit: number;
+        };
+        /** PublicationRetryRequest */
+        PublicationRetryRequest: {
+            /** Revision */
+            revision: number;
+        };
+        /** PublicationRetryResultRequest */
+        PublicationRetryResultRequest: {
+            /**
+             * Lease Token
+             * Format: uuid
+             */
+            lease_token: string;
+            /** Outcome */
+            outcome: string;
+            /** Revision */
+            revision: number;
+            /**
+             * Safe Error Code
+             * @default
+             */
+            safe_error_code: string;
+        };
+        /** PublicationStatusRequest */
+        PublicationStatusRequest: {
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+            /** Error Code */
+            error_code: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+            /**
+             * Publication Id
+             * Format: uuid
+             */
+            publication_id: string;
+            /** State */
+            state: string;
+        };
         /** RedirectRequest */
         RedirectRequest: {
             /**
@@ -1473,6 +1998,33 @@ export interface components {
              * @default /
              */
             redirect_to: string;
+        };
+        /** ReservedFileResponse */
+        ReservedFileResponse: {
+            /** Generation */
+            generation: number;
+            /** Id */
+            id: string;
+            /** State */
+            state: string;
+        };
+        /** ReservedMessageResponse */
+        ReservedMessageResponse: {
+            /** Id */
+            id: string;
+            /** Preparation */
+            preparation: string;
+            /** Revision */
+            revision: number;
+            /** Sequence */
+            sequence: number;
+            /** Status */
+            status: string;
+        };
+        /** RevisionRequest */
+        RevisionRequest: {
+            /** Revision */
+            revision: number;
         };
         /** RoutineApprovalDecisionRequest */
         RoutineApprovalDecisionRequest: {
@@ -1923,6 +2475,16 @@ export interface components {
              */
             status: "disabled" | "already_ready" | "waking" | "ready" | "first_provision_required" | "rate_limited" | "failed";
         };
+        /** SendFilesRequest */
+        SendFilesRequest: {
+            /**
+             * Content
+             * @default
+             */
+            content: string;
+            /** Files */
+            files: components["schemas"]["FileManifestRequest"][];
+        };
         /** SendMessageRequest */
         SendMessageRequest: {
             /** Content */
@@ -2214,6 +2776,152 @@ export interface components {
          */
         SuccessResponse_ConversationResponse_: {
             data: components["schemas"]["ConversationResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[FileCancellationResponse]
+         * @example {
+         *       "data": {
+         *         "draft": {
+         *           "content": "Review this report.",
+         *           "files": [
+         *             {
+         *               "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+         *               "name": "report.pdf",
+         *               "state": "ready"
+         *             }
+         *           ],
+         *           "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d88"
+         *         },
+         *         "message": {
+         *           "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+         *           "preparation": "cancelled",
+         *           "revision": 2,
+         *           "status": "stopped"
+         *         }
+         *       },
+         *       "message": "File message cancelled",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_FileCancellationResponse_: {
+            data: components["schemas"]["FileCancellationResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[FileDraftDiscardResponse]
+         * @example {
+         *       "data": {
+         *         "discarded": true
+         *       },
+         *       "message": "File draft discarded",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_FileDraftDiscardResponse_: {
+            data: components["schemas"]["FileDraftDiscardResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[FileDraftResponse]
+         * @example {
+         *       "data": {
+         *         "content": "Review this report.",
+         *         "files": [
+         *           {
+         *             "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+         *             "name": "report.pdf",
+         *             "state": "ready"
+         *           }
+         *         ],
+         *         "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d88"
+         *       },
+         *       "message": "File draft read",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_FileDraftResponse_: {
+            data: components["schemas"]["FileDraftResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[FileMessageResponse]
+         * @example {
+         *       "data": {
+         *         "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+         *         "preparation": "ready",
+         *         "revision": 2,
+         *         "status": "queued"
+         *       },
+         *       "message": "File message prepared",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_FileMessageResponse_: {
+            data: components["schemas"]["FileMessageResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[FileReservationResponse]
+         * @example {
+         *       "data": {
+         *         "files": [
+         *           {
+         *             "generation": 1,
+         *             "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+         *             "state": "pending"
+         *           }
+         *         ],
+         *         "message": {
+         *           "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+         *           "preparation": "uploading",
+         *           "revision": 1,
+         *           "sequence": 3,
+         *           "status": "queued"
+         *         },
+         *         "replayed": false
+         *       },
+         *       "message": "File message reserved",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_FileReservationResponse_: {
+            data: components["schemas"]["FileReservationResponse"];
             /** Message */
             message: string;
             /**
@@ -2602,6 +3310,29 @@ export interface components {
             status: "success";
         };
         /**
+         * SuccessResponse[UploadFileResponse]
+         * @example {
+         *       "data": {
+         *         "generation": 1,
+         *         "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+         *         "state": "validating"
+         *       },
+         *       "message": "File accepted for validation",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_UploadFileResponse_: {
+            data: components["schemas"]["UploadFileResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
          * SuccessResponse[WaitlistEntryCompletionResponse]
          * @example {
          *       "data": {
@@ -2669,6 +3400,15 @@ export interface components {
              * @constant
              */
             status: "success";
+        };
+        /** UploadFileResponse */
+        UploadFileResponse: {
+            /** Generation */
+            generation: number;
+            /** Id */
+            id: string;
+            /** State */
+            state: string;
         };
         /**
          * UserResponse
@@ -2776,7 +3516,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    runtimeintent_request_a953ca56: {
+    runtimeintent_request_5cc4982f: {
         parameters: {
             query?: never;
             header: {
@@ -2910,7 +3650,7 @@ export interface operations {
             };
         };
     };
-    authentication_callback_a0985073: {
+    authentication_callback_e57185ad: {
         parameters: {
             query?: {
                 code?: string;
@@ -2997,7 +3737,7 @@ export interface operations {
             };
         };
     };
-    authentication_csrf_572c0157: {
+    authentication_csrf_093f9613: {
         parameters: {
             query?: never;
             header?: never;
@@ -3031,7 +3771,7 @@ export interface operations {
             };
         };
     };
-    identity_link_9a35d24f: {
+    identity_link_f618e305: {
         parameters: {
             query?: never;
             header?: never;
@@ -3201,7 +3941,7 @@ export interface operations {
             };
         };
     };
-    session_logout_e0113d7d: {
+    session_logout_ca9d78f9: {
         parameters: {
             query?: never;
             header?: never;
@@ -3251,7 +3991,7 @@ export interface operations {
             };
         };
     };
-    profile_me_31183f03: {
+    profile_me_1e3ed009: {
         parameters: {
             query?: never;
             header?: never;
@@ -3303,7 +4043,7 @@ export interface operations {
             };
         };
     };
-    avatar_delete_7ee6fb96: {
+    avatar_delete_12e102c3: {
         parameters: {
             query?: never;
             header?: never;
@@ -3417,7 +4157,7 @@ export interface operations {
             };
         };
     };
-    avatar_complete_fb906a0a: {
+    avatar_complete_235e0478: {
         parameters: {
             query?: never;
             header?: never;
@@ -3567,7 +4307,7 @@ export interface operations {
             };
         };
     };
-    avatar_read_bbc75366: {
+    avatar_read_5227d416: {
         parameters: {
             query?: never;
             header?: never;
@@ -3651,7 +4391,7 @@ export interface operations {
             };
         };
     };
-    avatar_prepare_d2035579: {
+    avatar_prepare_4d455ed8: {
         parameters: {
             query?: never;
             header?: never;
@@ -3787,7 +4527,7 @@ export interface operations {
             };
         };
     };
-    profile_profile_5cc42812: {
+    profile_profile_9a60e285: {
         parameters: {
             query?: never;
             header?: never;
@@ -3891,7 +4631,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_callback_4ab88d34: {
+    nativeauthentication_callback_05511510: {
         parameters: {
             query?: {
                 code?: string;
@@ -4020,7 +4760,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_logout_568aeae7: {
+    nativeauthentication_logout_dc337c94: {
         parameters: {
             query?: never;
             header?: never;
@@ -4106,7 +4846,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_sign_in_771d6948: {
+    nativeauthentication_sign_in_0b5c0848: {
         parameters: {
             query?: never;
             header?: never;
@@ -4196,7 +4936,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_token_3b7444c2: {
+    nativeauthentication_token_a72ccac3: {
         parameters: {
             query?: never;
             header?: never;
@@ -4304,7 +5044,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_refresh_92f9735d: {
+    nativeauthentication_refresh_ede79cf2: {
         parameters: {
             query?: never;
             header?: never;
@@ -4412,7 +5152,7 @@ export interface operations {
             };
         };
     };
-    session_refresh_9771347e: {
+    session_refresh_5b969a12: {
         parameters: {
             query?: never;
             header?: never;
@@ -4510,7 +5250,7 @@ export interface operations {
             };
         };
     };
-    authentication_sign_in_7c3d7eb1: {
+    authentication_sign_in_9eb3acc9: {
         parameters: {
             query?: never;
             header?: never;
@@ -4648,7 +5388,7 @@ export interface operations {
             };
         };
     };
-    health_health_1d109df8: {
+    health_health_d937ad0e: {
         parameters: {
             query?: never;
             header?: never;
@@ -4790,7 +5530,188 @@ export interface operations {
             };
         };
     };
-    onboarding_begin_68b1af71: {
+    acceptedfile_content_051aee8c: {
+        parameters: {
+            query: {
+                binding_id: string;
+                message_id: string;
+            };
+            header?: never;
+            path: {
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    filepublication_claim_033d533d: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationRetryClaimRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    filepublication_due_bindings_0b628c80: {
+        parameters: {
+            query: {
+                limit: number;
+                cursor?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    filepublication_status_4ed1c8f7: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationStatusRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    filepublication_reserve_be5decb2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    filepublication_detail_4851b39e: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                publication_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    filepublication_upload_d07e96a3: {
+        parameters: {
+            query: {
+                generation: number;
+            };
+            header?: {
+                "X-Allies-Publication-Revision"?: number;
+                "X-Allies-Publication-Lease-Token"?: string | null;
+                "Content-Length"?: string | null;
+            };
+            path: {
+                publication_id: string;
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    filepublication_retry_result_54f7c911: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                publication_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationRetryResultRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    onboarding_begin_a50d7147: {
         parameters: {
             query?: never;
             header?: {
@@ -4862,7 +5783,7 @@ export interface operations {
             };
         };
     };
-    onboarding_runtime_intent_b6e2814a: {
+    onboarding_runtime_intent_d3434db3: {
         parameters: {
             query?: never;
             header: {
@@ -4967,7 +5888,7 @@ export interface operations {
             };
         };
     };
-    waitlist_create_182ee6f0: {
+    waitlist_create_b88ac789: {
         parameters: {
             query?: never;
             header?: {
@@ -5041,7 +5962,7 @@ export interface operations {
             };
         };
     };
-    waitlist_complete_4da1ca86: {
+    waitlist_complete_92d1fd4a: {
         parameters: {
             query?: never;
             header?: {
@@ -5115,7 +6036,7 @@ export interface operations {
             };
         };
     };
-    workspace_context_32bc8a1b: {
+    workspace_context_61074c1a: {
         parameters: {
             query?: never;
             header?: never;
@@ -5185,7 +6106,7 @@ export interface operations {
             };
         };
     };
-    ally_list_f49d8b8a: {
+    ally_list_7754e5fd: {
         parameters: {
             query?: never;
             header?: never;
@@ -5255,7 +6176,7 @@ export interface operations {
             };
         };
     };
-    ally_create_481a7a67: {
+    ally_create_85091256: {
         parameters: {
             query?: never;
             header: {
@@ -5360,7 +6281,7 @@ export interface operations {
             };
         };
     };
-    ally_retrieve_33ba11a7: {
+    ally_retrieve_8045a141: {
         parameters: {
             query?: never;
             header?: never;
@@ -5431,7 +6352,7 @@ export interface operations {
             };
         };
     };
-    conversation_by_ally_80fa660e: {
+    conversation_by_ally_2e917a1e: {
         parameters: {
             query?: {
                 limit?: number;
@@ -5521,7 +6442,408 @@ export interface operations {
             };
         };
     };
-    conversation_by_conversation_95d6dc19: {
+    privatefile_metadata_01bc60fb: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                ally_id: string;
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    fileadmission_upload_b7006768: {
+        parameters: {
+            query: {
+                generation: number;
+            };
+            header: {
+                /** @description Exact raw byte length; maximum 25,000,000. */
+                "Content-Length": number;
+            };
+            path: {
+                workspace_id: string;
+                ally_id: string;
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/octet-stream": string;
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_UploadFileResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Content Too Large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Service Unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    privatefile_download_8343711f: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                ally_id: string;
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    privatefile_preview_74c58194: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                ally_id: string;
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    fileadmission_retry_file_5bf39d3a: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                ally_id: string;
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FileRetryRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_UploadFileResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    ownerpublication_detail_b0354f7c: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                ally_id: string;
+                message_id: string;
+                publication_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ownerpublication_retry_aaae7f49: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                ally_id: string;
+                message_id: string;
+                publication_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PublicationRetryRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    conversation_by_conversation_cbec7dbc: {
         parameters: {
             query?: {
                 limit?: number;
@@ -5611,7 +6933,7 @@ export interface operations {
             };
         };
     };
-    activity_snapshot_eb34eacf: {
+    activity_snapshot_bde2c7ac: {
         parameters: {
             query?: {
                 limit?: number;
@@ -5734,7 +7056,7 @@ export interface operations {
             };
         };
     };
-    activity_stream_21b6511e: {
+    activity_stream_fd8999f8: {
         parameters: {
             query?: {
                 cursor?: string | null;
@@ -5757,7 +7079,7 @@ export interface operations {
             };
         };
     };
-    activity_approvals_de90a4dc: {
+    activity_approvals_f444a088: {
         parameters: {
             query?: {
                 limit?: number;
@@ -5862,7 +7184,7 @@ export interface operations {
             };
         };
     };
-    activity_approval_f91ef3a8: {
+    activity_approval_2e4720aa: {
         parameters: {
             query?: never;
             header?: never;
@@ -5966,7 +7288,7 @@ export interface operations {
             };
         };
     };
-    activity_decide_6df0c2b7: {
+    activity_decide_6347e6fc: {
         parameters: {
             query?: never;
             header: {
@@ -6108,7 +7430,148 @@ export interface operations {
             };
         };
     };
-    conversation_send_eff90e02: {
+    fileadmission_reserve_8effbe08: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SendFilesRequest"];
+            };
+        };
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_FileReservationResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Too Many Requests */
+            429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    conversation_send_0cef50fc: {
         parameters: {
             query?: never;
             header: {
@@ -6265,7 +7728,7 @@ export interface operations {
             };
         };
     };
-    conversation_delete_f05ec41e: {
+    conversation_delete_306bea48: {
         parameters: {
             query?: never;
             header?: {
@@ -6376,7 +7839,430 @@ export interface operations {
             };
         };
     };
-    conversation_retry_b32d506e: {
+    fileadmission_cancel_files_cabc3240: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevisionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_FileCancellationResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    fileadmission_get_draft_6fb6fd5b: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_FileDraftResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    fileadmission_discard_draft_a3b9ce3b: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_FileDraftDiscardResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    fileadmission_remove_file_77fc5812: {
+        parameters: {
+            query: {
+                revision: number;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+                message_id: string;
+                file_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_FileMessageResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    conversation_retry_bac6f4f3: {
         parameters: {
             query?: never;
             header: {
@@ -6530,7 +8416,131 @@ export interface operations {
             };
         };
     };
-    routine_list_ea048f7e: {
+    fileadmission_send_files_5d7278f8: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                conversation_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevisionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_FileMessageResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    routine_list_087a309b: {
         parameters: {
             query?: {
                 limit?: number;
@@ -6620,7 +8630,7 @@ export interface operations {
             };
         };
     };
-    routine_detail_359a11be: {
+    routine_detail_c6deca18: {
         parameters: {
             query?: never;
             header?: never;
@@ -6691,7 +8701,7 @@ export interface operations {
             };
         };
     };
-    routine_decide_approval_4abd5f82: {
+    routine_decide_approval_78ed0ce9: {
         parameters: {
             query?: never;
             header: {
