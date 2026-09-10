@@ -1051,13 +1051,14 @@ describe("ConversationFrame", () => {
       mainConversationId: "conversation-1",
       executionPrompt: "Check the latest brief and report any changes.",
     };
+    let finishLoading = () => {};
     function Harness() {
       const [open, setOpen] = useState(false);
       const [loadedDetail, setLoadedDetail] = useState<RoutineDiscoveryDetail | null>(null);
       const openRoutine = () => {
         setLoadedDetail(null);
         setOpen(true);
-        window.setTimeout(() => setLoadedDetail(detail), 0);
+        finishLoading = () => setLoadedDetail(detail);
       };
       return (
         <ConversationFrame
@@ -1076,6 +1077,7 @@ describe("ConversationFrame", () => {
     fireEvent.click(card);
     await waitFor(() => expect(screen.getByRole("dialog")).toBeTruthy());
     expect(screen.getByText("Loading routine details…")).toBeTruthy();
+    act(() => finishLoading());
     await waitFor(() => expect(screen.getByText("Full task")).toBeTruthy());
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
     fireEvent.click(screen.getByRole("button", { name: "Close" }));

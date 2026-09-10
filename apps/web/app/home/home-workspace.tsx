@@ -1541,7 +1541,7 @@ function ConversationPane({
     setQueuePersistenceError(null);
     try {
       const accepted = await session.runCloudOperation(
-        (signal) => session.client.sendMessage(workspaceId, conversation.id, content, key, signal),
+        (signal) => session.client.sendMessage(workspaceId, conversation.id, content, key, signal, Intl.DateTimeFormat().resolvedOptions().timeZone),
         { csrf: true },
       );
       if (!accepted?.message) throw { kind: "contract" };

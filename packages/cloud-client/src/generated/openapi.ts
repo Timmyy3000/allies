@@ -14,7 +14,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Request */
-        post: operations["runtimeintent_request_bbb203db"];
+        post: operations["runtimeintent_request_76060a99"];
         delete?: never;
         options?: never;
         head?: never;
@@ -29,7 +29,7 @@ export interface paths {
             cookie?: never;
         };
         /** Callback */
-        get: operations["authentication_callback_3e33614a"];
+        get: operations["authentication_callback_4659f0c1"];
         put?: never;
         post?: never;
         delete?: never;
@@ -46,7 +46,7 @@ export interface paths {
             cookie?: never;
         };
         /** Csrf */
-        get: operations["authentication_csrf_b01eb21c"];
+        get: operations["authentication_csrf_0d0e9c65"];
         put?: never;
         post?: never;
         delete?: never;
@@ -65,7 +65,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Link */
-        post: operations["identity_link_3e3d7222"];
+        post: operations["identity_link_7d625af4"];
         delete?: never;
         options?: never;
         head?: never;
@@ -82,7 +82,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Logout */
-        post: operations["session_logout_529137d9"];
+        post: operations["session_logout_b528cb10"];
         delete?: never;
         options?: never;
         head?: never;
@@ -97,7 +97,7 @@ export interface paths {
             cookie?: never;
         };
         /** Me */
-        get: operations["profile_me_efa44712"];
+        get: operations["profile_me_1292302d"];
         put?: never;
         post?: never;
         delete?: never;
@@ -117,7 +117,7 @@ export interface paths {
         put?: never;
         post?: never;
         /** Delete */
-        delete: operations["avatar_delete_c5408f89"];
+        delete: operations["avatar_delete_b8a4cf40"];
         options?: never;
         head?: never;
         patch?: never;
@@ -133,7 +133,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Complete */
-        post: operations["avatar_complete_8939e0f4"];
+        post: operations["avatar_complete_5c5e2f38"];
         delete?: never;
         options?: never;
         head?: never;
@@ -148,7 +148,7 @@ export interface paths {
             cookie?: never;
         };
         /** Read */
-        get: operations["avatar_read_1c77a5e7"];
+        get: operations["avatar_read_c90b9a81"];
         put?: never;
         post?: never;
         delete?: never;
@@ -167,7 +167,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Prepare */
-        post: operations["avatar_prepare_328caffb"];
+        post: operations["avatar_prepare_425b38f4"];
         delete?: never;
         options?: never;
         head?: never;
@@ -188,7 +188,7 @@ export interface paths {
         options?: never;
         head?: never;
         /** Profile */
-        patch: operations["profile_profile_a9021699"];
+        patch: operations["profile_profile_7d4aff66"];
         trace?: never;
     };
     "/api/v1/auths/native/callback/{provider}": {
@@ -202,7 +202,7 @@ export interface paths {
          * Callback
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        get: operations["nativeauthentication_callback_8d75b0d2"];
+        get: operations["nativeauthentication_callback_e1a1ee70"];
         put?: never;
         post?: never;
         delete?: never;
@@ -224,7 +224,7 @@ export interface paths {
          * Logout
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_logout_7088d248"];
+        post: operations["nativeauthentication_logout_5130ede4"];
         delete?: never;
         options?: never;
         head?: never;
@@ -244,7 +244,7 @@ export interface paths {
          * Sign In
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_sign_in_6d6eccae"];
+        post: operations["nativeauthentication_sign_in_734bbffd"];
         delete?: never;
         options?: never;
         head?: never;
@@ -264,7 +264,7 @@ export interface paths {
          * Token
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_token_91f4515e"];
+        post: operations["nativeauthentication_token_3fab91c5"];
         delete?: never;
         options?: never;
         head?: never;
@@ -284,7 +284,7 @@ export interface paths {
          * Refresh
          * @description Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.
          */
-        post: operations["nativeauthentication_refresh_0cd34a14"];
+        post: operations["nativeauthentication_refresh_a643a79a"];
         delete?: never;
         options?: never;
         head?: never;
@@ -301,7 +301,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Refresh */
-        post: operations["session_refresh_005bc389"];
+        post: operations["session_refresh_1202a7ac"];
         delete?: never;
         options?: never;
         head?: never;
@@ -318,7 +318,7 @@ export interface paths {
         get?: never;
         put?: never;
         /** Sign In */
-        post: operations["authentication_sign_in_f08befc6"];
+        post: operations["authentication_sign_in_d6c2e99a"];
         delete?: never;
         options?: never;
         head?: never;
@@ -333,7 +333,7 @@ export interface paths {
             cookie?: never;
         };
         /** Health */
-        get: operations["health_health_35d426ee"];
+        get: operations["health_health_018460a7"];
         put?: never;
         post?: never;
         delete?: never;
@@ -376,6 +376,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/internal/foundry/routines/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Routine Result */
+        post: operations["routines_api_register_routine_result"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/internal/foundry/routines/tool": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Routine Tool */
+        post: operations["routines_api_register_routine_tool"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/onboarding/attempts": {
         parameters: {
             query?: never;
@@ -389,7 +423,7 @@ export interface paths {
          * Begin
          * @description This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.
          */
-        post: operations["onboarding_begin_d8370a47"];
+        post: operations["onboarding_begin_b756ad26"];
         delete?: never;
         options?: never;
         head?: never;
@@ -409,7 +443,7 @@ export interface paths {
          * Runtime Intent
          * @description This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.
          */
-        post: operations["onboarding_runtime_intent_7a30f356"];
+        post: operations["onboarding_runtime_intent_28bdeb31"];
         delete?: never;
         options?: never;
         head?: never;
@@ -429,7 +463,7 @@ export interface paths {
          * Create
          * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
          */
-        post: operations["waitlist_create_0ad77eea"];
+        post: operations["waitlist_create_1f6cd188"];
         delete?: never;
         options?: never;
         head?: never;
@@ -449,7 +483,7 @@ export interface paths {
          * Complete
          * @description Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.
          */
-        post: operations["waitlist_complete_8425b154"];
+        post: operations["waitlist_complete_cd4260d9"];
         delete?: never;
         options?: never;
         head?: never;
@@ -464,7 +498,7 @@ export interface paths {
             cookie?: never;
         };
         /** Context */
-        get: operations["workspace_context_dd28e28e"];
+        get: operations["workspace_context_d91ed536"];
         put?: never;
         post?: never;
         delete?: never;
@@ -481,13 +515,13 @@ export interface paths {
             cookie?: never;
         };
         /** List */
-        get: operations["ally_list_c297dbfa"];
+        get: operations["ally_list_0a1f5737"];
         put?: never;
         /**
          * Create
          * @description Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.
          */
-        post: operations["ally_create_34f147b1"];
+        post: operations["ally_create_c2c01cbc"];
         delete?: never;
         options?: never;
         head?: never;
@@ -502,7 +536,7 @@ export interface paths {
             cookie?: never;
         };
         /** Retrieve */
-        get: operations["ally_retrieve_83dd728f"];
+        get: operations["ally_retrieve_59842e96"];
         put?: never;
         post?: never;
         delete?: never;
@@ -519,7 +553,7 @@ export interface paths {
             cookie?: never;
         };
         /** By Ally */
-        get: operations["conversation_by_ally_f2fc096c"];
+        get: operations["conversation_by_ally_4e7f35f7"];
         put?: never;
         post?: never;
         delete?: never;
@@ -536,7 +570,7 @@ export interface paths {
             cookie?: never;
         };
         /** By Conversation */
-        get: operations["conversation_by_conversation_b8d1444b"];
+        get: operations["conversation_by_conversation_61c103e2"];
         put?: never;
         post?: never;
         delete?: never;
@@ -553,7 +587,7 @@ export interface paths {
             cookie?: never;
         };
         /** Snapshot */
-        get: operations["activity_snapshot_4b1aeafa"];
+        get: operations["activity_snapshot_80b0b6ba"];
         put?: never;
         post?: never;
         delete?: never;
@@ -570,7 +604,7 @@ export interface paths {
             cookie?: never;
         };
         /** Stream */
-        get: operations["activity_stream_0f053ec9"];
+        get: operations["activity_stream_081e1c4f"];
         put?: never;
         post?: never;
         delete?: never;
@@ -590,7 +624,7 @@ export interface paths {
          * Approvals
          * @description Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.
          */
-        get: operations["activity_approvals_a88d2508"];
+        get: operations["activity_approvals_478c4bc6"];
         put?: never;
         post?: never;
         delete?: never;
@@ -610,7 +644,7 @@ export interface paths {
          * Approval
          * @description Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.
          */
-        get: operations["activity_approval_b3564e94"];
+        get: operations["activity_approval_9530aabe"];
         put?: never;
         post?: never;
         delete?: never;
@@ -632,7 +666,7 @@ export interface paths {
          * Decide
          * @description This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected. The idempotency key must be reused for an exact retry.
          */
-        post: operations["activity_decide_eb2c1030"];
+        post: operations["activity_decide_f839bb78"];
         delete?: never;
         options?: never;
         head?: never;
@@ -652,7 +686,7 @@ export interface paths {
          * Send
          * @description This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.
          */
-        post: operations["conversation_send_fdee8d15"];
+        post: operations["conversation_send_5513319e"];
         delete?: never;
         options?: never;
         head?: never;
@@ -673,7 +707,7 @@ export interface paths {
          * Delete
          * @description This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.
          */
-        delete: operations["conversation_delete_89f0fe4c"];
+        delete: operations["conversation_delete_0ad620b6"];
         options?: never;
         head?: never;
         patch?: never;
@@ -692,7 +726,58 @@ export interface paths {
          * Retry
          * @description This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.
          */
-        post: operations["conversation_retry_077aa94c"];
+        post: operations["conversation_retry_c78726d5"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/routines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List */
+        get: operations["routine_list_ce7d9449"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/routines/{routine_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Detail */
+        get: operations["routine_detail_0deecbb8"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workspaces/{workspace_id}/routines/{routine_id}/approvals/{approval_id}/decision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Decide Approval */
+        post: operations["routine_decide_approval_d06f4148"];
         delete?: never;
         options?: never;
         head?: never;
@@ -817,8 +902,17 @@ export interface components {
         };
         /** ApprovalActivitySummaryResponse */
         ApprovalActivitySummaryResponse: {
+            /**
+             * Contract Version
+             * @constant
+             */
+            contract_version: "approval.v1";
             /** Decided At */
             decided_at?: string | null;
+            /** Decision */
+            decision?: ("approve" | "reject") | null;
+            /** Decision Recorded */
+            decision_recorded: boolean;
             /**
              * Expires At
              * Format: date-time
@@ -829,8 +923,11 @@ export interface components {
              * Format: uuid
              */
             id: string;
-            /** Status */
-            status: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "decision_recorded" | "approved" | "rejected" | "expired" | "cancelled" | "outcome_unknown";
         };
         /** ApprovalDecisionRequest */
         ApprovalDecisionRequest: {
@@ -848,13 +945,30 @@ export interface components {
             action_label: string;
             /** Action Preview */
             action_preview: string;
+            /**
+             * Approval Request Id
+             * Format: uuid
+             */
+            approval_request_id: string;
+            /**
+             * Contract Version
+             * @constant
+             */
+            contract_version: "approval.v1";
+            /** Conversation Turn Ordinal */
+            conversation_turn_ordinal: number;
             /** Decided At */
             decided_at?: string | null;
+            /** Decision */
+            decision?: ("approve" | "reject") | null;
+            /** Decision Recorded */
+            decision_recorded: boolean;
             /**
              * Expires At
              * Format: date-time
              */
             expires_at: string;
+            explanation: components["schemas"]["ApprovalExplanationResponse"];
             /**
              * Id
              * Format: uuid
@@ -865,8 +979,42 @@ export interface components {
              * Format: uuid
              */
             message_id: string;
-            /** Status */
-            status: string;
+            /** Preview Digest */
+            preview_digest: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "decision_recorded" | "approved" | "rejected" | "expired" | "cancelled" | "outcome_unknown";
+            technical_details: components["schemas"]["ApprovalTechnicalDetails"];
+        };
+        /** ApprovalExplanationResponse */
+        ApprovalExplanationResponse: {
+            /** Action */
+            action: string;
+            /**
+             * Approval Request Id
+             * Format: uuid
+             */
+            approval_request_id: string;
+            /** Consequence */
+            consequence: string;
+            /** Preview Digest */
+            preview_digest: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "model" | "fallback";
+            /** Target */
+            target: string;
+            /**
+             * Version
+             * @constant
+             */
+            version: "approval-explanation.v1";
         };
         /** ApprovalListResponse */
         ApprovalListResponse: {
@@ -877,8 +1025,19 @@ export interface components {
         ApprovalSummaryResponse: {
             /** Acknowledgement Deadline At */
             acknowledgement_deadline_at?: string | null;
+            /**
+             * Contract Version
+             * @constant
+             */
+            contract_version: "approval.v1";
+            /** Conversation Turn Ordinal */
+            conversation_turn_ordinal: number;
             /** Decided At */
             decided_at?: string | null;
+            /** Decision */
+            decision?: ("approve" | "reject") | null;
+            /** Decision Recorded */
+            decision_recorded: boolean;
             /**
              * Expires At
              * Format: date-time
@@ -894,8 +1053,23 @@ export interface components {
              * Format: uuid
              */
             message_id: string;
-            /** Status */
-            status: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "pending" | "decision_recorded" | "approved" | "rejected" | "expired" | "cancelled" | "outcome_unknown";
+        };
+        /** ApprovalTechnicalDetails */
+        ApprovalTechnicalDetails: {
+            /**
+             * Action Kind
+             * @enum {string}
+             */
+            action_kind: "terminal" | "execute_code" | "plugin_tool";
+            /** Action Label */
+            action_label: string;
+            /** Action Preview */
+            action_preview: string;
         };
         /** AssistantReplyResponse */
         AssistantReplyResponse: {
@@ -961,29 +1135,6 @@ export interface components {
             /** Url */
             url?: string | null;
         };
-        /** CloudCorrelation */
-        CloudCorrelation: {
-            /**
-             * Ally Id
-             * Format: uuid
-             */
-            ally_id: string;
-            /**
-             * Cloud Binding Id
-             * Format: uuid
-             */
-            cloud_binding_id: string;
-            /**
-             * Conversation Id
-             * Format: uuid
-             */
-            conversation_id: string;
-            /**
-             * Message Id
-             * Format: uuid
-             */
-            message_id: string;
-        };
         /** ConversationResponse */
         ConversationResponse: {
             /**
@@ -1004,6 +1155,8 @@ export interface components {
             next_cursor?: string | null;
             /** Queue */
             queue?: components["schemas"]["MessageResponse"][];
+            /** Routine Items */
+            routine_items?: components["schemas"]["RoutineChatItemResponse"][];
         };
         /** CreateAllyRequest */
         CreateAllyRequest: {
@@ -1068,71 +1221,6 @@ export interface components {
              * @constant
              */
             status: "error";
-        };
-        /** FoundryEventEnvelope */
-        FoundryEventEnvelope: {
-            cloud: components["schemas"]["CloudCorrelation"];
-            /** Conversation Turn Ordinal */
-            conversation_turn_ordinal: number;
-            /** Event Dedupe Key */
-            event_dedupe_key: string;
-            /**
-             * Event Id
-             * Format: uuid
-             */
-            event_id: string;
-            /** Event Type */
-            event_type: string;
-            /** Fingerprint */
-            fingerprint: string;
-            foundry: components["schemas"]["FoundryIdentity"];
-            /**
-             * Issued At
-             * Format: date-time
-             */
-            issued_at: string;
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "execution.event";
-            /** Payload */
-            payload: {
-                [key: string]: unknown;
-            };
-            /**
-             * Producer
-             * @constant
-             */
-            producer: "foundry";
-            /**
-             * Schema Version
-             * @constant
-             */
-            schema_version: "v1";
-            scope: components["schemas"]["WorkspaceScope"];
-            /**
-             * Service Identity
-             * @constant
-             */
-            service_identity: "foundry-service";
-        };
-        /** FoundryIdentity */
-        FoundryIdentity: {
-            /**
-             * Attempt Id
-             * Format: uuid
-             */
-            attempt_id: string;
-            /** Attempt Sequence */
-            attempt_sequence: number;
-            /**
-             * Execution Id
-             * Format: uuid
-             */
-            execution_id: string;
-            /** Generation */
-            generation: number;
         };
         /** HealthResponse */
         HealthResponse: {
@@ -1386,6 +1474,393 @@ export interface components {
              */
             redirect_to: string;
         };
+        /** RoutineApprovalDecisionRequest */
+        RoutineApprovalDecisionRequest: {
+            /**
+             * Decision
+             * @enum {string}
+             */
+            decision: "approve" | "reject";
+        };
+        /** RoutineApprovalResponse */
+        RoutineApprovalResponse: {
+            /**
+             * Action Attempt Id
+             * Format: uuid
+             */
+            action_attempt_id: string;
+            /** Action Digest */
+            action_digest: string;
+            /**
+             * Approval Request Id
+             * Format: uuid
+             */
+            approval_request_id: string;
+            /**
+             * Attempt Id
+             * Format: uuid
+             */
+            attempt_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Decided At */
+            decided_at?: string | null;
+            /** Decision */
+            decision?: ("approve" | "reject") | null;
+            /** Delivery Status */
+            delivery_status: string;
+            /**
+             * Execution Id
+             * Format: uuid
+             */
+            execution_id: string;
+            /**
+             * Expires At
+             * Format: date-time
+             */
+            expires_at: string;
+            /** Generation */
+            generation: number;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Replayed
+             * @default false
+             */
+            replayed: boolean;
+            /**
+             * Routine Id
+             * Format: uuid
+             */
+            routine_id: string;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Status */
+            status: string;
+        };
+        /** RoutineChatItemResponse */
+        RoutineChatItemResponse: {
+            /** Action Attempt Id */
+            action_attempt_id?: string | null;
+            /** Action Digest */
+            action_digest?: string | null;
+            /** Approval Decision */
+            approval_decision?: ("approve" | "reject") | null;
+            /** Approval Expires At */
+            approval_expires_at?: string | null;
+            /** Approval Id */
+            approval_id?: string | null;
+            /** Approval Request Id */
+            approval_request_id?: string | null;
+            /** Approval Status */
+            approval_status?: string | null;
+            /** Attempt Id */
+            attempt_id?: string | null;
+            /**
+             * Conversation Id
+             * Format: uuid
+             */
+            conversation_id: string;
+            /** Delayed */
+            delayed?: boolean | null;
+            /** Execution Id */
+            execution_id?: string | null;
+            /** Generation */
+            generation?: number | null;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "created" | "running" | "result";
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Occurrence Id */
+            occurrence_id?: string | null;
+            /** References */
+            references?: unknown[];
+            /** Result Id */
+            result_id?: string | null;
+            /** Result Insertion */
+            result_insertion?: ("pending" | "inserted") | null;
+            /**
+             * Routine Id
+             * Format: uuid
+             */
+            routine_id: string;
+            /** Routine Revision */
+            routine_revision: number;
+            /** Run Id */
+            run_id?: string | null;
+            /** Schedule */
+            schedule: unknown;
+            /** Schedule Generation */
+            schedule_generation: number;
+            /** Status */
+            status: string;
+            /** Text */
+            text?: string | null;
+            /** Title Snapshot */
+            title_snapshot: string;
+        };
+        /** RoutineDetailResponse */
+        RoutineDetailResponse: {
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Execution Prompt */
+            execution_prompt: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Main Conversation Id
+             * Format: uuid
+             */
+            main_conversation_id: string;
+            /** Next Run At */
+            next_run_at?: string | null;
+            /**
+             * Owner User Id
+             * Format: uuid
+             */
+            owner_user_id: string;
+            /**
+             * Responsible Ally Id
+             * Format: uuid
+             */
+            responsible_ally_id: string;
+            /** Revision */
+            revision: number;
+            /** Schedule */
+            schedule: {
+                [key: string]: unknown;
+            };
+            /** Schedule Generation */
+            schedule_generation: number;
+            /** Schedule State */
+            schedule_state: string;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+        };
+        /** RoutinePageResponse */
+        RoutinePageResponse: {
+            /** Items */
+            items?: components["schemas"]["RoutineSummaryResponse"][];
+            /** Next Cursor */
+            next_cursor?: string | null;
+        };
+        /**
+         * RoutineResultEvent
+         * @description The narrow result successor shape, including immutable title_snapshot.
+         */
+        RoutineResultEvent: {
+            /**
+             * Attempt Id
+             * Format: uuid
+             */
+            attempt_id: string;
+            /**
+             * Deadline At
+             * Format: date-time
+             */
+            deadline_at: string;
+            /** Delayed */
+            delayed: boolean;
+            /**
+             * Event Id
+             * Format: uuid
+             */
+            event_id: string;
+            /** Event Sequence */
+            event_sequence: number;
+            /**
+             * Execution Id
+             * Format: uuid
+             */
+            execution_id: string;
+            /** Fingerprint */
+            fingerprint: string;
+            /** Generation */
+            generation: number;
+            /**
+             * Issued At
+             * Format: date-time
+             */
+            issued_at: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Main Conversation Id
+             * Format: uuid
+             */
+            main_conversation_id: string;
+            /**
+             * Occurrence Id
+             * Format: uuid
+             */
+            occurrence_id: string;
+            /** Outcome */
+            outcome: string;
+            /** Producer */
+            producer: string;
+            /** References */
+            references?: components["schemas"]["RoutineResultReference"][];
+            /**
+             * Routine Id
+             * Format: uuid
+             */
+            routine_id: string;
+            /** Routine Revision */
+            routine_revision: number;
+            /**
+             * Run Conversation Id
+             * Format: uuid
+             */
+            run_conversation_id: string;
+            /**
+             * Run Id
+             * Format: uuid
+             */
+            run_id: string;
+            /** Schema Version */
+            schema_version: string;
+            scope: components["schemas"]["RoutineResultScope"];
+            /** Service Identity */
+            service_identity: string;
+            /** Text */
+            text: string;
+            /** Title Snapshot */
+            title_snapshot: string;
+        };
+        /** RoutineResultReference */
+        RoutineResultReference: {
+            /** Label */
+            label: string;
+            /** Url */
+            url: string;
+        };
+        /** RoutineResultScope */
+        RoutineResultScope: {
+            /**
+             * Ally Id
+             * Format: uuid
+             */
+            ally_id: string;
+            /**
+             * Cloud Binding Id
+             * Format: uuid
+             */
+            cloud_binding_id: string;
+            /** Kind */
+            kind: string;
+            /**
+             * Owner User Id
+             * Format: uuid
+             */
+            owner_user_id: string;
+            /**
+             * Workspace Id
+             * Format: uuid
+             */
+            workspace_id: string;
+        };
+        /** RoutineSummaryResponse */
+        RoutineSummaryResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Next Run At */
+            next_run_at?: string | null;
+            /**
+             * Responsible Ally Id
+             * Format: uuid
+             */
+            responsible_ally_id: string;
+            /** Revision */
+            revision: number;
+            /** Schedule */
+            schedule: {
+                [key: string]: unknown;
+            };
+            /** Schedule Generation */
+            schedule_generation: number;
+            /** Schedule State */
+            schedule_state: string;
+            /** Title */
+            title: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+        };
+        /** RoutineToolEnvelope */
+        RoutineToolEnvelope: {
+            /** Arguments */
+            arguments: {
+                [key: string]: unknown;
+            };
+            /**
+             * Binding Id
+             * Format: uuid
+             */
+            binding_id: string;
+            /**
+             * Call Id
+             * Format: uuid
+             */
+            call_id: string;
+            /** Command Fingerprint */
+            command_fingerprint: string;
+            /**
+             * Message Id
+             * Format: uuid
+             */
+            message_id: string;
+        };
         /** RuntimeIntentRequest */
         RuntimeIntentRequest: {
             /**
@@ -1411,6 +1886,11 @@ export interface components {
         SendMessageRequest: {
             /** Content */
             content: string;
+            /**
+             * Timezone
+             * @default
+             */
+            timezone: string;
         };
         /** SessionResponse */
         SessionResponse: {
@@ -1542,11 +2022,32 @@ export interface components {
          *         "acknowledgement_deadline_at": null,
          *         "action_label": "Run the requested command",
          *         "action_preview": "echo a redacted command",
+         *         "approval_request_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d85",
+         *         "contract_version": "approval.v1",
+         *         "conversation_turn_ordinal": 3,
          *         "decided_at": null,
+         *         "decision": null,
+         *         "decision_recorded": false,
          *         "expires_at": "2026-08-20T16:05:00Z",
+         *         "explanation": {
+         *           "action": "Run a command",
+         *           "approval_request_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d85",
+         *           "consequence": "This action may change data or contact a service.",
+         *           "preview_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         *           "reason": "Your Ally needs your approval before continuing.",
+         *           "source": "fallback",
+         *           "target": "The target is described in the technical details.",
+         *           "version": "approval-explanation.v1"
+         *         },
          *         "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d84",
          *         "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
-         *         "status": "pending"
+         *         "preview_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         *         "status": "pending",
+         *         "technical_details": {
+         *           "action_kind": "terminal",
+         *           "action_label": "Run the requested command",
+         *           "action_preview": "echo a redacted command"
+         *         }
          *       },
          *       "message": "Approval loaded",
          *       "status": "success"
@@ -1570,7 +2071,11 @@ export interface components {
          *         "approvals": [
          *           {
          *             "acknowledgement_deadline_at": null,
+         *             "contract_version": "approval.v1",
+         *             "conversation_turn_ordinal": 3,
          *             "decided_at": null,
+         *             "decision": null,
+         *             "decision_recorded": false,
          *             "expires_at": "2026-08-20T16:05:00Z",
          *             "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d84",
          *             "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
@@ -1658,7 +2163,8 @@ export interface components {
          *           }
          *         ],
          *         "next_cursor": null,
-         *         "queue": []
+         *         "queue": [],
+         *         "routine_items": []
          *       },
          *       "message": "Conversation loaded",
          *       "status": "success"
@@ -1917,6 +2423,122 @@ export interface components {
             status: "success";
         };
         /**
+         * SuccessResponse[RoutineApprovalResponse]
+         * @example {
+         *       "data": {
+         *         "action_attempt_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d89",
+         *         "action_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+         *         "approval_request_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d88",
+         *         "attempt_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d91",
+         *         "created_at": "2026-08-20T16:00:00Z",
+         *         "decided_at": "2026-08-20T16:01:00Z",
+         *         "decision": "approve",
+         *         "delivery_status": "pending",
+         *         "execution_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d90",
+         *         "expires_at": "2026-08-21T16:00:00Z",
+         *         "generation": 1,
+         *         "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d85",
+         *         "replayed": false,
+         *         "routine_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+         *         "run_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+         *         "status": "decision_recorded"
+         *       },
+         *       "message": "Routine approval decision recorded",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_RoutineApprovalResponse_: {
+            data: components["schemas"]["RoutineApprovalResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[RoutineDetailResponse]
+         * @example {
+         *       "data": {
+         *         "binding_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d77",
+         *         "created_at": "2026-08-20T16:00:00Z",
+         *         "execution_prompt": "Review new mail and summarize anything urgent.",
+         *         "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d85",
+         *         "main_conversation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+         *         "next_run_at": "2026-08-21T07:00:00Z",
+         *         "owner_user_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+         *         "responsible_ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+         *         "revision": 1,
+         *         "schedule": {
+         *           "frequency": "daily",
+         *           "kind": "recurring",
+         *           "local_time": "09:00:00",
+         *           "timezone": "Europe/Berlin"
+         *         },
+         *         "schedule_generation": 1,
+         *         "schedule_state": "active",
+         *         "title": "Check the inbox",
+         *         "updated_at": "2026-08-20T16:00:00Z",
+         *         "workspace_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74"
+         *       },
+         *       "message": "Routine loaded",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_RoutineDetailResponse_: {
+            data: components["schemas"]["RoutineDetailResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
+         * SuccessResponse[RoutinePageResponse]
+         * @example {
+         *       "data": {
+         *         "items": [
+         *           {
+         *             "created_at": "2026-08-20T16:00:00Z",
+         *             "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d85",
+         *             "next_run_at": "2026-08-21T07:00:00Z",
+         *             "responsible_ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+         *             "revision": 1,
+         *             "schedule": {
+         *               "frequency": "daily",
+         *               "kind": "recurring",
+         *               "local_time": "09:00:00",
+         *               "timezone": "Europe/Berlin"
+         *             },
+         *             "schedule_generation": 1,
+         *             "schedule_state": "active",
+         *             "title": "Check the inbox",
+         *             "updated_at": "2026-08-20T16:00:00Z"
+         *           }
+         *         ],
+         *         "next_cursor": null
+         *       },
+         *       "message": "Routines loaded",
+         *       "status": "success"
+         *     }
+         */
+        SuccessResponse_RoutinePageResponse_: {
+            data: components["schemas"]["RoutinePageResponse"];
+            /** Message */
+            message: string;
+            /**
+             * Status
+             * @default success
+             * @constant
+             */
+            status: "success";
+        };
+        /**
          * SuccessResponse[RuntimeIntentResponse]
          * @example {
          *       "data": {
@@ -2103,19 +2725,6 @@ export interface components {
             /** Version */
             version: number;
         };
-        /** WorkspaceScope */
-        WorkspaceScope: {
-            /**
-             * Cloud Workspace Id
-             * Format: uuid
-             */
-            cloud_workspace_id: string;
-            /**
-             * Kind
-             * @constant
-             */
-            kind: "workspace";
-        };
     };
     responses: never;
     parameters: never;
@@ -2125,7 +2734,7 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    runtimeintent_request_bbb203db: {
+    runtimeintent_request_76060a99: {
         parameters: {
             query?: never;
             header: {
@@ -2259,7 +2868,7 @@ export interface operations {
             };
         };
     };
-    authentication_callback_3e33614a: {
+    authentication_callback_4659f0c1: {
         parameters: {
             query?: {
                 code?: string;
@@ -2346,7 +2955,7 @@ export interface operations {
             };
         };
     };
-    authentication_csrf_b01eb21c: {
+    authentication_csrf_0d0e9c65: {
         parameters: {
             query?: never;
             header?: never;
@@ -2380,7 +2989,7 @@ export interface operations {
             };
         };
     };
-    identity_link_3e3d7222: {
+    identity_link_7d625af4: {
         parameters: {
             query?: never;
             header?: never;
@@ -2550,7 +3159,7 @@ export interface operations {
             };
         };
     };
-    session_logout_529137d9: {
+    session_logout_b528cb10: {
         parameters: {
             query?: never;
             header?: never;
@@ -2600,7 +3209,7 @@ export interface operations {
             };
         };
     };
-    profile_me_efa44712: {
+    profile_me_1292302d: {
         parameters: {
             query?: never;
             header?: never;
@@ -2652,7 +3261,7 @@ export interface operations {
             };
         };
     };
-    avatar_delete_c5408f89: {
+    avatar_delete_b8a4cf40: {
         parameters: {
             query?: never;
             header?: never;
@@ -2766,7 +3375,7 @@ export interface operations {
             };
         };
     };
-    avatar_complete_8939e0f4: {
+    avatar_complete_5c5e2f38: {
         parameters: {
             query?: never;
             header?: never;
@@ -2916,7 +3525,7 @@ export interface operations {
             };
         };
     };
-    avatar_read_1c77a5e7: {
+    avatar_read_c90b9a81: {
         parameters: {
             query?: never;
             header?: never;
@@ -3000,7 +3609,7 @@ export interface operations {
             };
         };
     };
-    avatar_prepare_328caffb: {
+    avatar_prepare_425b38f4: {
         parameters: {
             query?: never;
             header?: never;
@@ -3136,7 +3745,7 @@ export interface operations {
             };
         };
     };
-    profile_profile_a9021699: {
+    profile_profile_7d4aff66: {
         parameters: {
             query?: never;
             header?: never;
@@ -3240,7 +3849,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_callback_8d75b0d2: {
+    nativeauthentication_callback_e1a1ee70: {
         parameters: {
             query?: {
                 code?: string;
@@ -3369,7 +3978,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_logout_7088d248: {
+    nativeauthentication_logout_5130ede4: {
         parameters: {
             query?: never;
             header?: never;
@@ -3455,7 +4064,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_sign_in_6d6eccae: {
+    nativeauthentication_sign_in_734bbffd: {
         parameters: {
             query?: never;
             header?: never;
@@ -3545,7 +4154,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_token_91f4515e: {
+    nativeauthentication_token_3fab91c5: {
         parameters: {
             query?: never;
             header?: never;
@@ -3653,7 +4262,7 @@ export interface operations {
             };
         };
     };
-    nativeauthentication_refresh_0cd34a14: {
+    nativeauthentication_refresh_a643a79a: {
         parameters: {
             query?: never;
             header?: never;
@@ -3761,7 +4370,7 @@ export interface operations {
             };
         };
     };
-    session_refresh_005bc389: {
+    session_refresh_1202a7ac: {
         parameters: {
             query?: never;
             header?: never;
@@ -3859,7 +4468,7 @@ export interface operations {
             };
         };
     };
-    authentication_sign_in_f08befc6: {
+    authentication_sign_in_d6c2e99a: {
         parameters: {
             query?: never;
             header?: never;
@@ -3997,7 +4606,7 @@ export interface operations {
             };
         };
     };
-    health_health_35d426ee: {
+    health_health_018460a7: {
         parameters: {
             query?: never;
             header?: never;
@@ -4058,7 +4667,9 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["FoundryEventEnvelope"];
+                "application/json": {
+                    [key: string]: unknown;
+                };
             };
         };
         responses: {
@@ -4093,7 +4704,51 @@ export interface operations {
             };
         };
     };
-    onboarding_begin_d8370a47: {
+    routines_api_register_routine_result: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutineResultEvent"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    routines_api_register_routine_tool: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutineToolEnvelope"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    onboarding_begin_b756ad26: {
         parameters: {
             query?: never;
             header?: {
@@ -4165,7 +4820,7 @@ export interface operations {
             };
         };
     };
-    onboarding_runtime_intent_7a30f356: {
+    onboarding_runtime_intent_28bdeb31: {
         parameters: {
             query?: never;
             header: {
@@ -4270,7 +4925,7 @@ export interface operations {
             };
         };
     };
-    waitlist_create_0ad77eea: {
+    waitlist_create_1f6cd188: {
         parameters: {
             query?: never;
             header?: {
@@ -4344,7 +4999,7 @@ export interface operations {
             };
         };
     };
-    waitlist_complete_8425b154: {
+    waitlist_complete_cd4260d9: {
         parameters: {
             query?: never;
             header?: {
@@ -4418,7 +5073,7 @@ export interface operations {
             };
         };
     };
-    workspace_context_dd28e28e: {
+    workspace_context_d91ed536: {
         parameters: {
             query?: never;
             header?: never;
@@ -4488,7 +5143,7 @@ export interface operations {
             };
         };
     };
-    ally_list_c297dbfa: {
+    ally_list_0a1f5737: {
         parameters: {
             query?: never;
             header?: never;
@@ -4558,7 +5213,7 @@ export interface operations {
             };
         };
     };
-    ally_create_34f147b1: {
+    ally_create_c2c01cbc: {
         parameters: {
             query?: never;
             header: {
@@ -4663,7 +5318,7 @@ export interface operations {
             };
         };
     };
-    ally_retrieve_83dd728f: {
+    ally_retrieve_59842e96: {
         parameters: {
             query?: never;
             header?: never;
@@ -4734,7 +5389,7 @@ export interface operations {
             };
         };
     };
-    conversation_by_ally_f2fc096c: {
+    conversation_by_ally_4e7f35f7: {
         parameters: {
             query?: {
                 limit?: number;
@@ -4824,7 +5479,7 @@ export interface operations {
             };
         };
     };
-    conversation_by_conversation_b8d1444b: {
+    conversation_by_conversation_61c103e2: {
         parameters: {
             query?: {
                 limit?: number;
@@ -4914,7 +5569,7 @@ export interface operations {
             };
         };
     };
-    activity_snapshot_4b1aeafa: {
+    activity_snapshot_80b0b6ba: {
         parameters: {
             query?: {
                 limit?: number;
@@ -5037,7 +5692,7 @@ export interface operations {
             };
         };
     };
-    activity_stream_0f053ec9: {
+    activity_stream_081e1c4f: {
         parameters: {
             query?: {
                 cursor?: string | null;
@@ -5060,7 +5715,7 @@ export interface operations {
             };
         };
     };
-    activity_approvals_a88d2508: {
+    activity_approvals_478c4bc6: {
         parameters: {
             query?: {
                 limit?: number;
@@ -5165,7 +5820,7 @@ export interface operations {
             };
         };
     };
-    activity_approval_b3564e94: {
+    activity_approval_9530aabe: {
         parameters: {
             query?: never;
             header?: never;
@@ -5269,7 +5924,7 @@ export interface operations {
             };
         };
     };
-    activity_decide_eb2c1030: {
+    activity_decide_f839bb78: {
         parameters: {
             query?: never;
             header: {
@@ -5411,7 +6066,7 @@ export interface operations {
             };
         };
     };
-    conversation_send_fdee8d15: {
+    conversation_send_5513319e: {
         parameters: {
             query?: never;
             header: {
@@ -5568,7 +6223,7 @@ export interface operations {
             };
         };
     };
-    conversation_delete_89f0fe4c: {
+    conversation_delete_0ad620b6: {
         parameters: {
             query?: never;
             header?: {
@@ -5679,7 +6334,7 @@ export interface operations {
             };
         };
     };
-    conversation_retry_077aa94c: {
+    conversation_retry_c78726d5: {
         parameters: {
             query?: never;
             header: {
@@ -5801,6 +6456,303 @@ export interface operations {
             };
             /** @description Too Many Requests */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    routine_list_ce7d9449: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string | null;
+                ally_id?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_RoutinePageResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    routine_detail_0deecbb8: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                routine_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_RoutineDetailResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+        };
+    };
+    routine_decide_approval_d06f4148: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Stable UUID for repeating one routine approval decision. */
+                "Idempotency-Key": string;
+            };
+            path: {
+                workspace_id: string;
+                routine_id: string;
+                approval_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoutineApprovalDecisionRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_RoutineApprovalResponse_"];
+                };
+            };
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SuccessResponse_RoutineApprovalResponse_"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "data": null,
+                     *       "message": "Request failed",
+                     *       "status": "error"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ErrorResponse_ErrorData_"];
+                };
+            };
+            /** @description Unprocessable Content */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
