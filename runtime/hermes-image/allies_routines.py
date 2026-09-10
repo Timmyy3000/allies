@@ -16,8 +16,10 @@ INSTRUCTION = (
     "Write execution_prompt for your future self with all needed context. "
     "Schedule time is critical: use explicit conversation context or ask; never guess. "
     "Use the user's provided browser timezone; if unavailable, ask. "
-    "For deletion, request_delete, ask the user if they are sure, then delete only after "
-    "their confirmation in a later user turn. Inspect before changing a routine."
+    "For deletion, inspect then request_delete. If the structured routine action context "
+    "already confirms deletion, follow the tool's confirmation instruction and delete. "
+    "Otherwise ask the user if they are sure and delete only after confirmation in a later user turn. "
+    "Inspect before changing a routine."
 )
 SCHEMA = {
     "type": "function",

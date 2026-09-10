@@ -21,6 +21,9 @@ def main() -> None:
     entry = registry.get_entry("allies_routine_result")
     assert entry is not None
     assert entry.toolset == _ALLIES_ROUTINE_RESULT_TOOLSET
+    definition = registry.get_definitions({"allies_routine_result"}, quiet=True)[0]["function"]
+    assert definition["description"]
+    assert definition["parameters"]["required"] == ["outcome", "text", "references"]
 
     ordinary_toolsets = _allies_routine_enabled_toolsets(
         _get_platform_tools({}, "api_server"), routine_result=False
