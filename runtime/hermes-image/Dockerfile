@@ -6,11 +6,29 @@ FROM nousresearch/hermes-agent:latest@sha256:b6f18532e2c082ef6686c659fc222427e41
 ARG HERMES_SOURCE_SHA=36cb5ae5530a75def7df3195e49b7a4aa2add482
 ARG ALLIES_WRAPPER_VERSION=0.1.0
 ARG SOURCE_DATE_EPOCH=0
+ARG TARGETARCH
 
 USER root
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     ALLIES_MNEMOSYNE_POLICY=allies-mnemosyne-v1
+
+# Pin the skill's executable so it is ready without installation during wake.
+RUN case "$TARGETARCH" in \
+      amd64) archive=xurl_Linux_x86_64.tar.gz; checksum=ccfc4b3ca5240565da650ef003b51d7f887eabe0c6e3797802410240289d4feb ;; \
+      arm64) archive=xurl_Linux_arm64.tar.gz; checksum=22474398fb55fe2ae242cc1b940dd5d92c0083508d108ec95922d1adacd2bb76 ;; \
+      *) echo "Unsupported xurl architecture" >&2; exit 1 ;; \
+    esac \
+    && curl --fail --location --retry 3 --connect-timeout 15 --max-time 120 \
+      "https://github.com/xdevplatform/xurl/releases/download/v1.3.1/$archive" -o /tmp/xurl.tar.gz \
+    && echo "$checksum  /tmp/xurl.tar.gz" | sha256sum -c - \
+    && mkdir /tmp/xurl-release \
+    && tar -xzf /tmp/xurl.tar.gz -C /tmp/xurl-release \
+    && install -m 0755 /tmp/xurl-release/xurl /usr/local/bin/xurl \
+    && mkdir -p /usr/local/share/licenses/xurl \
+    && install -m 0644 /tmp/xurl-release/LICENSE /usr/local/share/licenses/xurl/LICENSE \
+    && xurl --help >/dev/null \
+    && rm -rf /tmp/xurl-release /tmp/xurl.tar.gz
 
 # The wheelhouse is produced by the hermes-image-wheelhouse Make target/CI
 # job.  Installation is deliberately offline and hash checked in the image.

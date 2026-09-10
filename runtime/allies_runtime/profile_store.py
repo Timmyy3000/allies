@@ -36,7 +36,8 @@ MANIFEST_SCHEMA = "allies.profile"
 MANIFEST_VERSION = 2
 PROFILE_FINGERPRINT_VERSION = 2
 DEFAULT_MEMORY_PROVIDER = "allies_mnemosyne"
-DEFAULT_MEMORY_MODE = "context_only"
+CONTEXT_ONLY_MEMORY_MODE = "context_only"
+DEFAULT_MEMORY_MODE = "narrow_tools"
 DEFAULT_MEMORY_POLICY_VERSION = "allies-mnemosyne-v1"
 MEMORY_MODES = frozenset({"context_only", "narrow_tools"})
 MEMORY_TOOLS = frozenset(
@@ -51,6 +52,7 @@ MEMORY_TOOLS = frozenset(
         "mnemosyne_update",
     }
 )
+DEFAULT_MEMORY_TOOL_ALLOWLIST = tuple(sorted(MEMORY_TOOLS))
 MEMORY_TOOL_PATTERN = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 PROFILE_KEY_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 ENV_NAME_PATTERN = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
@@ -284,7 +286,7 @@ class ProfileSeed:
     memory_provider: str = DEFAULT_MEMORY_PROVIDER
     memory_mode: str = DEFAULT_MEMORY_MODE
     memory_policy_version: str = DEFAULT_MEMORY_POLICY_VERSION
-    memory_tool_allowlist: tuple[str, ...] = ()
+    memory_tool_allowlist: tuple[str, ...] = DEFAULT_MEMORY_TOOL_ALLOWLIST
     memory_profile_isolation: bool = True
     memory_sync_roles: tuple[str, ...] = ()
 
@@ -482,7 +484,10 @@ class ProfileSeed:
             or not self.memory_profile_isolation
         ):
             raise ProfileInputError("memory profile isolation is required")
-        if self.memory_mode == DEFAULT_MEMORY_MODE and self.memory_tool_allowlist:
+        if (
+            self.memory_mode == CONTEXT_ONLY_MEMORY_MODE
+            and self.memory_tool_allowlist
+        ):
             raise ProfileInputError("context-only memory cannot advertise tools")
 
     @property
@@ -539,6 +544,16 @@ class ProfileSeed:
         return hashlib.sha256(
             b"allies-profile-seed-v1\0" + _canonical_json(payload)
         ).hexdigest()
+
+    @property
+    def legacy_memory_fingerprint(self) -> str:
+        """Return the fingerprint of the previous managed memory default."""
+
+        return replace(
+            self,
+            memory_mode=CONTEXT_ONLY_MEMORY_MODE,
+            memory_tool_allowlist=(),
+        ).fingerprint
 
     @property
     def model_provider_name(self) -> str:
@@ -657,22 +672,74 @@ def _profile_config_bytes(seed: ProfileSeed) -> bytes:
     ]
     if seed.base_url is not None:
         lines.append(f"  base_url: {_yaml_string(seed.base_url)}")
-    lines.extend(
-        [
-            "memory:",
-            f"  provider: {_yaml_string(seed.memory_provider)}",
-            f"  mode: {_yaml_string(seed.memory_mode)}",
-            f"  policy_version: {_yaml_string(seed.memory_policy_version)}",
-            f"  profile_isolation: {'true' if seed.memory_profile_isolation else 'false'}",
-            f"  tools: {json.dumps(list(seed.memory_tool_allowlist), ensure_ascii=False)}",
-            f"  sync_roles: {json.dumps(list(seed.memory_sync_roles), ensure_ascii=False)}",
-            "  mnemosyne:",
-            "    profile_isolation: true",
-            "    shared_surface_read: false",
-            "    storage: mnemosyne",
-        ]
-    )
+    lines.extend(_memory_config_lines(seed))
     return ("\n".join(lines) + "\n" + SKILLS_CONFIG).encode("utf-8")
+
+
+def _memory_config_lines(seed: ProfileSeed) -> list[str]:
+    return [
+        "memory:",
+        f"  provider: {_yaml_string(seed.memory_provider)}",
+        f"  mode: {_yaml_string(seed.memory_mode)}",
+        f"  policy_version: {_yaml_string(seed.memory_policy_version)}",
+        f"  profile_isolation: {'true' if seed.memory_profile_isolation else 'false'}",
+        f"  tools: {json.dumps(list(seed.memory_tool_allowlist), ensure_ascii=False)}",
+        f"  sync_roles: {json.dumps(list(seed.memory_sync_roles), ensure_ascii=False)}",
+        "  mnemosyne:",
+        "    profile_isolation: true",
+        "    shared_surface_read: false",
+        "    storage: mnemosyne",
+    ]
+
+
+def _replace_legacy_memory_config(content: bytes, seed: ProfileSeed) -> bytes:
+    content = _config_with_catalog(content)
+    import yaml
+
+    config = yaml.safe_load(content)
+    legacy_memory = {
+        "provider": DEFAULT_MEMORY_PROVIDER,
+        "mode": CONTEXT_ONLY_MEMORY_MODE,
+        "policy_version": DEFAULT_MEMORY_POLICY_VERSION,
+        "profile_isolation": True,
+        "tools": [],
+        "sync_roles": [],
+        "mnemosyne": {
+            "profile_isolation": True,
+            "shared_surface_read": False,
+            "storage": "mnemosyne",
+        },
+    }
+    desired_memory = {
+        "provider": seed.memory_provider,
+        "mode": seed.memory_mode,
+        "policy_version": seed.memory_policy_version,
+        "profile_isolation": seed.memory_profile_isolation,
+        "tools": list(seed.memory_tool_allowlist),
+        "sync_roles": list(seed.memory_sync_roles),
+        "mnemosyne": legacy_memory["mnemosyne"],
+    }
+    if not isinstance(config, dict):
+        raise TypeError("legacy memory config does not match")
+    if config.get("memory") == desired_memory:
+        return content
+    if config.get("memory") != legacy_memory:
+        raise ValueError("legacy memory config does not match")
+    config["memory"] = desired_memory
+    return yaml.safe_dump(config, allow_unicode=True, sort_keys=False).encode("utf-8")
+
+
+def _is_legacy_managed_memory_manifest(seed: ProfileSeed, manifest: Mapping[str, Any]) -> bool:
+    return (
+        seed.memory_mode == DEFAULT_MEMORY_MODE
+        and seed.memory_tool_allowlist == DEFAULT_MEMORY_TOOL_ALLOWLIST
+        and manifest.get("seed_fingerprint") == seed.legacy_memory_fingerprint
+        and manifest.get("memory_provider") == DEFAULT_MEMORY_PROVIDER
+        and manifest.get("memory_policy_version") == DEFAULT_MEMORY_POLICY_VERSION
+        and manifest.get("memory_mode") == CONTEXT_ONLY_MEMORY_MODE
+        and manifest.get("memory_tools") == []
+        and manifest.get("memory_storage") == "mnemosyne"
+    )
 
 
 def _config_with_catalog(content: bytes) -> bytes:
@@ -1528,7 +1595,7 @@ class ProfileStore:
                 manifest.get("foundry_profile_id") != seed.foundry_profile_id
                 or manifest.get("hermes_profile_key") != seed.hermes_profile_key
                 or manifest.get("seed_fingerprint") != seed.legacy_fingerprint
-                or seed.memory_mode != DEFAULT_MEMORY_MODE
+                or seed.memory_mode != CONTEXT_ONLY_MEMORY_MODE
                 or seed.memory_tool_allowlist
                 or seed.memory_sync_roles
                 or manifest.get("lifecycle_epoch") != seed.lifecycle_epoch
@@ -1595,7 +1662,11 @@ class ProfileStore:
             return self._receipt(
                 seed, ProfileProvisionStatus.CONFLICT, repair_code="identity_collision"
             )
-        if manifest.get("seed_fingerprint") != seed.fingerprint:
+        legacy_memory_upgrade = _is_legacy_managed_memory_manifest(seed, manifest)
+        if (
+            manifest.get("seed_fingerprint") != seed.fingerprint
+            and not legacy_memory_upgrade
+        ):
             code = (
                 "instruction_version_conflict"
                 if manifest.get("first_chat_version") != seed.first_chat_version
@@ -1693,6 +1764,7 @@ class ProfileStore:
             stored_operation = seed.operation_id
             stored_generation = seed.materialized_generation
             stored_receipt = updated["receipt_id"]
+            manifest = updated
         try:
             config_path = profile / "config.yaml"
             descriptor = os.open(
@@ -1708,7 +1780,11 @@ class ProfileStore:
                 config_bytes = _read_bounded_descriptor(descriptor)
             finally:
                 os.close(descriptor)
-            updated_config = _config_with_catalog(config_bytes)
+            updated_config = (
+                _replace_legacy_memory_config(config_bytes, seed)
+                if legacy_memory_upgrade
+                else _config_with_catalog(config_bytes)
+            )
             if updated_config != config_bytes:
                 current_stat = config_path.stat(follow_symlinks=False)
                 if any(
@@ -1734,6 +1810,25 @@ class ProfileStore:
                 ProfileProvisionStatus.REPAIR_REQUIRED,
                 repair_code="skills_config_requires_repair",
             )
+        if legacy_memory_upgrade:
+            upgraded = dict(manifest)
+            upgraded.update(
+                {
+                    "seed_fingerprint": seed.fingerprint,
+                    "memory_provider": seed.memory_provider,
+                    "memory_policy_version": seed.memory_policy_version,
+                    "memory_mode": seed.memory_mode,
+                    "memory_tools": list(seed.memory_tool_allowlist),
+                }
+            )
+            try:
+                self._write_json_atomic(manifest_path, upgraded, mode=0o644)
+            except (ProfileStoreError, TypeError, UnicodeError, ValueError):
+                return self._receipt(
+                    seed,
+                    ProfileProvisionStatus.REPAIR_REQUIRED,
+                    repair_code="legacy_memory_upgrade_failed",
+                )
         try:
             self._clean_owned_first_chat_block(seed, profile / "SOUL.md")
         except ProfileStoreError:

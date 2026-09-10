@@ -24,7 +24,9 @@ memory:
 """
 
 
-def _profile(root: Path, name: str, tools: tuple[str, ...]) -> tuple[MemoryManager, object, Path]:
+def _profile(
+    root: Path, name: str, tools: tuple[str, ...]
+) -> tuple[MemoryManager, object, Path]:
     profile_root = root / "profiles" / name
     profile_root.mkdir(parents=True)
     (profile_root / "config.yaml").write_text(
@@ -58,15 +60,18 @@ def main() -> None:
             root, "alpha", ("mnemosyne_recall",)
         )
         beta, beta_provider, beta_root = _profile(
-            root, "beta", ("mnemosyne_remember",)
+            root, "beta", ("mnemosyne_remember", "mnemosyne_recall")
         )
         try:
             assert alpha.get_all_tool_names() == {"mnemosyne_recall"}
-            assert beta.get_all_tool_names() == {"mnemosyne_remember"}
+            assert beta.get_all_tool_names() == {
+                "mnemosyne_remember",
+                "mnemosyne_recall",
+            }
             assert alpha.has_tool("mnemosyne_recall")
             assert not alpha.has_tool("mnemosyne_remember")
             assert beta.has_tool("mnemosyne_remember")
-            assert not beta.has_tool("mnemosyne_recall")
+            assert beta.has_tool("mnemosyne_recall")
 
             alpha_status = alpha_provider.status()
             beta_status = beta_provider.status()
@@ -89,6 +94,21 @@ def main() -> None:
                 )
             )
             assert stored.get("status") in {"ok", "stored"}, stored
+            beta_provider.shutdown()
+            beta_provider.initialize(
+                "beta-next-session",
+                hermes_home=str(beta_root),
+                profile_root=str(beta_root),
+                agent_identity="ally-beta-profile",
+                agent_context="conversation",
+            )
+            carried = _result(
+                beta_provider.handle_tool_call("mnemosyne_recall", {"query": marker})
+            )
+            assert any(
+                marker in json.dumps(item, sort_keys=True)
+                for item in carried.get("results", [])
+            ), carried
             recalled = _result(
                 alpha.handle_tool_call("mnemosyne_recall", {"query": marker})
             )

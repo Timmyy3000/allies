@@ -82,10 +82,8 @@ def test_profile_fingerprint_contract_includes_memory_policy(ready_workspace):
         ),
     )
 
-    assert receipt.seed_fingerprint == (
-        "cd995ea7543b218b8380d61d6b051548da09af3a13a9bfcc529b33fca9a95db9"
-    )
     desired = list_profile_reconciliation(_context(ready_workspace)[0])[0]
+    assert receipt.seed_fingerprint == desired.seed_fingerprint
     assert desired.seed_payload["memory_provider"] == "allies_mnemosyne"
     assert desired.seed_payload["memory_policy_version"] == "allies-mnemosyne-v1"
 

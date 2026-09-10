@@ -249,7 +249,7 @@ async def test_profile_reconciler_materializes_then_acknowledges_store_receipt(
     assert soul_path.read_text(encoding="utf-8") == rendered_seed
     profile_config = (profile_root / "config.yaml").read_text(encoding="utf-8")
     assert 'provider: "allies_mnemosyne"' in profile_config
-    assert 'mode: "context_only"' in profile_config
+    assert 'mode: "narrow_tools"' in profile_config
     materialization_events = [
         event for event in events if event.get("operation") == "profile_materialization"
     ]

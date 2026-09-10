@@ -26,6 +26,34 @@ Use Hermes' native skill tools for progressive disclosure:
   mentioned in a skill. Local OCR, for example, still needs an extractor even
   if its skill reports available. Read and check the relevant prerequisites.
 
+## Missing executables
+
+The image includes `xurl`. Verify with `command -v xurl` and `xurl --help`;
+account authentication is separate. Follow the xurl skill's secret-handling
+instructions and never print credential files or request secrets in chat.
+Do not run `xurl token` or verbose requests; use `xurl auth status` for setup checks.
+
+For another missing executable, inspect the skill's installation instructions
+and supported operating systems. Use the existing terminal to install a
+task-required dependency from its official source, choosing a concrete version.
+Verify the registry package matches the official project and review its license.
+Keep tools in a writable directory under the active profile's persistent
+`HERMES_HOME`, not the sealed Hermes environment or a temporary directory.
+For npm tools, use `npm install --ignore-scripts --prefix <persistent-tool-directory>
+<package>@<version>` and invoke its `node_modules/.bin/<command>` directly.
+For Python tools, use `UV_TOOL_DIR=<persistent-tool-directory>
+UV_TOOL_BIN_DIR=<persistent-bin-directory> uv tool install --no-build <package>==<version>`
+and invoke the installed executable by absolute path. Save that invocation in
+a private skill so later conversations can reuse it without relying on PATH.
+
+Verify `--help` or the documented version command before using a new tool.
+Do not use sudo, change shared packages, bypass the skill scanner, or install
+dependencies on every wake. Packages requiring install scripts or source builds
+need image/deployment review; do not retry with those protections disabled.
+If installation needs system libraries, an
+unsupported OS, a GPU, or an external service, report that specific prerequisite.
+Installing a program does not connect the user's account or authorize actions.
+
 Search the official Hermes Hub from the existing terminal CLI when a shared
 skill is not present:
 

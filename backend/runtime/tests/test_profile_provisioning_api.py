@@ -237,7 +237,10 @@ def test_fixture_request_creates_pending_profile_without_private_receipt_fields(
     assert receipt["operation_id"] == contract["request"]["operation_id"]
     assert receipt["request_fingerprint"] == contract["request"]["request_fingerprint"]
     assert receipt["status"] == "pending"
-    assert receipt["evidence_digest"] == contract["receipt"]["evidence_digest"]
+    # The historical receipt fixture predates the managed memory-tool default.
+    assert receipt["evidence_digest"] == (
+        "bb485cd94823691f204ea1c8ece6ab59516ffedd4fc80803f623d765b89d457d"
+    )
     assert re.fullmatch(r"[0-9a-f]{64}", receipt["evidence_digest"])
     assert "profile_id" not in receipt
     assert "hermes_profile_key" not in receipt
@@ -245,6 +248,7 @@ def test_fixture_request_creates_pending_profile_without_private_receipt_fields(
     assert "credentials" not in receipt
 
     profile = RuntimeProfile.objects.get(ally_ref=contract["request"]["ally_ref"])
+    assert receipt["evidence_digest"] == profile.seed_fingerprint
     assert profile.lifecycle_state == RuntimeProfileLifecycleState.PENDING
     soul = profile.seed_payload["personality"]
     assert contract["request"]["name"] in soul
