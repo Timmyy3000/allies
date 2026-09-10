@@ -727,6 +727,7 @@ export function createCloudClient(options: CloudClientOptions) {
       content: string,
       idempotencyKey: string,
       signal?: AbortSignal,
+      timezone?: string,
     ): Promise<MessageAcceptanceViewModel> {
       rejectPreAborted(signal);
       const workspace = parsePathSegment(workspaceId);
@@ -739,7 +740,7 @@ export function createCloudClient(options: CloudClientOptions) {
             path: { workspace_id: workspace, conversation_id: conversation },
             header: { "Idempotency-Key": key },
           },
-          body: { content: body },
+          body: { content: body, timezone: timezone ?? "" },
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => toMessageAcceptanceViewModel(successEnvelope(messageAcceptanceResponseSchema).parse(data).data),

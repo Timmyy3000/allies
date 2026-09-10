@@ -262,6 +262,8 @@ describe("Ally and conversation Cloud client boundary", () => {
       ids.conversation,
       "Help me plan tomorrow.",
       "send-key-00000001",
+      undefined,
+      "Europe/Berlin",
     )).resolves.toMatchObject({
       conversationId: ids.conversation,
       message: { id: ids.userMessage, status: "queued" },
@@ -290,6 +292,7 @@ describe("Ally and conversation Cloud client boundary", () => {
     expect(createRequest!.headers.get("Idempotency-Key")).toBe("create-key-00000001");
     const sendRequest = requests.find((request) => request.url.endsWith("/messages"));
     expect(sendRequest!.headers.get("Idempotency-Key")).toBe("send-key-00000001");
+    expect(await sendRequest!.json()).toEqual({ content: "Help me plan tomorrow.", timezone: "Europe/Berlin" });
     const conversationRequest = requests.find((request) => new URL(request.url).pathname.endsWith("/conversation"));
     expect(new URL(conversationRequest!.url).search).toBe("?limit=50&cursor=older");
     const activityRequest = requests.find((request) => new URL(request.url).pathname.endsWith("/activities"));

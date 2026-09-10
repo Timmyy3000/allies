@@ -359,7 +359,8 @@ test("opens an Ally and keeps a sent reply after reload", async ({ page }) => {
   await expect(composer).toBeEnabled();
   await composer.fill(reply);
   await page.getByRole("button", { name: "Send message" }).click();
-  await expect.poll(cloud.sentRequest).toEqual({ body: JSON.stringify({ content: reply }), csrf: csrfToken });
+  const timezone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
+  await expect.poll(cloud.sentRequest).toEqual({ body: JSON.stringify({ content: reply, timezone }), csrf: csrfToken });
   await expect(page.locator("article").filter({ hasText: reply })).toBeVisible();
   await expect(page.getByTestId("activity-reply-1").locator("p")).toHaveText(assistantReply);
   await page.reload();
