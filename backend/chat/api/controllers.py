@@ -57,7 +57,9 @@ def _conversation_response(result) -> ConversationResponse:
         messages=[_message_response(message) for message in result.messages],
         queue=[_message_response(message) for message in result.queue],
         assistant_replies=[
-            AssistantReplyResponse.model_validate(assistant_reply_response(reply))
+            AssistantReplyResponse.model_validate(
+                assistant_reply_response(reply, message=message)
+            )
             for message in result.messages
             if (reply := getattr(message, "assistant_reply", None)) is not None
         ],

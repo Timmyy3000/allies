@@ -135,3 +135,7 @@ jobs:
       - name: Run PostgreSQL concurrency tests
         working-directory: backend
         run: uv run pytest -m postgresql
+
+      - name: Run PostgreSQL file lifecycle regressions
+        working-directory: backend
+        run: uv run pytest files/tests

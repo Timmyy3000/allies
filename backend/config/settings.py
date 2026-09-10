@@ -174,6 +174,7 @@ INSTALLED_APPS = [
     "allies",
     "routines",
     "chat",
+    "files",
     "activities",
     "devtools",
 ]
@@ -558,6 +559,36 @@ ALLIES_R2_ACCESS_KEY_ID = os.environ.get("ALLIES_R2_ACCESS_KEY_ID", "")
 ALLIES_R2_SECRET_ACCESS_KEY = os.environ.get("ALLIES_R2_SECRET_ACCESS_KEY", "")
 ALLIES_R2_ENABLED = env_bool("ALLIES_R2_ENABLED", False)
 
+# Production release checks remain independent of the default-on feature flags.
+ALLIES_FILE_ADMISSION_ENABLED = env_bool("ALLIES_FILE_ADMISSION_ENABLED", True)
+ALLIES_FILE_STORAGE_ENABLED = env_bool("ALLIES_FILE_STORAGE_ENABLED", True)
+ALLIES_FILE_STORAGE_ENDPOINT_URL = os.environ.get(
+    "ALLIES_FILE_STORAGE_ENDPOINT_URL", ""
+)
+ALLIES_FILE_STORAGE_BUCKET = os.environ.get("ALLIES_FILE_STORAGE_BUCKET", "")
+ALLIES_FILE_STORAGE_ACCESS_KEY_ID = os.environ.get(
+    "ALLIES_FILE_STORAGE_ACCESS_KEY_ID", ""
+)
+ALLIES_FILE_STORAGE_SECRET_ACCESS_KEY = os.environ.get(
+    "ALLIES_FILE_STORAGE_SECRET_ACCESS_KEY", ""
+)
+ALLIES_FILE_INSPECTION_ENABLED = env_bool("ALLIES_FILE_INSPECTION_ENABLED", True)
+ALLIES_FILE_SCANNER_HOST = os.environ.get("ALLIES_FILE_SCANNER_HOST", "")
+ALLIES_FILE_SCANNER_PORT = env_bounded_int("ALLIES_FILE_SCANNER_PORT", 3310, 1, 65535)
+ALLIES_FILE_INPUT_DELIVERY_ENABLED = env_bool(
+    "ALLIES_FILE_INPUT_DELIVERY_ENABLED", True
+)
+ALLIES_FILE_STORAGE_CAPACITY_BYTES = int(
+    os.environ.get("ALLIES_FILE_STORAGE_CAPACITY_BYTES", "10000000000")
+)
+if ALLIES_FILE_STORAGE_CAPACITY_BYTES < 0:
+    raise ImproperlyConfigured(
+        "ALLIES_FILE_STORAGE_CAPACITY_BYTES must not be negative"
+    )
+ALLIES_FILE_UPLOAD_LEASE_SECONDS = env_bounded_int(
+    "ALLIES_FILE_UPLOAD_LEASE_SECONDS", 120, 1, 3600
+)
+
 CACHE_URL = os.environ.get("CACHE_URL", "")
 CACHES = {
     "default": {
@@ -664,6 +695,16 @@ CELERY_BEAT_SCHEDULE["dispatch-due-provisioning"] = {
 CELERY_BEAT_SCHEDULE["dispatch-pending-messages"] = {
     "task": "chat.dispatch_pending_messages",
     "schedule": 15.0,
+    "options": {"queue": "cloud"},
+}
+CELERY_BEAT_SCHEDULE["inspect-private-files"] = {
+    "task": "files.inspect_due_files",
+    "schedule": 30.0,
+    "options": {"queue": "cloud"},
+}
+CELERY_BEAT_SCHEDULE["cleanup-private-files"] = {
+    "task": "files.cleanup_files",
+    "schedule": 60.0,
     "options": {"queue": "cloud"},
 }
 CELERY_BEAT_SCHEDULE["dispatch-pending-approvals"] = {
@@ -953,6 +994,29 @@ if not DEBUG:
         r2_endpoint = urlparse(ALLIES_R2_ENDPOINT_URL)
         if r2_endpoint.scheme != "https" or not r2_endpoint.netloc:
             missing.append("HTTPS ALLIES_R2_ENDPOINT_URL")
+    if ALLIES_FILE_ADMISSION_ENABLED and not ALLIES_FILE_STORAGE_ENABLED:
+        missing.append("ALLIES_FILE_STORAGE_ENABLED for file admission")
+    if ALLIES_FILE_ADMISSION_ENABLED:
+        missing.append("ALLIES_FILE_ADMISSION_ENABLED is release-blocked in production")
+    if ALLIES_FILE_INPUT_DELIVERY_ENABLED:
+        missing.append(
+            "ALLIES_FILE_INPUT_DELIVERY_ENABLED is integration-blocked in production"
+        )
+    if ALLIES_FILE_ADMISSION_ENABLED and ALLIES_FILE_STORAGE_CAPACITY_BYTES <= 0:
+        missing.append("positive ALLIES_FILE_STORAGE_CAPACITY_BYTES for file admission")
+    if ALLIES_FILE_STORAGE_ENABLED and not all(
+        [
+            ALLIES_FILE_STORAGE_ENDPOINT_URL,
+            ALLIES_FILE_STORAGE_BUCKET,
+            ALLIES_FILE_STORAGE_ACCESS_KEY_ID,
+            ALLIES_FILE_STORAGE_SECRET_ACCESS_KEY,
+        ]
+    ):
+        missing.append("complete private file storage configuration")
+    if ALLIES_FILE_STORAGE_ENABLED:
+        file_endpoint = urlparse(ALLIES_FILE_STORAGE_ENDPOINT_URL)
+        if file_endpoint.scheme != "https" or not file_endpoint.netloc:
+            missing.append("HTTPS ALLIES_FILE_STORAGE_ENDPOINT_URL")
     if missing:
         raise ImproperlyConfigured(
             "Unsafe AUTH-001 production configuration: " + ", ".join(missing)

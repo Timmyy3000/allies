@@ -47,8 +47,10 @@ from chat.models import (
     Message,
     MessageLifecycle,
     MessageOrigin,
+    MessagePreparation,
     MessageSender,
 )
+from files.models import FileAllyTombstone
 
 DISPATCH_LEASE_SECONDS = 60
 DISPATCH_MAX_ATTEMPTS = 5
@@ -83,6 +85,68 @@ class DispatchReport:
 
 def _enabled() -> bool:
     return bool(getattr(settings, "ALLIES_FOUNDRY_EXECUTION_ENABLED", False))
+
+
+def _file_input_enabled() -> bool:
+    return bool(getattr(settings, "ALLIES_FILE_INPUT_DELIVERY_ENABLED", False))
+
+
+def _delivery_enabled(message: Message) -> bool:
+    return message.preparation == MessagePreparation.NONE or (
+        message.preparation == MessagePreparation.READY
+        and message.send_armed
+        and _file_input_enabled()
+    )
+
+
+def _file_manifest(message: Message) -> list[dict[str, object]] | None:
+    if message.preparation == MessagePreparation.NONE:
+        return None
+    if (
+        message.preparation != MessagePreparation.READY
+        or not message.send_armed
+        or not _file_input_enabled()
+    ):
+        raise DispatchConflict("file message is not dispatchable")
+    from files.models import FileDirection, FileState, MessageFile
+    from workspaces.models import Membership, MembershipStatus
+
+    links = list(
+        MessageFile.objects.select_related("file")
+        .filter(message=message, removed_at__isnull=True)
+        .order_by("position", "id")
+    )
+    workspace_id = message.conversation.ally.workspace_id
+    ally_id = message.conversation.ally_id
+    if not links or any(
+        link.file.workspace_id != workspace_id
+        or link.file.ally_id != ally_id
+        or link.file.direction != FileDirection.INBOUND
+        or link.file.state != FileState.READY
+        or link.file.actual_size is None
+        for link in links
+    ):
+        raise DispatchConflict("file manifest is not ready")
+    owner_ids = {link.file.owner_id for link in links}
+    active_owner_ids = set(
+        Membership.objects.filter(
+            workspace_id=workspace_id,
+            user_id__in=owner_ids,
+            status=MembershipStatus.ACTIVE,
+        ).values_list("user_id", flat=True)
+    )
+    if active_owner_ids != owner_ids:
+        raise DispatchConflict("file manifest is not ready")
+    return [
+        {
+            "file_id": str(link.file_id),
+            "name": link.file.original_name,
+            "media_type": link.file.media_type,
+            "size": link.file.actual_size,
+            "sha256": link.file.sha256,
+        }
+        for link in links
+    ]
 
 
 def _first_turn_bootstrap(message: Message) -> FirstTurnBootstrap | None:
@@ -160,6 +224,8 @@ def _command_for_message(message: Message) -> tuple[ExecutionCommand, bytes, str
         "kind": "execution_input",
         "text": _model_input_text(message),
     }
+    if files := _file_manifest(message):
+        payload["files"] = files
     bootstrap = _first_turn_bootstrap(message)
     if bootstrap is not None:
         payload["bootstrap"] = bootstrap.model_dump(mode="json")
@@ -248,12 +314,18 @@ def _ensure_outbox_locked(message: Message) -> DispatchReceipt:
             command_fingerprint="",
         )
     command, body, body_digest = _command_for_message(message)
+    message.foundry_binding_id = command.cloud.cloud_binding_id
+    message.save(update_fields=("foundry_binding_id", "updated_at"))
+    file_manifest = [
+        file.model_dump(mode="json") for file in (command.payload.files or [])
+    ]
     outbox = DispatchOutbox.objects.create(
         message=message,
         command_bytes=body,
         command_byte_length=len(body),
         command_sha256=body_digest,
         command_fingerprint=command.fingerprint,
+        file_manifest=file_manifest,
     )
     contexts = _routine_contexts_for_message(message)
     if contexts:
@@ -286,6 +358,13 @@ def _validate_outbox_command(message: Message) -> None:
 def _dispatch_accepted_locked(
     *, conversation: Conversation, message: Message
 ) -> DispatchReceipt:
+    if FileAllyTombstone.objects.filter(ally_id=conversation.ally_id).exists():
+        return DispatchReceipt(
+            message_id=message.id,
+            status=DispatchState.FAILED,
+            attempt_count=0,
+            command_fingerprint="",
+        )
     _validate_outbox_command(message)
     from .messages import _claim_next_turn_locked
 
@@ -293,7 +372,7 @@ def _dispatch_accepted_locked(
     receipt = _ensure_outbox_locked(message)
     if claimed is not None and claimed.pk != message.pk:
         claimed = (
-            Message.objects.select_for_update()
+            Message.objects.select_for_update(of=("self",))
             .select_related("conversation__ally__workspace")
             .get(pk=claimed.pk, conversation=conversation)
         )
@@ -320,10 +399,17 @@ def dispatch_accepted_message(message: Message) -> DispatchReceipt:
             pk=message.conversation_id
         )
         locked = (
-            Message.objects.select_for_update()
+            Message.objects.select_for_update(of=("self",))
             .select_related("conversation__ally__workspace")
             .get(pk=message.pk, conversation=conversation)
         )
+        if not _delivery_enabled(locked):
+            return DispatchReceipt(
+                message_id=locked.id,
+                status=DispatchState.PENDING,
+                attempt_count=0,
+                command_fingerprint="",
+            )
         return _dispatch_accepted_locked(conversation=conversation, message=locked)
 
 
@@ -342,10 +428,12 @@ def ensure_dispatch_after_accept(message: Message) -> None:
             pk=message.conversation_id
         )
         locked = (
-            Message.objects.select_for_update()
+            Message.objects.select_for_update(of=("self",))
             .select_related("conversation__ally__workspace")
             .get(pk=message.pk, conversation=conversation)
         )
+        if not _delivery_enabled(locked):
+            return
         try:
             _dispatch_accepted_locked(conversation=conversation, message=locked)
         except DispatchUnavailable:
@@ -422,26 +510,25 @@ def _claim_due(*, now, limit: int) -> list[tuple[UUID, int, bool]]:
                 )
                 .first()
             )
-            if message is None or not _prior_turn_ready(message):
+            if message is None:
                 continue
-            try:
-                row = DispatchOutbox.objects.select_for_update().get(
-                    pk=pk, message=message
+            row = (
+                DispatchOutbox.objects.select_for_update()
+                .filter(due, pk=pk, message=message)
+                .first()
+            )
+            if row is None:
+                continue
+            if FileAllyTombstone.objects.filter(ally_id=conversation.ally_id).exists():
+                _terminalize_claim_locked(
+                    conversation=conversation,
+                    message=message,
+                    outbox=row,
+                    code="ally_deleted",
+                    now=now,
                 )
-            except DispatchOutbox.DoesNotExist:
                 continue
-            if row.status in {
-                DispatchState.PENDING,
-                DispatchState.RECONCILIATION_NEEDED,
-            }:
-                if row.next_attempt_at is None or row.next_attempt_at > now:
-                    continue
-                if row.lease_expires_at is not None and row.lease_expires_at > now:
-                    continue
-            elif row.status == DispatchState.IN_PROGRESS:
-                if row.lease_expires_at is None or row.lease_expires_at > now:
-                    continue
-            else:
+            if not _prior_turn_ready(message):
                 continue
             reconcile_first = row.status in {
                 DispatchState.RECONCILIATION_NEEDED,
@@ -602,6 +689,24 @@ def _finish_pre_call_failure_locked(
         or outbox.last_attempt_at is not None
     ):
         return False
+    _terminalize_claim_locked(
+        conversation=conversation,
+        message=message,
+        outbox=outbox,
+        code=code,
+        now=now,
+    )
+    return True
+
+
+def _terminalize_claim_locked(
+    *,
+    conversation: Conversation,
+    message: Message,
+    outbox: DispatchOutbox,
+    code: str,
+    now,
+) -> None:
     if message.deleted_at is None and message.status in NONTERMINAL_MESSAGE_STATUSES:
         message.status = MessageLifecycle.FAILED
         message.retry_allowed = False
@@ -628,7 +733,6 @@ def _finish_pre_call_failure_locked(
     # The conversation lock serializes this with claim/delete. Keep the
     # terminal head and its successor in one durable transaction.
     _release_next_locked(conversation, now=now)
-    return True
 
 
 def _mark_pre_call_failure(pk: UUID, fence: int, code: str, *, now) -> bool:
@@ -1078,6 +1182,9 @@ def _dispatch_one(pk: UUID, fence: int, reconcile_first: bool, *, now) -> str:
 
 
 def dispatch_pending_messages(*, now=None, limit: int = 20) -> DispatchReport:
+    from files.services.preparation import recover_file_preparation
+
+    recover_file_preparation(limit=limit)
     if not _enabled():
         return DispatchReport()
     now = now or timezone.now()
