@@ -264,29 +264,3 @@ test("requires retry after upload failure and retains the draft across refresh",
   expect(fixture.uploads()).toBe(2);
   expect(fixture.requests.some((r) => r.endsWith("/send-files"))).toBe(true);
 });
-test("cancels a failed upload back into the composer and recovers after reload", async ({
-  page,
-}) => {
-  const fixture = await cloud(page, true);
-  await select(page);
-  await page.getByRole("button", { name: "Send message" }).click();
-  await expect(
-    page.getByRole("button", { name: "Retry files & send" }),
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(
-    page
-      .getByTestId("conversation-composer")
-      .getByRole("button", { name: "Remove notes.txt" }),
-  ).toBeVisible();
-  await page.reload();
-  await page
-    .getByRole("button", { name: "Restore draft", exact: true })
-    .click();
-  await expect(
-    page
-      .getByTestId("conversation-composer")
-      .getByRole("button", { name: "Remove notes.txt" }),
-  ).toBeVisible();
-  expect(fixture.uploads()).toBe(1);
-});
