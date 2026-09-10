@@ -193,7 +193,15 @@ def accept_message(
     content: object,
     idempotency_key: object,
     retry_of: Message | None = None,
+    client_timezone: str = "",
 ) -> MessageAcceptance:
+    from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+
+    try:
+        if client_timezone:
+            ZoneInfo(client_timezone)
+    except (ValueError, TypeError, ZoneInfoNotFoundError) as exc:
+        raise MessageValidation("invalid timezone") from exc
     context = require_workspace_capability(
         user=user,
         workspace_id=workspace_id,
@@ -283,6 +291,7 @@ def accept_message(
                 send_key_digest=key_digest,
                 content_fingerprint=content_fingerprint,
                 retry_of=retry_of,
+                client_timezone=client_timezone,
             )
             from .dispatch import ensure_dispatch_after_accept
 
@@ -364,6 +373,7 @@ def retry_message(
             content=original.content,
             idempotency_key=idempotency_key,
             retry_of=original,
+            client_timezone=original.client_timezone,
         )
 
 

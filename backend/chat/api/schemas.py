@@ -10,6 +10,7 @@ class SendMessageRequest(Schema):
     model_config = ConfigDict(extra="forbid")
 
     content: str = Field(min_length=1, max_length=16_000)
+    timezone: str = Field(default="", max_length=64)
 
 
 class MessageResponse(Schema):
