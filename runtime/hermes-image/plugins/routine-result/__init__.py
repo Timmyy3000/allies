@@ -9,7 +9,7 @@ def register(ctx) -> None:
     ctx.register_tool(
         name="allies_routine_result",
         toolset="allies-routine-result",
-        schema=ROUTINE_RESULT_SCHEMA,
+        schema=ROUTINE_RESULT_SCHEMA["function"],
         handler=handle_routine_result,
         description=ROUTINE_RESULT_SCHEMA["function"]["description"],
     )

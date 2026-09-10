@@ -250,6 +250,11 @@ async def _run() -> None:
             )
             _run_sequential_smoke(callback)
             _run_codex_bridge_smoke(callback)
+            callback("tool.started", "tool_call", None,
+                     {"name": "allies_routines", "arguments": {"action": "create", "title": PRIVATE_MARKER}},
+                     tool_call_id="routine-create")
+            callback("tool.completed", "allies_routines", None, None,
+                     tool_call_id="routine-create", is_error=False, duration=0.1)
             return {
                 "session_id": SESSION_ID,
                 "final_response": "safe completion",
@@ -299,6 +304,8 @@ async def _run() -> None:
                     "tool.completed",
                     "tool.started",
                     "tool.completed",
+                    "tool.started",
+                    "tool.completed",
                 ]
                 starts = [payload for name, payload in lifecycle if name == "tool.started"]
                 completions = [
@@ -324,6 +331,8 @@ async def _run() -> None:
                 assert lifecycle[6][1]["tool_call_id"] == lifecycle[7][1]["tool_call_id"]
                 assert lifecycle[7][1]["duration_ms"] == 25
                 assert lifecycle[7][1]["is_error"] is False
+                assert lifecycle[8][1]["tool_name"] == "routine_create"
+                assert lifecycle[9][1]["tool_name"] == "routine_create"
         finally:
             for database in getattr(adapter, "_session_dbs", {}).values():
                 database.close()

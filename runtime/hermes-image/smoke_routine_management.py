@@ -21,6 +21,9 @@ def main():
     )
     names = {item["function"]["name"] for item in definitions}
     assert "allies_routines" in names and "cronjob" not in names, names
+    definition = next(item["function"] for item in definitions if item["function"]["name"] == "allies_routines")
+    assert definition["description"]
+    assert definition["parameters"]["required"] == ["action"]
     observed = []
 
     class Handler(BaseHTTPRequestHandler):

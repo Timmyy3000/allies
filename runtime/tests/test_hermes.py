@@ -9,8 +9,9 @@ from threading import Event
 from types import SimpleNamespace
 from urllib.error import HTTPError
 
-import allies_runtime.hermes as hermes_module
 import pytest
+
+import allies_runtime.hermes as hermes_module
 from allies_runtime.config import load_settings
 from allies_runtime.errors import (
     HermesAuthenticationError,
@@ -779,18 +780,14 @@ def test_incremental_stream_extracts_one_accepted_typed_routine_result():
         )
         is None
     )
-    terminal = stream._normalize_event(
-        "done", {"session_id": "s1", "run_id": "r1"}
-    )
+    terminal = stream._normalize_event("done", {"session_id": "s1", "run_id": "r1"})
     assert terminal is not None
     assert terminal.payload == {
         "run_id": "r1",
         "status": "completed",
         "outcome": "changed",
         "result_text": "Routine changed.",
-        "references": [
-            {"label": "Source", "url": "https://example.test/source"}
-        ],
+        "references": [{"label": "Source", "url": "https://example.test/source"}],
     }
 
 
@@ -808,9 +805,7 @@ def test_incremental_stream_keeps_typed_result_internal_to_routine_mode():
         )
         is None
     )
-    terminal = stream._normalize_event(
-        "done", {"session_id": "s1", "run_id": "r1"}
-    )
+    terminal = stream._normalize_event("done", {"session_id": "s1", "run_id": "r1"})
     assert terminal is not None
     assert terminal.payload == {"run_id": "r1", "status": "completed"}
 
@@ -825,6 +820,219 @@ def test_incremental_stream_keeps_typed_result_internal_to_routine_mode():
                 "messages": [{"role": "assistant", "content": "answer"}],
                 "outcome": "changed",
             },
+        )
+
+
+def _wrapped_routine_messages(**kwargs):
+    messages = _routine_tool_messages(**kwargs)
+    function = messages[0]["tool_calls"][0]["function"]
+    function["arguments"] = json.dumps(
+        {"name": function["name"], "arguments": json.loads(function["arguments"])}
+    )
+    function["name"] = "tool_call"
+    messages[1]["tool_name"] = "allies_routine_result"
+    return messages
+
+
+def test_wrapped_routine_result_after_rejected_discovery_call():
+    rejected = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "call-rejected",
+                    "function": {
+                        "name": "tool_call",
+                        "arguments": json.dumps(
+                            {"name": "allies_routine_result", "arguments": {}}
+                        ),
+                    },
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "call-rejected",
+            "tool_name": "tool_call",
+            "content": '{"error":"missing required arguments"}',
+        },
+    ]
+    messages = rejected + _wrapped_routine_messages(text="Routine test successful")
+    result = hermes_module._routine_result_from_transcript(messages)
+    assert result == {
+        "outcome": "changed",
+        "result_text": "Routine test successful",
+        "references": [],
+    }
+
+
+@pytest.mark.parametrize(
+    "case", ["duplicate", "rejected", "missing", "invalid", "later_tool"]
+)
+def test_wrapped_routine_result_preserves_validation(case):
+    messages = _wrapped_routine_messages()
+    if case == "duplicate":
+        messages += _routine_tool_messages()
+    elif case == "rejected":
+        messages[1]["content"] = '{"status":"rejected"}'
+    elif case == "missing":
+        messages.pop()
+    elif case == "invalid":
+        messages = _wrapped_routine_messages(outcome="success")
+    else:
+        messages.append(
+            {
+                "role": "assistant",
+                "tool_calls": [
+                    {"id": "later", "function": {"name": "other", "arguments": "{}"}}
+                ],
+            }
+        )
+    with pytest.raises(HermesMalformedResponse):
+        hermes_module._routine_result_from_transcript(messages)
+
+
+@pytest.mark.parametrize("side", ["call", "response"])
+@pytest.mark.parametrize("malformation", ["identity", "empty", "oversized", "json"])
+def test_wrapped_result_rejects_malformed_envelopes(side, malformation):
+    messages = _wrapped_routine_messages()
+    call = messages[0]["tool_calls"][0]
+    if malformation == "identity":
+        target, key = (call, "id") if side == "call" else (messages[1], "tool_call_id")
+        value = "invalid identity"
+        error = "identity"
+    else:
+        target, key = (
+            (call["function"], "arguments")
+            if side == "call"
+            else (messages[1], "content")
+        )
+        value = {
+            "empty": "",
+            "oversized": json.dumps(
+                {
+                    "name": "allies_routine_result",
+                    "arguments": "x" * hermes_module._MAX_ROUTINE_ARGUMENT_BYTES,
+                }
+            ),
+            "json": "{",
+        }[malformation]
+        error = {"empty": "invalid", "oversized": "too large", "json": "not JSON"}[
+            malformation
+        ]
+    target[key] = value
+    if side == "call" and malformation in {"empty", "json"}:
+        assert hermes_module._routine_result_from_transcript(messages) is None
+        return
+    with pytest.raises(HermesMalformedResponse, match=error):
+        hermes_module._routine_result_from_transcript(messages)
+
+
+@pytest.mark.parametrize(
+    "content", ["{", '{"error":"failed","status":"rejected"}', "null"]
+)
+def test_wrapper_recovery_does_not_hide_invoked_or_unreadable_results(content):
+    rejected = _wrapped_routine_messages()
+    rejected[0]["tool_calls"][0]["id"] = "rejected"
+    rejected[1].update(tool_call_id="rejected", tool_name="tool_call", content=content)
+    with pytest.raises(HermesMalformedResponse, match="duplicated"):
+        hermes_module._routine_result_from_transcript(
+            rejected + _wrapped_routine_messages()
+        )
+
+
+@pytest.mark.parametrize(
+    "arguments, error",
+    [
+        ({"outcome": "changed", "text": "ok"}, "arguments"),
+        ({"outcome": "changed", "text": "\x00", "references": []}, "text"),
+        ({"outcome": "changed", "text": "ok", "references": None}, "references"),
+        (
+            {
+                "outcome": "changed",
+                "text": "ok",
+                "references": [{"label": "bad", "url": "javascript:alert(1)"}],
+            },
+            "references",
+        ),
+    ],
+)
+def test_wrapped_result_validates_payload_before_publication(arguments, error):
+    messages = _wrapped_routine_messages()
+    messages[0]["tool_calls"][0]["function"]["arguments"] = json.dumps(
+        {"name": "allies_routine_result", "arguments": arguments}
+    )
+    with pytest.raises(HermesMalformedResponse, match=error):
+        hermes_module._routine_result_from_transcript(messages)
+
+
+def test_wrapped_result_enforces_serialized_event_budget():
+    with pytest.raises(HermesMalformedResponse, match="envelope was too large"):
+        hermes_module._routine_result_from_transcript(
+            _wrapped_routine_messages(text="\x01" * 10300)
+        )
+
+
+def test_other_wrapped_tools_do_not_count_as_routine_results():
+    prior = _wrapped_routine_messages()
+    prior[0]["tool_calls"][0]["id"] = "search"
+    prior[0]["tool_calls"][0]["function"]["arguments"] = (
+        '{"name":"web_search","arguments":{}}'
+    )
+    prior[1].update(tool_call_id="search", tool_name="web_search")
+    result = hermes_module._routine_result_from_transcript(
+        prior + _wrapped_routine_messages()
+    )
+    assert result["outcome"] == "changed"
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        None,
+        "",
+        "{",
+        "null",
+        "[]",
+        '{"name":"web_search","arguments":{}}',
+        json.dumps({"name": "web_search", "arguments": "x" * 65537}),
+    ],
+    ids=["missing", "empty", "invalid-json", "null", "list", "other-tool", "oversized"],
+)
+def test_malformed_unrelated_wrapper_does_not_abort_recovered_result(arguments):
+    prior = [
+        {
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": "bad identity",
+                    "function": {"name": "tool_call", "arguments": arguments},
+                }
+            ],
+        },
+        {
+            "role": "tool",
+            "tool_call_id": "bad identity",
+            "tool_name": "tool_call",
+            "content": '{"error":"invalid call"}',
+        },
+    ]
+    result = hermes_module._routine_result_from_transcript(
+        prior + _wrapped_routine_messages()
+    )
+    assert result["outcome"] == "changed"
+
+
+def test_wrapped_result_cannot_precede_its_call():
+    messages = _wrapped_routine_messages()
+    with pytest.raises(HermesMalformedResponse, match="preceded"):
+        hermes_module._routine_result_from_transcript(list(reversed(messages)))
+
+
+def test_routine_report_rejects_malformed_assistant_call_list():
+    with pytest.raises(HermesMalformedResponse, match="assistant tool calls"):
+        hermes_module._routine_result_from_transcript(
+            [{"role": "assistant", "tool_calls": {}}]
         )
 
 
@@ -1782,15 +1990,11 @@ async def test_streams_send_managed_reasoning_options(monkeypatch, incremental):
         )
         await stream.aclose()
     else:
-        await client.stream_profile(
-            "ally-a", "s1", "hello", reasoning_effort="xhigh"
-        )
+        await client.stream_profile("ally-a", "s1", "hello", reasoning_effort="xhigh")
 
     assert json.loads(calls[0][3]) == {
         "message": "hello",
-        "model_options": {
-            "reasoning": {"enabled": True, "effort": "xhigh"}
-        },
+        "model_options": {"reasoning": {"enabled": True, "effort": "xhigh"}},
     }
 
 
@@ -1798,7 +2002,9 @@ async def test_streams_send_managed_reasoning_options(monkeypatch, incremental):
 @pytest.mark.parametrize(
     "method_name", ["stream", "stream_profile", "stream_profile_incremental"]
 )
-async def test_streams_reject_invalid_reasoning_before_request(monkeypatch, method_name):
+async def test_streams_reject_invalid_reasoning_before_request(
+    monkeypatch, method_name
+):
     client, calls = _client(monkeypatch, FakeResponse())
     method = getattr(client, method_name)
 

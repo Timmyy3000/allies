@@ -5,7 +5,7 @@ def register(ctx):
     ctx.register_tool(
         name="allies_routines",
         toolset="allies-routines",
-        schema=SCHEMA,
+        schema=SCHEMA["function"],
         handler=handle_routine,
         description=SCHEMA["function"]["description"],
     )

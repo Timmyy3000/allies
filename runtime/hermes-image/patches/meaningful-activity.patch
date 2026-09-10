@@ -54,8 +54,10 @@ diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
 index a756134..0a651c0 100644
 --- a/gateway/platforms/api_server.py
 +++ b/gateway/platforms/api_server.py
-@@ -3732,10 +3732,35 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -3732,10 +3732,50 @@ class APIServerAdapter(BasePlatformAdapter):
  
++        routine_activity_names = {}
++
          def _tool_progress(event_type: str, tool_name: str = None, preview: str = None, args=None, **kwargs) -> None:
              if event_type == "reasoning.available":
 -                _enqueue("tool.progress", {"message_id": message_id, "tool_name": tool_name or "_thinking", "delta": preview or ""})
@@ -73,6 +75,19 @@ index a756134..0a651c0 100644
 +            tool_call_id = kwargs.get("tool_call_id")
 +            if not isinstance(tool_call_id, str) or not tool_call_id:
 +                return
++            if event_type == "tool.started":
++                target, arguments = tool_name, args
++                if target == "tool_call" and isinstance(args, dict):
++                    target, arguments = args.get("name"), args.get("arguments")
++                if target == "allies_routine_result":
++                    routine_activity_names[tool_call_id] = "routine_result"
++                elif target == "allies_routines" and isinstance(arguments, dict):
++                    action = arguments.get("action")
++                    if action in {"create", "list", "inspect", "update", "pause", "resume", "request_delete", "delete"}:
++                        routine_activity_names[tool_call_id] = "routine_" + action
++                tool_name = routine_activity_names.get(tool_call_id, tool_name)
++            else:
++                tool_name = routine_activity_names.pop(tool_call_id, tool_name)
 +            payload = {
 +                "message_id": message_id,
 +                "tool_name": tool_name,
