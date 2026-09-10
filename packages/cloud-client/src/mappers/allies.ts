@@ -55,6 +55,14 @@ export const activityKindSchema = z.enum([
   "execution_failed",
 ]);
 const timestampSchema = z.iso.datetime({ offset: true });
+const labelTextSchema = z.string()
+  .refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value), "Use a single-line label");
+export const allyLabelSchema = labelTextSchema
+  .refine((value) => [...value].length <= 80, "Use at most 80 characters")
+  .refine(
+  (value) => value === "" || /^\S+(?: \S+){1,2}$/u.test(value),
+  "Use two or three words",
+);
 
 export const allyResponseSchema = z
   .object({
@@ -67,6 +75,9 @@ export const allyResponseSchema = z
     appearance: appearanceSchema,
     provisioning_state: provisioningStateSchema,
     retryable: z.boolean(),
+    label: allyLabelSchema.default(""),
+    show_label: z.boolean().default(false),
+    settings_revision: z.number().int().nonnegative().default(0),
   })
   .loose();
 
@@ -269,6 +280,18 @@ export const createAllyInputSchema = allySeedInputSchema.extend({
   reply: z.string().min(1).max(4000),
 });
 
+export const allySettingsInputSchema = z.object({
+  label: labelTextSchema
+    .transform((value) => value.trim().replace(/\s+/gu, " "))
+    .pipe(allyLabelSchema),
+  showLabel: z.boolean(),
+  settingsRevision: z.number().int().nonnegative(),
+}).strict().refine((value) => !value.showLabel || value.label !== "", {
+  path: ["showLabel"], message: "Add a label before showing it",
+});
+
+export type AllySettingsInput = z.input<typeof allySettingsInputSchema>;
+
 export type ProvisioningState = z.infer<typeof provisioningStateSchema>;
 export type MessageSender = z.infer<typeof senderSchema>;
 export type MessageStatus = z.infer<typeof messageStatusSchema>;
@@ -289,6 +312,9 @@ export interface AllyViewModel {
   appearance: AllyAppearanceViewModel;
   provisioningState: ProvisioningState;
   retryable: boolean;
+  label?: string;
+  showLabel?: boolean;
+  settingsRevision?: number;
 }
 
 export interface AllySeedInput {
@@ -439,6 +465,9 @@ export function toAllyViewModel(input: unknown): AllyViewModel {
     },
     provisioningState: ally.provisioning_state,
     retryable: ally.retryable,
+    label: ally.label,
+    showLabel: ally.show_label,
+    settingsRevision: ally.settings_revision,
   };
 }
 

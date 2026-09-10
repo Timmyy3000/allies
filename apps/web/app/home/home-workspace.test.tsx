@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createElement, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -159,6 +159,12 @@ function renderHome(
   const client = {
     getCurrentAccount: vi.fn(async () => account),
     listAllies: vi.fn(async () => allies),
+    updateAllySettings: vi.fn(async (_workspaceId: string, allyId: string, input: { label: string; showLabel: boolean; settingsRevision: number }) => ({
+      ...(allies.find((candidate) => candidate.id === allyId) ?? ally),
+      label: input.label,
+      showLabel: input.showLabel,
+      settingsRevision: input.settingsRevision + 1,
+    })),
     getApprovals: vi.fn(async () => []),
     getAllyConversation: vi.fn(async (_workspaceId: string, selectedId: string) => ({
       id: "00000000-0000-4000-8000-000000000005",
@@ -411,6 +417,235 @@ describe("HomeWorkspace", () => {
     expect(await screen.findAllByText("What should we work on first?")).toHaveLength(2);
     await waitFor(() => expect(client.getAllyConversation).toHaveBeenCalled());
     expect(screen.queryByText(/unread/i)).toBeNull();
+  });
+
+  it("edits an Ally label, keeps Show label gated, and updates the roster", async () => {
+    const client = renderHome([ally], ally.id);
+    const settingsButton = (await screen.findAllByRole("button", { name: "Mira settings" }))[0];
+    fireEvent.click(settingsButton);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
+    const showLabel = within(dialog).getByRole("checkbox", { name: /Show label/ }) as HTMLInputElement;
+
+    expect(showLabel.disabled).toBe(true);
+    fireEvent.change(label, { target: { value: "chief of staff" } });
+    expect(showLabel.disabled).toBe(false);
+    fireEvent.click(showLabel);
+    fireEvent.change(label, { target: { value: "" } });
+    expect(showLabel.disabled).toBe(true);
+    expect(showLabel.checked).toBe(false);
+    fireEvent.change(label, { target: { value: "chief of staff" } });
+    fireEvent.click(showLabel);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(client.updateAllySettings).toHaveBeenCalledOnce());
+    expect(client.updateAllySettings).toHaveBeenCalledWith(
+      account.workspace.id,
+      ally.id,
+      { label: "chief of staff", showLabel: true, settingsRevision: 0 },
+      expect.any(AbortSignal),
+    );
+    expect(await screen.findByText("chief of staff")).toBeTruthy();
+    expect(within(dialog).getByRole("status").textContent).toBe("Settings saved.");
+  });
+
+  it("keeps the draft and uses the refreshed revision after a settings conflict", async () => {
+    const freshAlly = {
+      ...ally,
+      label: "project manager",
+      showLabel: true,
+      settingsRevision: 3,
+    };
+    const listAllies = vi.fn()
+      .mockResolvedValueOnce([ally])
+      .mockResolvedValue([freshAlly]);
+    const updateAllySettings = vi.fn()
+      .mockRejectedValueOnce({ kind: "conflict", status: 409 })
+      .mockResolvedValueOnce({ ...freshAlly, label: "chief of staff", showLabel: true, settingsRevision: 4 });
+    const client = renderHome([ally], ally.id, { listAllies, updateAllySettings });
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
+    const showLabel = within(dialog).getByRole("checkbox", { name: /Show label/ }) as HTMLInputElement;
+    fireEvent.change(label, { target: { value: "chief of staff" } });
+    fireEvent.click(showLabel);
+    await act(async () => {
+      client.queryClient.setQueryData(["workspaces", "workspace", "allies"], [freshAlly]);
+    });
+    await waitFor(() => expect(screen.getByText("project manager")).toBeTruthy());
+    expect(label.value).toBe("chief of staff");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateAllySettings).toHaveBeenCalledOnce());
+    expect(updateAllySettings.mock.calls[0]?.[2]).toEqual({
+      label: "chief of staff",
+      showLabel: true,
+      settingsRevision: 0,
+    });
+    await waitFor(() => expect(listAllies).toHaveBeenCalledTimes(2));
+    expect(label.value).toBe("chief of staff");
+    expect(within(dialog).getByRole("alert").textContent).toContain("refreshed its settings");
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateAllySettings).toHaveBeenCalledTimes(2));
+    expect(updateAllySettings.mock.calls[1]?.[2]).toEqual({
+      label: "chief of staff",
+      showLabel: true,
+      settingsRevision: 3,
+    });
+  });
+
+  it("keeps the draft and reports when conflict refresh fails", async () => {
+    const listAllies = vi.fn()
+      .mockResolvedValueOnce([ally])
+      .mockRejectedValueOnce(new Error("temporary Ally failure"));
+    const updateAllySettings = vi.fn().mockRejectedValueOnce({ kind: "conflict", status: 409 });
+    renderHome([ally], ally.id, { listAllies, updateAllySettings });
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
+    fireEvent.change(label, { target: { value: "chief of staff" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(updateAllySettings).toHaveBeenCalledOnce());
+    await waitFor(() => expect(listAllies).toHaveBeenCalledTimes(2));
+    expect(label.value).toBe("chief of staff");
+    expect(within(dialog).getByRole("alert").textContent).toContain("couldn't refresh");
+  });
+
+  it("preserves the draft after a failed settings save", async () => {
+    let rejectSave!: (reason?: unknown) => void;
+    const updateAllySettings = vi.fn(() => new Promise<AllyViewModel>((_resolve, reject) => {
+      rejectSave = reject;
+    }));
+    renderHome([ally], ally.id, { updateAllySettings });
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
+    fireEvent.change(label, { target: { value: "chief of staff" } });
+    const saveButton = within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    fireEvent.click(saveButton);
+
+    await waitFor(() => expect(updateAllySettings).toHaveBeenCalledOnce());
+    expect(label.disabled).toBe(true);
+    expect(saveButton.disabled).toBe(true);
+    await act(async () => rejectSave({ kind: "network" }));
+    await waitFor(() => expect(within(dialog).getByRole("alert")).toBeTruthy());
+    expect(label.value).toBe("chief of staff");
+    expect(within(dialog).getByRole("alert").textContent).toContain("Your draft is still here");
+    expect((within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("fences stale Ally reads around a settings save", async () => {
+    const staleAlly = { ...ally, label: "stale roster", showLabel: true, settingsRevision: 0 };
+    const staleResolvers: Array<(value: AllyViewModel[]) => void> = [];
+    const staleSignals: AbortSignal[] = [];
+    const listAllies = vi.fn()
+      .mockResolvedValueOnce([ally])
+      .mockImplementation((_workspaceId: string, signal?: AbortSignal) => new Promise<AllyViewModel[]>((resolve) => {
+        staleResolvers.push(resolve);
+        if (signal) staleSignals.push(signal);
+      }));
+    let resolveSave!: (value: AllyViewModel) => void;
+    const updateAllySettings = vi.fn(() => new Promise<AllyViewModel>((resolve) => {
+      resolveSave = resolve;
+    }));
+    const client = renderHome([ally], ally.id, { listAllies, updateAllySettings });
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
+    const showLabel = within(dialog).getByRole("checkbox", { name: /Show label/ }) as HTMLInputElement;
+    fireEvent.change(label, { target: { value: "chief of staff" } });
+    fireEvent.click(showLabel);
+
+    const beforeSaveRead = client.queryClient.refetchQueries({
+      queryKey: ["workspaces", "workspace", "allies"],
+      exact: true,
+    });
+    await waitFor(() => expect(listAllies).toHaveBeenCalledTimes(2));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateAllySettings).toHaveBeenCalledOnce());
+    expect(staleSignals[0]?.aborted).toBe(true);
+
+    const duringSaveRead = client.queryClient.refetchQueries({
+      queryKey: ["workspaces", "workspace", "allies"],
+      exact: true,
+    });
+    await waitFor(() => expect(listAllies).toHaveBeenCalledTimes(3));
+    const savedAlly = { ...ally, label: "chief of staff", showLabel: true, settingsRevision: 1 };
+    await act(async () => resolveSave(savedAlly));
+    await waitFor(() => expect(screen.getByText("chief of staff")).toBeTruthy());
+    expect(staleSignals[1]?.aborted).toBe(true);
+
+    await act(async () => {
+      staleResolvers.forEach((resolve) => resolve([staleAlly]));
+      await Promise.all([beforeSaveRead, duringSaveRead]);
+    });
+    expect(client.queryClient.getQueryData<AllyViewModel[]>(["workspaces", "workspace", "allies"])?.[0]).toMatchObject(savedAlly);
+  });
+
+  it("keeps an active handoff Ally in settings when the roster cache omits it", async () => {
+    const createdAlly: AllyViewModel = {
+      id: "00000000-0000-4000-8000-000000000099",
+      bindingId: "00000000-0000-4000-8000-000000000098",
+      operationId: "00000000-0000-4000-8000-000000000097",
+      name: "Nova",
+      job: "Study partner",
+      personality: "Calm",
+      appearance: { catalogVersion: "v1", key: "ghosty:fd304f" },
+      provisioningState: "bound",
+      retryable: false,
+    };
+    const getAllyConversation = vi.fn(async (_workspaceId: string, selectedId: string) => ({
+      id: "00000000-0000-4000-8000-000000000005",
+      allyId: selectedId,
+      messages: selectedId === createdAlly.id ? [
+        { id: "greeting", sender: "assistant" as const, content: "Hello Nova", sequence: 1, status: "completed" as const, createdAt: "2026-08-20T16:00:00Z" },
+        { id: "reply", sender: "user" as const, content: "Help me study", sequence: 2, status: "queued" as const, createdAt: "2026-08-20T16:00:01Z" },
+      ] : [],
+      nextCursor: null,
+    }));
+    const updateAllySettings = vi.fn(async (
+      _workspaceId: string,
+      _allyId: string,
+      input: { label: string; showLabel: boolean; settingsRevision: number },
+    ) => ({
+      ...createdAlly,
+      label: input.label,
+      showLabel: input.showLabel,
+      settingsRevision: input.settingsRevision + 1,
+    }));
+    const client = renderHome([], "new", { getAllyConversation, updateAllySettings }, <NewAllyPage />);
+    fireEvent.click(await screen.findByRole("button", { name: "Finish create" }));
+    expect(await screen.findByText("Opening Nova")).toBeTruthy();
+    await act(async () => {
+      client.queryClient.setQueryData(["workspaces", "workspace", "allies"], []);
+    });
+    selectedSegment.mockReturnValue(createdAlly.id);
+    client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout><NewAllyPage /></HomeLayout></QueryClientProvider>);
+    await waitFor(() => expect(screen.queryByText("Opening Nova")).toBeNull());
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Nova settings" }).length).toBeGreaterThan(0));
+
+    fireEvent.click(screen.getAllByRole("button", { name: "Nova settings" })[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Nova settings" });
+    const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
+    const showLabel = within(dialog).getByRole("checkbox", { name: /Show label/ }) as HTMLInputElement;
+    fireEvent.change(label, { target: { value: "chief of staff" } });
+    fireEvent.click(showLabel);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateAllySettings).toHaveBeenCalledOnce());
+    await waitFor(() => expect(label.value).toBe("chief of staff"));
+    expect(client.queryClient.getQueryData<AllyViewModel[]>(["workspaces", "workspace", "allies"])?.[0]).toMatchObject({
+      id: createdAlly.id,
+      label: "chief of staff",
+      showLabel: true,
+      settingsRevision: 1,
+    });
+
+    await act(async () => {
+      client.queryClient.setQueryData(["workspaces", "workspace", "allies"], []);
+    });
+    expect(label.value).toBe("chief of staff");
   });
 
   it("keeps automatic provisioning retries in the getting-ready state", async () => {
