@@ -856,6 +856,132 @@ class Execution(models.Model):
         ]
 
 
+class PublicationIntentState(models.TextChoices):
+    PREPARING = "preparing", "Preparing"
+    FROZEN = "frozen", "Frozen"
+    REGISTERED = "registered", "Registered"
+    READY = "ready", "Ready"
+    FAILED = "failed", "Failed"
+
+
+class PublicationIntent(models.Model):
+    """Durable authority for one frozen model-returned file publication."""
+
+    MAX_ATTEMPTS = 5
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        Workspace,
+        on_delete=models.CASCADE,
+        related_name="publication_intents",
+    )
+    profile = models.ForeignKey(
+        RuntimeProfile,
+        on_delete=models.CASCADE,
+        related_name="publication_intents",
+    )
+    execution = models.ForeignKey(
+        Execution,
+        on_delete=models.CASCADE,
+        related_name="publication_intents",
+    )
+    source_attempt = models.ForeignKey(
+        "Attempt",
+        on_delete=models.PROTECT,
+        related_name="publication_intents",
+    )
+    cloud_binding_id = models.UUIDField()
+    cloud_message_id = models.UUIDField()
+    tool_call_digest = models.CharField(max_length=64)
+    request_digest = models.CharField(max_length=64)
+    manifest_digest = models.CharField(max_length=64, null=True, blank=True)
+    state = models.CharField(
+        max_length=16,
+        choices=PublicationIntentState,
+        default=PublicationIntentState.PREPARING,
+    )
+    next_due_at = models.DateTimeField(default=timezone.now)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    safe_error_code = models.CharField(max_length=64, default="", blank=True)
+    cloud_revision = models.PositiveBigIntegerField(null=True, blank=True)
+    cloud_retry_revision = models.PositiveBigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["execution", "tool_call_digest"],
+                name="runtime_publication_execution_tool_unique",
+            ),
+            models.CheckConstraint(
+                condition=Q(state__in=PublicationIntentState.values),
+                name="runtime_publication_state_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(attempts__gte=0) & Q(attempts__lte=5),
+                name="runtime_publication_attempts_bounded",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(manifest_digest__isnull=True)
+                    | Q(manifest_digest__regex=r"^[0-9a-f]{64}$")
+                ),
+                name="runtime_publication_manifest_digest_valid",
+            ),
+            models.CheckConstraint(
+                condition=Q(tool_call_digest__regex=r"^[0-9a-f]{64}$")
+                & Q(request_digest__regex=r"^[0-9a-f]{64}$"),
+                name="runtime_publication_request_digests_valid",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        state=PublicationIntentState.PREPARING,
+                        manifest_digest__isnull=True,
+                    )
+                    | Q(
+                        state__in=[
+                            PublicationIntentState.FROZEN,
+                            PublicationIntentState.REGISTERED,
+                            PublicationIntentState.READY,
+                            PublicationIntentState.FAILED,
+                        ],
+                        manifest_digest__isnull=False,
+                    )
+                ),
+                name="runtime_publication_state_manifest_contract",
+            ),
+        ]
+        indexes: ClassVar = [
+            models.Index(
+                fields=["profile", "state", "next_due_at", "id"],
+                name="rt_publication_due_idx",
+            ),
+            models.Index(
+                fields=["workspace", "state", "next_due_at", "id"],
+                name="rt_publication_wake_idx",
+            ),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not 0 <= self.attempts <= self.MAX_ATTEMPTS:
+            raise RuntimeValidationError(
+                "publication attempts exceed the bounded budget"
+            )
+        for field_name in ("tool_call_digest", "request_digest", "manifest_digest"):
+            value = getattr(self, field_name)
+            if value is not None and not re.fullmatch(r"[0-9a-f]{64}", value):
+                raise RuntimeValidationError(
+                    f"{field_name} must be a SHA-256 hex digest"
+                )
+        if self.safe_error_code and not re.fullmatch(
+            r"[a-z][a-z0-9_-]{0,63}", self.safe_error_code
+        ):
+            raise RuntimeValidationError("publication error code is invalid")
+        return super().save(*args, **kwargs)
+
+
 class Attempt(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     execution = models.ForeignKey(

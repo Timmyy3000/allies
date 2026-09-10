@@ -4,6 +4,7 @@ import json
 from dataclasses import dataclass, replace
 
 import pytest
+
 from allies_runtime.errors import (
     HermesDisconnected,
     HermesMalformedResponse,
@@ -370,7 +371,9 @@ async def test_routine_claim_uses_run_conversation_and_terminal_result():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("routine_outcome", [None, "unexpected"])
-async def test_routine_claim_requires_an_explicit_valid_terminal_outcome(routine_outcome):
+async def test_routine_claim_requires_an_explicit_valid_terminal_outcome(
+    routine_outcome,
+):
     foundry = RecordingFoundry()
     hermes = RecordingHermes(routine_outcome=routine_outcome)
 
@@ -452,9 +455,7 @@ def test_routine_reference_limits_are_measured_in_utf8_bytes():
     assert accepted[0]["label"] == "界" * 85
 
     with pytest.raises(HermesMalformedResponse):
-        _routine_references(
-            [{"label": "界" * 86, "url": "https://example.test/"}]
-        )
+        _routine_references([{"label": "界" * 86, "url": "https://example.test/"}])
 
     with pytest.raises(HermesMalformedResponse):
         _routine_references(
@@ -502,7 +503,9 @@ async def test_worker_forwards_managed_reasoning_effort_to_hermes():
     hermes = RecordingHermes()
 
     result = await FoundryWorker(foundry, hermes).run_claim(
-        claim(conversation_id="cloud-1", session_id="session-1", reasoning_effort="xhigh")
+        claim(
+            conversation_id="cloud-1", session_id="session-1", reasoning_effort="xhigh"
+        )
     )
 
     assert result.status == "succeeded"

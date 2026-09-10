@@ -1,19 +1,19 @@
 diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
-index 7a9a149fe..e0fd39f35 100644
+index fcfcbdf..15be238 100644
 --- a/gateway/platforms/api_server.py
 +++ b/gateway/platforms/api_server.py
-@@ -2576,6 +2576,7 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -2667,6 +2667,7 @@ class APIServerAdapter(BasePlatformAdapter):
          session_model: Optional[str] = None,
          confirmed_runtime_lock: bool = False,
          routine_result: bool = False,
 +        routine_tool_context: tuple | None = None,
+         file_publication: bool = False,
      ) -> Any:
          """
-         Create an AIAgent instance using the gateway's runtime config.
-@@ -2854,6 +2855,11 @@ class APIServerAdapter(BasePlatformAdapter):
-         disabled_toolsets = (
-             [] if routine_result else [_ALLIES_ROUTINE_RESULT_TOOLSET]
-         )
+@@ -2952,6 +2953,11 @@ class APIServerAdapter(BasePlatformAdapter):
+             disabled_toolsets.append(_ALLIES_ROUTINE_RESULT_TOOLSET)
+         if not file_publication:
+             disabled_toolsets.append(_ALLIES_FILE_PUBLICATION_TOOLSET)
 +        disabled_toolsets.append("cronjob")
 +        if routine_tool_context is not None and not routine_result:
 +            enabled_toolsets.append("allies-routines")
@@ -22,8 +22,8 @@ index 7a9a149fe..e0fd39f35 100644
          max_iterations = _current_max_iterations()
  
          # Load fallback provider chain so the API server platform has the
-@@ -3828,6 +3834,17 @@ class APIServerAdapter(BasePlatformAdapter):
-         )
+@@ -3941,6 +3947,17 @@ class APIServerAdapter(BasePlatformAdapter):
+             system_prompt = incoming_file_prompt
          if routine_result_requested:
              system_prompt = _ALLIES_ROUTINE_RESULT_SYSTEM_PROMPT
 +        routine_tool_context = None
@@ -40,40 +40,40 @@ index 7a9a149fe..e0fd39f35 100644
          # Runtime selection — mirrors _handle_session_chat (lock wins,
          # otherwise session-persisted model then per-request values).
          runtime_request = self._effective_session_runtime_request(
-@@ -4034,6 +4051,7 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -4162,6 +4179,7 @@ class APIServerAdapter(BasePlatformAdapter):
                      agent_ref=agent_ref,
                      approval_context=approval_context,
                      routine_result=routine_result_requested,
 +                    routine_tool_context=routine_tool_context,
+                     publication_context=publication_context,
                      **agent_overrides,
                  )
-                 final_response = _resolve_media_to_data_urls(result.get("final_response", "") if isinstance(result, dict) else "")
-@@ -6467,6 +6485,7 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -6596,6 +6614,7 @@ class APIServerAdapter(BasePlatformAdapter):
          confirmed_runtime_lock: bool = False,
          approval_context: Optional[Dict[str, Any]] = None,
          routine_result: bool = False,
 +        routine_tool_context: tuple | None = None,
+         publication_context: Optional[str] = None,
      ) -> tuple:
          """
-         Create an agent and run a conversation in a thread executor.
-@@ -6509,6 +6528,8 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -6639,6 +6658,8 @@ class APIServerAdapter(BasePlatformAdapter):
                      session_id=session_id or "",
                  )
                  approval_context_token = None
 +                from tools.allies_routines import context as routine_context
 +                routine_context_token = routine_context.set(routine_tool_context)
                  approval_session_token = None
+                 publication_context_token = None
                  agent = None
-                 try:
-@@ -6544,6 +6565,7 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -6685,6 +6706,7 @@ class APIServerAdapter(BasePlatformAdapter):
                          session_model=session_model,
                          confirmed_runtime_lock=confirmed_runtime_lock,
                          routine_result=routine_result,
 +                        routine_tool_context=routine_tool_context,
+                         file_publication=publication_context is not None,
                      )
                      if agent_ref is not None:
-                         agent_ref[0] = agent
-@@ -6694,6 +6716,7 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -6847,6 +6869,7 @@ class APIServerAdapter(BasePlatformAdapter):
                          except Exception:
                              pass
                      clear_session_vars(tokens)

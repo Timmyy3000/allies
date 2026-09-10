@@ -1320,7 +1320,7 @@ def _runtime_proof_command(
         + f"test -s {_HERMES_RUNTIME_KEY_PATH}"
         " && test -s /run/secrets/openai-api-key"
         " && test -s /run/secrets/foundry-runtime-token"
-        " || exit 1; chown 10000:10000 /run/secrets"
+        " || exit 1; chown 0:0 /run/secrets"
         + f" {_HERMES_RUNTIME_KEY_PATH}"
         + " /run/secrets/openai-api-key"
         + " /run/secrets/foundry-runtime-token"
@@ -1329,11 +1329,10 @@ def _runtime_proof_command(
         + " /run/secrets/openai-api-key"
         + " /run/secrets/foundry-runtime-token"
         + "; attempts=0"
-        + '; while [ "$(stat -c %u /opt/data)" != 10000 ]; do '
+        + '; while [ "$(stat -c %u:%a /opt/data)" != 0:1777 ]; do '
         + "attempts=$((attempts + 1)); "
         + '[ "$attempts" -lt 60 ] || exit 1; sleep 1; done'
-        + "; exec setpriv --reuid=10000 --regid=10000 --clear-groups"
-        + " python -m allies_runtime",
+        + "; exec python -m allies_runtime",
     )
 
 

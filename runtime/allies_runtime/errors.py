@@ -51,6 +51,10 @@ class HermesTranscriptConflict(HermesError):
     code = "transcript_conflict"
 
 
+class IncomingFileError(HermesError):
+    code = "incoming_file_invalid"
+
+
 __all__ = [
     "HermesAuthenticationError",
     "HermesDisconnected",
@@ -62,4 +66,5 @@ __all__ = [
     "HermesTranscriptConflict",
     "HermesUnavailable",
     "IdentityIsolationError",
+    "IncomingFileError",
 ]

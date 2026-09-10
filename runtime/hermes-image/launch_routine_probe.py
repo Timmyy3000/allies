@@ -89,7 +89,9 @@ def _owned_name(kind: str) -> str:
     return f"cld012-{kind}-{uuid4().hex[:12]}"
 
 
-def _run(runner: Runner, command: Sequence[str], timeout: float) -> CompletedProcess[str]:
+def _run(
+    runner: Runner, command: Sequence[str], timeout: float
+) -> CompletedProcess[str]:
     return runner(
         list(command),
         capture_output=True,
@@ -123,9 +125,7 @@ def _succeeded(result: CompletedProcess[str], marker: str | None = None) -> bool
     return marker is None or marker in (result.stdout or "")
 
 
-def _succeeded_with_exact_output(
-    result: CompletedProcess[str], expected: str
-) -> bool:
+def _succeeded_with_exact_output(result: CompletedProcess[str], expected: str) -> bool:
     return result.returncode == 0 and (result.stdout or "").strip() == expected
 
 
@@ -246,12 +246,19 @@ class CredentialSocketProxy:
             self.socket_path.chmod(0o600)
         except OSError as error:
             self.close()
-            raise LaunchBlocked("owned credential socket permissions could not be set") from error
-        self._thread = threading.Thread(target=self._serve, name="cld012-credential-proxy", daemon=True)
+            raise LaunchBlocked(
+                "owned credential socket permissions could not be set"
+            ) from error
+        self._thread = threading.Thread(
+            target=self._serve, name="cld012-credential-proxy", daemon=True
+        )
         self._thread.start()
 
     def _resolve(self, reference: bytes) -> bytes | None:
-        if len(reference) > MAX_CREDENTIAL_REQUEST_BYTES or reference not in self._allowed_requests:
+        if (
+            len(reference) > MAX_CREDENTIAL_REQUEST_BYTES
+            or reference not in self._allowed_requests
+        ):
             return None
         client: socket.socket | None = None
         try:
@@ -293,7 +300,9 @@ class CredentialSocketProxy:
                 request = bytearray()
                 try:
                     while len(request) <= MAX_CREDENTIAL_REQUEST_BYTES:
-                        chunk = client.recv(MAX_CREDENTIAL_REQUEST_BYTES + 1 - len(request))
+                        chunk = client.recv(
+                            MAX_CREDENTIAL_REQUEST_BYTES + 1 - len(request)
+                        )
                         if not chunk:
                             break
                         request.extend(chunk)
@@ -433,10 +442,12 @@ def build_data_volume_copy_command(
         "/bin/sh",
         image,
         "-ec",
-        "cp -a /src/. /dest/ && chown -R 10000:10000 /dest && "
-        "for env in /dest/profiles/*/.env; do "
-        "[ -f \"$env\" ] && chmod 600 \"$env\"; "
-        "done",
+        (
+            "cp -a /src/. /dest/ && chown -R 10000:10000 /dest && "
+            "for env in /dest/profiles/*/.env; do "
+            '[ -f "$env" ] && chmod 600 "$env"; '
+            "done"
+        ),
     ]
 
 
@@ -523,7 +534,9 @@ def _probe_checks(payload: Any) -> dict[str, str] | None:
     return observed
 
 
-def _validated_probe_report(payload: Any, returncode: int | None) -> dict[str, str] | None:
+def _validated_probe_report(
+    payload: Any, returncode: int | None
+) -> dict[str, str] | None:
     """Validate the service report and its process-status contract together."""
 
     checks = _probe_checks(payload)
@@ -563,9 +576,11 @@ def _validated_probe_report(payload: Any, returncode: int | None) -> dict[str, s
             return None
         if not {"authenticated_readiness", "model_preflight"} <= checks.keys():
             return None
-        if checks["authenticated_readiness"] != "pass" or checks[
-            "model_preflight"
-        ] != "pass" or all(value == "pass" for value in checks.values()):
+        if (
+            checks["authenticated_readiness"] != "pass"
+            or checks["model_preflight"] != "pass"
+            or all(value == "pass" for value in checks.values())
+        ):
             return None
         return checks
     if status == "SETUP_BLOCKED":
@@ -622,7 +637,10 @@ def _materialize_profile(
         receipt = store.materialize(seed)
     except ProfileStoreError as error:
         raise LaunchBlocked("synthetic profile materialization failed") from error
-    if receipt.status not in {ProfileProvisionStatus.CREATED, ProfileProvisionStatus.EXISTING}:
+    if receipt.status not in {
+        ProfileProvisionStatus.CREATED,
+        ProfileProvisionStatus.EXISTING,
+    }:
         raise LaunchBlocked("synthetic profile materialization was not accepted")
     return seed.hermes_profile_key or ""
 
@@ -679,9 +697,7 @@ def _cleanup(
         ),
         (
             "volume",
-            ["docker", "volume", "rm", data_volume_name]
-            if data_volume_name
-            else None,
+            ["docker", "volume", "rm", data_volume_name] if data_volume_name else None,
         ),
     ):
         if command is None:
@@ -735,7 +751,9 @@ def run_probe(
         values = os.environ if environment is None else environment
         if shutil.which("docker") is None:
             raise LaunchBlocked("docker is unavailable")
-        version = _run(runner, ["docker", "version", "--format", "{{.Server.Version}}"], 5)
+        version = _run(
+            runner, ["docker", "version", "--format", "{{.Server.Version}}"], 5
+        )
         if not _succeeded(version):
             raise LaunchBlocked("docker daemon is unavailable")
         inspect = _run(
@@ -745,7 +763,7 @@ def run_probe(
                 "image",
                 "inspect",
                 "--format",
-                "{{index .Config.Labels \"org.opencontainers.image.revision\"}}",
+                '{{index .Config.Labels "org.opencontainers.image.revision"}}',
                 image,
             ],
             setup_timeout_seconds,
@@ -874,7 +892,10 @@ def run_probe(
                                 if checks["model_preflight"] == "pass"
                                 else "failed"
                             )
-                        if capability_status in {"CAPABILITY_PASSED", "CAPABILITY_FAILED"}:
+                        if capability_status in {
+                            "CAPABILITY_PASSED",
+                            "CAPABILITY_FAILED",
+                        }:
                             report["capability"] = (
                                 "passed"
                                 if capability_status == "CAPABILITY_PASSED"
@@ -899,12 +920,18 @@ def run_probe(
             cleanup_done = True
             if report["cleanup"] == "failed":
                 report["status"] = "CLEANUP_INCOMPLETE"
-    except (LaunchBlocked, OSError, subprocess.TimeoutExpired, TypeError, ValueError) as error:
-        report.update(status="SETUP_BLOCKED", setup="blocked", reason=_safe_reason(error))
+    except (
+        LaunchBlocked,
+        OSError,
+        subprocess.TimeoutExpired,
+        TypeError,
+        ValueError,
+    ) as error:
+        report.update(
+            status="SETUP_BLOCKED", setup="blocked", reason=_safe_reason(error)
+        )
     finally:
-        if not cleanup_done and (
-            container_name or network_name or data_volume_name
-        ):
+        if not cleanup_done and (container_name or network_name or data_volume_name):
             report["cleanup"] = (
                 "passed"
                 if _cleanup(
@@ -924,12 +951,18 @@ def run_probe(
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Launch the bounded CLD-012 routine probe")
+    parser = argparse.ArgumentParser(
+        description="Launch the bounded CLD-012 routine probe"
+    )
     parser.add_argument("--image", required=True)
     parser.add_argument("--credential-ref", required=True)
     parser.add_argument("--model-profile-ref", required=True)
-    parser.add_argument("--setup-timeout-seconds", type=float, default=MAX_TIMEOUT_SECONDS)
-    parser.add_argument("--probe-timeout-seconds", type=float, default=MAX_TIMEOUT_SECONDS)
+    parser.add_argument(
+        "--setup-timeout-seconds", type=float, default=MAX_TIMEOUT_SECONDS
+    )
+    parser.add_argument(
+        "--probe-timeout-seconds", type=float, default=MAX_TIMEOUT_SECONDS
+    )
     args = parser.parse_args()
     report = run_probe(
         image=args.image,
@@ -939,7 +972,13 @@ def main() -> int:
         probe_timeout_seconds=args.probe_timeout_seconds,
     )
     print(json.dumps(report, sort_keys=True, separators=(",", ":")))
-    return 0 if report.get("status") == "CAPABILITY_PASSED" else 2 if report.get("status") == "SETUP_BLOCKED" else 1
+    return (
+        0
+        if report.get("status") == "CAPABILITY_PASSED"
+        else 2
+        if report.get("status") == "SETUP_BLOCKED"
+        else 1
+    )
 
 
 if __name__ == "__main__":

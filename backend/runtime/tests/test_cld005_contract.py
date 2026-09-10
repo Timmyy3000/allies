@@ -18,6 +18,7 @@ from runtime.contracts import (
     MAX_RUNTIME_EVENT_SEQUENCE,
     MAX_TERMINAL_SEQUENCE,
     ExecutionCommand,
+    ExecutionInput,
     FoundryEventEnvelope,
     _validate_event_payload,
     build_event_envelope,
@@ -62,6 +63,15 @@ FIXTURE_PATH = (
     / "docs"
     / "contracts"
     / "foundry-execution-v1.json"
+)
+FILE_INPUT_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[3] / "docs" / "contracts" / "file-input-v1.json"
+)
+FILE_INPUT_COMMAND_FIXTURE_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "docs"
+    / "contracts"
+    / "foundry-execution-file-input-v1.json"
 )
 ACTIVITY_FIXTURE_PATH = (
     Path(__file__).resolve().parents[3]
@@ -237,6 +247,86 @@ def test_optional_bootstrap_is_fingerprinted_and_legacy_shape_stays_compatible(
     invalid = invalid.model_copy(update={"fingerprint": command_fingerprint(invalid)})
     with pytest.raises(RuntimeValidationError, match="before the second"):
         validate_command(invalid)
+
+
+def test_file_input_contract_keeps_legacy_bytes_and_survives_claim(binding, contract):
+    legacy = ExecutionCommand.model_validate(contract["command"])
+    assert command_fingerprint(legacy) == contract["command"]["fingerprint"]
+    file_input = json.loads(FILE_INPUT_FIXTURE_PATH.read_text(encoding="utf-8"))
+    data = legacy.model_dump(mode="json", exclude_none=True)
+    data["payload"] = file_input
+    with_files = ExecutionCommand.model_validate(data)
+    with_files = with_files.model_copy(
+        update={"fingerprint": command_fingerprint(with_files)}
+    )
+
+    receipt = create_execution_intent(with_files)
+    assert receipt.status == "accepted"
+    execution = Execution.objects.get(command_id=with_files.command_id)
+    assert execution.input_payload["message"] == ""
+    assert execution.input_payload["files"] == file_input["files"]
+
+    workspace, _profile = binding
+    issued = issue_runtime_credential(workspace.id, "runtime-files-token")
+    claim = claim_next_execution(
+        authenticate_runtime_token(issued.raw_token), uuid4(), 1
+    )
+    assert claim is not None
+    assert claim.payload["files"] == file_input["files"]
+
+
+def test_file_input_commands_match_golden_fingerprints():
+    contract = json.loads(FILE_INPUT_COMMAND_FIXTURE_PATH.read_text(encoding="utf-8"))
+    for command_data in contract["commands"].values():
+        command = ExecutionCommand.model_validate(command_data)
+        validate_command(command)
+        assert command_fingerprint(command) == command_data["fingerprint"]
+
+
+def _file_input(size: int, suffix: str) -> dict:
+    return {
+        "file_id": f"550e8400-e29b-41d4-a716-4466554400{suffix}",
+        "name": f"report-{suffix}.pdf",
+        "media_type": "application/pdf",
+        "size": size,
+        "sha256": "a" * 64,
+    }
+
+
+def test_file_input_rejects_explicit_null_empty_and_oversized_manifests():
+    omitted = ExecutionInput.model_validate(
+        {"kind": "execution_input", "text": "normalized user text"}
+    )
+    assert "files" not in omitted.model_fields_set
+    with pytest.raises(ValueError, match="files must be omitted"):
+        ExecutionInput.model_validate(
+            {"kind": "execution_input", "text": "normalized user text", "files": None}
+        )
+    with pytest.raises(ValueError):
+        ExecutionInput.model_validate(
+            {"kind": "execution_input", "text": "normalized user text", "files": []}
+        )
+
+    accepted = ExecutionInput.model_validate(
+        {
+            "kind": "execution_input",
+            "text": "",
+            "files": [_file_input(25_000_000, "01"), _file_input(25_000_000, "02")],
+        }
+    )
+    assert sum(file.size for file in accepted.files or []) == 50_000_000
+    with pytest.raises(ValueError, match="aggregate size"):
+        ExecutionInput.model_validate(
+            {
+                "kind": "execution_input",
+                "text": "",
+                "files": [
+                    _file_input(25_000_000, "01"),
+                    _file_input(25_000_000, "02"),
+                    _file_input(1, "03"),
+                ],
+            }
+        )
 
 
 def test_bootstrap_is_persisted_and_claimed_as_an_immutable_payload(binding, contract):
@@ -1085,6 +1175,11 @@ def test_event_delivery_command_bounds_power_work_around_delivery(monkeypatch):
     calls = []
     command_path = "runtime.management.commands.publish_event_deliveries"
     monkeypatch.setattr(
+        f"{command_path}.wake_due_publications",
+        lambda *, limit, cursor: calls.append(("publication", limit, cursor))
+        or type("Publication", (), {"woken": 0, "next_cursor": None})(),
+    )
+    monkeypatch.setattr(
         f"{command_path}.process_runtime_wakes",
         lambda *, limit: (
             calls.append(("wake", limit))
@@ -1114,6 +1209,7 @@ def test_event_delivery_command_bounds_power_work_around_delivery(monkeypatch):
     call_command("publish_event_deliveries", stdout=output)
 
     assert calls == [
+        ("publication", 20, None),
         ("wake", 1),
         ("delivery", 1),
         ("cleanup", None),
@@ -1121,3 +1217,37 @@ def test_event_delivery_command_bounds_power_work_around_delivery(monkeypatch):
     ]
     assert "wake unavailable 1" in output.getvalue()
     assert "idle unavailable 2" in output.getvalue()
+
+
+def test_event_delivery_command_keeps_publication_wake_cursor_across_watch_passes(
+    monkeypatch,
+):
+    command_path = "runtime.management.commands.publish_event_deliveries"
+    cursors = []
+
+    def wake_publications(*, limit, cursor):
+        cursors.append((limit, cursor))
+        return type(
+            "Publication",
+            (),
+            {"woken": 1, "next_cursor": "second-page" if cursor is None else None},
+        )()
+
+    monkeypatch.setattr(f"{command_path}.wake_due_publications", wake_publications)
+    monkeypatch.setattr(
+        f"{command_path}.process_runtime_wakes",
+        lambda *, limit: type("Wake", (), {"started": 0, "failed": 0, "unavailable": 0})(),
+    )
+    monkeypatch.setattr(
+        f"{command_path}.publish_pending_event_deliveries",
+        lambda *, limit: event_delivery.DeliveryReport(delivered=0),
+    )
+    monkeypatch.setattr(f"{command_path}.cleanup_runtime_intents", lambda: 0)
+    monkeypatch.setattr(
+        f"{command_path}.stop_idle_workspaces",
+        lambda *, limit: type("Idle", (), {"stopped": 0, "unavailable": 0})(),
+    )
+
+    call_command("publish_event_deliveries", "--watch", "--max-runs", "2")
+
+    assert cursors == [(20, None), (20, "second-page")]

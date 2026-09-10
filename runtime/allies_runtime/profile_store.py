@@ -28,6 +28,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
+from .errors import IncomingFileError
+
 SKILLS_CATALOG = "/opt/allies/skills"
 SKILLS_CONFIG = f"skills:\n  external_dirs: [{json.dumps(SKILLS_CATALOG)}]\n"
 
@@ -1172,7 +1174,9 @@ class ProfileStore:
             profiles = self.volume_root / "profiles"
             if _is_symlink(profiles):
                 raise ProfileStoreError("profile namespace is symlinked")
-            profiles.mkdir(exist_ok=True)
+            profiles.mkdir(mode=0o755, exist_ok=True)
+            if os.name != "nt" and os.geteuid() == 0:
+                os.chmod(profiles, 0o755)
             if not _is_directory(profiles):
                 raise ProfileStoreError("profile namespace is not a directory")
             return profiles
@@ -1250,6 +1254,15 @@ class ProfileStore:
             raise ProfileStoreError("profile API key is unavailable") from None
         except (OSError, UnicodeError):
             raise ProfileStoreError("profile API key is unavailable") from None
+
+    def workspace_path(self, profile_key: str) -> Path:
+        """Return the existing private workspace for one materialized profile."""
+
+        profile = self._profile_path(profile_key)
+        workspace = profile / "workspace"
+        if workspace.is_symlink() or not _is_directory(workspace):
+            raise ProfileStoreError("profile workspace is unavailable")
+        return workspace
 
     def _local_lock(self, key: str) -> threading.Lock:
         identity = (str(self.volume_root), key)
@@ -1530,6 +1543,10 @@ class ProfileStore:
                 _canonical_json(manifest) + b"\n",
                 mode=0o644,
             )
+            if os.name != "nt" and os.geteuid() == 0:
+                for child in temporary.iterdir():
+                    os.chown(child, 10000, 10000, follow_symlinks=False)
+                os.chown(temporary, 10000, 10000, follow_symlinks=False)
             self._sync_directory(temporary)
             return key, receipt_id
         except ProfileStoreError:
@@ -2198,6 +2215,9 @@ class ProfileStore:
                     repair_code = "cleanup_bound_exceeded"
                 if repair_code is None:
                     try:
+                        from .files import cleanup_profile_publication_spools
+
+                        cleanup_profile_publication_spools(self.volume_root, key)
                         self._remove_owned_path(profile, parent=profiles_root)
                         temp_siblings = self._find_temp_siblings(profiles_root, key)
                         if temp_siblings is None:
@@ -2205,7 +2225,7 @@ class ProfileStore:
                         else:
                             for sibling in temp_siblings:
                                 self._remove_owned_path(sibling, parent=profiles_root)
-                    except ProfileStoreError:
+                    except (IncomingFileError, ProfileStoreError, OSError):
                         repair_code = "profile_cleanup_failed"
 
                 if repair_code is not None:

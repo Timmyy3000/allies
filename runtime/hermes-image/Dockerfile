@@ -77,6 +77,18 @@ COPY plugins/memory/allies_mnemosyne/ /opt/hermes/plugins/memory/allies_mnemosyn
 # validates the typed call again from Hermes' terminal transcript.
 COPY plugins/routine-result/ /opt/hermes/plugins/routine-result/
 
+# Hermes connects to a root-owned runtime socket but cannot replace it.
+RUN groupadd --gid 10001 allies-publication \
+    && usermod --append --groups allies-publication "$(getent passwd 10000 | cut -d: -f1)"
+
+COPY --chmod=0755 allies-volume-boundary.sh /opt/hermes/docker/allies-volume-boundary.sh
+COPY patches/volume-ownership-boundary.patch /tmp/allies-volume-ownership-boundary.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-volume-ownership-boundary.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-volume-ownership-boundary.patch \
+    && git apply --whitespace=nowarn /tmp/allies-volume-ownership-boundary.patch \
+    && rm -f /tmp/allies-volume-ownership-boundary.patch
+
 # Keep the private Allies transcript seam as a small, pinned-source overlay.
 # A rejected hunk must fail the image build instead of silently shipping an
 # image without the capability the runtime expects.
@@ -120,9 +132,34 @@ RUN cd /opt/hermes \
     && git apply --whitespace=nowarn /tmp/allies-routine-result-protocol.patch \
     && rm -f /tmp/allies-routine-result-protocol.patch
 
+# The runtime sends only a bounded staged-file manifest. This source-pinned
+# overlay keeps the context ephemeral and rejects bytes or routine use.
+COPY patches/incoming-file-context.patch /tmp/allies-incoming-file-context.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-incoming-file-context.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-incoming-file-context.patch \
+    && git apply --whitespace=nowarn /tmp/allies-incoming-file-context.patch \
+    && rm -f /tmp/allies-incoming-file-context.patch
+
+# The runtime supplies this opaque request context only for marked normal
+# conversation streams. The tool receives the Hermes tool-call ID separately.
+COPY plugins/file-publication/ /opt/hermes/plugins/file-publication/
+COPY patches/file-publication-protocol.patch /tmp/allies-file-publication-protocol.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-file-publication-protocol.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-file-publication-protocol.patch \
+    && git apply --whitespace=nowarn /tmp/allies-file-publication-protocol.patch \
+    && rm -f /tmp/allies-file-publication-protocol.patch
+
 COPY smoke_routine_result_tool.py /tmp/allies-smoke-routine-result-tool.py
+COPY smoke_incoming_file_context.py /tmp/allies-smoke-incoming-file-context.py
+COPY smoke_file_publication_tool.py /tmp/allies-smoke-file-publication-tool.py
+RUN /opt/hermes/.venv/bin/python /tmp/allies-smoke-incoming-file-context.py \
+    && rm -f /tmp/allies-smoke-incoming-file-context.py
 RUN /opt/hermes/.venv/bin/python /tmp/allies-smoke-routine-result-tool.py \
     && rm -f /tmp/allies-smoke-routine-result-tool.py
+RUN PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-file-publication-tool.py \
+    && rm -f /tmp/allies-smoke-file-publication-tool.py
 
 COPY plugins/routines/ /opt/hermes/plugins/routines/
 COPY allies_routines.py /opt/hermes/tools/allies_routines.py

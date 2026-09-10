@@ -36,6 +36,7 @@ from .errors import (
     HermesTranscriptConflict,
     HermesUnavailable,
 )
+from .files import validate_hermes_file_context
 from .observability import build_event, emit_runtime_event
 
 _PROFILE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
@@ -192,13 +193,35 @@ def validate_reasoning_effort(value: Any) -> str | None:
     return value
 
 
-def _stream_request_body(message: str, reasoning_effort: str | None) -> bytes:
+def _stream_message_with_file_context(
+    message: Any,
+    file_context: Mapping[str, Any] | None,
+) -> str:
+    if file_context is not None and message == "":
+        return ""
+    return validate_stream_message(message)
+
+
+def _stream_request_body(
+    message: str,
+    reasoning_effort: str | None,
+    file_context: Mapping[str, Any] | None = None,
+    publication_context: str | None = None,
+) -> bytes:
     request_body = {"message": message}
     if reasoning_effort is not None:
         request_body["model_options"] = {
             "reasoning": {"enabled": True, "effort": reasoning_effort}
         }
-    return json.dumps(request_body, separators=(",", ":")).encode("utf-8")
+    if file_context is not None:
+        request_body["allies_file_context"] = validate_hermes_file_context(file_context)
+    if publication_context is not None:
+        if not re.fullmatch(r"[0-9a-f]{64}", publication_context):
+            raise ValueError("Hermes publication context was invalid")
+        request_body["allies_file_publication_context"] = publication_context
+    return json.dumps(request_body, ensure_ascii=False, separators=(",", ":")).encode(
+        "utf-8"
+    )
 
 
 def _validated_tool_name(value: Any) -> str:
@@ -1778,13 +1801,14 @@ class HermesClient:
         session_key: str | None = None,
         reasoning_effort: str | None = None,
         routine_result: bool = False,
+        file_context: Mapping[str, Any] | None = None,
         routine_tool_token: str | None = None,
     ) -> HermesStreamResult:
         """Run one profile-scoped SSE turn with bounded response handling."""
 
         profile_id = _profile_path(profile_id)
         session_id = _session_path(session_id)
-        message = validate_stream_message(message)
+        message = _stream_message_with_file_context(message, file_context)
         reasoning_effort = validate_reasoning_effort(reasoning_effort)
         try:
             token = await asyncio.wait_for(
@@ -1793,7 +1817,7 @@ class HermesClient:
         except TimeoutError as exc:
             raise HermesTimeout("Hermes credential resolution timed out") from exc
         path = f"/p/{profile_id}/api/sessions/{session_id}/chat/stream"
-        body = _stream_request_body(message, reasoning_effort)
+        body = _stream_request_body(message, reasoning_effort, file_context)
 
         def read_stream() -> HermesStreamResult:
             response = None
@@ -2027,6 +2051,7 @@ class HermesClient:
         session_key: str | None = None,
         reasoning_effort: str | None = None,
         routine_result: bool = False,
+        file_context: Mapping[str, Any] | None = None,
         routine_tool_token: str | None = None,
     ) -> HermesStreamResult:
         reasoning_effort = validate_reasoning_effort(reasoning_effort)
@@ -2049,6 +2074,7 @@ class HermesClient:
                 session_key=session_key,
                 reasoning_effort=reasoning_effort,
                 routine_result=routine_result,
+                file_context=file_context,
                 routine_tool_token=routine_tool_token,
             )
         except BaseException as error:
@@ -2087,6 +2113,8 @@ class HermesClient:
         session_key: str | None = None,
         reasoning_effort: str | None = None,
         routine_result: bool = False,
+        file_context: Mapping[str, Any] | None = None,
+        publication_context: str | None = None,
         routine_tool_token: str | None = None,
     ) -> _ObservedHermesStream:
         """Open an SSE response and yield events without buffering the body."""
@@ -2094,7 +2122,7 @@ class HermesClient:
         started_at = time.monotonic()
         profile_id = _profile_path(profile_id)
         session_id = _session_path(session_id)
-        message = validate_stream_message(message)
+        message = _stream_message_with_file_context(message, file_context)
         reasoning_effort = validate_reasoning_effort(reasoning_effort)
         emit_runtime_event(
             build_event(
@@ -2130,7 +2158,9 @@ class HermesClient:
                 self._profile_credential(profile_id), self.settings.stream_timeout
             )
             path = f"/p/{profile_id}/api/sessions/{session_id}/chat/stream"
-            body = _stream_request_body(message, reasoning_effort)
+            body = _stream_request_body(
+                message, reasoning_effort, file_context, publication_context
+            )
             response = await asyncio.wait_for(
                 asyncio.to_thread(
                     self._request,

@@ -33,6 +33,11 @@ __all__ = [
     "MaterializationReceiptRequest",
     "ProfileProvisioningReceipt",
     "ProfileProvisioningRequest",
+    "PublicationFrozenRequest",
+    "PublicationIntentRequest",
+    "PublicationRegisterRequest",
+    "PublicationRetryClaimRequest",
+    "PublicationRetryResultRequest",
     "ReconciliationReceipt",
     "RoutineSessionBindingRequest",
     "RuntimeActivityWaitReceipt",
@@ -50,6 +55,60 @@ __all__ = [
 class ClaimRequest(Schema):
     claim_id: UUID
     available_slots: int
+
+
+class PublicationPreparationFile(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    name: StrictStr = Field(..., min_length=1, max_length=255)
+    size: StrictInt = Field(..., ge=1, le=25_000_000)
+
+
+class PublicationIntentRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    tool_call_id: StrictStr = Field(..., min_length=1, max_length=255)
+    files: list[PublicationPreparationFile] = Field(..., min_length=1, max_length=10)
+
+
+class PublicationFrozenFile(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    source_version_id: UUID
+    name: StrictStr = Field(..., min_length=1, max_length=255)
+    size: StrictInt = Field(..., ge=1, le=25_000_000)
+    sha256: StrictStr = Field(
+        ..., min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$"
+    )
+
+
+class PublicationFrozenRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    files: list[PublicationFrozenFile] = Field(..., min_length=1, max_length=10)
+
+
+class PublicationRegisterRequest(PublicationFrozenRequest):
+    model_config = ConfigDict(extra="forbid")
+
+    publication_id: UUID
+
+
+class PublicationRetryClaimRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    limit: StrictInt = Field(..., ge=1, le=20)
+
+
+class PublicationRetryResultRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    revision: StrictInt = Field(..., ge=1)
+    lease_token: UUID
+    outcome: Literal["submitted", "failed"]
+    safe_error_code: StrictStr | None = Field(
+        default=None, min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]{0,63}$"
+    )
 
 
 class RuntimeIntentRequest(Schema):

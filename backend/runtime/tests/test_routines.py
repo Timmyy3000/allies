@@ -751,7 +751,7 @@ def test_routine_dispatch_endpoint_rejects_an_oversized_schedule(
 
 
 def test_routine_approval_endpoint_replays_and_fences_changed_idempotency(
-    routine_context, settings
+    routine_context, settings, monkeypatch
 ):
     settings.ALLIES_CLOUD_SERVICE_TOKEN = "test-cloud-service-token"
     state = routine_context
@@ -771,6 +771,7 @@ def test_routine_approval_endpoint_replays_and_fences_changed_idempotency(
     )
     action = RoutineApprovalAction.objects.get(routine_execution=routine)
     payload = approval_decision_payload(state, routine, action)
+    monkeypatch.setattr("django.utils.timezone.now", lambda: state["base"])
 
     first = post_internal_routine(
         "/api/v1/internal/routines/approval-decision", payload
