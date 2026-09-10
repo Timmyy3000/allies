@@ -93,4 +93,6 @@ export { csrfTokenSchema } from "./schemas";
 export type { CloudCsrfToken } from "./schemas";
 export { shouldRetryCloudQuery } from "./query-policy";
 export { mergeConversationMessageCopies } from "./message-queue";
+export { validateSelectedFiles, FILE_EXTENSIONS, MAX_FILE_BYTES, MAX_MESSAGE_FILE_BYTES } from "./files";
+export type { FileManifest, MessageFile, FilePublication, FileReservation, FileMetadata } from "./files";
 export type { components, operations, paths } from "./generated/openapi";

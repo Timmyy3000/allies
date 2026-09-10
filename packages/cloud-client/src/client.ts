@@ -35,6 +35,7 @@ import {
 } from "./mappers/allies";
 import { csrfTokenSchema, externalHttpsUrlSchema, type CloudCsrfToken } from "./schemas";
 import { createControlledFetch } from "./transport";
+import { createFileClient } from "./files";
 import { approvalSummarySchema, approvalDetailSchema, toApprovalSummary, toApprovalDetail, type ApprovalDecision } from "./mappers/approvals";
 import { canonicalRoutineUuidSchema } from "./routines";
 import {
@@ -399,6 +400,7 @@ export function createCloudClient(options: CloudClientOptions) {
   const routineReadApi = api as unknown as RoutineReadApi;
 
   return {
+    files: createFileClient(options),
     async getCsrf(signal?: AbortSignal): Promise<CloudCsrfToken> {
       rejectPreAborted(signal);
       try {
