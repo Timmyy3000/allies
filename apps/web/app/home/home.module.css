@@ -324,6 +324,18 @@
   white-space: nowrap;
 }
 
+.exactAllyRow .allyLabel {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: -0.2px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .homeSidebar .exactAllyRow .presenceDot {
   right: 1px;
   bottom: 3px;
@@ -752,6 +764,17 @@ button.newAllyButton {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   line-height: 18px;
+  white-space: nowrap;
+}
+
+.allyLabel {
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 17px;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
