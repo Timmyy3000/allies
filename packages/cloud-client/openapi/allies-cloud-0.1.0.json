@@ -320,7 +320,13 @@
         "type": "object"
       },
       "ApprovalActivitySummaryResponse": {
+        "additionalProperties": false,
         "properties": {
+          "contract_version": {
+            "const": "approval.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
           "decided_at": {
             "anyOf": [
               {
@@ -333,6 +339,25 @@
             ],
             "title": "Decided At"
           },
+          "decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "approve",
+                  "reject"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "decision_recorded": {
+            "title": "Decision Recorded",
+            "type": "boolean"
+          },
           "expires_at": {
             "format": "date-time",
             "title": "Expires At",
@@ -344,13 +369,24 @@
             "type": "string"
           },
           "status": {
+            "enum": [
+              "pending",
+              "decision_recorded",
+              "approved",
+              "rejected",
+              "expired",
+              "cancelled",
+              "outcome_unknown"
+            ],
             "title": "Status",
             "type": "string"
           }
         },
         "required": [
+          "contract_version",
           "id",
           "status",
+          "decision_recorded",
           "expires_at"
         ],
         "title": "ApprovalActivitySummaryResponse",
@@ -375,6 +411,7 @@
         "type": "object"
       },
       "ApprovalDetailResponse": {
+        "additionalProperties": false,
         "properties": {
           "acknowledgement_deadline_at": {
             "anyOf": [
@@ -396,6 +433,21 @@
             "title": "Action Preview",
             "type": "string"
           },
+          "approval_request_id": {
+            "format": "uuid",
+            "title": "Approval Request Id",
+            "type": "string"
+          },
+          "contract_version": {
+            "const": "approval.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "conversation_turn_ordinal": {
+            "minimum": 1,
+            "title": "Conversation Turn Ordinal",
+            "type": "integer"
+          },
           "decided_at": {
             "anyOf": [
               {
@@ -408,10 +460,32 @@
             ],
             "title": "Decided At"
           },
+          "decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "approve",
+                  "reject"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "decision_recorded": {
+            "title": "Decision Recorded",
+            "type": "boolean"
+          },
           "expires_at": {
             "format": "date-time",
             "title": "Expires At",
             "type": "string"
+          },
+          "explanation": {
+            "$ref": "#/components/schemas/ApprovalExplanationResponse"
           },
           "id": {
             "format": "uuid",
@@ -423,20 +497,108 @@
             "title": "Message Id",
             "type": "string"
           },
+          "preview_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Preview Digest",
+            "type": "string"
+          },
           "status": {
+            "enum": [
+              "pending",
+              "decision_recorded",
+              "approved",
+              "rejected",
+              "expired",
+              "cancelled",
+              "outcome_unknown"
+            ],
             "title": "Status",
+            "type": "string"
+          },
+          "technical_details": {
+            "$ref": "#/components/schemas/ApprovalTechnicalDetails"
+          }
+        },
+        "required": [
+          "contract_version",
+          "id",
+          "message_id",
+          "conversation_turn_ordinal",
+          "status",
+          "decision_recorded",
+          "expires_at",
+          "approval_request_id",
+          "preview_digest",
+          "action_label",
+          "action_preview",
+          "explanation",
+          "technical_details"
+        ],
+        "title": "ApprovalDetailResponse",
+        "type": "object"
+      },
+      "ApprovalExplanationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Action",
+            "type": "string"
+          },
+          "approval_request_id": {
+            "format": "uuid",
+            "title": "Approval Request Id",
+            "type": "string"
+          },
+          "consequence": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Consequence",
+            "type": "string"
+          },
+          "preview_digest": {
+            "pattern": "^sha256:[0-9a-f]{64}$",
+            "title": "Preview Digest",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "source": {
+            "enum": [
+              "model",
+              "fallback"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "target": {
+            "maxLength": 240,
+            "minLength": 1,
+            "title": "Target",
+            "type": "string"
+          },
+          "version": {
+            "const": "approval-explanation.v1",
+            "title": "Version",
             "type": "string"
           }
         },
         "required": [
-          "id",
-          "message_id",
-          "status",
-          "expires_at",
-          "action_label",
-          "action_preview"
+          "version",
+          "approval_request_id",
+          "preview_digest",
+          "source",
+          "action",
+          "target",
+          "consequence",
+          "reason"
         ],
-        "title": "ApprovalDetailResponse",
+        "title": "ApprovalExplanationResponse",
         "type": "object"
       },
       "ApprovalListResponse": {
@@ -456,6 +618,7 @@
         "type": "object"
       },
       "ApprovalSummaryResponse": {
+        "additionalProperties": false,
         "properties": {
           "acknowledgement_deadline_at": {
             "anyOf": [
@@ -469,6 +632,16 @@
             ],
             "title": "Acknowledgement Deadline At"
           },
+          "contract_version": {
+            "const": "approval.v1",
+            "title": "Contract Version",
+            "type": "string"
+          },
+          "conversation_turn_ordinal": {
+            "minimum": 1,
+            "title": "Conversation Turn Ordinal",
+            "type": "integer"
+          },
           "decided_at": {
             "anyOf": [
               {
@@ -480,6 +653,25 @@
               }
             ],
             "title": "Decided At"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "approve",
+                  "reject"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "decision_recorded": {
+            "title": "Decision Recorded",
+            "type": "boolean"
           },
           "expires_at": {
             "format": "date-time",
@@ -497,17 +689,62 @@
             "type": "string"
           },
           "status": {
+            "enum": [
+              "pending",
+              "decision_recorded",
+              "approved",
+              "rejected",
+              "expired",
+              "cancelled",
+              "outcome_unknown"
+            ],
             "title": "Status",
             "type": "string"
           }
         },
         "required": [
+          "contract_version",
           "id",
           "message_id",
+          "conversation_turn_ordinal",
           "status",
+          "decision_recorded",
           "expires_at"
         ],
         "title": "ApprovalSummaryResponse",
+        "type": "object"
+      },
+      "ApprovalTechnicalDetails": {
+        "additionalProperties": false,
+        "properties": {
+          "action_kind": {
+            "enum": [
+              "terminal",
+              "execute_code",
+              "plugin_tool"
+            ],
+            "title": "Action Kind",
+            "type": "string"
+          },
+          "action_label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Action Label",
+            "type": "string"
+          },
+          "action_preview": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Action Preview",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action_kind",
+          "action_label",
+          "action_preview"
+        ],
+        "title": "ApprovalTechnicalDetails",
         "type": "object"
       },
       "AssistantReplyResponse": {
@@ -645,39 +882,6 @@
         "title": "AvatarResponse",
         "type": "object"
       },
-      "CloudCorrelation": {
-        "additionalProperties": false,
-        "properties": {
-          "ally_id": {
-            "format": "uuid",
-            "title": "Ally Id",
-            "type": "string"
-          },
-          "cloud_binding_id": {
-            "format": "uuid",
-            "title": "Cloud Binding Id",
-            "type": "string"
-          },
-          "conversation_id": {
-            "format": "uuid",
-            "title": "Conversation Id",
-            "type": "string"
-          },
-          "message_id": {
-            "format": "uuid",
-            "title": "Message Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "ally_id",
-          "conversation_id",
-          "message_id",
-          "cloud_binding_id"
-        ],
-        "title": "CloudCorrelation",
-        "type": "object"
-      },
       "ConversationResponse": {
         "properties": {
           "ally_id": {
@@ -720,6 +924,13 @@
               "$ref": "#/components/schemas/MessageResponse"
             },
             "title": "Queue",
+            "type": "array"
+          },
+          "routine_items": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineChatItemResponse"
+            },
+            "title": "Routine Items",
             "type": "array"
           }
         },
@@ -858,132 +1069,6 @@
           "message"
         ],
         "title": "ErrorResponse[ErrorData]",
-        "type": "object"
-      },
-      "FoundryEventEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "cloud": {
-            "$ref": "#/components/schemas/CloudCorrelation"
-          },
-          "conversation_turn_ordinal": {
-            "maximum": 2147483647,
-            "minimum": 1,
-            "title": "Conversation Turn Ordinal",
-            "type": "integer"
-          },
-          "event_dedupe_key": {
-            "maxLength": 255,
-            "minLength": 1,
-            "pattern": "^[^\\x00\\r\\n]+$",
-            "title": "Event Dedupe Key",
-            "type": "string"
-          },
-          "event_id": {
-            "format": "uuid",
-            "title": "Event Id",
-            "type": "string"
-          },
-          "event_type": {
-            "maxLength": 64,
-            "minLength": 1,
-            "title": "Event Type",
-            "type": "string"
-          },
-          "fingerprint": {
-            "pattern": "^canonical-json-sha256:v1:[0-9a-f]{64}$",
-            "title": "Fingerprint",
-            "type": "string"
-          },
-          "foundry": {
-            "$ref": "#/components/schemas/FoundryIdentity"
-          },
-          "issued_at": {
-            "format": "date-time",
-            "title": "Issued At",
-            "type": "string"
-          },
-          "kind": {
-            "const": "execution.event",
-            "title": "Kind",
-            "type": "string"
-          },
-          "payload": {
-            "additionalProperties": true,
-            "title": "Payload",
-            "type": "object"
-          },
-          "producer": {
-            "const": "foundry",
-            "title": "Producer",
-            "type": "string"
-          },
-          "schema_version": {
-            "const": "v1",
-            "title": "Schema Version",
-            "type": "string"
-          },
-          "scope": {
-            "$ref": "#/components/schemas/WorkspaceScope"
-          },
-          "service_identity": {
-            "const": "foundry-service",
-            "title": "Service Identity",
-            "type": "string"
-          }
-        },
-        "required": [
-          "schema_version",
-          "kind",
-          "producer",
-          "service_identity",
-          "event_id",
-          "event_dedupe_key",
-          "scope",
-          "cloud",
-          "conversation_turn_ordinal",
-          "foundry",
-          "event_type",
-          "payload",
-          "issued_at",
-          "fingerprint"
-        ],
-        "title": "FoundryEventEnvelope",
-        "type": "object"
-      },
-      "FoundryIdentity": {
-        "additionalProperties": false,
-        "properties": {
-          "attempt_id": {
-            "format": "uuid",
-            "title": "Attempt Id",
-            "type": "string"
-          },
-          "attempt_sequence": {
-            "maximum": 100001,
-            "minimum": 1,
-            "title": "Attempt Sequence",
-            "type": "integer"
-          },
-          "execution_id": {
-            "format": "uuid",
-            "title": "Execution Id",
-            "type": "string"
-          },
-          "generation": {
-            "maximum": 2147483647,
-            "minimum": 0,
-            "title": "Generation",
-            "type": "integer"
-          }
-        },
-        "required": [
-          "execution_id",
-          "attempt_id",
-          "generation",
-          "attempt_sequence"
-        ],
-        "title": "FoundryIdentity",
         "type": "object"
       },
       "HealthResponse": {
@@ -1503,6 +1588,850 @@
         "title": "RedirectRequest",
         "type": "object"
       },
+      "RoutineApprovalDecisionRequest": {
+        "properties": {
+          "decision": {
+            "enum": [
+              "approve",
+              "reject"
+            ],
+            "title": "Decision",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "RoutineApprovalDecisionRequest",
+        "type": "object"
+      },
+      "RoutineApprovalResponse": {
+        "properties": {
+          "action_attempt_id": {
+            "format": "uuid",
+            "title": "Action Attempt Id",
+            "type": "string"
+          },
+          "action_digest": {
+            "title": "Action Digest",
+            "type": "string"
+          },
+          "approval_request_id": {
+            "format": "uuid",
+            "title": "Approval Request Id",
+            "type": "string"
+          },
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "approve",
+                  "reject"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "delivery_status": {
+            "title": "Delivery Status",
+            "type": "string"
+          },
+          "execution_id": {
+            "format": "uuid",
+            "title": "Execution Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          },
+          "generation": {
+            "title": "Generation",
+            "type": "integer"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "replayed": {
+            "default": false,
+            "title": "Replayed",
+            "type": "boolean"
+          },
+          "routine_id": {
+            "format": "uuid",
+            "title": "Routine Id",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "routine_id",
+          "run_id",
+          "approval_request_id",
+          "action_attempt_id",
+          "execution_id",
+          "attempt_id",
+          "generation",
+          "status",
+          "action_digest",
+          "expires_at",
+          "created_at",
+          "delivery_status"
+        ],
+        "title": "RoutineApprovalResponse",
+        "type": "object"
+      },
+      "RoutineChatItemResponse": {
+        "properties": {
+          "action_attempt_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Attempt Id"
+          },
+          "action_digest": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Action Digest"
+          },
+          "approval_decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "approve",
+                  "reject"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Decision"
+          },
+          "approval_expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Expires At"
+          },
+          "approval_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Id"
+          },
+          "approval_request_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Request Id"
+          },
+          "approval_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Status"
+          },
+          "attempt_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id"
+          },
+          "conversation_id": {
+            "format": "uuid",
+            "title": "Conversation Id",
+            "type": "string"
+          },
+          "delayed": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delayed"
+          },
+          "execution_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Id"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "created",
+              "running",
+              "result"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "occurrence_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurrence Id"
+          },
+          "references": {
+            "items": {},
+            "title": "References",
+            "type": "array"
+          },
+          "result_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Id"
+          },
+          "result_insertion": {
+            "anyOf": [
+              {
+                "enum": [
+                  "pending",
+                  "inserted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result Insertion"
+          },
+          "routine_id": {
+            "format": "uuid",
+            "title": "Routine Id",
+            "type": "string"
+          },
+          "routine_revision": {
+            "title": "Routine Revision",
+            "type": "integer"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Run Id"
+          },
+          "schedule": {
+            "title": "Schedule"
+          },
+          "schedule_generation": {
+            "title": "Schedule Generation",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Text"
+          },
+          "title_snapshot": {
+            "title": "Title Snapshot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "routine_id",
+          "conversation_id",
+          "title_snapshot",
+          "routine_revision",
+          "schedule_generation",
+          "status",
+          "schedule",
+          "occurred_at"
+        ],
+        "title": "RoutineChatItemResponse",
+        "type": "object"
+      },
+      "RoutineDetailResponse": {
+        "properties": {
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "execution_prompt": {
+            "title": "Execution Prompt",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "main_conversation_id": {
+            "format": "uuid",
+            "title": "Main Conversation Id",
+            "type": "string"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "owner_user_id": {
+            "format": "uuid",
+            "title": "Owner User Id",
+            "type": "string"
+          },
+          "responsible_ally_id": {
+            "format": "uuid",
+            "title": "Responsible Ally Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "schedule": {
+            "additionalProperties": true,
+            "title": "Schedule",
+            "type": "object"
+          },
+          "schedule_generation": {
+            "title": "Schedule Generation",
+            "type": "integer"
+          },
+          "schedule_state": {
+            "title": "Schedule State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "responsible_ally_id",
+          "title",
+          "schedule",
+          "revision",
+          "schedule_generation",
+          "schedule_state",
+          "created_at",
+          "updated_at",
+          "workspace_id",
+          "owner_user_id",
+          "binding_id",
+          "main_conversation_id",
+          "execution_prompt"
+        ],
+        "title": "RoutineDetailResponse",
+        "type": "object"
+      },
+      "RoutinePageResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineSummaryResponse"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "title": "RoutinePageResponse",
+        "type": "object"
+      },
+      "RoutineResultEvent": {
+        "additionalProperties": false,
+        "description": "The narrow result successor shape, including immutable title_snapshot.",
+        "properties": {
+          "attempt_id": {
+            "format": "uuid",
+            "title": "Attempt Id",
+            "type": "string"
+          },
+          "deadline_at": {
+            "format": "date-time",
+            "title": "Deadline At",
+            "type": "string"
+          },
+          "delayed": {
+            "title": "Delayed",
+            "type": "boolean"
+          },
+          "event_id": {
+            "format": "uuid",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "event_sequence": {
+            "maximum": 100001,
+            "minimum": 1,
+            "title": "Event Sequence",
+            "type": "integer"
+          },
+          "execution_id": {
+            "format": "uuid",
+            "title": "Execution Id",
+            "type": "string"
+          },
+          "fingerprint": {
+            "pattern": "^canonical-json-sha256:v1:[0-9a-f]{64}$",
+            "title": "Fingerprint",
+            "type": "string"
+          },
+          "generation": {
+            "minimum": 0,
+            "title": "Generation",
+            "type": "integer"
+          },
+          "issued_at": {
+            "format": "date-time",
+            "title": "Issued At",
+            "type": "string"
+          },
+          "kind": {
+            "pattern": "^routine\\.result$",
+            "title": "Kind",
+            "type": "string"
+          },
+          "main_conversation_id": {
+            "format": "uuid",
+            "title": "Main Conversation Id",
+            "type": "string"
+          },
+          "occurrence_id": {
+            "format": "uuid",
+            "title": "Occurrence Id",
+            "type": "string"
+          },
+          "outcome": {
+            "pattern": "^(changed|unchanged|failed)$",
+            "title": "Outcome",
+            "type": "string"
+          },
+          "producer": {
+            "pattern": "^foundry$",
+            "title": "Producer",
+            "type": "string"
+          },
+          "references": {
+            "items": {
+              "$ref": "#/components/schemas/RoutineResultReference"
+            },
+            "maxItems": 20,
+            "title": "References",
+            "type": "array"
+          },
+          "routine_id": {
+            "format": "uuid",
+            "title": "Routine Id",
+            "type": "string"
+          },
+          "routine_revision": {
+            "minimum": 1,
+            "title": "Routine Revision",
+            "type": "integer"
+          },
+          "run_conversation_id": {
+            "format": "uuid",
+            "title": "Run Conversation Id",
+            "type": "string"
+          },
+          "run_id": {
+            "format": "uuid",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "schema_version": {
+            "pattern": "^v1$",
+            "title": "Schema Version",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/RoutineResultScope"
+          },
+          "service_identity": {
+            "pattern": "^foundry-service$",
+            "title": "Service Identity",
+            "type": "string"
+          },
+          "text": {
+            "maxLength": 16384,
+            "minLength": 1,
+            "title": "Text",
+            "type": "string"
+          },
+          "title_snapshot": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Title Snapshot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "schema_version",
+          "kind",
+          "producer",
+          "service_identity",
+          "event_id",
+          "event_sequence",
+          "routine_id",
+          "occurrence_id",
+          "run_id",
+          "routine_revision",
+          "execution_id",
+          "attempt_id",
+          "generation",
+          "main_conversation_id",
+          "run_conversation_id",
+          "outcome",
+          "text",
+          "delayed",
+          "title_snapshot",
+          "scope",
+          "issued_at",
+          "deadline_at",
+          "fingerprint"
+        ],
+        "title": "RoutineResultEvent",
+        "type": "object"
+      },
+      "RoutineResultReference": {
+        "additionalProperties": false,
+        "properties": {
+          "label": {
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "url": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "label",
+          "url"
+        ],
+        "title": "RoutineResultReference",
+        "type": "object"
+      },
+      "RoutineResultScope": {
+        "additionalProperties": false,
+        "properties": {
+          "ally_id": {
+            "format": "uuid",
+            "title": "Ally Id",
+            "type": "string"
+          },
+          "cloud_binding_id": {
+            "format": "uuid",
+            "title": "Cloud Binding Id",
+            "type": "string"
+          },
+          "kind": {
+            "pattern": "^workspace$",
+            "title": "Kind",
+            "type": "string"
+          },
+          "owner_user_id": {
+            "format": "uuid",
+            "title": "Owner User Id",
+            "type": "string"
+          },
+          "workspace_id": {
+            "format": "uuid",
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "workspace_id",
+          "owner_user_id",
+          "ally_id",
+          "cloud_binding_id"
+        ],
+        "title": "RoutineResultScope",
+        "type": "object"
+      },
+      "RoutineSummaryResponse": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "next_run_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Run At"
+          },
+          "responsible_ally_id": {
+            "format": "uuid",
+            "title": "Responsible Ally Id",
+            "type": "string"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "schedule": {
+            "additionalProperties": true,
+            "title": "Schedule",
+            "type": "object"
+          },
+          "schedule_generation": {
+            "title": "Schedule Generation",
+            "type": "integer"
+          },
+          "schedule_state": {
+            "title": "Schedule State",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "responsible_ally_id",
+          "title",
+          "schedule",
+          "revision",
+          "schedule_generation",
+          "schedule_state",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "RoutineSummaryResponse",
+        "type": "object"
+      },
+      "RoutineToolEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "additionalProperties": true,
+            "title": "Arguments",
+            "type": "object"
+          },
+          "binding_id": {
+            "format": "uuid",
+            "title": "Binding Id",
+            "type": "string"
+          },
+          "call_id": {
+            "format": "uuid",
+            "title": "Call Id",
+            "type": "string"
+          },
+          "command_fingerprint": {
+            "title": "Command Fingerprint",
+            "type": "string"
+          },
+          "message_id": {
+            "format": "uuid",
+            "title": "Message Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message_id",
+          "binding_id",
+          "command_fingerprint",
+          "call_id",
+          "arguments"
+        ],
+        "title": "RoutineToolEnvelope",
+        "type": "object"
+      },
       "RuntimeIntentRequest": {
         "additionalProperties": false,
         "properties": {
@@ -1553,6 +2482,12 @@
             "maxLength": 16000,
             "minLength": 1,
             "title": "Content",
+            "type": "string"
+          },
+          "timezone": {
+            "default": "",
+            "maxLength": 64,
+            "title": "Timezone",
             "type": "string"
           }
         },
@@ -1725,11 +2660,32 @@
             "acknowledgement_deadline_at": null,
             "action_label": "Run the requested command",
             "action_preview": "echo a redacted command",
+            "approval_request_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d85",
+            "contract_version": "approval.v1",
+            "conversation_turn_ordinal": 3,
             "decided_at": null,
+            "decision": null,
+            "decision_recorded": false,
             "expires_at": "2026-08-20T16:05:00Z",
+            "explanation": {
+              "action": "Run a command",
+              "approval_request_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d85",
+              "consequence": "This action may change data or contact a service.",
+              "preview_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "reason": "Your Ally needs your approval before continuing.",
+              "source": "fallback",
+              "target": "The target is described in the technical details.",
+              "version": "approval-explanation.v1"
+            },
             "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d84",
             "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
-            "status": "pending"
+            "preview_digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "status": "pending",
+            "technical_details": {
+              "action_kind": "terminal",
+              "action_label": "Run the requested command",
+              "action_preview": "echo a redacted command"
+            }
           },
           "message": "Approval loaded",
           "status": "success"
@@ -1762,7 +2718,11 @@
             "approvals": [
               {
                 "acknowledgement_deadline_at": null,
+                "contract_version": "approval.v1",
+                "conversation_turn_ordinal": 3,
                 "decided_at": null,
+                "decision": null,
+                "decision_recorded": false,
                 "expires_at": "2026-08-20T16:05:00Z",
                 "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d84",
                 "message_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d82",
@@ -1877,7 +2837,8 @@
               }
             ],
             "next_cursor": null,
-            "queue": []
+            "queue": [],
+            "routine_items": []
           },
           "message": "Conversation loaded",
           "status": "success"
@@ -2224,6 +3185,149 @@
           "data"
         ],
         "title": "SuccessResponse[ProfileResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_RoutineApprovalResponse_": {
+        "example": {
+          "data": {
+            "action_attempt_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d89",
+            "action_digest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "approval_request_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d88",
+            "attempt_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d91",
+            "created_at": "2026-08-20T16:00:00Z",
+            "decided_at": "2026-08-20T16:01:00Z",
+            "decision": "approve",
+            "delivery_status": "pending",
+            "execution_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d90",
+            "expires_at": "2026-08-21T16:00:00Z",
+            "generation": 1,
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d85",
+            "replayed": false,
+            "routine_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d86",
+            "run_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d87",
+            "status": "decision_recorded"
+          },
+          "message": "Routine approval decision recorded",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RoutineApprovalResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[RoutineApprovalResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_RoutineDetailResponse_": {
+        "example": {
+          "data": {
+            "binding_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d77",
+            "created_at": "2026-08-20T16:00:00Z",
+            "execution_prompt": "Review new mail and summarize anything urgent.",
+            "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d85",
+            "main_conversation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "next_run_at": "2026-08-21T07:00:00Z",
+            "owner_user_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+            "responsible_ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "revision": 1,
+            "schedule": {
+              "frequency": "daily",
+              "kind": "recurring",
+              "local_time": "09:00:00",
+              "timezone": "Europe/Berlin"
+            },
+            "schedule_generation": 1,
+            "schedule_state": "active",
+            "title": "Check the inbox",
+            "updated_at": "2026-08-20T16:00:00Z",
+            "workspace_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74"
+          },
+          "message": "Routine loaded",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RoutineDetailResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[RoutineDetailResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_RoutinePageResponse_": {
+        "example": {
+          "data": {
+            "items": [
+              {
+                "created_at": "2026-08-20T16:00:00Z",
+                "id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d85",
+                "next_run_at": "2026-08-21T07:00:00Z",
+                "responsible_ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+                "revision": 1,
+                "schedule": {
+                  "frequency": "daily",
+                  "kind": "recurring",
+                  "local_time": "09:00:00",
+                  "timezone": "Europe/Berlin"
+                },
+                "schedule_generation": 1,
+                "schedule_state": "active",
+                "title": "Check the inbox",
+                "updated_at": "2026-08-20T16:00:00Z"
+              }
+            ],
+            "next_cursor": null
+          },
+          "message": "Routines loaded",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/RoutinePageResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[RoutinePageResponse]",
         "type": "object"
       },
       "SuccessResponse_RuntimeIntentResponse_": {
@@ -2578,27 +3682,6 @@
         ],
         "title": "WorkspaceRuntimeIntentRequest",
         "type": "object"
-      },
-      "WorkspaceScope": {
-        "additionalProperties": false,
-        "properties": {
-          "cloud_workspace_id": {
-            "format": "uuid",
-            "title": "Cloud Workspace Id",
-            "type": "string"
-          },
-          "kind": {
-            "const": "workspace",
-            "title": "Kind",
-            "type": "string"
-          }
-        },
-        "required": [
-          "kind",
-          "cloud_workspace_id"
-        ],
-        "title": "WorkspaceScope",
-        "type": "object"
       }
     },
     "securitySchemes": {
@@ -2625,7 +3708,7 @@
   "paths": {
     "/api/v1/allies/{ally_id}/runtime-intents": {
       "post": {
-        "operationId": "runtimeintent_request_bbb203db",
+        "operationId": "runtimeintent_request_76060a99",
         "parameters": [
           {
             "in": "path",
@@ -2781,7 +3864,7 @@
     },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_3e33614a",
+        "operationId": "authentication_callback_4659f0c1",
         "parameters": [
           {
             "in": "path",
@@ -2886,7 +3969,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_b01eb21c",
+        "operationId": "authentication_csrf_0d0e9c65",
         "parameters": [],
         "responses": {
           "204": {
@@ -2916,7 +3999,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_3e3d7222",
+        "operationId": "identity_link_7d625af4",
         "parameters": [
           {
             "in": "path",
@@ -3093,7 +4176,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_529137d9",
+        "operationId": "session_logout_b528cb10",
         "parameters": [],
         "responses": {
           "204": {
@@ -3138,7 +4221,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_efa44712",
+        "operationId": "profile_me_1292302d",
         "parameters": [],
         "responses": {
           "200": {
@@ -3195,7 +4278,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_c5408f89",
+        "operationId": "avatar_delete_b8a4cf40",
         "parameters": [],
         "responses": {
           "204": {
@@ -3305,7 +4388,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_8939e0f4",
+        "operationId": "avatar_complete_5c5e2f38",
         "parameters": [
           {
             "in": "path",
@@ -3463,7 +4546,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_1c77a5e7",
+        "operationId": "avatar_read_c90b9a81",
         "parameters": [],
         "responses": {
           "200": {
@@ -3550,7 +4633,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_328caffb",
+        "operationId": "avatar_prepare_425b38f4",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3692,7 +4775,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_a9021699",
+        "operationId": "profile_profile_7d4aff66",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -3805,7 +4888,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_8d75b0d2",
+        "operationId": "nativeauthentication_callback_e1a1ee70",
         "parameters": [
           {
             "in": "path",
@@ -3989,7 +5072,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_7088d248",
+        "operationId": "nativeauthentication_logout_5130ede4",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -4081,7 +5164,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_6d6eccae",
+        "operationId": "nativeauthentication_sign_in_734bbffd",
         "parameters": [
           {
             "in": "path",
@@ -4185,7 +5268,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_91f4515e",
+        "operationId": "nativeauthentication_token_3fab91c5",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -4349,7 +5432,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_0cd34a14",
+        "operationId": "nativeauthentication_refresh_a643a79a",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -4512,7 +5595,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_005bc389",
+        "operationId": "session_refresh_1202a7ac",
         "parameters": [],
         "responses": {
           "204": {
@@ -4602,7 +5685,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_f08befc6",
+        "operationId": "authentication_sign_in_d6c2e99a",
         "parameters": [
           {
             "in": "path",
@@ -4749,7 +5832,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_35d426ee",
+        "operationId": "health_health_018460a7",
         "parameters": [],
         "responses": {
           "200": {
@@ -4807,7 +5890,9 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/FoundryEventEnvelope"
+                "additionalProperties": true,
+                "title": "Payload",
+                "type": "object"
               }
             }
           },
@@ -4843,10 +5928,54 @@
         "summary": "Profile Readiness Hint"
       }
     },
+    "/api/v1/internal/foundry/routines/results": {
+      "post": {
+        "operationId": "routines_api_register_routine_result",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutineResultEvent"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Routine Result"
+      }
+    },
+    "/api/v1/internal/foundry/routines/tool": {
+      "post": {
+        "operationId": "routines_api_register_routine_tool",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutineToolEnvelope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Routine Tool"
+      }
+    },
     "/api/v1/onboarding/attempts": {
       "post": {
         "description": "This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.",
-        "operationId": "onboarding_begin_d8370a47",
+        "operationId": "onboarding_begin_b756ad26",
         "parameters": [
           {
             "description": "Browser-only signal; if present it must be a configured trusted origin.",
@@ -5023,7 +6152,7 @@
     "/api/v1/onboarding/runtime-intents": {
       "post": {
         "description": "This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.",
-        "operationId": "onboarding_runtime_intent_7a30f356",
+        "operationId": "onboarding_runtime_intent_28bdeb31",
         "parameters": [
           {
             "description": "Stable UUID for repeating one runtime intent.",
@@ -5307,7 +6436,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_0ad77eea",
+        "operationId": "waitlist_create_1f6cd188",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -5488,7 +6617,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_8425b154",
+        "operationId": "waitlist_complete_cd4260d9",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -5658,7 +6787,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_dd28e28e",
+        "operationId": "workspace_context_d91ed536",
         "parameters": [
           {
             "in": "path",
@@ -5741,7 +6870,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_c297dbfa",
+        "operationId": "ally_list_0a1f5737",
         "parameters": [
           {
             "in": "path",
@@ -5818,7 +6947,7 @@
       },
       "post": {
         "description": "Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.",
-        "operationId": "ally_create_34f147b1",
+        "operationId": "ally_create_c2c01cbc",
         "parameters": [
           {
             "in": "path",
@@ -6054,7 +7183,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_83dd728f",
+        "operationId": "ally_retrieve_59842e96",
         "parameters": [
           {
             "in": "path",
@@ -6142,7 +7271,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_f2fc096c",
+        "operationId": "conversation_by_ally_4e7f35f7",
         "parameters": [
           {
             "in": "path",
@@ -6273,7 +7402,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_b8d1444b",
+        "operationId": "conversation_by_conversation_61c103e2",
         "parameters": [
           {
             "in": "path",
@@ -6404,7 +7533,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_4b1aeafa",
+        "operationId": "activity_snapshot_80b0b6ba",
         "parameters": [
           {
             "in": "path",
@@ -6576,7 +7705,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
       "get": {
-        "operationId": "activity_stream_0f053ec9",
+        "operationId": "activity_stream_081e1c4f",
         "parameters": [
           {
             "in": "path",
@@ -6630,7 +7759,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals": {
       "get": {
         "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
-        "operationId": "activity_approvals_a88d2508",
+        "operationId": "activity_approvals_478c4bc6",
         "parameters": [
           {
             "in": "path",
@@ -6769,7 +7898,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}": {
       "get": {
         "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
-        "operationId": "activity_approval_b3564e94",
+        "operationId": "activity_approval_9530aabe",
         "parameters": [
           {
             "in": "path",
@@ -6906,7 +8035,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}/decision": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected. The idempotency key must be reused for an exact retry.",
-        "operationId": "activity_decide_eb2c1030",
+        "operationId": "activity_decide_f839bb78",
         "parameters": [
           {
             "in": "path",
@@ -7118,7 +8247,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_send_fdee8d15",
+        "operationId": "conversation_send_5513319e",
         "parameters": [
           {
             "in": "path",
@@ -7335,7 +8464,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}": {
       "delete": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_delete_89f0fe4c",
+        "operationId": "conversation_delete_0ad620b6",
         "parameters": [
           {
             "in": "path",
@@ -7499,7 +8628,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_retry_077aa94c",
+        "operationId": "conversation_retry_c78726d5",
         "parameters": [
           {
             "in": "path",
@@ -7710,6 +8839,409 @@
         "summary": "Retry",
         "tags": [
           "Chat"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/routines": {
+      "get": {
+        "operationId": "routine_list_ce7d9449",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 512,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ally_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ally Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RoutinePageResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "List",
+        "tags": [
+          "Routines"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/routines/{routine_id}": {
+      "get": {
+        "operationId": "routine_detail_0deecbb8",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "routine_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Routine Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RoutineDetailResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Detail",
+        "tags": [
+          "Routines"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/routines/{routine_id}/approvals/{approval_id}/decision": {
+      "post": {
+        "operationId": "routine_decide_approval_d06f4148",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "routine_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Routine Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "approval_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Approval Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Stable UUID for repeating one routine approval decision.",
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "description": "Stable UUID for repeating one routine approval decision.",
+              "maxLength": 36,
+              "minLength": 36,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoutineApprovalDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RoutineApprovalResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_RoutineApprovalResponse_"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Decide Approval",
+        "tags": [
+          "Routines"
         ]
       }
     }
