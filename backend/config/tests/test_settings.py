@@ -125,7 +125,33 @@ def test_production_settings_reject_missing_security_configuration():
     assert "PostgreSQL DATABASE_URL" in result.stderr
 
 
-def test_production_settings_reject_file_admission_until_runtime_controls_exist():
+@pytest.mark.parametrize(
+    "override, error",
+    [
+        ({}, None),
+        (
+            {"ALLIES_FILE_SCANNER_HOST": ""},
+            "ALLIES_FILE_SCANNER_HOST for file inspection",
+        ),
+        (
+            {"ALLIES_FILE_STORAGE_ENABLED": "false"},
+            "ALLIES_FILE_STORAGE_ENABLED for file admission",
+        ),
+        (
+            {"ALLIES_FILE_STORAGE_SECRET_ACCESS_KEY": ""},
+            "complete private file storage configuration",
+        ),
+        (
+            {"ALLIES_FILE_STORAGE_ENDPOINT_URL": "http://objects.example.test"},
+            "HTTPS ALLIES_FILE_STORAGE_ENDPOINT_URL",
+        ),
+        (
+            {"ALLIES_FILE_STORAGE_CAPACITY_BYTES": "0"},
+            "positive ALLIES_FILE_STORAGE_CAPACITY_BYTES",
+        ),
+    ],
+)
+def test_production_file_configuration_validates_dependencies(override, error):
     result = _settings_subprocess(
         {
             "DJANGO_DEBUG": "false",
@@ -143,17 +169,21 @@ def test_production_settings_reject_file_admission_until_runtime_controls_exist(
             "ALLIES_FILE_STORAGE_ACCESS_KEY_ID": "access",
             "ALLIES_FILE_STORAGE_SECRET_ACCESS_KEY": "secret",
             "ALLIES_FILE_STORAGE_CAPACITY_BYTES": "100000000",
+            "ALLIES_FILE_INPUT_DELIVERY_ENABLED": "true",
+            "ALLIES_FILE_INSPECTION_ENABLED": "true",
+            "ALLIES_FILE_SCANNER_HOST": "scanner.internal",
+            **override,
         }
     )
 
-    assert result.returncode != 0
-    assert (
-        "ALLIES_FILE_ADMISSION_ENABLED is release-blocked in production"
-        in result.stderr
-    )
+    if error is None:
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode != 0
+        assert error in result.stderr
 
 
-def test_production_settings_reject_file_delivery_until_integration_proof_exists():
+def test_production_settings_allow_file_delivery():
     result = _settings_subprocess(
         {
             "DJANGO_DEBUG": "false",
@@ -168,11 +198,7 @@ def test_production_settings_reject_file_delivery_until_integration_proof_exists
         }
     )
 
-    assert result.returncode != 0
-    assert (
-        "ALLIES_FILE_INPUT_DELIVERY_ENABLED is integration-blocked in production"
-        in result.stderr
-    )
+    assert result.returncode == 0, result.stderr
 
 
 def test_production_settings_require_foundry_service_configuration():

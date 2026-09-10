@@ -559,7 +559,7 @@ ALLIES_R2_ACCESS_KEY_ID = os.environ.get("ALLIES_R2_ACCESS_KEY_ID", "")
 ALLIES_R2_SECRET_ACCESS_KEY = os.environ.get("ALLIES_R2_SECRET_ACCESS_KEY", "")
 ALLIES_R2_ENABLED = env_bool("ALLIES_R2_ENABLED", False)
 
-# Production release checks remain independent of the default-on feature flags.
+# Production dependency checks remain independent of the default-on feature flags.
 ALLIES_FILE_ADMISSION_ENABLED = env_bool("ALLIES_FILE_ADMISSION_ENABLED", True)
 ALLIES_FILE_STORAGE_ENABLED = env_bool("ALLIES_FILE_STORAGE_ENABLED", True)
 ALLIES_FILE_STORAGE_ENDPOINT_URL = os.environ.get(
@@ -996,12 +996,8 @@ if not DEBUG:
             missing.append("HTTPS ALLIES_R2_ENDPOINT_URL")
     if ALLIES_FILE_ADMISSION_ENABLED and not ALLIES_FILE_STORAGE_ENABLED:
         missing.append("ALLIES_FILE_STORAGE_ENABLED for file admission")
-    if ALLIES_FILE_ADMISSION_ENABLED:
-        missing.append("ALLIES_FILE_ADMISSION_ENABLED is release-blocked in production")
-    if ALLIES_FILE_INPUT_DELIVERY_ENABLED:
-        missing.append(
-            "ALLIES_FILE_INPUT_DELIVERY_ENABLED is integration-blocked in production"
-        )
+    if ALLIES_FILE_INSPECTION_ENABLED and not ALLIES_FILE_SCANNER_HOST.strip():
+        missing.append("ALLIES_FILE_SCANNER_HOST for file inspection")
     if ALLIES_FILE_ADMISSION_ENABLED and ALLIES_FILE_STORAGE_CAPACITY_BYTES <= 0:
         missing.append("positive ALLIES_FILE_STORAGE_CAPACITY_BYTES for file admission")
     if ALLIES_FILE_STORAGE_ENABLED and not all(
