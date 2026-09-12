@@ -5,6 +5,7 @@
     "state": "started",
     "region": "ams",
     "config": {
+      "guest": {"cpu_kind": "shared", "cpus": 1, "memory_mb": 1024},
       "metadata": {
         "allies_owner": "foundry",
         "allies_workspace_id": "01234567-89ab-cdef-0123-456789abcdef",

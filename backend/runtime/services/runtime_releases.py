@@ -222,6 +222,10 @@ def reconcile_workspace_release(
                 raw_token="",
             )
         base = WorkspaceSpec(
+            cpu_kind=settings.WORKSPACE_CPU_KIND,
+            cpus=settings.WORKSPACE_CPUS,
+            memory_mb=settings.WORKSPACE_MEMORY_MB,
+            volume_size_gb=settings.WORKSPACE_VOLUME_SIZE_GB,
             organization=target["organization"],
             region=target["region"],
             runtime_image=target["images"]["allies-runtime"],

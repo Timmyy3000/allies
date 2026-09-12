@@ -457,7 +457,7 @@ class FlyProvider:
             operation="create_machine",
         )
         raw = _mapping(payload, "machine", operation="create_machine")
-        return _machine_record(
+        machine = _machine_record(
             raw,
             app_name=spec.app_name,
             fallback_name=spec.name,
@@ -465,6 +465,8 @@ class FlyProvider:
             fallback_volume_id=spec.mount.volume_id,
             fallback_ownership=spec.ownership,
         )
+        _verify_machine_spec(machine, spec)
+        return machine
 
     def ensure_machine(self, spec: MachineSpec) -> MachineRecord:
         """Find or create an owned Machine, reconciling create uncertainty."""
@@ -619,9 +621,9 @@ class FlyProvider:
                 # invariant testable and cannot accidentally inherit routes.
                 "services": [],
                 "guest": {
-                    "cpu_kind": "shared",
-                    "cpus": 1,
-                    "memory_mb": 1024,
+                    "cpu_kind": spec.cpu_kind,
+                    "cpus": spec.cpus,
+                    "memory_mb": spec.memory_mb,
                 },
                 "metadata": metadata,
             },
@@ -919,8 +921,28 @@ def _machine_record(
                         "duplicate container name", operation="map_machine"
                     )
                 images[container_name] = image
+    guest = config.get("guest", {})
+    guest = guest if isinstance(guest, Mapping) else {}
+    cpu_kind, cpus, memory_mb = (
+        guest.get("cpu_kind"),
+        guest.get("cpus"),
+        guest.get("memory_mb"),
+    )
     return MachineRecord(
-        machine_id, name, app_name, region, state, volume_id, ownership, health, images
+        machine_id,
+        name,
+        app_name,
+        region,
+        state,
+        volume_id,
+        ownership,
+        health,
+        images,
+        cpu_kind=cpu_kind
+        if isinstance(cpu_kind, str) and cpu_kind in {"shared", "performance"}
+        else None,
+        cpus=cpus if type(cpus) is int and cpus > 0 else None,
+        memory_mb=memory_mb if type(memory_mb) is int and memory_mb > 0 else None,
     )
 
 
@@ -1053,7 +1075,7 @@ def _verify_volume_spec(volume: VolumeRecord, spec: VolumeSpec) -> None:
             operation="ensure_volume",
             details={"resource_type": "volume", "resource_id": volume.id},
         )
-    if volume.region != spec.region or volume.size_gb != spec.size_gb:
+    if volume.region != spec.region or volume.size_gb < spec.size_gb:
         raise ProviderInvalidConfigurationError(
             "provider Volume does not match requested placement or size",
             operation="ensure_volume",
@@ -1066,6 +1088,13 @@ def _verify_volume_spec(volume: VolumeRecord, spec: VolumeSpec) -> None:
 
 
 def _verify_machine_spec(machine: MachineRecord, spec: MachineSpec) -> None:
+    if (machine.cpu_kind, machine.cpus, machine.memory_mb) != (
+        spec.cpu_kind, spec.cpus, spec.memory_mb
+    ):
+        raise ProviderInvalidConfigurationError(
+            "provider Machine does not match requested compute size",
+            operation="ensure_machine",
+        )
     if machine.app_name != spec.app_name or machine.name != spec.name:
         raise ProviderOwnershipError(
             "provider Machine did not match deterministic workspace identity",
