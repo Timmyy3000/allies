@@ -1,6 +1,10 @@
 import json
 import os
 import shutil
+import stat
+import subprocess
+import sys
+import tempfile
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
@@ -1248,6 +1252,109 @@ def test_profile_store_rejects_namespace_files(tmp_path, namespace):
 
     assert receipt.status is ProfileProvisionStatus.REPAIR_REQUIRED
     assert receipt.repair_code == "profile_store_unavailable"
+
+
+def test_tombstone_namespace_allows_hermes_read_without_write():
+    if os.name == "nt" or not hasattr(os, "geteuid") or os.geteuid() != 0:
+        pytest.skip("requires POSIX root to exercise the Hermes UID")
+
+    volume = Path(tempfile.mkdtemp(prefix="allies-profile-mode-"))
+    try:
+        os.chmod(volume, 0o755)
+        profiles = volume / "profiles"
+        profiles.mkdir(mode=0o755)
+        tombstones = profiles / ".allies-profile-tombstones"
+        tombstones.mkdir(mode=0o700)
+        store = ProfileStore(
+            volume,
+            api_key_factory=lambda: "profile-local-key-0123456789",
+            credential_resolver={"vault://tenant/openai": PROFILE_SECRET},
+        )
+        seed = make_seed()
+        receipt = store.fence_deletion(
+            seed.profile_key,
+            "cleanup-hermes-mode",
+            seed.lifecycle_epoch,
+            time.time() + 30,
+            attempt_id=uuid.uuid4(),
+            request_digest="a" * 64,
+        )
+        assert receipt.status is ProfileCleanupStatus.FENCED
+        assert stat.S_IMODE(tombstones.stat().st_mode) == 0o755
+
+        marker = tombstones / f"{seed.profile_key}.json"
+        assert stat.S_IMODE(marker.stat().st_mode) == 0o644
+        other_key = derive_profile_key(OTHER_PROFILE_ID)
+        script = """
+import sys
+import types
+from pathlib import Path
+
+profiles_root = Path(sys.argv[1])
+marker_path = Path(sys.argv[2])
+profile_key = sys.argv[3]
+other_key = sys.argv[4]
+hermes_cli = types.ModuleType("hermes_cli")
+profiles = types.ModuleType("hermes_cli.profiles")
+profiles._get_profiles_root = lambda: profiles_root
+hermes_cli.profiles = profiles
+sys.modules["hermes_cli"] = hermes_cli
+sys.modules["hermes_cli.profiles"] = profiles
+
+from allies_profile_deletion import ProfileDeletionManager
+
+manager = ProfileDeletionManager(object())
+fence = manager.marker(profile_key)
+if not isinstance(fence, dict) or fence.get("profile_key") != profile_key:
+    raise SystemExit("Hermes could not read the tombstone")
+if manager.marker(other_key) is not None:
+    raise SystemExit("Hermes misread an absent tombstone")
+try:
+    marker_path.write_text(
+        marker_path.read_text(encoding="utf-8"), encoding="utf-8"
+    )
+except PermissionError:
+    pass
+else:
+    raise SystemExit("Hermes could write the tombstone")
+try:
+    marker_path.unlink()
+except PermissionError:
+    pass
+else:
+    raise SystemExit("Hermes could delete the tombstone")
+try:
+    marker_path.with_name(f"{other_key}.json").write_text("{}", encoding="utf-8")
+except PermissionError:
+    pass
+else:
+    raise SystemExit("Hermes could create a tombstone")
+"""
+        hermes_image = Path(__file__).parents[1] / "hermes-image"
+        environment = os.environ.copy()
+        environment["PYTHONPATH"] = os.pathsep.join(
+            part
+            for part in (str(hermes_image), environment.get("PYTHONPATH", ""))
+            if part
+        )
+        subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                script,
+                str(profiles),
+                str(marker),
+                seed.profile_key,
+                other_key,
+            ],
+            check=True,
+            capture_output=True,
+            env=environment,
+            group=10000,
+            user=10000,
+        )
+    finally:
+        shutil.rmtree(volume, ignore_errors=True)
 
 
 @pytest.mark.parametrize("symlinked_component", [False, True])
