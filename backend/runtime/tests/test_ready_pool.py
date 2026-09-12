@@ -3,7 +3,7 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from hashlib import sha256
-from threading import Barrier
+from threading import Barrier, Event, Thread, current_thread
 from uuid import uuid4
 
 import pytest
@@ -12,16 +12,24 @@ from django.test import override_settings
 from django.utils import timezone
 
 import runtime.services.ready_pool as ready_pool_service
+import runtime.services.runtime_readiness as runtime_readiness_service
 from runtime.exceptions import RuntimeConflictError
 from runtime.models import (
     ReadyWorkspaceBundle,
     ReadyWorkspaceBundleState,
     RuntimeCredential,
+    RuntimeOperationState,
+    RuntimeOperationTrigger,
     RuntimeProfile,
     Workspace,
     WorkspaceProvisioningPhase,
 )
 from runtime.services.ready_pool import assign_ready_workspace
+from runtime.services.runtime_auth import (
+    authenticate_runtime_token,
+    issue_runtime_credential,
+)
+from runtime.services.runtime_readiness import accept_runtime_readiness
 from runtime.services.workspaces import register_workspace
 
 POOL_SETTINGS = {
@@ -93,6 +101,55 @@ def test_assignment_is_permanent_and_preserves_workspace_identity():
     bundle.state = ReadyWorkspaceBundleState.READY
     with pytest.raises(RuntimeConflictError):
         bundle.save()
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(**POOL_SETTINGS)
+def test_sleeping_assignment_is_permanent_and_queues_onboarding_wake():
+    workspace, bundle = create_ready_bundle()
+    ReadyWorkspaceBundle.objects.filter(pk=bundle.pk).update(
+        state=ReadyWorkspaceBundleState.SLEEPING,
+    )
+    tenant_ref = str(uuid4())
+
+    assigned = register_workspace(tenant_ref)
+
+    assigned.refresh_from_db()
+    bundle.refresh_from_db()
+    assert assigned.id == workspace.id
+    assert bundle.state == ReadyWorkspaceBundleState.ASSIGNED
+    assert assigned.runtime_operation_state == RuntimeOperationState.REQUESTED
+    assert assigned.runtime_operation_trigger == RuntimeOperationTrigger.ONBOARDING
+    assert assigned.ready_generation is None
+    assert assigned.ready_boot_id is None
+
+    bundle.state = ReadyWorkspaceBundleState.SLEEPING
+    with pytest.raises(RuntimeConflictError):
+        bundle.save()
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(**POOL_SETTINGS)
+@pytest.mark.parametrize("stale_field", ["last_health_at", "expires_at"])
+def test_stale_sleeping_spare_waits_for_inspection_without_eviction(stale_field):
+    now = timezone.now()
+    workspace, bundle = create_ready_bundle(now=now)
+    stale_value = (
+        now - timedelta(seconds=61)
+        if stale_field == "last_health_at"
+        else now - timedelta(seconds=1)
+    )
+    ReadyWorkspaceBundle.objects.filter(pk=bundle.pk).update(
+        state=ReadyWorkspaceBundleState.SLEEPING,
+        **{stale_field: stale_value},
+    )
+
+    registered = register_workspace(str(uuid4()))
+
+    bundle.refresh_from_db()
+    assert registered.id != workspace.id
+    assert bundle.state == ReadyWorkspaceBundleState.SLEEPING
+    assert bundle.safe_error_code is None
 
 
 @pytest.mark.django_db(transaction=True)
@@ -434,3 +491,117 @@ def test_postgresql_same_tenant_race_consumes_at_most_one_bundle(monkeypatch):
         ).count()
         == 1
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(**POOL_SETTINGS)
+def test_postgresql_sleeping_assignment_and_readiness_do_not_deadlock(monkeypatch):
+    if connection.vendor != "postgresql":
+        pytest.skip("requires PostgreSQL row-lock semantics")
+
+    now = timezone.now()
+    workspace, bundle = create_ready_bundle(now=now)
+    ReadyWorkspaceBundle.objects.filter(pk=bundle.pk).update(
+        state=ReadyWorkspaceBundleState.SLEEPING,
+    )
+    RuntimeCredential.objects.filter(workspace_id=workspace.id).delete()
+    credential = issue_runtime_credential(workspace.id, "readiness-interleave-token")
+    context = authenticate_runtime_token(credential.raw_token)
+
+    readiness_paused = Event()
+    assignment_workspace_requested = Event()
+    release_readiness = Event()
+    readiness_results = []
+    assignment_results = []
+    errors = []
+
+    original_clear = runtime_readiness_service._clear_onboarding_error_locked
+
+    def pause_readiness_clear(locked_workspace, observed_at):
+        readiness_paused.set()
+        if not release_readiness.wait(timeout=5):
+            raise AssertionError("readiness interleave release timed out")
+        return original_clear(locked_workspace, observed_at)
+
+    monkeypatch.setattr(
+        runtime_readiness_service,
+        "_clear_onboarding_error_locked",
+        pause_readiness_clear,
+    )
+
+    original_workspace_lock = Workspace.objects.select_for_update
+    assignment_lock_calls = 0
+
+    def observe_assignment_workspace_lock(*args, **kwargs):
+        nonlocal assignment_lock_calls
+        if current_thread().name == "sleeping-assignment":
+            assignment_lock_calls += 1
+            if assignment_lock_calls == 2:
+                # The second lock follows the candidate bundle lock.
+                assignment_workspace_requested.set()
+        return original_workspace_lock(*args, **kwargs)
+
+    monkeypatch.setattr(
+        Workspace.objects,
+        "select_for_update",
+        observe_assignment_workspace_lock,
+    )
+
+    def accept_readiness():
+        close_old_connections()
+        try:
+            readiness_results.append(
+                accept_runtime_readiness(
+                    context,
+                    uuid4(),
+                    1,
+                    1,
+                    now=now,
+                )
+            )
+        except BaseException as exc:  # noqa: BLE001 - report thread failures
+            errors.append(("readiness", exc))
+        finally:
+            connection.close()
+
+    def assign_sleeping_bundle():
+        close_old_connections()
+        try:
+            assignment_results.append(register_workspace(str(uuid4())))
+        except BaseException as exc:  # noqa: BLE001 - report thread failures
+            errors.append(("assignment", exc))
+        finally:
+            connection.close()
+
+    readiness_thread = Thread(
+        name="runtime-readiness",
+        target=accept_readiness,
+        daemon=True,
+    )
+    assignment_thread = Thread(
+        name="sleeping-assignment",
+        target=assign_sleeping_bundle,
+        daemon=True,
+    )
+    readiness_thread.start()
+    assignment_started = False
+    try:
+        assert readiness_paused.wait(timeout=5)
+        assignment_thread.start()
+        assignment_started = True
+        assert assignment_workspace_requested.wait(timeout=5)
+    finally:
+        release_readiness.set()
+        readiness_thread.join(timeout=5)
+        if assignment_started:
+            assignment_thread.join(timeout=5)
+
+    assert not readiness_thread.is_alive()
+    assert not assignment_thread.is_alive()
+    assert errors == []
+    assert len(readiness_results) == 1
+    assert readiness_results[0].status == "ready"
+    assert len(assignment_results) == 1
+    assert assignment_results[0].id == workspace.id
+    bundle.refresh_from_db()
+    assert bundle.state == ReadyWorkspaceBundleState.ASSIGNED

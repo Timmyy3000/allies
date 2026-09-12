@@ -128,6 +128,9 @@ ALLIES_RUNTIME_ACTIVITY_WAIT_MAX_WAITERS = env_positive_int(
 READY_WORKSPACE_POOL_TARGET = env_nonnegative_int(
     "READY_WORKSPACE_POOL_TARGET", 0, maximum=8
 )
+READY_WORKSPACE_POOL_SLEEP_ENABLED = env_bool(
+    "READY_WORKSPACE_POOL_SLEEP_ENABLED", default=False
+)
 WORKSPACE_CPU_KIND = os.getenv("WORKSPACE_CPU_KIND", "shared").strip()
 if WORKSPACE_CPU_KIND not in {"shared", "performance"}:
     raise ImproperlyConfigured("WORKSPACE_CPU_KIND must be shared or performance")

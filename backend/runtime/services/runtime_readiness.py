@@ -18,6 +18,8 @@ from runtime.exceptions import (
 )
 from runtime.models import (
     IN_FLIGHT_PROVISIONING_PHASES,
+    ReadyWorkspaceBundle,
+    ReadyWorkspaceBundleState,
     RuntimeIntent,
     RuntimeIntentOutcome,
     RuntimeOperationState,
@@ -180,6 +182,7 @@ def _accept_runtime_readiness_once(
     if workspace.ready_at is None or accepting_start or boot_replaced:
         workspace.ready_at = observed_at
     workspace.runtime_last_seen_at = observed_at
+    _clear_onboarding_error_locked(workspace, observed_at)
     if accepting_start:
         operation_id = workspace.runtime_operation_id
         RuntimeIntent.objects.filter(
@@ -216,6 +219,24 @@ def _accept_runtime_readiness_once(
         runtime_start_epoch=runtime_start_epoch,
         accepted_at=observed_at,
     )
+
+
+def _clear_onboarding_error_locked(
+    workspace: Workspace,
+    observed_at: datetime,
+) -> None:
+    """Clear only pool wake errors after a current receipt is accepted."""
+
+    if workspace.tenant_ref.startswith("pool:"):
+        return
+    ReadyWorkspaceBundle.objects.filter(
+        workspace_id=workspace.id,
+        state=ReadyWorkspaceBundleState.ASSIGNED,
+        safe_error_code__in=(
+            "onboarding_wake_failed",
+            "onboarding_wake_exhausted",
+        ),
+    ).update(safe_error_code=None, updated_at=observed_at)
 
 
 def require_current_runtime_ready_locked(

@@ -16,6 +16,8 @@ from runtime.exceptions import (
 from runtime.models import (
     Execution,
     ExecutionStatus,
+    ReadyWorkspaceBundle,
+    ReadyWorkspaceBundleState,
     RuntimeIntentOutcome,
     RuntimeOperationState,
     RuntimeOperationTrigger,
@@ -43,6 +45,7 @@ from runtime.services.runtime_auth import (
 from runtime.services.runtime_intents import (
     request_activation_recovery_wake,
     request_execution_wake_locked,
+    request_onboarding_wake_locked,
     request_runtime_intent,
 )
 from runtime.services.runtime_power import (
@@ -128,6 +131,22 @@ def workspace(db):
     )
 
 
+def create_assigned_sleeping_bundle(workspace, now):
+    return ReadyWorkspaceBundle.objects.create(
+        workspace=workspace,
+        state=ReadyWorkspaceBundleState.ASSIGNED,
+        region="ams",
+        release_fingerprint="release",
+        blank_volume_ref=workspace.volume_ref,
+        config_version=1,
+        next_attempt_at=now,
+        ready_at=now,
+        expires_at=now + timedelta(minutes=15),
+        last_health_at=now,
+        assigned_at=now,
+    )
+
+
 def test_intent_is_durable_and_wakes_only_the_recorded_machine(workspace):
     now = timezone.now()
     provider = FakePowerProvider(workspace)
@@ -149,6 +168,222 @@ def test_intent_is_durable_and_wakes_only_the_recorded_machine(workspace):
     workspace.refresh_from_db()
     assert workspace.runtime_operation_state == RuntimeOperationState.AWAITING_READINESS
     assert workspace.runtime_start_epoch == 1
+
+
+def test_onboarding_wake_retries_without_execution_or_runtime_intent_and_exhausts(
+    workspace,
+):
+    now = timezone.now()
+    bundle = create_assigned_sleeping_bundle(workspace, now)
+    with transaction.atomic():
+        locked = Workspace.objects.select_for_update().get(pk=workspace.id)
+        request_onboarding_wake_locked(locked, now=now)
+
+    provider = FakePowerProvider(workspace)
+    provider.start_error = ProviderCapacityError("temporary provider capacity")
+    expected_delays = (5, 10, 20, 40)
+    observed_at = now
+    for retry_count, delay in enumerate(expected_delays, start=1):
+        report = process_runtime_wakes(provider=provider, now=observed_at)
+        workspace.refresh_from_db()
+        bundle.refresh_from_db()
+        assert report.failed == 1
+        assert workspace.runtime_operation_state == RuntimeOperationState.REQUESTED
+        assert workspace.runtime_operation_trigger == RuntimeOperationTrigger.ONBOARDING
+        assert workspace.runtime_operation_retry_count == retry_count
+        assert workspace.runtime_operation_requested_at == observed_at + timedelta(
+            seconds=delay
+        )
+        assert bundle.state == ReadyWorkspaceBundleState.ASSIGNED
+        assert bundle.safe_error_code == "onboarding_wake_failed"
+        observed_at = workspace.runtime_operation_requested_at
+
+    final = process_runtime_wakes(provider=provider, now=observed_at)
+    workspace.refresh_from_db()
+    bundle.refresh_from_db()
+    assert final.failed == 1
+    assert workspace.runtime_operation_state == RuntimeOperationState.IDLE
+    assert workspace.runtime_operation_retry_count == 4
+    assert bundle.state == ReadyWorkspaceBundleState.ASSIGNED
+    assert bundle.safe_error_code == "onboarding_wake_exhausted"
+
+    with transaction.atomic():
+        locked = Workspace.objects.select_for_update().get(pk=workspace.id)
+        request_onboarding_wake_locked(locked, now=observed_at + timedelta(minutes=1))
+    workspace.refresh_from_db()
+    assert workspace.runtime_operation_state == RuntimeOperationState.IDLE
+    assert workspace.runtime_operation_retry_count == 4
+    assert provider.start_calls == 5
+
+
+def test_onboarding_retry_then_current_readiness_clears_error(workspace):
+    now = timezone.now()
+    bundle = create_assigned_sleeping_bundle(workspace, now)
+    with transaction.atomic():
+        locked = Workspace.objects.select_for_update().get(pk=workspace.id)
+        request_onboarding_wake_locked(locked, now=now)
+
+    provider = FakePowerProvider(workspace)
+    provider.start_error = ProviderCapacityError("temporary provider capacity")
+    first = process_runtime_wakes(provider=provider, now=now)
+    workspace.refresh_from_db()
+    bundle.refresh_from_db()
+    assert first.failed == 1
+    assert bundle.safe_error_code == "onboarding_wake_failed"
+
+    provider.start_error = None
+    retry_at = workspace.runtime_operation_requested_at
+    assert retry_at is not None
+    second = process_runtime_wakes(provider=provider, now=retry_at)
+    workspace.refresh_from_db()
+    assert second.started == 1
+    assert workspace.runtime_operation_state == RuntimeOperationState.AWAITING_READINESS
+
+    issued = issue_runtime_credential(workspace.id, "onboarding-retry-secret")
+    context = authenticate_runtime_token(issued.raw_token)
+    accept_runtime_readiness(
+        context,
+        uuid4(),
+        workspace.machine_generation,
+        workspace.runtime_start_epoch,
+        now=retry_at,
+    )
+
+    bundle.refresh_from_db()
+    assert bundle.safe_error_code is None
+    workspace.refresh_from_db()
+    assert workspace.runtime_operation_state == RuntimeOperationState.IDLE
+
+
+def test_onboarding_wake_rejects_receipt_from_before_current_start_epoch(workspace):
+    now = timezone.now()
+    create_assigned_sleeping_bundle(workspace, now)
+    with transaction.atomic():
+        locked = Workspace.objects.select_for_update().get(pk=workspace.id)
+        request_onboarding_wake_locked(locked, now=now)
+
+    old_epoch = workspace.runtime_start_epoch
+    provider = FakePowerProvider(workspace)
+    report = process_runtime_wakes(provider=provider, now=now)
+
+    assert report.started == 1
+    workspace.refresh_from_db()
+    assert workspace.runtime_operation_state == RuntimeOperationState.AWAITING_READINESS
+    assert workspace.runtime_start_epoch == old_epoch + 1
+    issued = issue_runtime_credential(workspace.id, "onboarding-secret")
+    context = authenticate_runtime_token(issued.raw_token)
+    with pytest.raises(RuntimeFencedError):
+        accept_runtime_readiness(
+            context,
+            uuid4(),
+            workspace.machine_generation,
+            old_epoch,
+            now=now,
+        )
+
+
+def test_explicit_activation_recovery_restarts_exhausted_onboarding(workspace):
+    now = timezone.now()
+    bundle = create_assigned_sleeping_bundle(workspace, now)
+    bundle.safe_error_code = "onboarding_wake_exhausted"
+    bundle.save(update_fields=["safe_error_code", "updated_at"])
+    workspace.activation_claim_token = "activation-claim"
+    workspace.activation_claim_expires_at = now + timedelta(minutes=5)
+    workspace.save(
+        update_fields=[
+            "activation_claim_token",
+            "activation_claim_expires_at",
+            "updated_at",
+        ]
+    )
+    provider = FakePowerProvider(workspace)
+    observation = _activation_observation(workspace, provider)
+
+    operation_id = request_activation_recovery_wake(
+        workspace.id,
+        "activation-claim",
+        **observation,
+        now=now,
+    )
+    replayed_operation_id = request_activation_recovery_wake(
+        workspace.id,
+        "activation-claim",
+        **observation,
+        now=now + timedelta(seconds=1),
+    )
+
+    workspace.refresh_from_db()
+    bundle.refresh_from_db()
+    assert operation_id is not None
+    assert replayed_operation_id == operation_id
+    assert workspace.runtime_operation_state == RuntimeOperationState.REQUESTED
+    assert workspace.runtime_operation_trigger == RuntimeOperationTrigger.ONBOARDING
+    assert workspace.runtime_operation_retry_count == 0
+    assert bundle.state == ReadyWorkspaceBundleState.ASSIGNED
+    assert bundle.safe_error_code is None
+
+
+def test_queued_execution_supersedes_onboarding_wake(workspace):
+    now = timezone.now()
+    bundle = create_assigned_sleeping_bundle(workspace, now)
+    bundle.safe_error_code = "onboarding_wake_failed"
+    bundle.save(update_fields=["safe_error_code", "updated_at"])
+    with transaction.atomic():
+        locked = Workspace.objects.select_for_update().get(pk=workspace.id)
+        request_onboarding_wake_locked(locked, now=now)
+    profile = RuntimeProfile.objects.create(
+        workspace=workspace,
+        ally_ref="onboarding-execution-ally",
+        hermes_profile_key="onboarding-execution-ally",
+        lifecycle_state=RuntimeProfileLifecycleState.ACTIVE,
+        materialized_generation=workspace.machine_generation,
+    )
+
+    execution = create_execution(
+        workspace.id,
+        profile.id,
+        "onboarding-execution",
+        {"message": "hello", "cloud_conversation_ref": "onboarding-cloud"},
+    )
+
+    workspace.refresh_from_db()
+    assert execution.status == ExecutionStatus.QUEUED
+    assert workspace.runtime_operation_state == RuntimeOperationState.REQUESTED
+    assert workspace.runtime_operation_trigger == RuntimeOperationTrigger.EXECUTION
+
+    provider = FakePowerProvider(workspace)
+    wake_at = timezone.now() + timedelta(seconds=1)
+    report = process_runtime_wakes(provider=provider, now=wake_at)
+    assert report.started == 1
+    workspace.refresh_from_db()
+    issued = issue_runtime_credential(workspace.id, "superseded-onboarding-secret")
+    context = authenticate_runtime_token(issued.raw_token)
+    accept_runtime_readiness(
+        context,
+        uuid4(),
+        workspace.machine_generation,
+        workspace.runtime_start_epoch,
+        now=wake_at,
+    )
+
+    bundle.refresh_from_db()
+    assert bundle.safe_error_code is None
+
+
+@override_settings(ALLIES_RUNTIME_IDLE_STOP_ENABLED=True)
+def test_idle_maintenance_excludes_unassigned_pool_workspace(workspace):
+    now = timezone.now()
+    Workspace.objects.filter(pk=workspace.pk).update(
+        tenant_ref=f"pool:{uuid4()}",
+        speculative_keep_warm_until=now - timedelta(seconds=1),
+    )
+    workspace.refresh_from_db()
+    provider = FakePowerProvider(workspace)
+
+    report = stop_idle_workspaces(provider=provider, now=now)
+
+    assert report.examined == 0
+    assert provider.stop_calls == 0
 
 
 def test_runtime_intent_timing_bridges_idempotency_to_wake_operation(

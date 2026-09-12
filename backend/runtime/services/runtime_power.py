@@ -22,6 +22,8 @@ from runtime.models import (
     ExecutionStatus,
     Lease,
     LeaseState,
+    ReadyWorkspaceBundle,
+    ReadyWorkspaceBundleState,
     RuntimeIntent,
     RuntimeIntentOutcome,
     RuntimeOperationState,
@@ -37,6 +39,7 @@ from runtime.providers import (
     provider_workspace_context,
 )
 
+from .runtime_intents import _has_wake_demand
 from .runtime_provider import runtime_power_provider
 from .runtime_readiness import advance_runtime_start_epoch_locked
 from .timing import emit_timing_event, observed_timing_phase
@@ -590,15 +593,10 @@ def _claim_requested_operation(
         return None
     if workspace.provisioning_phase in IN_FLIGHT_PROVISIONING_PHASES:
         return None
-    if (
-        workspace.runtime_operation_trigger == RuntimeOperationTrigger.SPECULATIVE
-        and not RuntimeIntent.objects.filter(
-            workspace_id=workspace.id,
-            coalesced_operation_id=workspace.runtime_operation_id,
-            outcome=RuntimeIntentOutcome.WAKING,
-            expires_at__gte=now,
-        ).exists()
-    ):
+    if workspace.runtime_operation_trigger in {
+        RuntimeOperationTrigger.SPECULATIVE,
+        RuntimeOperationTrigger.ONBOARDING,
+    } and not _has_wake_demand(workspace, now):
         _mark_operation_failed_locked(workspace, now=now)
         return None
     token = secrets.token_urlsafe(24)
@@ -886,6 +884,22 @@ def _mark_operation_failed(
     )
 
 
+def _set_onboarding_error_locked(
+    workspace: Workspace,
+    code: str,
+) -> None:
+    if workspace.tenant_ref.startswith("pool:"):
+        return
+    bundle = ReadyWorkspaceBundle.objects.filter(
+        workspace_id=workspace.id,
+        state=ReadyWorkspaceBundleState.ASSIGNED,
+    ).first()
+    if bundle is None:
+        return
+    bundle.safe_error_code = code
+    bundle.save(update_fields=["safe_error_code", "updated_at"])
+
+
 def _mark_operation_failed_locked(
     workspace: Workspace,
     *,
@@ -895,13 +909,18 @@ def _mark_operation_failed_locked(
 ) -> None:
     operation_id = workspace.runtime_operation_id
     observed_at = now or timezone.now()
+    onboarding = workspace.runtime_operation_trigger == RuntimeOperationTrigger.ONBOARDING
+    onboarding_demand = onboarding and _has_wake_demand(workspace, observed_at)
     retry_execution = (
         retry_execution
-        and workspace.runtime_operation_trigger == RuntimeOperationTrigger.EXECUTION
-        and Execution.objects.filter(
-            workspace_id=workspace.id,
-            status=ExecutionStatus.QUEUED,
-        ).exists()
+        and (
+            workspace.runtime_operation_trigger == RuntimeOperationTrigger.EXECUTION
+            and Execution.objects.filter(
+                workspace_id=workspace.id,
+                status=ExecutionStatus.QUEUED,
+            ).exists()
+            or onboarding_demand
+        )
         and workspace.runtime_operation_retry_count < EXECUTION_WAKE_MAX_RETRIES
     )
     if operation_id is not None:
@@ -923,6 +942,11 @@ def _mark_operation_failed_locked(
         workspace.runtime_operation_retry_count = retry_count
         workspace.activation_claim_token = None
         workspace.activation_claim_expires_at = None
+        if onboarding:
+            _set_onboarding_error_locked(
+                workspace,
+                "onboarding_wake_failed",
+            )
         workspace.save(
             update_fields=[
                 "runtime_operation_id",
@@ -951,13 +975,19 @@ def _mark_operation_failed_locked(
 
             transaction.on_commit(emit_retry_bridge)
         return
+    if onboarding and onboarding_demand:
+        _set_onboarding_error_locked(
+            workspace,
+            "onboarding_wake_exhausted",
+        )
     if clear_keep_warm:
         workspace.speculative_keep_warm_until = None
     workspace.runtime_operation_id = None
     workspace.runtime_operation_state = RuntimeOperationState.IDLE
     workspace.runtime_operation_trigger = None
     workspace.runtime_operation_requested_at = None
-    workspace.runtime_operation_retry_count = 0
+    if not onboarding:
+        workspace.runtime_operation_retry_count = 0
     workspace.activation_claim_token = None
     workspace.activation_claim_expires_at = None
     workspace.save(
@@ -1058,6 +1088,7 @@ def _idle_workspace_ids(now: datetime, limit: int) -> list[UUID]:
     )
     return list(
         Workspace.objects.filter(
+            ~Q(tenant_ref__startswith="pool:"),
             runtime_operation_state=RuntimeOperationState.IDLE,
             speculative_keep_warm_until__isnull=False,
             speculative_keep_warm_until__lte=now,
@@ -1098,6 +1129,7 @@ def _idle_candidate_locked(
             else RuntimeOperationState.IDLE
         )
         or workspace.provisioning_phase in IN_FLIGHT_PROVISIONING_PHASES
+        or workspace.tenant_ref.startswith("pool:")
         or workspace.speculative_keep_warm_until is None
         or workspace.speculative_keep_warm_until > now
         or workspace.machine_generation <= 0
