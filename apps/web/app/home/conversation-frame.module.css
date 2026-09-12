@@ -797,6 +797,7 @@
 }
 
 .frameActivity {
+  interpolate-size: allow-keywords;
   align-self: flex-start;
   color: var(--chat-accent);
   font-size: 14px;
@@ -819,9 +820,16 @@
   cursor: pointer;
 }
 
-.frameActivity summary::-webkit-details-marker {
-  display: none;
+.frameActivity::details-content {
+  block-size: 0;
+  overflow-y: clip;
+  opacity: 0;
+  transition: content-visibility 200ms allow-discrete, block-size 200ms cubic-bezier(.22, 1, .36, 1), opacity 160ms ease-out;
 }
+
+.frameActivity[open]::details-content { block-size: auto; opacity: 1; }
+
+.frameActivity summary::-webkit-details-marker { display: none; }
 
 .frameActivityChevron {
   display: grid;
@@ -831,13 +839,15 @@
   transition: transform 180ms ease;
 }
 
+.frameActivity[open] .frameActivityChevron { transform: rotate(180deg); }
+
 .frameActivityChevron svg {
   width: 12px;
   height: 12px;
 }
 
-.frameActivity[open] .frameActivityChevron {
-  transform: rotate(180deg);
+.frameActivityReveal {
+  overflow: hidden;
 }
 
 .frameActivityEntries {
@@ -861,9 +871,9 @@
 .frameActivityEntry svg { flex: 0 0 18px; }
 .frameActivityEntry span { min-width: 0; overflow-wrap: anywhere; }
 .frameActivityEntry small { color: var(--text-secondary); white-space: nowrap; }
-.frameActivity[open] .frameActivityEntries { animation: activity-label-in 180ms ease-out; }
 @media (prefers-reduced-motion: reduce) {
-  .frameActivityLabel, .frameActivity[open] .frameActivityEntries { animation: none; }
+  .frameActivityLabel { animation: none; }
+  .frameActivity::details-content,
   .frameActivityChevron { transition: none; }
 }
 
@@ -884,6 +894,15 @@
   padding: 0;
   list-style: none;
 }
+
+.frameQueueSmooth { gap: 0; }
+
+.frameQueueItem {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.frameQueueItem .frameQueuePill { height: 48px; }
 
 .frameQueuePill {
   display: flex;
@@ -1053,6 +1072,7 @@
 .frameProduction .frameComposer[data-has-paste="true"] { max-height: none; padding-top: 14px; }
 .frameComposerContent > textarea { width: 100%; flex: none; }
 .framePasteCard { display: flex; align-items: center; width: fit-content; max-width: 100%; border-radius: 16px; background: var(--surface-secondary); }
+.framePasteReveal { overflow: hidden; }
 .frameProduction .framePasteCard > button.framePastedText { width: auto; flex: 0 1 auto; background: transparent; }
 .frameProduction .framePasteCard > button.frameRemovePaste { flex: 0 0 32px; width: 32px; height: 32px; margin-right: 8px; background: transparent; color: var(--chat-accent); }
 .frameRemovePaste svg { width: 18px; height: 18px; }
@@ -1255,6 +1275,12 @@
   border-radius: 30px;
   background: var(--panel);
   box-shadow: 0 24px 80px rgb(0 0 0 / 24%), 0 0 0 1px var(--divider);
+  animation: frame-sheet-in 220ms cubic-bezier(.22, 1, .36, 1);
+}
+
+@keyframes frame-sheet-in {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .frameSheetTop,
@@ -1360,7 +1386,9 @@
   background: rgb(0 0 0 / 42%);
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
+  animation: frame-backdrop-in 220ms ease-out;
 }
+@keyframes frame-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
 .frameNativeSheet:not([open]) { display: none; }
 
 @media (prefers-color-scheme: dark) {
@@ -1951,8 +1979,9 @@
   background: var(--chat-surface);
 }
 
-.frameRoutinePrompt summary {
+.frameRoutinePromptTrigger {
   display: flex;
+  width: 100%;
   min-height: 44px;
   align-items: center;
   justify-content: space-between;
@@ -1963,36 +1992,35 @@
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  list-style: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
 }
 
-.frameRoutinePrompt summary::-webkit-details-marker {
-  display: none;
-}
-
-.frameRoutinePrompt summary::after {
+.frameRoutinePromptTrigger > span {
   width: 8px;
   height: 8px;
   flex: 0 0 8px;
   border-right: 1.5px solid currentColor;
   border-bottom: 1.5px solid currentColor;
-  content: "";
   transform: rotate(45deg) translateY(-2px);
   transition: transform 160ms ease;
 }
 
-.frameRoutinePrompt[open] summary {
+.frameRoutinePromptTrigger[aria-expanded="true"] {
   border-bottom: 1px solid var(--divider);
 }
 
-.frameRoutinePrompt[open] summary::after {
+.frameRoutinePromptTrigger[aria-expanded="true"] > span {
   transform: rotate(225deg) translate(-2px, -1px);
 }
 
-.frameRoutinePrompt summary:focus-visible {
+.frameRoutinePromptTrigger:focus-visible {
   outline: 2px solid var(--chat-accent);
   outline-offset: -3px;
 }
+
+.frameRoutinePromptReveal { overflow: hidden; }
 
 .frameRoutinePrompt p {
   margin: 0;
@@ -2002,6 +2030,12 @@
   font-size: 14px;
   line-height: 20px;
   white-space: pre-wrap;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .frameSheet,
+  .frameNativeSheet::backdrop { animation: none; }
+  .frameRoutinePromptTrigger > span { transition: none; }
 }
 
 .frameRoutineDetailOverlay .frameSheet {

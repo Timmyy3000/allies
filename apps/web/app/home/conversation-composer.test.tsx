@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ConversationComposer, readableAccentForeground } from "./conversation-frame-primitives";
@@ -25,12 +25,12 @@ function Composer({ initial = "", submit = (_value: string) => {} }) {
 }
 
 describe("large composer drafts", () => {
-  it("removes pasted content while preserving the prompt", () => {
+  it("removes pasted content while preserving the prompt", async () => {
     const submit = vi.fn();
     render(<Composer initial={"Source\n".repeat(25)} submit={submit} />);
     fireEvent.change(screen.getByLabelText("Message Sage"), { target: { value: "Keep my prompt" } });
     fireEvent.click(screen.getByRole("button", { name: "Remove pasted text" }));
-    expect(screen.queryByRole("button", { name: "Edit pasted text" })).toBeNull();
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Edit pasted text" })).toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     expect(submit).toHaveBeenCalledWith("Keep my prompt");
   });

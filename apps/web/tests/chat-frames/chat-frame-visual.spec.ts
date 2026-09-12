@@ -155,7 +155,7 @@ test.describe("chat frame geometry and behavior", () => {
     await page.setViewportSize({ width: 320, height: 700 });
     await openFrame(page, "347:5953");
     const queue = page.getByRole("list", { name: "Queued messages" });
-    await queue.locator("li > span").first().evaluate((element) => {
+    await queue.locator("li [title]").first().evaluate((element) => {
       element.textContent = `https://example.com/${"unbroken".repeat(80)}`;
     });
     const geometry = await queue.locator("li").evaluate((item) => {

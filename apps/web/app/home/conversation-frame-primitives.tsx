@@ -1,4 +1,4 @@
-import { Children, useEffect, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode, type Ref, type UIEvent } from "react";
+import { Children, useEffect, useId, useLayoutEffect, useRef, useState, type ClipboardEvent, type CSSProperties, type ReactNode, type Ref, type UIEvent } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -349,14 +349,16 @@ export function ActivityDisclosure({
         </span>
         <span className={styles.frameActivityChevron} aria-hidden="true"><ChevronIcon /></span>
       </summary>
-      <div className={styles.frameActivityEntries}>
-        {entries.map((entry) => (
-          <div className={`${styles.frameActivityEntry} ${entry.tone === "accent" ? styles.frameActivityAccent : entry.tone === "muted" ? styles.frameActivityMuted : ""}`} key={entry.id}>
-            <ActivityIcon kind={entry.activityKind} tone={entry.tone} />
-            <span>{entry.text}</span>
-            {entry.durationMs != null ? <small>{entry.durationMs > 0 && entry.durationMs < 1000 ? "<1" : Math.round(entry.durationMs / 1000)}s</small> : null}
-          </div>
-        ))}
+      <div className={styles.frameActivityReveal}>
+        <div className={styles.frameActivityEntries}>
+          {entries.map((entry) => (
+            <div className={`${styles.frameActivityEntry} ${entry.tone === "accent" ? styles.frameActivityAccent : entry.tone === "muted" ? styles.frameActivityMuted : ""}`} key={entry.id}>
+              <ActivityIcon kind={entry.activityKind} tone={entry.tone} />
+              <span>{entry.text}</span>
+              {entry.durationMs != null ? <small>{entry.durationMs > 0 && entry.durationMs < 1000 ? "<1" : Math.round(entry.durationMs / 1000)}s</small> : null}
+            </div>
+          ))}
+        </div>
       </div>
     </details>
   );
@@ -373,20 +375,26 @@ export function QueueStack({
   actionLabel?: string;
   onAction?: () => void;
 }) {
+  const reducedMotion = useReducedMotion();
+  const duration = reducedMotion ? 0 : .32;
   return (
-    <ol className={styles.frameQueue} aria-label="Queued messages">
-      {items.map((item) => (
-        <li className={styles.frameQueuePill} key={item.id}>
-          <span title={item.content}>{item.content}</span>
-          {actionLabel && onAction ? <button type="button" onClick={onAction}>{actionLabel}</button> : null}
-          {item.statusLabel ? <span aria-label={item.statusLabel}>{item.statusLabel}</span> : null}
-          {onRemove && item.removable !== false ? (
-            <button type="button" aria-label={`Remove queued message: ${item.content}`} onClick={() => onRemove(item.id)}>
-              <TrashIcon />
-            </button>
-          ) : null}
-        </li>
+    <ol className={`${styles.frameQueue} ${styles.frameQueueSmooth}`} aria-label="Queued messages">
+      <AnimatePresence initial={false}>
+      {items.map((item, index) => (
+        <motion.li className={styles.frameQueueItem} key={item.id} initial={{ height: 0, marginTop: 0 }} animate={{ height: 48, marginTop: index === 0 ? 0 : 8 }} exit={{ height: 0, marginTop: 0 }} transition={{ duration, ease: [.25, 1, .5, 1] }}>
+          <motion.div className={styles.frameQueuePill} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: duration * .65, ease: [.25, 1, .5, 1] }}>
+            <span title={item.content}>{item.content}</span>
+            {actionLabel && onAction ? <button type="button" onClick={onAction}>{actionLabel}</button> : null}
+            {item.statusLabel ? <span aria-label={item.statusLabel}>{item.statusLabel}</span> : null}
+            {onRemove && item.removable !== false ? (
+              <button type="button" aria-label={`Remove queued message: ${item.content}`} onClick={() => onRemove(item.id)}>
+                <TrashIcon />
+              </button>
+            ) : null}
+          </motion.div>
+        </motion.li>
       ))}
+      </AnimatePresence>
     </ol>
   );
 }
@@ -494,7 +502,7 @@ export function ConversationComposer({
           style={{ overflow: "hidden" }}
         >{attachments}</motion.div> : null}
       </AnimatePresence>
-      {compact ? <div className={styles.framePasteCard}><button
+      <AnimatePresence initial={false}>{compact ? <motion.div className={styles.framePasteReveal} initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: reduceAttachmentMotion ? 0 : .2, ease: [.22, 1, .36, 1] }}><div className={styles.framePasteCard}><button
         type="button"
         className={styles.framePastedText}
         disabled={disabled}
@@ -503,7 +511,7 @@ export function ConversationComposer({
       >
         <span aria-hidden="true">≡</span>
         <span><strong>Pasted text</strong><small>{draft.paste.length.toLocaleString()} characters · Click to edit</small></span>
-      </button><button type="button" className={styles.frameRemovePaste} aria-label="Remove pasted text" disabled={disabled} onClick={() => updateParts(draft.prompt, "")}><TrashIcon /></button></div> : null}
+      </button><button type="button" className={styles.frameRemovePaste} aria-label="Remove pasted text" disabled={disabled} onClick={() => updateParts(draft.prompt, "")}><TrashIcon /></button></div></motion.div> : null}</AnimatePresence>
       <textarea
         ref={fieldRef}
         id="ally-message"
@@ -717,6 +725,9 @@ export function BottomSheet({
   closeDisabled?: boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const sheetRef = useRef<HTMLElement>(null);
+  const closingRef = useRef(false);
+  const reducedMotion = useReducedMotion();
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -748,13 +759,24 @@ export function BottomSheet({
     };
   }, [modal]);
   const label = labelledBy ?? (title ? "conversation-sheet-title" : undefined);
-  const handleClose = () => {
+  const handleClose = async () => {
     if (closeDisabled) return;
-    if (modal && dialogRef.current?.open) dialogRef.current.close();
+    if (closingRef.current) return;
+    const root = dialogRef.current;
+    if (!reducedMotion && root?.animate && sheetRef.current?.animate) {
+      closingRef.current = true;
+      const options = { duration: 160, easing: "ease-in", fill: "forwards" as const };
+      const animations = [
+        root.animate([{ opacity: 1 }, { opacity: 0 }], options),
+        sheetRef.current.animate([{ transform: "translateY(0)" }, { transform: "translateY(8px)" }], options),
+      ];
+      await Promise.allSettled(animations.map((animation) => animation.finished));
+    }
     onClose();
   };
   const content = (
         <section
+          ref={sheetRef}
           className={styles.frameSheet}
           role={modal ? undefined : "dialog"}
           aria-modal={modal ? undefined : true}
@@ -762,12 +784,12 @@ export function BottomSheet({
         >
         {hideHeader ? null : <div className={styles.frameSheetTop}>
           {title ? <h2 id={labelledBy ?? "conversation-sheet-title"}>{title}</h2> : <span />}
-          <button type="button" className={styles.frameSheetClose} aria-label="Close" disabled={closeDisabled} onClick={handleClose}><CloseIcon /></button>
+          <button type="button" className={styles.frameSheetClose} aria-label="Close" disabled={closeDisabled} onClick={() => void handleClose()}><CloseIcon /></button>
         </div>}
         {children}
       </section>
   );
-  return modal ? <dialog ref={dialogRef} className={`${styles.frameOverlay} ${styles.frameNativeSheet} ${className}`} aria-labelledby={label} onCancel={(event) => { event.preventDefault(); handleClose(); }}>{content}</dialog>
+  return modal ? <dialog ref={dialogRef} className={`${styles.frameOverlay} ${styles.frameNativeSheet} ${className}`} aria-labelledby={label} onCancel={(event) => { event.preventDefault(); void handleClose(); }}>{content}</dialog>
     : <div className={`${styles.frameOverlay} ${className}`} role="presentation">{content}</div>;
 }
 
@@ -911,6 +933,9 @@ export function RoutineChatDetail({
   onDelete: () => void;
   deleteButtonRef?: Ref<HTMLButtonElement>;
 }) {
+  const promptId = useId();
+  const reducedMotion = useReducedMotion();
+  const [promptOpen, setPromptOpen] = useState(false);
   const actionLocked = actionPending || actionSent;
   const rows = [
     startsAt ? ["Starts", startsAt] : null,
@@ -929,15 +954,15 @@ export function RoutineChatDetail({
       <div className={styles.frameRoutineRows}>
         {rows.map(([label, value]) => <div key={label}><strong>{label}</strong><span>{value}</span></div>)}
       </div>
-      <details className={styles.frameRoutinePrompt}>
-        <summary>Full prompt</summary>
-        <p>{executionPrompt}</p>
-      </details>
-      {actionSent ? <p className={styles.frameRoutineActionNotice} role="status">Request sent to Ally.</p> : null}
+      <div className={styles.frameRoutinePrompt}>
+        <button type="button" className={styles.frameRoutinePromptTrigger} aria-expanded={promptOpen} aria-controls={promptId} onClick={() => setPromptOpen(value => !value)}>Full prompt<span aria-hidden="true" /></button>
+        <motion.div id={promptId} initial={false} animate={{ height: promptOpen ? "auto" : 0, opacity: promptOpen ? 1 : 0 }} transition={{ duration: reducedMotion ? 0 : .2, ease: [.22, 1, .36, 1] }} className={styles.frameRoutinePromptReveal} aria-hidden={!promptOpen}><p>{executionPrompt}</p></motion.div>
+      </div>
+      <AnimatePresence initial={false}>{actionSent ? <motion.p key="sent" className={styles.frameRoutineActionNotice} role="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .16 }}>Request sent to Ally.</motion.p> : null}</AnimatePresence>
       <div className={styles.frameRoutineActionGroup}>
         {canPauseResume && pauseResumeLabel ? (
           <button type="button" className={styles.frameNeutralAction} onClick={onPauseResume} disabled={actionLocked}>
-            {actionPending ? "Sending…" : pauseResumeLabel}
+            <motion.span key={actionPending ? "sending" : pauseResumeLabel} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: reducedMotion ? 0 : .12 }}>{actionPending ? "Sending…" : pauseResumeLabel}</motion.span>
           </button>
         ) : null}
         {canDelete ? (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type FormEvent } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import type { AllyViewModel } from "@allies/cloud-client";
 import { AllyAvatar, ALLY_SHAPES, type AllyShape } from "@/components/ally-avatar";
 import { WAITLIST_APPEARANCE_CATALOG_VERSION, WAITLIST_COLORS } from "@/lib/waitlist/catalog";
@@ -17,6 +18,7 @@ export function AllySettingsDetails({ ally, label = "", onSaveLabel }: {
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const saving = useRef(false);
+  const reducedMotion = useReducedMotion();
   const [shape, color, ...extra] = ally.appearance.key.split(":");
   const knownColor = WAITLIST_COLORS.find((value) => value.slice(1) === color?.toLowerCase());
   const knownAppearance = ally.appearance.catalogVersion === WAITLIST_APPEARANCE_CATALOG_VERSION
@@ -53,7 +55,7 @@ export function AllySettingsDetails({ ally, label = "", onSaveLabel }: {
       <input id="ally-label" value={draft} readOnly={!onSaveLabel} disabled={pending} placeholder="No label yet"
         aria-describedby={!onSaveLabel ? "label-unavailable" : error ? "label-error" : "label-status"}
         aria-invalid={Boolean(error)} onChange={(event) => { setDraft(event.target.value); setError(null); setStatus(null); }} />
-      {onSaveLabel ? <button type="submit" disabled={pending || !draft.trim() || draft.trim() === saved}>{pending ? "Saving…" : "Save label"}</button>
+      {onSaveLabel ? <button type="submit" disabled={pending || !draft.trim() || draft.trim() === saved}><motion.span key={pending ? "saving" : status ? "saved" : "save"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: reducedMotion ? 0 : .12 }}>{pending ? "Saving…" : status ? "Saved ✓" : "Save label"}</motion.span></button>
         : <p id="label-unavailable" className={styles.hint}>Edit this label from your ally’s chat settings.</p>}
       <p id="label-status" role="status">{status}</p>
       {error ? <p id="label-error" className={styles.error} role="alert">{error}</p> : null}
