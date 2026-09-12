@@ -81,6 +81,7 @@ MAX_CLEANUP_ENTRIES = 8_192
 DEFAULT_LOCK_TIMEOUT_SECONDS = 5.0
 DEFAULT_STALE_LOCK_SECONDS = 60.0
 DEFAULT_CLEANUP_TIMEOUT_SECONDS = 30.0
+MAX_DELETION_EXPIRY_SECONDS = 24 * 60 * 60
 _RECEIPT_ID_PATTERN = re.compile(r"^(?:pr|cr)-[0-9a-f]{32}$")
 _SAFE_REPAIR_CODES = frozenset(
     {
@@ -617,6 +618,8 @@ class CleanupReceipt:
     operation_id: str
     receipt_id: str
     repair_code: str | None = None
+    attempt_id: str | None = None
+    request_digest: str | None = None
 
     @property
     def result_code(self) -> str:
@@ -635,6 +638,8 @@ class CleanupReceipt:
             "operation_id": self.operation_id,
             "receipt_id": self.receipt_id,
             "repair_code": self.repair_code,
+            "attempt_id": self.attempt_id,
+            "request_digest": self.request_digest,
         }
 
 
@@ -826,9 +831,42 @@ def _receipt_id(
     return "pr-" + hashlib.sha256(payload).hexdigest()[:32]
 
 
-def _cleanup_receipt_id(*, profile_key: str, operation_id: str, epoch: int) -> str:
-    payload = f"cleanup\0{profile_key}\0{operation_id}\0{epoch}".encode()
+def _cleanup_receipt_id(
+    *, profile_key: str, operation_id: str, epoch: int, attempt_id: str | None = None
+) -> str:
+    payload = (
+        f"cleanup\0{profile_key}\0{operation_id}\0{epoch}"
+        if attempt_id is None
+        else f"cleanup\0{profile_key}\0{operation_id}\0{attempt_id}\0{epoch}"
+    ).encode()
     return "cr-" + hashlib.sha256(payload).hexdigest()[:32]
+
+
+def _cleanup_attempt_id(value: Any, *, required: bool) -> str | None:
+    if value is None and not required:
+        return None
+    if isinstance(value, uuid.UUID):
+        value = str(value)
+    try:
+        canonical = str(uuid.UUID(value)) if isinstance(value, str) else ""
+    except (TypeError, ValueError):
+        canonical = ""
+    if not isinstance(value, str) or value != value.lower() or canonical != value:
+        raise ProfileInputError("cleanup attempt ID is invalid")
+    return value
+
+
+def _cleanup_request_digest(value: Any, *, required: bool) -> str | None:
+    if value is None and not required:
+        return None
+    if (
+        not isinstance(value, str)
+        or value != value.lower()
+        or len(value) != 64
+        or any(character not in "0123456789abcdef" for character in value)
+    ):
+        raise ProfileInputError("cleanup request digest is invalid")
+    return value
 
 
 def _safe_repair_code(value: Any) -> str | None:
@@ -1892,9 +1930,39 @@ class ProfileStore:
 
     def _tombstone_receipt(self, payload: Mapping[str, Any]) -> CleanupReceipt | None:
         status = payload.get("status")
-        if status not in {item.value for item in ProfileCleanupStatus}:
+        if not isinstance(status, str) or status not in {
+            item.value for item in ProfileCleanupStatus
+        }:
             return None
         key = payload.get("profile_key")
+        if (
+            status == ProfileCleanupStatus.DEPROVISIONED.value
+            and payload.get("deleted") is True
+        ):
+            terminal_fields = {
+                "schema",
+                "schema_version",
+                "profile_key",
+                "status",
+                "deleted",
+            }
+            if (
+                set(payload) != terminal_fields
+                or payload.get("schema") != MANIFEST_SCHEMA
+                or payload.get("schema_version") != MANIFEST_VERSION
+            ):
+                return None
+            try:
+                validate_profile_key(key)
+            except ProfileInputError:
+                return None
+            return CleanupReceipt(
+                ProfileCleanupStatus.DEPROVISIONED,
+                key,
+                0,
+                "",
+                "",
+            )
         operation_id = payload.get("operation_id")
         epoch = payload.get("lifecycle_epoch")
         receipt_id = payload.get("receipt_id")
@@ -1912,6 +1980,13 @@ class ProfileStore:
             _safe_operation_id(operation_id)
         except ProfileInputError:
             return None
+        try:
+            attempt_id = _cleanup_attempt_id(payload.get("attempt_id"), required=False)
+            request_digest = _cleanup_request_digest(
+                payload.get("request_digest"), required=False
+            )
+        except ProfileInputError:
+            return None
         return CleanupReceipt(
             ProfileCleanupStatus(status),
             key,
@@ -1919,6 +1994,69 @@ class ProfileStore:
             operation_id,
             receipt_id,
             _safe_repair_code(payload.get("repair_code")),
+            attempt_id,
+            request_digest,
+        )
+
+    def _pending_tombstone_is_valid(
+        self, payload: Mapping[str, Any], profile_key: str
+    ) -> bool:
+        """Recognize the runtime's durable, still-active deletion fence."""
+
+        required = {
+            "schema",
+            "schema_version",
+            "profile_key",
+            "lifecycle_epoch",
+            "operation_id",
+            "receipt_id",
+            "status",
+            "expires_at",
+        }
+        optional = {"attempt_id", "request_digest"}
+        if set(payload) - required - optional or not required <= set(payload):
+            return False
+        if (
+            payload.get("schema") != MANIFEST_SCHEMA
+            or payload.get("schema_version") != MANIFEST_VERSION
+            or payload.get("profile_key") != profile_key
+            or payload.get("status") != "CLEANUP_PENDING"
+        ):
+            return False
+        epoch = payload.get("lifecycle_epoch")
+        if isinstance(epoch, bool) or not isinstance(epoch, int) or epoch < 0:
+            return False
+        try:
+            operation_id = _safe_operation_id(payload.get("operation_id"))
+            receipt_id = payload.get("receipt_id")
+            if not isinstance(receipt_id, str) or not _RECEIPT_ID_PATTERN.fullmatch(
+                receipt_id
+            ):
+                return False
+            expires_at = payload.get("expires_at")
+            if (
+                isinstance(expires_at, bool)
+                or not isinstance(expires_at, (int, float))
+                or not math.isfinite(float(expires_at))
+            ):
+                return False
+            attempt_id = _cleanup_attempt_id(
+                payload.get("attempt_id"), required=False
+            )
+            request_digest = _cleanup_request_digest(
+                payload.get("request_digest"), required=False
+            )
+        except (ProfileInputError, TypeError, ValueError, OverflowError):
+            return False
+        return (
+            (attempt_id is None) == (request_digest is None)
+            and receipt_id
+            == _cleanup_receipt_id(
+                profile_key=profile_key,
+                operation_id=operation_id,
+                epoch=epoch,
+                attempt_id=attempt_id,
+            )
         )
 
     def materialize(
@@ -1949,6 +2087,21 @@ class ProfileStore:
             with self._lock(seed.hermes_profile_key or "invalid"):
                 tombstone = self._read_tombstone(seed.hermes_profile_key or "invalid")
                 if tombstone is not None:
+                    if self._pending_tombstone_is_valid(
+                        tombstone, seed.hermes_profile_key or "invalid"
+                    ):
+                        expires_at = float(tombstone["expires_at"])
+                        if expires_at <= time.time():
+                            return self._receipt(
+                                seed,
+                                ProfileProvisionStatus.REPAIR_REQUIRED,
+                                repair_code="cleanup_expired",
+                            )
+                        return self._receipt(
+                            seed,
+                            ProfileProvisionStatus.FENCED,
+                            repair_code="profile_deprovisioned",
+                        )
                     tombstone_receipt = self._tombstone_receipt(tombstone)
                     if (
                         tombstone_receipt is None
@@ -2041,14 +2194,17 @@ class ProfileStore:
     provision = materialize
     materialize_profile = materialize
 
-    def cleanup(
+    def fence_deletion(
         self,
         profile_key: str,
         operation_id: str,
         lifecycle_epoch: int,
         expires_at: datetime | float | str | None = None,
+        *,
+        attempt_id: str | uuid.UUID,
+        request_digest: str,
     ) -> CleanupReceipt:
-        """Fence and remove one exact profile directory, safely and idempotently."""
+        """Persist a deletion fence without touching profile-owned content."""
 
         key = validate_profile_key(profile_key)
         operation_id = _safe_operation_id(operation_id)
@@ -2058,17 +2214,38 @@ class ProfileStore:
             or lifecycle_epoch < 0
         ):
             raise ProfileInputError("lifecycle epoch is invalid")
+        cleanup_attempt = _cleanup_attempt_id(attempt_id, required=True)
+        cleanup_digest = _cleanup_request_digest(request_digest, required=True)
         expiry = self._expiry_timestamp(expires_at)
-        # Foundry commits the incremented lifecycle epoch before dispatching
-        # cleanup.  Runtime records that fenced epoch; it does not advance
-        # control-plane state a second time.
-        requested_epoch = lifecycle_epoch
+        now = time.time()
+        if expiry > now + MAX_DELETION_EXPIRY_SECONDS:
+            raise ProfileInputError("cleanup expiry exceeds the deletion bound")
         receipt_id = _cleanup_receipt_id(
-            profile_key=key, operation_id=operation_id, epoch=requested_epoch
+            profile_key=key,
+            operation_id=operation_id,
+            epoch=lifecycle_epoch,
+            attempt_id=cleanup_attempt,
         )
 
+        def receipt(
+            status: ProfileCleanupStatus,
+            *,
+            epoch: int = lifecycle_epoch,
+            repair_code: str | None = None,
+        ) -> CleanupReceipt:
+            return CleanupReceipt(
+                status,
+                key,
+                epoch,
+                operation_id,
+                receipt_id,
+                repair_code,
+                cleanup_attempt,
+                cleanup_digest,
+            )
+
         try:
-            profiles_root = self._profiles_root()
+            self._profiles_root()
             profile = self._profile_path(key)
             tombstone_path = self._tombstone_path(key)
             with self._lock(key):
@@ -2078,73 +2255,102 @@ class ProfileStore:
                     else None
                 )
                 if _lstat(tombstone_path) is not None and existing_payload is None:
-                    return CleanupReceipt(
+                    return receipt(
                         ProfileCleanupStatus.REPAIR_REQUIRED,
-                        key,
-                        requested_epoch,
-                        operation_id,
-                        receipt_id,
-                        "invalid_cleanup_tombstone",
+                        repair_code="invalid_cleanup_tombstone",
                     )
                 if existing_payload is not None:
-                    existing_status = existing_payload.get("status")
-                    if existing_status == "CLEANUP_PENDING":
+                    if (
+                        existing_payload.get("status")
+                        == ProfileCleanupStatus.DEPROVISIONED.value
+                        and existing_payload.get("deleted") is True
+                    ):
+                        terminal = self._tombstone_receipt(existing_payload)
+                        if terminal is None or terminal.profile_key != key:
+                            return receipt(
+                                ProfileCleanupStatus.REPAIR_REQUIRED,
+                                repair_code="invalid_cleanup_tombstone",
+                            )
+                        return receipt(ProfileCleanupStatus.DEPROVISIONED)
+                    if existing_payload.get("status") == "CLEANUP_PENDING":
+                        if not self._pending_tombstone_is_valid(existing_payload, key):
+                            return receipt(
+                                ProfileCleanupStatus.REPAIR_REQUIRED,
+                                repair_code="invalid_cleanup_tombstone",
+                            )
                         existing_key = existing_payload.get("profile_key")
                         existing_operation = existing_payload.get("operation_id")
                         existing_epoch = existing_payload.get("lifecycle_epoch")
+                        try:
+                            existing_attempt = _cleanup_attempt_id(
+                                existing_payload.get("attempt_id"), required=True
+                            )
+                            existing_digest = _cleanup_request_digest(
+                                existing_payload.get("request_digest"), required=True
+                            )
+                        except ProfileInputError:
+                            return receipt(
+                                ProfileCleanupStatus.REPAIR_REQUIRED,
+                                repair_code="invalid_cleanup_tombstone",
+                            )
                         if (
                             existing_key != key
-                            or not isinstance(existing_operation, str)
+                            or existing_operation != operation_id
                             or not isinstance(existing_epoch, int)
                             or isinstance(existing_epoch, bool)
                         ):
-                            return CleanupReceipt(
-                                ProfileCleanupStatus.REPAIR_REQUIRED,
-                                key,
-                                requested_epoch,
-                                operation_id,
-                                receipt_id,
-                                "invalid_cleanup_tombstone",
+                            return receipt(
+                                ProfileCleanupStatus.FENCED,
+                                epoch=(
+                                    existing_epoch
+                                    if isinstance(existing_epoch, int)
+                                    and not isinstance(existing_epoch, bool)
+                                    else lifecycle_epoch
+                                ),
+                                repair_code="stale_cleanup_epoch",
                             )
                         if (
-                            existing_operation == operation_id
-                            and existing_epoch == requested_epoch
+                            existing_epoch == lifecycle_epoch
+                            and existing_attempt == cleanup_attempt
+                            and existing_digest == cleanup_digest
                         ):
-                            pass  # Resume an interrupted delete for the same operation.
-                        elif requested_epoch <= existing_epoch:
-                            return CleanupReceipt(
+                            existing_expiry = existing_payload.get("expires_at")
+                            if (
+                                isinstance(existing_expiry, bool)
+                                or not isinstance(existing_expiry, (int, float))
+                                or not math.isfinite(float(existing_expiry))
+                            ):
+                                return receipt(
+                                    ProfileCleanupStatus.REPAIR_REQUIRED,
+                                    repair_code="invalid_cleanup_tombstone",
+                                )
+                            if existing_expiry <= time.time():
+                                return receipt(
+                                    ProfileCleanupStatus.REPAIR_REQUIRED,
+                                    repair_code="cleanup_expired",
+                                )
+                            return receipt(ProfileCleanupStatus.FENCED)
+                        if lifecycle_epoch <= existing_epoch:
+                            return receipt(
                                 ProfileCleanupStatus.FENCED,
-                                key,
-                                existing_epoch,
-                                operation_id,
-                                receipt_id,
-                                "stale_cleanup_epoch",
+                                epoch=existing_epoch,
+                                repair_code="stale_cleanup_epoch",
                             )
                     else:
                         existing = self._tombstone_receipt(existing_payload)
                         if existing is None or existing.profile_key != key:
-                            return CleanupReceipt(
+                            return receipt(
                                 ProfileCleanupStatus.REPAIR_REQUIRED,
-                                key,
-                                requested_epoch,
-                                operation_id,
-                                receipt_id,
-                                "invalid_cleanup_tombstone",
+                                repair_code="invalid_cleanup_tombstone",
                             )
                         if (
-                            existing.operation_id == operation_id
-                            and existing.lifecycle_epoch == requested_epoch
+                            existing.status is not ProfileCleanupStatus.REPAIR_REQUIRED
+                            and lifecycle_epoch <= existing.lifecycle_epoch
                         ):
-                            if existing.status is ProfileCleanupStatus.DEPROVISIONED:
-                                return existing
-                        elif requested_epoch <= existing.lifecycle_epoch:
-                            return CleanupReceipt(
+                            return receipt(
                                 ProfileCleanupStatus.FENCED,
-                                key,
-                                existing.lifecycle_epoch,
-                                operation_id,
-                                receipt_id,
-                                "stale_cleanup_epoch",
+                                epoch=existing.lifecycle_epoch,
+                                repair_code="stale_cleanup_epoch",
                             )
 
                 if _is_directory(profile):
@@ -2159,13 +2365,266 @@ class ProfileStore:
                         and not isinstance(profile_epoch, bool)
                         and profile_epoch > lifecycle_epoch
                     ):
-                        return CleanupReceipt(
+                        return receipt(
                             ProfileCleanupStatus.FENCED,
-                            key,
-                            profile_epoch,
-                            operation_id,
-                            receipt_id,
-                            "stale_cleanup_epoch",
+                            epoch=profile_epoch,
+                            repair_code="stale_cleanup_epoch",
+                        )
+
+                pending_payload = {
+                    "schema": MANIFEST_SCHEMA,
+                    "schema_version": MANIFEST_VERSION,
+                    "profile_key": key,
+                    "lifecycle_epoch": lifecycle_epoch,
+                    "operation_id": operation_id,
+                    "receipt_id": receipt_id,
+                    "status": "CLEANUP_PENDING",
+                    "expires_at": expiry,
+                    "attempt_id": cleanup_attempt,
+                    "request_digest": cleanup_digest,
+                }
+                expired = expiry <= now
+                if expired:
+                    pending_payload["status"] = ProfileCleanupStatus.REPAIR_REQUIRED.value
+                    pending_payload["repair_code"] = "cleanup_expired"
+                self._write_json_atomic(tombstone_path, pending_payload, mode=0o644)
+                if expired:
+                    return receipt(
+                        ProfileCleanupStatus.REPAIR_REQUIRED,
+                        repair_code="cleanup_expired",
+                    )
+                return receipt(ProfileCleanupStatus.FENCED)
+        except ProfileStoreError:
+            return receipt(
+                ProfileCleanupStatus.REPAIR_REQUIRED,
+                repair_code="cleanup_unavailable",
+            )
+
+    def cleanup(
+        self,
+        profile_key: str,
+        operation_id: str,
+        lifecycle_epoch: int,
+        expires_at: datetime | float | str | None = None,
+        *,
+        attempt_id: str | uuid.UUID | None = None,
+        request_digest: str | None = None,
+        deletion: bool = False,
+    ) -> CleanupReceipt:
+        """Fence and remove one exact profile directory, safely and idempotently."""
+
+        key = validate_profile_key(profile_key)
+        operation_id = _safe_operation_id(operation_id)
+        if (
+            isinstance(lifecycle_epoch, bool)
+            or not isinstance(lifecycle_epoch, int)
+            or lifecycle_epoch < 0
+        ):
+            raise ProfileInputError("lifecycle epoch is invalid")
+        if not isinstance(deletion, bool):
+            raise ProfileInputError("cleanup deletion flag is invalid")
+        cleanup_attempt = _cleanup_attempt_id(attempt_id, required=deletion)
+        cleanup_digest = _cleanup_request_digest(request_digest, required=deletion)
+        if not deletion and (cleanup_attempt is not None or cleanup_digest is not None):
+            raise ProfileInputError("cleanup deletion identity is unexpected")
+        expiry = self._expiry_timestamp(expires_at)
+        if deletion and expiry > time.time() + MAX_DELETION_EXPIRY_SECONDS:
+            raise ProfileInputError("cleanup expiry exceeds the deletion bound")
+        # Foundry commits the incremented lifecycle epoch before dispatching
+        # cleanup.  Runtime records that fenced epoch; it does not advance
+        # control-plane state a second time.
+        requested_epoch = lifecycle_epoch
+        receipt_id = _cleanup_receipt_id(
+            profile_key=key,
+            operation_id=operation_id,
+            epoch=requested_epoch,
+            attempt_id=cleanup_attempt,
+        )
+
+        def receipt(
+            status: ProfileCleanupStatus,
+            *,
+            epoch: int = requested_epoch,
+            repair_code: str | None = None,
+            operation: str = operation_id,
+            receipt: str = receipt_id,
+            attempt: str | None = cleanup_attempt,
+            digest: str | None = cleanup_digest,
+        ) -> CleanupReceipt:
+            return CleanupReceipt(
+                status,
+                key,
+                epoch,
+                operation,
+                receipt,
+                repair_code,
+                attempt,
+                digest,
+            )
+
+        try:
+            profiles_root = self._profiles_root()
+            profile = self._profile_path(key)
+            tombstone_path = self._tombstone_path(key)
+            with self._lock(key):
+                existing_payload = (
+                    self._read_json(tombstone_path)
+                    if _lstat(tombstone_path) is not None
+                    else None
+                )
+                if _lstat(tombstone_path) is not None and existing_payload is None:
+                    return receipt(
+                        ProfileCleanupStatus.REPAIR_REQUIRED,
+                        repair_code="invalid_cleanup_tombstone",
+                    )
+                if existing_payload is not None:
+                    existing_status = existing_payload.get("status")
+                    if (
+                        deletion
+                        and existing_status == ProfileCleanupStatus.DEPROVISIONED.value
+                        and existing_payload.get("deleted") is True
+                    ):
+                        terminal = self._tombstone_receipt(existing_payload)
+                        if terminal is None or terminal.profile_key != key:
+                            return receipt(
+                                ProfileCleanupStatus.REPAIR_REQUIRED,
+                                repair_code="invalid_cleanup_tombstone",
+                            )
+                        # Terminal deletion markers are intentionally
+                        # content-free.  Foundry binds replay to the current
+                        # attempt/digest; the local marker only proves that
+                        # this opaque profile key has already been removed.
+                        return receipt(ProfileCleanupStatus.DEPROVISIONED)
+                    if existing_status == "CLEANUP_PENDING":
+                        pending_is_valid = self._pending_tombstone_is_valid(
+                            existing_payload, key
+                        )
+                        if deletion and not pending_is_valid:
+                            return receipt(
+                                ProfileCleanupStatus.REPAIR_REQUIRED,
+                                repair_code="invalid_cleanup_tombstone",
+                            )
+                        if (
+                            not deletion
+                            and (
+                                "attempt_id" in existing_payload
+                                or "request_digest" in existing_payload
+                            )
+                            and not pending_is_valid
+                        ):
+                            return receipt(
+                                ProfileCleanupStatus.REPAIR_REQUIRED,
+                                repair_code="invalid_cleanup_tombstone",
+                            )
+                        existing_key = existing_payload.get("profile_key")
+                        existing_operation = existing_payload.get("operation_id")
+                        existing_epoch = existing_payload.get("lifecycle_epoch")
+                        if (
+                            existing_key != key
+                            or not isinstance(existing_operation, str)
+                            or not isinstance(existing_epoch, int)
+                            or isinstance(existing_epoch, bool)
+                        ):
+                            return receipt(
+                                ProfileCleanupStatus.REPAIR_REQUIRED,
+                                repair_code="invalid_cleanup_tombstone",
+                            )
+                        try:
+                            existing_attempt = _cleanup_attempt_id(
+                                existing_payload.get("attempt_id"), required=False
+                            )
+                            existing_digest = _cleanup_request_digest(
+                                existing_payload.get("request_digest"), required=False
+                            )
+                        except ProfileInputError:
+                            return receipt(
+                                ProfileCleanupStatus.REPAIR_REQUIRED,
+                                repair_code="invalid_cleanup_tombstone",
+                            )
+                        if (
+                            not deletion
+                            and (
+                                existing_attempt is not None
+                                or existing_digest is not None
+                            )
+                        ):
+                            return receipt(
+                                ProfileCleanupStatus.FENCED,
+                                epoch=existing_epoch,
+                                repair_code="stale_cleanup_epoch",
+                            )
+                        if (
+                            existing_operation == operation_id
+                            and existing_epoch == requested_epoch
+                            and (
+                                not deletion
+                                or (
+                                    existing_attempt == cleanup_attempt
+                                    and existing_digest == cleanup_digest
+                                )
+                            )
+                        ):
+                            pass  # Resume an interrupted delete for the same operation.
+                        elif requested_epoch <= existing_epoch:
+                            return receipt(
+                                ProfileCleanupStatus.FENCED,
+                                epoch=existing_epoch,
+                                repair_code="stale_cleanup_epoch",
+                            )
+                    else:
+                        existing = self._tombstone_receipt(existing_payload)
+                        if existing is None or existing.profile_key != key:
+                            return receipt(
+                                ProfileCleanupStatus.REPAIR_REQUIRED,
+                                repair_code="invalid_cleanup_tombstone",
+                            )
+                        if deletion and existing.status is ProfileCleanupStatus.DEPROVISIONED:
+                            if requested_epoch < existing.lifecycle_epoch:
+                                return receipt(
+                                    ProfileCleanupStatus.FENCED,
+                                    epoch=existing.lifecycle_epoch,
+                                    repair_code="stale_cleanup_epoch",
+                                )
+                        elif (
+                            existing.operation_id == operation_id
+                            and existing.lifecycle_epoch == requested_epoch
+                            and (
+                                not deletion
+                                or (
+                                    existing.attempt_id == cleanup_attempt
+                                    and existing.request_digest == cleanup_digest
+                                )
+                            )
+                        ):
+                            if existing.status is ProfileCleanupStatus.DEPROVISIONED:
+                                return (
+                                    receipt(ProfileCleanupStatus.DEPROVISIONED)
+                                    if deletion
+                                    else existing
+                                )
+                        elif requested_epoch <= existing.lifecycle_epoch:
+                            return receipt(
+                                ProfileCleanupStatus.FENCED,
+                                epoch=existing.lifecycle_epoch,
+                                repair_code="stale_cleanup_epoch",
+                            )
+
+                if _is_directory(profile):
+                    profile_manifest = self._read_json(profile / MANIFEST_NAME)
+                    profile_epoch = (
+                        profile_manifest.get("lifecycle_epoch")
+                        if profile_manifest
+                        else None
+                    )
+                    if (
+                        isinstance(profile_epoch, int)
+                        and not isinstance(profile_epoch, bool)
+                        and profile_epoch > lifecycle_epoch
+                    ):
+                        return receipt(
+                            ProfileCleanupStatus.FENCED,
+                            epoch=profile_epoch,
+                            repair_code="stale_cleanup_epoch",
                         )
 
                 if expiry <= time.time():
@@ -2179,14 +2638,13 @@ class ProfileStore:
                         "status": ProfileCleanupStatus.REPAIR_REQUIRED.value,
                         "repair_code": "cleanup_expired",
                     }
+                    if deletion:
+                        repair_payload["attempt_id"] = cleanup_attempt
+                        repair_payload["request_digest"] = cleanup_digest
                     self._write_json_atomic(tombstone_path, repair_payload, mode=0o644)
-                    return CleanupReceipt(
+                    return receipt(
                         ProfileCleanupStatus.REPAIR_REQUIRED,
-                        key,
-                        requested_epoch,
-                        operation_id,
-                        receipt_id,
-                        "cleanup_expired",
+                        repair_code="cleanup_expired",
                     )
 
                 pending_payload = {
@@ -2199,6 +2657,9 @@ class ProfileStore:
                     "status": "CLEANUP_PENDING",
                     "expires_at": expiry,
                 }
+                if deletion:
+                    pending_payload["attempt_id"] = cleanup_attempt
+                    pending_payload["request_digest"] = cleanup_digest
                 self._write_json_atomic(tombstone_path, pending_payload, mode=0o644)
 
                 if _is_symlink(profile):
@@ -2240,34 +2701,32 @@ class ProfileStore:
                         )
                     except ProfileStoreError:
                         pass
-                    return CleanupReceipt(
+                    return receipt(
                         ProfileCleanupStatus.REPAIR_REQUIRED,
-                        key,
-                        requested_epoch,
-                        operation_id,
-                        receipt_id,
-                        repair_code,
+                        repair_code=repair_code,
                     )
 
-                complete_payload = dict(pending_payload)
-                complete_payload["status"] = ProfileCleanupStatus.DEPROVISIONED.value
-                complete_payload.pop("expires_at", None)
+                if deletion:
+                    # The terminal marker is deliberately content-free.  Do
+                    # not retain operation, attempt, expiry, receipt, epoch,
+                    # seed, or any provider-derived material after success.
+                    complete_payload = {
+                        "schema": MANIFEST_SCHEMA,
+                        "schema_version": MANIFEST_VERSION,
+                        "profile_key": key,
+                        "status": ProfileCleanupStatus.DEPROVISIONED.value,
+                        "deleted": True,
+                    }
+                else:
+                    complete_payload = dict(pending_payload)
+                    complete_payload["status"] = ProfileCleanupStatus.DEPROVISIONED.value
+                    complete_payload.pop("expires_at", None)
                 self._write_json_atomic(tombstone_path, complete_payload, mode=0o644)
-                return CleanupReceipt(
-                    ProfileCleanupStatus.DEPROVISIONED,
-                    key,
-                    requested_epoch,
-                    operation_id,
-                    receipt_id,
-                )
+                return receipt(ProfileCleanupStatus.DEPROVISIONED)
         except ProfileStoreError:
-            return CleanupReceipt(
+            return receipt(
                 ProfileCleanupStatus.REPAIR_REQUIRED,
-                key,
-                requested_epoch,
-                operation_id,
-                receipt_id,
-                "cleanup_unavailable",
+                repair_code="cleanup_unavailable",
             )
 
     deprovision = cleanup

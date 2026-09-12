@@ -174,6 +174,18 @@ COPY smoke_routine_management.py /tmp/allies-smoke-routine-management.py
 RUN /opt/hermes/.venv/bin/python /tmp/allies-smoke-routine-management.py \
     && rm -f /tmp/allies-smoke-routine-management.py
 
+COPY allies_profile_deletion.py /opt/hermes/allies_profile_deletion.py
+COPY patches/profile-quiescence.patch /tmp/allies-profile-quiescence.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-profile-quiescence.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-profile-quiescence.patch \
+    && git apply --whitespace=nowarn /tmp/allies-profile-quiescence.patch \
+    && rm -f /tmp/allies-profile-quiescence.patch
+
+COPY smoke_profile_quiescence.py /tmp/allies-smoke-profile-quiescence.py
+RUN PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-profile-quiescence.py \
+    && rm -f /tmp/allies-smoke-profile-quiescence.py
+
 LABEL org.opencontainers.image.title="Allies Hermes with Mnemosyne" \
       org.opencontainers.image.description="Policy-fenced profile-local Mnemosyne provider" \
       org.opencontainers.image.version="${ALLIES_WRAPPER_VERSION}" \

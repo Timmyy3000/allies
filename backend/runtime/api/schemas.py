@@ -211,6 +211,19 @@ class MaterializationReceiptRequest(Schema):
     result_code: str
 
 
+class CleanupQuiescence(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    state: Literal["quiescing", "quiesced", "repair_required"]
+    safe_error_code: StrictStr = Field(
+        default="", max_length=64, pattern=r"^$|^[a-z][a-z0-9_]{0,63}$"
+    )
+    active_runs: StrictInt = Field(..., ge=0)
+    active_profile_io: StrictInt = Field(..., ge=0)
+    open_profile_stores: StrictInt = Field(..., ge=0)
+    owned_children: StrictInt = Field(..., ge=0)
+
+
 class CleanupReceiptRequest(Schema):
     profile_id: UUID
     operation_id: UUID
@@ -219,6 +232,26 @@ class CleanupReceiptRequest(Schema):
     result_code: str
     deleted: bool
     active_lease_count: int
+    attempt_id: UUID | None = None
+    machine_generation: StrictInt | None = None
+    runtime_start_epoch: StrictInt | None = None
+    runtime_boot_id: UUID | None = None
+    hermes_instance_id: UUID | None = None
+    quiescence: CleanupQuiescence | None = None
+
+
+class ProfileDeletionRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    version: StrictInt = Field(..., ge=1, le=1)
+    workspace_id: UUID
+    ally_id: UUID
+    binding_id: UUID
+    operation_id: UUID
+
+
+class ProfileDeletionResumeRequest(ProfileDeletionRequest):
+    expected_attempt_id: UUID
 
 
 class ProfileProvisioningRequest(Schema):

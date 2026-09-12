@@ -80,6 +80,7 @@ def compose_runtime(
         foundry,
         profile_store,
         correlation_id=correlation_id,
+        hermes=hermes_client,
     )
     publication_bridge = (
         PublicationBridge(foundry, profile_store, settings.volume_root)
@@ -99,6 +100,7 @@ def compose_runtime(
         publication_bridge=publication_bridge,
         boot_id=correlation_id,
     )
+    profile_reconciler.worker = worker
     return RuntimeComposition(
         settings=settings,
         foundry=foundry,

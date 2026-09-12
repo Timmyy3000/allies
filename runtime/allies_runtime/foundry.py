@@ -44,6 +44,7 @@ from .observability import (
     observe_runtime_operation,
 )
 from .profile_store import ProfileStoreError
+from .quiescence import ProfileResourceRegistry, QuiescenceError
 
 MAX_CLAIM_SLOTS = 8
 # Sequence 100001 is reserved for the single terminal event emitted when the
@@ -323,6 +324,8 @@ class ProfileDesiredState:
     cleanup_result_code: str
     cleanup_expires_at: datetime | str | None
     active_lease_count: int = 0
+    cleanup_attempt_id: str | None = None
+    cleanup_requires_quiescence: bool = False
 
     def __repr__(self) -> str:  # pragma: no cover - defensive redaction
         return (
@@ -362,6 +365,12 @@ class ProfileReceipt:
     result_code: str
     deleted: bool = False
     active_lease_count: int = 0
+    attempt_id: str | None = None
+    machine_generation: int | None = None
+    runtime_start_epoch: int | None = None
+    runtime_boot_id: str | None = None
+    hermes_instance_id: str | None = None
+    quiescence: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -604,6 +613,10 @@ def _profile_desired_state(value: Any, machine_generation: int) -> ProfileDesire
             cleanup_result_code=str(value.get("cleanup_result_code", "")),
             cleanup_expires_at=_parse_datetime(value.get("cleanup_expires_at")),
             active_lease_count=int(value.get("active_lease_count", 0)),
+            cleanup_attempt_id=_optional_text(value.get("cleanup_attempt_id")),
+            cleanup_requires_quiescence=_optional_bool(
+                value.get("cleanup_requires_quiescence", False)
+            ),
         )
     except (TypeError, ValueError):
         raise FoundryError(
@@ -639,8 +652,14 @@ def _profile_receipt(value: Mapping[str, Any] | None) -> ProfileReceipt:
             seed_fingerprint=str(value["seed_fingerprint"]),
             receipt_id=_optional_text(value.get("receipt_id")),
             result_code=str(value["result_code"]),
-            deleted=bool(value.get("deleted", False)),
+            deleted=_optional_bool(value.get("deleted", False)),
             active_lease_count=int(value.get("active_lease_count", 0)),
+            attempt_id=_optional_text(value.get("attempt_id")),
+            machine_generation=_optional_int(value.get("machine_generation")),
+            runtime_start_epoch=_optional_int(value.get("runtime_start_epoch")),
+            runtime_boot_id=_optional_text(value.get("runtime_boot_id")),
+            hermes_instance_id=_optional_text(value.get("hermes_instance_id")),
+            quiescence=_optional_quiescence(value.get("quiescence")),
         )
     except (TypeError, ValueError):
         raise FoundryError(
@@ -656,6 +675,53 @@ def _optional_text(value: Any) -> str | None:
     if not isinstance(value, str) or not value:
         raise ValueError("optional value must be a non-empty string")
     return value
+
+
+def _optional_bool(value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise TypeError("optional value must be a boolean")
+    return value
+
+
+def _optional_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise TypeError("optional value must be a non-negative integer")
+    return value
+
+
+def _optional_mapping(value: Any) -> Mapping[str, Any] | None:
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError("optional value must be an object")
+    return dict(value)
+
+
+def _optional_quiescence(value: Any) -> Mapping[str, Any] | None:
+    parsed = _optional_mapping(value)
+    if parsed is None:
+        return None
+    required = {
+        "state",
+        "safe_error_code",
+        "active_runs",
+        "active_profile_io",
+        "open_profile_stores",
+        "owned_children",
+    }
+    if set(parsed) != required:
+        raise ValueError("quiescence evidence has an unexpected shape")
+    if parsed["state"] not in {"quiescing", "quiesced", "repair_required"}:
+        raise ValueError("quiescence state is invalid")
+    if not isinstance(parsed["safe_error_code"], str):
+        raise TypeError("quiescence safe error code is invalid")
+    for name in required - {"state", "safe_error_code"}:
+        value = parsed[name]
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise TypeError("quiescence counter is invalid")
+    return parsed
 
 
 def _publication_uuid(value: str | UUID) -> str:
@@ -1269,19 +1335,38 @@ class FoundryClient:
         result_code: str,
         deleted: bool,
         active_lease_count: int,
+        attempt_id: str | UUID | None = None,
+        machine_generation: int | None = None,
+        runtime_start_epoch: int | None = None,
+        runtime_boot_id: str | UUID | None = None,
+        hermes_instance_id: str | UUID | None = None,
+        quiescence: Mapping[str, Any] | None = None,
     ) -> ProfileReceipt:
+        body: dict[str, Any] = {
+            "profile_id": str(profile_id),
+            "operation_id": str(operation_id),
+            "lifecycle_epoch": lifecycle_epoch,
+            "request_digest": request_digest,
+            "result_code": result_code,
+            "deleted": deleted,
+            "active_lease_count": active_lease_count,
+        }
+        if attempt_id is not None:
+            body["attempt_id"] = str(attempt_id)
+        if machine_generation is not None:
+            body["machine_generation"] = machine_generation
+        if runtime_start_epoch is not None:
+            body["runtime_start_epoch"] = runtime_start_epoch
+        if runtime_boot_id is not None:
+            body["runtime_boot_id"] = str(runtime_boot_id)
+        if hermes_instance_id is not None:
+            body["hermes_instance_id"] = str(hermes_instance_id)
+        if quiescence is not None:
+            body["quiescence"] = dict(_optional_quiescence(quiescence))
         result = await self._request(
             "POST",
             f"/api/v1/runtime/profiles/{profile_id}/cleanup-receipt",
-            body={
-                "profile_id": str(profile_id),
-                "operation_id": str(operation_id),
-                "lifecycle_epoch": lifecycle_epoch,
-                "request_digest": request_digest,
-                "result_code": result_code,
-                "deleted": deleted,
-                "active_lease_count": active_lease_count,
-            },
+            body=body,
         )
         return _profile_receipt(result)
 
@@ -1764,6 +1849,7 @@ class FoundryWorker:
         self._publication_profile_cursor: str | None = None
         self._activity_revision = 0
         self._active: set[asyncio.Task[Any]] = set()
+        self._resource_registry = ProfileResourceRegistry()
         self._ambiguous_claims: dict[str, float] = {}
         self._fast_polls_remaining = 0
         self._stopping = False
@@ -1775,6 +1861,23 @@ class FoundryWorker:
     @property
     def ambiguous_claim_ids(self) -> tuple[str, ...]:
         return tuple(self._ambiguous_claims)
+
+    async def quiesce_profile(
+        self, profile_key: str, *, timeout_seconds: float = 30.0
+    ) -> tuple[str, tuple[str, ...]]:
+        """Fence and join runtime-owned claim tasks for one profile."""
+
+        try:
+            return await self._resource_registry.quiesce(
+                profile_key, timeout_seconds=timeout_seconds
+            )
+        except QuiescenceError as exc:
+            return "repair_required", (getattr(exc, "code", "quiescence_failed"),)
+
+    def fence_profile(self, profile_key: str) -> None:
+        """Stop new claims for a profile before listener-level drain."""
+
+        self._resource_registry.fence(profile_key)
 
     def _observability_context(self) -> dict[str, object]:
         fields: dict[str, object] = {"correlation_id": self.boot_id}
@@ -2045,6 +2148,11 @@ class FoundryWorker:
         )
 
     async def _run_claim(self, claim: FoundryClaim) -> Any:
+        resource_token = self._resource_registry.register(
+            claim.hermes_profile_key,
+            claim.session_id or claim.execution_id,
+            future=asyncio.current_task(),
+        )
         stream = None
         stream_ref = [None]
         lost = asyncio.Event()
@@ -2816,6 +2924,7 @@ class FoundryWorker:
             except FoundryError:
                 return None
         finally:
+            self._resource_registry.release(resource_token)
             if publication_context is not None and self._publication_bridge is not None:
                 self._publication_bridge.deactivate(publication_context)
             if renewal is not None:
