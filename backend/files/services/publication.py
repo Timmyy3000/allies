@@ -15,7 +15,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import F, Prefetch, Q, Sum
 from django.utils import timezone
 
-from allies.models import AllyBinding, BindingStatus
+from allies.models import Ally, AllyBinding, AllyDeletionState, BindingStatus
 from auths.models import User
 from chat.exceptions import QueueFull
 from chat.models import Conversation, Message, MessageOrigin, MessageSender
@@ -30,6 +30,7 @@ from files.models import (
     MAX_FILE_BYTES,
     FileAllyTombstone,
     FileDirection,
+    FileIOOutcome,
     FileObjectKind,
     FilePublication,
     FileStagingObject,
@@ -37,6 +38,7 @@ from files.models import (
     FileVersion,
     PublicationState,
 )
+from files.services.cleanup import mark_file_io_outcome
 from files.services.intake import (
     _MEDIA_TYPES,
     MAX_MESSAGE_FILE_BYTES,
@@ -173,6 +175,7 @@ def _active_retry_binding_locked(*, binding_id) -> AllyBinding | None:
     )
     if (
         binding is None
+        or binding.ally.deletion_state != AllyDeletionState.ACTIVE
         or FileAllyTombstone.objects.filter(ally_id=binding.ally_id).exists()
     ):
         return None
@@ -324,6 +327,7 @@ def publication_view(*, publication_id, binding_id=None, message_id=None) -> dic
                 pk=_uuid(publication_id),
                 source_message__foundry_binding_id=F("binding_id"),
                 source_message__conversation__ally__file_tombstone__isnull=True,
+                source_message__conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
             )
             .first()
         )
@@ -346,6 +350,7 @@ def publication_transport_scope(*, publication_id) -> tuple[uuid.UUID, uuid.UUID
                 pk=_uuid(publication_id),
                 source_message__foundry_binding_id=F("binding_id"),
                 source_message__conversation__ally__file_tombstone__isnull=True,
+                source_message__conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
             )
             .first()
         )
@@ -504,6 +509,7 @@ def _publication_file_locked(
         pk=_uuid(publication_id),
         source_message__foundry_binding_id=F("binding_id"),
         source_message__conversation__ally__file_tombstone__isnull=True,
+        source_message__conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
     )
     file = FileVersion.objects.select_for_update().get(
         pk=_uuid(file_id), publication=publication, direction=FileDirection.OUTBOUND
@@ -586,6 +592,7 @@ def receive_publication_file(
             write_fence=fence,
             kind=FileObjectKind.STAGING,
             cleanup_after=now + timedelta(hours=24),
+            io_outcome=FileIOOutcome.IN_FLIGHT,
         )
         file.save(
             update_fields=(
@@ -606,8 +613,20 @@ def receive_publication_file(
             sha256=file.sha256,
         )
     except Exception as exc:
+        mark_file_io_outcome(
+            file_id=file.id,
+            write_fence=fence,
+            key=key,
+            outcome=FileIOOutcome.AMBIGUOUS,
+        )
         _keep_recoverable(file_id=file.id, generation=generation, fence=fence)
         raise FileUnavailable("private storage unavailable") from exc
+    mark_file_io_outcome(
+        file_id=file.id,
+        write_fence=fence,
+        key=key,
+        outcome=FileIOOutcome.COMPLETED,
+    )
     if (
         not bounded.complete()
         or bounded.total != expected_length
@@ -655,9 +674,16 @@ def receive_publication_file(
 
 def reconcile_publication(*, publication_id) -> FilePublication:
     with transaction.atomic():
-        publication = FilePublication.objects.select_for_update().get(
+        publication = FilePublication.objects.select_for_update(of=("self",)).get(
             pk=_uuid(publication_id)
         )
+        if (
+            Ally.objects.values_list("deletion_state", flat=True)
+            .filter(pk=publication.binding.ally_id)
+            .first()
+            != AllyDeletionState.ACTIVE
+        ):
+            return publication
         files = list(
             FileVersion.objects.select_for_update().filter(publication=publication)
         )
@@ -701,6 +727,7 @@ def _retry_publication_locked(
             source_message__conversation__ally__workspace=context.workspace,
             source_message__foundry_binding_id=F("binding_id"),
             source_message__conversation__ally__file_tombstone__isnull=True,
+            source_message__conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
         )
         .first()
     )
@@ -855,6 +882,7 @@ def owner_publication_view(
             source_message__conversation__ally__workspace=context.workspace,
             source_message__foundry_binding_id=F("binding_id"),
             source_message__conversation__ally__file_tombstone__isnull=True,
+            source_message__conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
         )
         .first()
     )
@@ -905,6 +933,7 @@ def claim_publication_retries(
                 retry_attempts__lt=5,
                 source_message__foundry_binding_id=F("binding_id"),
                 source_message__conversation__ally__file_tombstone__isnull=True,
+                source_message__conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
             )
             .filter(Q(lease_until__isnull=True) | Q(lease_until__lte=now))
             .order_by("retry_due_at", "id")[:limit]

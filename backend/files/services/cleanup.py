@@ -15,6 +15,7 @@ from allies.models import Ally
 from files.models import (
     FileAllyTombstone,
     FileDraftFile,
+    FileIOOutcome,
     FileObjectKind,
     FilePublication,
     FileStagingObject,
@@ -24,7 +25,7 @@ from files.models import (
     MessageFile,
     PublicationState,
 )
-from files.storage import get_file_store
+from files.storage import FileObjectMissing, get_file_store
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,8 +67,13 @@ def _candidate(*, file: FileVersion, key: str, now) -> FileStagingObject:
         },
     )
     if not created and candidate.deleted_at is None:
-        candidate.generation = file.generation
-        candidate.write_fence = file.write_fence
+        # Preserve the writer's identity so its definitive outcome can still settle.
+        if candidate.io_outcome not in (
+            FileIOOutcome.IN_FLIGHT,
+            FileIOOutcome.AMBIGUOUS,
+        ):
+            candidate.generation = file.generation
+            candidate.write_fence = file.write_fence
         candidate.cleanup_after = now
         candidate.cleanup_lease_until = None
         candidate.save(
@@ -79,6 +85,62 @@ def _candidate(*, file: FileVersion, key: str, now) -> FileStagingObject:
             )
         )
     return candidate
+
+
+def mark_file_io_outcome(
+    *, file_id, write_fence, outcome: str, key: str | None = None
+) -> int:
+    """Settle one registered external write after its provider boundary."""
+
+    filters = {
+        "file_id": file_id,
+        "write_fence": write_fence,
+        "deleted_at__isnull": True,
+    }
+    if key is not None:
+        filters["key"] = key
+    return FileStagingObject.objects.filter(**filters).update(io_outcome=outcome)
+
+
+def _erase_and_verify(store, *, key: str, candidate: FileStagingObject) -> bool:
+    checked = getattr(store, "erase_and_verify", None)
+    if callable(checked):
+        try:
+            continuation = checked(
+                key=key,
+                key_marker=candidate.version_key_marker or None,
+                version_id_marker=candidate.version_id_marker or None,
+            )
+        except TypeError as exc:
+            if "unexpected keyword" not in str(exc):
+                raise
+            continuation = checked(key=key)
+        if continuation is None:
+            return True
+        if (
+            not isinstance(continuation, tuple)
+            or len(continuation) != 2
+            or not all(isinstance(item, str) and item for item in continuation)
+        ):
+            raise RuntimeError("storage continuation is invalid")
+        candidate.version_key_marker, candidate.version_id_marker = continuation
+        candidate.cleanup_lease_until = None
+        candidate.cleanup_after = timezone.now()
+        candidate.save(
+            update_fields=(
+                "version_key_marker",
+                "version_id_marker",
+                "cleanup_lease_until",
+                "cleanup_after",
+            )
+        )
+        return False
+    store.delete(key=key)
+    try:
+        store.metadata(key=key)
+    except FileObjectMissing:
+        return True
+    raise RuntimeError("private object remains after deletion")
 
 
 def _reconcile_staging_candidate(candidate: FileStagingObject) -> None:
@@ -162,64 +224,72 @@ def tombstone_ally_files(*, ally_id, now=None) -> FileAllyTombstone:
         ally = Ally.objects.select_for_update().get(
             pk=ally_id, workspace_id=workspace_id
         )
-        from chat.models import Conversation
+        return _tombstone_ally_files_locked(ally=ally, account=account, now=now)
 
-        list(
-            Conversation.objects.select_for_update()
-            .filter(ally=ally)
-            .order_by("id")
-            .values_list("id", flat=True)
-        )
-        tombstone, _ = FileAllyTombstone.objects.get_or_create(
-            ally=ally, defaults={"tombstoned_at": now}
-        )
-        released = False
-        files = (
-            FileVersion.objects.select_for_update()
-            .filter(ally=ally)
-            .exclude(state__in=(FileState.READY, FileState.DELETED))
-        )
-        for file in files:
-            file.write_fence = uuid.uuid4()
-            file.lease_until = None
-            file.inspection_lease_until = None
-            file.inspection_lease_token = None
-            if file.state == FileState.PENDING and not file.object_key:
-                if file.reserved_accounted:
-                    account.reserved_bytes -= file.expected_size
-                    file.reserved_accounted = False
-                    released = True
-                file.state = FileState.DELETED
-                file.safe_error_code = "ally_deleted"
-            file.save(
-                update_fields=(
-                    "state",
-                    "safe_error_code",
-                    "write_fence",
-                    "lease_until",
-                    "inspection_lease_until",
-                    "inspection_lease_token",
-                    "reserved_accounted",
-                    "updated_at",
-                )
+
+def _tombstone_ally_files_locked(
+    *, ally: Ally, account: FileStorageAccount, now
+) -> FileAllyTombstone:
+    """Apply the file fence while the caller holds the storage-account lock."""
+
+    from chat.models import Conversation
+
+    list(
+        Conversation.objects.select_for_update()
+        .filter(ally=ally)
+        .order_by("id")
+        .values_list("id", flat=True)
+    )
+    tombstone, _ = FileAllyTombstone.objects.get_or_create(
+        ally=ally, defaults={"tombstoned_at": now}
+    )
+    released = False
+    files = (
+        FileVersion.objects.select_for_update()
+        .filter(ally=ally)
+        .exclude(state__in=(FileState.READY, FileState.DELETED))
+    )
+    for file in files:
+        file.write_fence = uuid.uuid4()
+        file.lease_until = None
+        file.inspection_lease_until = None
+        file.inspection_lease_token = None
+        if file.state == FileState.PENDING and not file.object_key:
+            if file.reserved_accounted:
+                account.reserved_bytes -= file.expected_size
+                file.reserved_accounted = False
+                released = True
+            file.state = FileState.DELETED
+            file.safe_error_code = "ally_deleted"
+        file.save(
+            update_fields=(
+                "state",
+                "safe_error_code",
+                "write_fence",
+                "lease_until",
+                "inspection_lease_until",
+                "inspection_lease_token",
+                "reserved_accounted",
+                "updated_at",
             )
-        if released:
-            account.save(update_fields=("reserved_bytes", "updated_at"))
-        FilePublication.objects.filter(
-            binding__ally=ally,
-            state__in=(
-                PublicationState.UPLOADING,
-                PublicationState.VALIDATING,
-                PublicationState.RETRY_PENDING,
-                PublicationState.FAILED,
-            ),
-        ).update(
-            state=PublicationState.CANCELLED,
-            retry_due_at=None,
-            lease_until=None,
-            lease_token=None,
-            safe_error_code="ally_deleted",
         )
+    if released:
+        account.save(update_fields=("reserved_bytes", "updated_at"))
+    FilePublication.objects.filter(
+        binding__ally=ally,
+        state__in=(
+            PublicationState.UPLOADING,
+            PublicationState.VALIDATING,
+            PublicationState.RETRY_PENDING,
+            PublicationState.FAILED,
+        ),
+    ).update(
+        state=PublicationState.CANCELLED,
+        retry_due_at=None,
+        lease_until=None,
+        lease_token=None,
+        safe_error_code="ally_deleted",
+    )
     return tombstone
 
 
@@ -234,22 +304,25 @@ def record_foundry_cleanup_receipt(*, ally_id, receipt: str) -> FileAllyTombston
     return tombstone
 
 
-def _schedule_tombstoned(*, limit: int, now) -> None:
-    ids = list(
-        FileVersion.objects.filter(
-            ally__file_tombstone__isnull=False,
-            object_key__gt="",
-            state__in=(
-                FileState.READY,
-                FileState.RECEIVING,
-                FileState.VALIDATING,
-                FileState.FAILED,
-                FileState.REJECTED,
-            ),
-        )
-        .order_by("id")
-        .values_list("id", flat=True)[:limit]
+def _schedule_tombstoned(*, limit: int, now, ally_id=None) -> None:
+    files = FileVersion.objects.filter(
+        ally__file_tombstone__isnull=False,
+        object_key__gt="",
+        state__in=(
+            FileState.PENDING,
+            FileState.RETAINED,
+            FileState.READY,
+            FileState.RECEIVING,
+            FileState.VALIDATING,
+            FileState.FAILED,
+            FileState.REJECTED,
+            FileState.CLEANUP_PENDING,
+            FileState.DELETED,
+        ),
     )
+    if ally_id is not None:
+        files = files.filter(ally_id=ally_id)
+    ids = list(files.order_by("id").values_list("id", flat=True)[:limit])
     for file_id in ids:
         schedule_file_cleanup(file_id=file_id, force=True, now=now)
 
@@ -280,6 +353,14 @@ def _claim(*, candidate_id, now):
         if candidate is None:
             return None
         file = FileVersion.objects.select_for_update().get(pk=candidate.file_id)
+        if candidate.io_outcome in (
+            FileIOOutcome.IN_FLIGHT,
+            FileIOOutcome.AMBIGUOUS,
+        ):
+            candidate.cleanup_after = now + timedelta(seconds=60)
+            candidate.cleanup_lease_until = None
+            candidate.save(update_fields=("cleanup_after", "cleanup_lease_until"))
+            return None
         tombstoned = FileAllyTombstone.objects.filter(ally_id=file.ally_id).exists()
         current_staging = (
             candidate.kind == FileObjectKind.STAGING
@@ -404,22 +485,22 @@ def _failed(*, candidate_id, now, error: str = "storage_unavailable") -> bool:
 
 
 def cleanup_files(
-    *, now=None, limit: int = 100, duration_seconds: float = 60.0
+    *, now=None, limit: int = 100, duration_seconds: float = 60.0, ally_id=None
 ) -> CleanupReport:
     if not 1 <= limit <= 100 or not 0 < duration_seconds <= 60:
         raise ValueError("invalid cleanup limit")
     now = now or timezone.now()
-    _schedule_tombstoned(limit=limit, now=now)
+    _schedule_tombstoned(limit=limit, now=now, ally_id=ally_id)
     deadline = time.monotonic() + duration_seconds
+    candidates = FileStagingObject.objects.filter(
+        deleted_at__isnull=True,
+        cleanup_after__lte=now,
+        cleanup_attempts__lt=5,
+    ).filter(Q(cleanup_lease_until__isnull=True) | Q(cleanup_lease_until__lte=now))
+    if ally_id is not None:
+        candidates = candidates.filter(file__ally_id=ally_id)
     ids = list(
-        FileStagingObject.objects.filter(
-            deleted_at__isnull=True,
-            cleanup_after__lte=now,
-            cleanup_attempts__lt=5,
-        )
-        .filter(Q(cleanup_lease_until__isnull=True) | Q(cleanup_lease_until__lte=now))
-        .order_by("cleanup_after", "id")
-        .values_list("id", flat=True)[:limit]
+        candidates.order_by("cleanup_after", "id").values_list("id", flat=True)[:limit]
     )
     claimed = deleted = failures = alerts = 0
     for candidate_id in ids:
@@ -442,13 +523,16 @@ def cleanup_files(
             )
             continue
         try:
-            get_file_store().delete(key=candidate.key)
+            complete = _erase_and_verify(
+                get_file_store(), key=candidate.key, candidate=candidate
+            )
         except Exception:  # noqa: BLE001 - cleanup records external store uncertainty
             failures += 1
             alerts += int(_failed(candidate_id=candidate.id, now=now))
         else:
-            _complete(candidate_id=candidate.id, now=now)
-            deleted += 1
+            if complete:
+                _complete(candidate_id=candidate.id, now=now)
+                deleted += 1
     return CleanupReport(
         claimed=claimed, deleted=deleted, failures=failures, alerts=alerts
     )
@@ -457,6 +541,7 @@ def cleanup_files(
 __all__ = [
     "CleanupReport",
     "cleanup_files",
+    "mark_file_io_outcome",
     "record_foundry_cleanup_receipt",
     "schedule_file_cleanup",
     "tombstone_ally_files",

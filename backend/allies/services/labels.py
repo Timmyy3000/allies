@@ -18,7 +18,12 @@ from django.db import transaction
 from django.db.models import F
 from django.utils import timezone
 
-from allies.models import ALLY_LABEL_MAX_LENGTH, Ally, LabelGenerationState
+from allies.models import (
+    ALLY_LABEL_MAX_LENGTH,
+    Ally,
+    AllyDeletionState,
+    LabelGenerationState,
+)
 from auths.models import User
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable, check_rate_limit
 from common.uuids import canonical_uuid
@@ -324,7 +329,11 @@ def _claim_one(ally_id: UUID | str) -> LabelClaim | None:
     with transaction.atomic():
         ally = (
             Ally.objects.select_for_update()
-            .filter(pk=parsed_id, label_generation_state=LabelGenerationState.PENDING)
+            .filter(
+                pk=parsed_id,
+                deletion_state=AllyDeletionState.ACTIVE,
+                label_generation_state=LabelGenerationState.PENDING,
+            )
             .first()
         )
         if ally is None:
@@ -342,7 +351,10 @@ def _pending_ids(*, limit: int) -> tuple[UUID, ...]:
     if bounded_limit == 0:
         return ()
     return tuple(
-        Ally.objects.filter(label_generation_state=LabelGenerationState.PENDING)
+        Ally.objects.filter(
+            deletion_state=AllyDeletionState.ACTIVE,
+            label_generation_state=LabelGenerationState.PENDING,
+        )
         .order_by("created_at", "id")
         .values_list("pk", flat=True)[:bounded_limit]
     )
@@ -381,6 +393,7 @@ def _finish_claim(
 ) -> bool:
     filters = {
         "pk": claim.ally_id,
+        "deletion_state": AllyDeletionState.ACTIVE,
         "label_generation_state": LabelGenerationState.CLAIMED,
         "settings_revision": claim.settings_revision,
     }
@@ -505,7 +518,11 @@ def update_ally_settings(
         ally = (
             Ally.objects.select_for_update()
             .select_related("workspace", "binding", "binding__provisioning_operation")
-            .filter(workspace=context.workspace, pk=parsed_ally_id)
+            .filter(
+                workspace=context.workspace,
+                pk=parsed_ally_id,
+                deletion_state=AllyDeletionState.ACTIVE,
+            )
             .first()
         )
         if ally is None:

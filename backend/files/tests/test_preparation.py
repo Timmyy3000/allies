@@ -962,7 +962,8 @@ def test_retry_commits_cleanup_before_conflict(
 
     from django.utils import timezone
 
-    from files.services.cleanup import cleanup_files
+    from files.models import FileIOOutcome
+    from files.services.cleanup import cleanup_files, mark_file_io_outcome
 
     user, workspace, ally, _binding, conversation = file_message
     reservation = reserve_send(
@@ -1017,6 +1018,14 @@ def test_retry_commits_cleanup_before_conflict(
     assert candidates.count() == 1 + interrupted_upload
     assert all(candidate.cleanup_after <= timezone.now() for candidate in candidates)
     if interrupted_upload:
+        unresolved = candidates.get(io_outcome=FileIOOutcome.AMBIGUOUS)
+        # This fake failed before any write; model definitive provider abort evidence.
+        mark_file_io_outcome(
+            file_id=file.id,
+            write_fence=unresolved.write_fence,
+            key=unresolved.key,
+            outcome=FileIOOutcome.ABORTED,
+        )
         file.refresh_from_db()
         current_key = file.object_key
         original_delete = InMemoryFileObjectStore.delete

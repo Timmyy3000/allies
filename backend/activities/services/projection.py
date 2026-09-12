@@ -16,7 +16,7 @@ from django.db.models import Func, IntegerField, Max, Prefetch, Sum
 from django.utils import timezone
 
 from allies.gateways.contracts import MAX_TERMINAL_SEQUENCE, FoundryEventEnvelope
-from allies.models import AllyBinding, BindingStatus
+from allies.models import Ally, AllyBinding, AllyDeletionState, BindingStatus
 from chat.models import (
     ASSISTANT_REPLY_MAX_BYTES,
     NONTERMINAL_MESSAGE_STATUSES,
@@ -247,6 +247,7 @@ def _message_for_event(envelope: FoundryEventEnvelope) -> Message:
             conversation_id=cloud.conversation_id,
             conversation__ally_id=cloud.ally_id,
             conversation__ally__workspace_id=envelope.scope.cloud_workspace_id,
+            conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
             sender=MessageSender.USER,
             origin=MessageOrigin.SEND,
         )
@@ -572,9 +573,17 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
     """Apply one validated event, preserving exact duplicate/no-op semantics."""
 
     message = _message_for_event(envelope)
-    conversation = Conversation.objects.select_for_update().get(
-        pk=message.conversation_id
-    )
+    try:
+        Ally.objects.select_for_update().get(
+            pk=message.conversation.ally_id,
+            deletion_state=AllyDeletionState.ACTIVE,
+        )
+        conversation = Conversation.objects.select_for_update().get(
+            pk=message.conversation_id,
+            ally__deletion_state=AllyDeletionState.ACTIVE,
+        )
+    except Ally.DoesNotExist as exc:
+        raise ProjectionNotFound("projection unavailable") from exc
     message = Message.objects.select_for_update().get(pk=message.id)
     foundry = envelope.foundry
 
@@ -849,6 +858,7 @@ def read_activity_snapshot(
     conversation = (
         Conversation.objects.select_related("ally", "ally__workspace")
         .filter(pk=parsed, ally__workspace=context.workspace)
+        .filter(ally__deletion_state=AllyDeletionState.ACTIVE)
         .first()
     )
     if conversation is None:

@@ -96,6 +96,38 @@ class ProfileProvisioningReceipt(BaseModel):
     )
 
 
+class ProfileDeletionRequest(BaseModel):
+    """Versioned, content-free Cloud to Foundry deletion identity."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: StrictInt = Field(default=1, ge=1, le=1)
+    workspace_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    ally_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    binding_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    operation_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+
+
+class ProfileDeletionReceipt(BaseModel):
+    """Typed cleanup outcome; receipt IDs never contain Ally content."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    version: StrictInt = Field(ge=1, le=1)
+    binding_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    operation_id: StrictStr = Field(min_length=36, max_length=36, pattern=_UUID_PATTERN)
+    state: StrictStr = Field(pattern=r"^(pending|complete|repair_required)$")
+    attempt_id: StrictStr | None = Field(
+        default=None, min_length=36, max_length=36, pattern=_UUID_PATTERN
+    )
+    receipt_id: StrictStr | None = Field(
+        default=None, min_length=36, max_length=36, pattern=_UUID_PATTERN
+    )
+    safe_error_code: StrictStr = Field(
+        default="", max_length=64, pattern=r"^(?:[a-z][a-z0-9_]*)?$"
+    )
+
+
 class WorkspaceActivationReceipt(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -492,6 +524,54 @@ def provision_profile(
         return ProfileProvisioningReceipt.model_validate_json(raw)
     except ValueError as exc:
         raise ProvisioningRejected("foundry response invalid") from exc
+
+
+def request_profile_deletion(
+    payload: ProfileDeletionRequest,
+) -> ProfileDeletionReceipt:
+    """Ask Foundry to quiesce and purge one exact profile identity."""
+
+    try:
+        body = canonical_json_bytes(payload.model_dump(mode="json"))
+    except (TypeError, ValueError) as exc:
+        raise FoundryGatewayInvalid("foundry deletion request invalid") from exc
+    raw = _request(
+        method="POST",
+        path="api/v1/internal/profile-deletion",
+        body=body,
+    )
+    try:
+        return ProfileDeletionReceipt.model_validate_json(raw)
+    except ValueError as exc:
+        raise FoundryGatewayInvalid("foundry deletion receipt invalid") from exc
+
+
+def resume_profile_deletion(
+    *,
+    payload: ProfileDeletionRequest,
+    expected_attempt_id: UUID,
+) -> ProfileDeletionReceipt:
+    """Resume one failed Foundry deletion attempt with the same scope."""
+
+    try:
+        attempt_id = canonical_uuid(expected_attempt_id)
+        body = canonical_json_bytes(
+            {
+                **payload.model_dump(mode="json"),
+                "expected_attempt_id": str(attempt_id),
+            }
+        )
+    except (TypeError, ValueError) as exc:
+        raise FoundryGatewayInvalid("foundry deletion resume invalid") from exc
+    raw = _request(
+        method="POST",
+        path="api/v1/internal/profile-deletion/resume",
+        body=body,
+    )
+    try:
+        return ProfileDeletionReceipt.model_validate_json(raw)
+    except ValueError as exc:
+        raise FoundryGatewayInvalid("foundry deletion resume receipt invalid") from exc
 
 
 def activate_workspace(workspace_id: str) -> WorkspaceActivationReceipt:

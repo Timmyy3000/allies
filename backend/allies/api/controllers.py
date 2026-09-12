@@ -5,6 +5,8 @@ from ninja import Header
 from ninja_extra import ControllerBase, api_controller, http_get, http_patch, http_post
 
 from allies.api.schemas import (
+    AllyDeletionRequest,
+    AllyDeletionResponse,
     AllyListResponse,
     AllyResponse,
     AllySettingsRequest,
@@ -16,6 +18,9 @@ from allies.api.schemas import (
     WorkspaceRuntimeIntentRequest,
 )
 from allies.exceptions import (
+    DeletionConflict,
+    DeletionInvalid,
+    DeletionUnavailable,
     IdempotencyConflict,
     OnboardingInvalid,
     OnboardingUnavailable,
@@ -31,6 +36,11 @@ from allies.gateways.foundry import (
 )
 from allies.models import Ally, ProvisioningStatus
 from allies.services.creation import create_ally, list_allies, retrieve_ally
+from allies.services.deletion import (
+    deletion_response,
+    get_ally_deletion,
+    request_ally_deletion,
+)
 from allies.services.labels import (
     LabelSettingsConflict,
     LabelSettingsUnavailable,
@@ -114,6 +124,7 @@ def _response(ally: Ally) -> AllyResponse:
         label=ally.label,
         show_label=ally.show_label,
         settings_revision=ally.settings_revision,
+        deletion_state=ally.deletion_state,
     )
 
 
@@ -412,6 +423,87 @@ class AllyController(ControllerBase):
         except (WorkspaceAccessDenied, LabelSettingsUnavailable):
             return error_json("ally_unavailable", "Ally unavailable", 404)
         return success_json(_response(ally), "Ally settings updated")
+
+    @http_post(
+        "/{ally_id}/deletion",
+        response={
+            200: SuccessResponse[AllyDeletionResponse],
+            202: SuccessResponse[AllyDeletionResponse],
+            **error_responses(401, 403, 404, 409, 422, 503),
+        },
+    )
+    def delete(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        ally_id: CanonicalUUID,
+        payload: AllyDeletionRequest,
+    ):
+        native_request = bool(
+            request.headers.get("Authorization")
+        ) and not _has_browser_signal(request)
+        if native_request and not native_enabled():
+            return error_json("session_invalid", "session invalid", 401)
+        if rejected := _require_origin(request, allow_native_bearer=True):
+            return rejected
+        try:
+            session = _session(
+                request,
+                expected_client_kind=(
+                    SessionClientKind.NATIVE
+                    if native_request
+                    else SessionClientKind.BROWSER
+                ),
+            )
+            result = request_ally_deletion(
+                user=session.user,
+                workspace_id=workspace_id,
+                ally_id=ally_id,
+                confirmation=payload.confirmation,
+            )
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        except DeletionInvalid:
+            return error_json("validation_error", "request validation failed", 422)
+        except DeletionConflict:
+            return error_json("deletion_conflict", "deletion unavailable", 409)
+        except (DeletionUnavailable, WorkspaceAccessDenied, ValueError):
+            return error_json("ally_unavailable", "Ally unavailable", 404)
+        response = AllyDeletionResponse(**deletion_response(result))
+        return success_json(
+            response,
+            "Ally deletion accepted",
+            status=200 if response.state == "complete" else 202,
+        )
+
+    @http_get(
+        "/{ally_id}/deletion",
+        response={
+            200: SuccessResponse[AllyDeletionResponse],
+            **error_responses(401, 404, 500),
+        },
+    )
+    def deletion_status(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        ally_id: CanonicalUUID,
+    ):
+        try:
+            session = _session(request)
+            result = get_ally_deletion(
+                user=session.user,
+                workspace_id=workspace_id,
+                ally_id=ally_id,
+            )
+        except SessionInvalid:
+            return error_json("session_invalid", "session invalid", 401)
+        except (DeletionUnavailable, WorkspaceAccessDenied, ValueError):
+            return error_json("ally_unavailable", "Ally unavailable", 404)
+        return success_json(
+            AllyDeletionResponse(**deletion_response(result)),
+            "Ally deletion loaded",
+        )
 
 
 @api_controller("/allies", tags=["Allies"])

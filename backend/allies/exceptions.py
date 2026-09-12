@@ -18,6 +18,18 @@ class RuntimeIntentInvalid(AllyError):
     code = "validation_error"
 
 
+class DeletionInvalid(AllyError):
+    code = "deletion_invalid"
+
+
+class DeletionConflict(AllyError):
+    code = "deletion_conflict"
+
+
+class DeletionUnavailable(AllyError):
+    code = "deletion_unavailable"
+
+
 class ProvisioningRetryable(AllyError):
     code = "provisioning_retryable"
 

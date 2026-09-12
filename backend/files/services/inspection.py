@@ -11,6 +11,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from allies.models import Ally, AllyDeletionState
 from files.inspection import FileInspection, ScannerConfig
 from files.isolated_inspection import inspect_isolated
 from files.models import FileState, FileVersion
@@ -33,9 +34,24 @@ def _scanner_config() -> ScannerConfig:
 
 def _claim(*, file_id, now):
     with transaction.atomic():
+        ally_id = (
+            FileVersion.objects.filter(pk=file_id)
+            .values_list("ally_id", flat=True)
+            .first()
+        )
+        if (
+            not Ally.objects.select_for_update(skip_locked=True)
+            .filter(pk=ally_id, deletion_state=AllyDeletionState.ACTIVE)
+            .first()
+        ):
+            return None
         file = (
-            FileVersion.objects.select_for_update(skip_locked=True)
-            .filter(pk=file_id, state=FileState.VALIDATING)
+            FileVersion.objects.select_for_update(skip_locked=True, of=("self",))
+            .filter(
+                pk=file_id,
+                state=FileState.VALIDATING,
+                ally__deletion_state=AllyDeletionState.ACTIVE,
+            )
             .filter(
                 Q(inspection_due_at__isnull=True) | Q(inspection_due_at__lte=now),
                 Q(inspection_lease_until__isnull=True)
@@ -58,14 +74,21 @@ def _claim(*, file_id, now):
 
 
 def _current(*, file: FileVersion, now):
+    if (
+        not Ally.objects.select_for_update()
+        .filter(pk=file.ally_id, deletion_state=AllyDeletionState.ACTIVE)
+        .first()
+    ):
+        return None
     return (
-        FileVersion.objects.select_for_update()
+        FileVersion.objects.select_for_update(of=("self",))
         .filter(
             pk=file.id,
             generation=file.generation,
             state=FileState.VALIDATING,
             inspection_lease_token=file.inspection_lease_token,
             inspection_lease_until__gt=now,
+            ally__deletion_state=AllyDeletionState.ACTIVE,
         )
         .first()
     )
@@ -152,7 +175,10 @@ def inspect_due_files(
         raise ValueError("inspection limit is invalid")
     now = timezone.now()
     ids = list(
-        FileVersion.objects.filter(state=FileState.VALIDATING)
+        FileVersion.objects.filter(
+            state=FileState.VALIDATING,
+            ally__deletion_state=AllyDeletionState.ACTIVE,
+        )
         .filter(Q(inspection_due_at__isnull=True) | Q(inspection_due_at__lte=now))
         .filter(
             Q(inspection_lease_until__isnull=True) | Q(inspection_lease_until__lte=now)
