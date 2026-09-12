@@ -410,7 +410,7 @@ def request_onboarding_wake_locked(
     workspace.ready_boot_id = None
     workspace.ready_at = None
     workspace.runtime_last_seen_at = None
-    workspace.speculative_keep_warm_until = None
+    _extend_keep_warm(workspace, observed_at)
     workspace.save(
         update_fields=[
             "runtime_operation_id",
