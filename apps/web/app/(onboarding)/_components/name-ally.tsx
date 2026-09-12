@@ -24,15 +24,15 @@ export function NameAllyScreen({ onBack }: { onBack?: () => void }) {
   return (
     <OnboardingLayout
       testId="name-ally"
-      progress={0.2}
+      progress={0.5}
       onBack={onBack ?? back}
       nextActive={filled}
       onNext={() => goTo("look")}
     >
       <StepHeading>
-        What do you want
+        Let’s give your
         <br />
-        to name your ally?
+        ally a name.
       </StepHeading>
       <div className="onboarding-name-input-area">
         <input
@@ -46,7 +46,6 @@ export function NameAllyScreen({ onBack }: { onBack?: () => void }) {
             composingRef.current = false;
             commitNameEdit(event.currentTarget.value);
           }}
-          placeholder="give it a name"
           maxLength={NAME_LIMIT}
           style={{
             width: "100%",

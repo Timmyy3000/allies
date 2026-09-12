@@ -19,6 +19,7 @@ import { StepHeading } from "./step-heading";
 export function PersonalityScreen() {
   const personalities = useOnboardingStore((state) => state.personalities);
   const personalityNote = useOnboardingStore((state) => state.personalityNote);
+  const name = useOnboardingStore((state) => state.name);
   const shape = useOnboardingStore((state) => state.shape);
   const color = useOnboardingStore((state) => state.color);
   const togglePersonality = useOnboardingStore((state) => state.togglePersonality);
@@ -53,9 +54,7 @@ export function PersonalityScreen() {
           />
         }
       >
-        What should my
-        <br />
-        personality be?
+        What personality should {name.trim() || "your ally"} have?
       </StepHeading>
       <div className="onboarding-editor-stack onboarding-personality-stack">
         <AnimatePresence initial={false} mode="wait" onExitComplete={onExitComplete}>

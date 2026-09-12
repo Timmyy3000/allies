@@ -34,7 +34,7 @@ function ally() {
     name: "Ada",
     job: "Planning partner",
     personality: "Helpful and concise.",
-    appearance: { catalog_version: "v1", key: "ghosty" },
+    appearance: { catalog_version: "v1", key: "ghosty:fd304f" },
     provisioning_state: "bound",
     retryable: false,
   };
@@ -101,6 +101,9 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
       expect(payload.settings_revision).toBe(settings.settings_revision);
       settings = { ...payload, settings_revision: settings.settings_revision + 1 };
       return route.fulfill({ status: 200, headers, json: success({ ...ally(), ...settings }) });
+    }
+    if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}`) {
+      return route.fulfill({ status: 200, headers, json: success(ally()) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}/conversation`) {
       const payload = conversation(sent);
@@ -390,6 +393,40 @@ test("keeps revealed timestamps clear of same-row activity and approval content"
   }
 });
 
+test("beta settings navigation and roster controls", async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on("pageerror", (error) => errors.push(error.message));
+  await fixtureCloud(page, "signed-in");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/home");
+  await expect(page.getByRole("button", { name: "Recipes", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "My allies", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Routines", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Recipes", exact: true }).click();
+  await expect(page.getByText("Recipes are coming soon.")).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss notification" }).click();
+  await page.getByRole("navigation", { name: "Choose an Ally" }).getByRole("link").click();
+  await page.getByRole("button", { name: "Ada settings", exact: true }).filter({ visible: true }).click();
+  await page.getByRole("link", { name: "View ally details" }).click();
+  await expect(page.getByRole("heading", { name: "Ally settings" })).toBeVisible();
+  await expect(page.getByText("Helpful and concise.")).toBeVisible();
+  await expect(page.getByLabel("Label", { exact: true })).toHaveAttribute("readonly", "");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("ally-settings-dark.png"), fullPage: true });
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page).toHaveURL(new RegExp(`/home/${allyId}$`));
+  await page.goto("/account");
+  await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Smoke User");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("account-settings-dark.png"), fullPage: true });
+  await page.emulateMedia({ colorScheme: "light" });
+  await page.screenshot({ path: testInfo.outputPath("account-settings-light.png"), fullPage: true });
+  await page.getByRole("button", { name: "Back", exact: true }).click();
+  await expect(page).toHaveURL(/\/home$/);
+  expect(errors).toEqual([]);
+});
+
 test("keeps the landing page continuous on a short phone", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 667 });
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -411,7 +448,7 @@ test("keeps the landing page continuous on a short phone", async ({ page }) => {
   await expect(landingFooter).toBeInViewport();
   expect(await page.evaluate(() => window.scrollY)).toBeGreaterThan(0);
   await cta.click();
-  await expect(page.getByTestId("name-ally")).toBeVisible();
+  await expect(page.getByTestId("onboarding-introduction")).toBeVisible();
 });
 
 test("centers the shape selector on tall screens", async ({ page }) => {
@@ -419,6 +456,9 @@ test("centers the shape selector on tall screens", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await fixtureCloud(page, "signed-in");
   await page.goto("/home/new");
+  await expect(page.getByTestId("onboarding-introduction")).toHaveCount(0);
+  await page.getByTestId("job-input").fill("Help me keep track of my projects and make time for learning every week.");
+  await page.getByTestId("next-button").click();
   await page.getByTestId("ally-name-input").fill("Layout test");
   await page.getByRole("button", { name: "Next", exact: true }).click();
   const avatar = page.locator(".onboarding-look-avatar-window");
@@ -466,7 +506,7 @@ test("opens an Ally and keeps a sent reply after reload", async ({ page }) => {
   await expect(page.getByTestId("activity-reply-1").locator("p")).toHaveText(assistantReply);
   expect(cloudinaryRequests).toEqual([]);
   await page.goto("/home/new");
-  await expect(page.getByTestId("name-ally")).toBeVisible();
+  await expect(page.getByTestId("job-description")).toBeVisible();
 });
 
 test("edits an Ally label, opts into roster display, and persists hiding it", async ({ page }, testInfo) => {
@@ -482,6 +522,8 @@ test("edits an Ally label, opts into roster display, and persists hiding it", as
   await expect(dialog.getByLabel("Label", { exact: true })).toHaveValue("chief of staff");
   await expect(dialog.getByRole("checkbox", { name: /Show label/ })).not.toBeChecked();
   await dialog.getByRole("button", { name: "Close", exact: true }).focus();
+  await page.keyboard.press("Tab");
+  await expect(dialog.getByRole("link", { name: "View ally details" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(dialog.getByLabel("Label", { exact: true })).toBeFocused();
   await dialog.getByLabel("Label", { exact: true }).fill("calendar manager");

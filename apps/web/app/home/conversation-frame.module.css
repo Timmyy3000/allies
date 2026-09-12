@@ -154,6 +154,7 @@
 .frameIdentity,
 .frameAvatar,
 .frameSettingsDesktop {
+  text-decoration: none;
   min-width: 0;
 }
 
@@ -450,9 +451,10 @@
   min-width: 0;
   color: var(--chat-accent);
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 400;
   line-height: 36px;
   letter-spacing: -0.5px;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .framePresenceActivity .frameActivity { width: 100%; }
@@ -464,8 +466,9 @@
 .frameThinkingLabel {
   color: var(--chat-accent);
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -1px;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .frameAssistantMessage [data-streamdown="table-wrapper"] {
@@ -603,10 +606,10 @@
   min-width: 0;
   align-self: flex-start;
   color: var(--text-primary);
-  font-family: var(--font-open-runde), "Open Runde", sans-serif;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 16px;
   font-style: normal;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.5px;
   line-height: 1.55;
 }
@@ -716,6 +719,7 @@
 }
 
 .frameUserBubble {
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
   max-width: min(279px, 100%);
   align-self: flex-end;
   box-sizing: border-box;
@@ -724,7 +728,7 @@
   background: #ff2d55;
   color: var(--chat-on-accent);
   font-size: 14px;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.48px;
   line-height: 18.2px;
   text-align: right;
@@ -786,9 +790,10 @@
   align-self: flex-start;
   color: var(--chat-accent);
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.5px;
   line-height: 19px;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .frameActivity {
@@ -796,8 +801,9 @@
   color: var(--chat-accent);
   font-size: 14px;
   line-height: 18px;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.5px;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .frameActivity[data-ongoing="false"] { color: var(--text-secondary); }
@@ -900,11 +906,12 @@
   overflow: hidden;
   color: var(--chat-ink);
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.5px;
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .frameQueuePill > button {
@@ -917,8 +924,9 @@
   color: var(--chat-accent);
   font: inherit;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 400;
   cursor: pointer;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .frameQueuePill > button:last-child {
@@ -1025,10 +1033,11 @@
   color: var(--text-primary);
   font: inherit;
   font-size: 16px;
-  font-weight: 500;
+  font-weight: 400;
   letter-spacing: -0.49px;
   line-height: 22px;
   padding: 7px 0;
+  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
 .frameComposer textarea::placeholder {
@@ -2324,7 +2333,7 @@
   .frameUserBubble {
     border-radius: 30px;
     font-size: 14px;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: -0.48px;
     line-height: 18.2px;
   }

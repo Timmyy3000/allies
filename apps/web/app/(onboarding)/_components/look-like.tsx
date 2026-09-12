@@ -26,6 +26,7 @@ function modulo(value: number, divisor: number) {
 }
 
 export function LookLikeScreen() {
+  const name = useOnboardingStore((state) => state.name);
   const shape = useOnboardingStore((state) => state.shape);
   const color = useOnboardingStore((state) => state.color);
   const setShape = useOnboardingStore((state) => state.setShape);
@@ -138,12 +139,12 @@ export function LookLikeScreen() {
   return (
     <OnboardingLayout
       testId="look-like"
-      progress={0.45}
+      progress={0.7}
       color={accent}
       onBack={back}
       nextActive={Boolean(color)}
       nextColor={color ?? DEFAULT_ACCENT}
-      onNext={() => goTo("job")}
+      onNext={() => goTo("personality")}
     >
       <StepHeading
         lineHeight="28px"
@@ -162,9 +163,7 @@ export function LookLikeScreen() {
           </div>
         }
       >
-        What should I
-        <br />
-        look like?
+        How should {name.trim() || "your ally"} look?
       </StepHeading>
       <div
         data-testid="avatar-carousel"
