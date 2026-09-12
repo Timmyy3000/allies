@@ -6,7 +6,7 @@ from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import BinaryIO
 
-from allies.models import Ally, BindingStatus
+from allies.models import Ally, AllyDeletionState, BindingStatus
 from auths.models import User
 from chat.models import DispatchOutbox
 from common.uuids import canonical_uuid
@@ -63,6 +63,7 @@ def _private_file(*, user: User, workspace_id, ally_id, file_id) -> FileVersion:
         ally = Ally.objects.get(
             pk=canonical_uuid(ally_id),
             workspace=context.workspace,
+            deletion_state=AllyDeletionState.ACTIVE,
             file_tombstone__isnull=True,
         )
         file = FileVersion.objects.select_related("publication").get(
@@ -147,6 +148,7 @@ def accepted_file_stream(*, binding_id, message_id, file_id) -> AcceptedFileStre
             message__conversation__ally__binding__id=binding_id,
             message__conversation__ally__binding__status=BindingStatus.BOUND,
             message__conversation__ally__file_tombstone__isnull=True,
+            message__conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
         )
     except DispatchOutbox.DoesNotExist as exc:
         raise FileScopeUnavailable("file unavailable") from exc

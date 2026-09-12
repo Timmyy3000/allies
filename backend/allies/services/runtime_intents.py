@@ -16,6 +16,7 @@ from django.utils import timezone
 
 from allies.exceptions import FoundryGatewayRetryable, RuntimeIntentInvalid
 from allies.gateways.foundry import request_runtime_intent as forward_runtime_intent
+from allies.models import AllyDeletionState
 from allies.services.timing import readiness_phase
 from auths.config import digest_key
 from auths.exceptions import WorkspaceAccessDenied
@@ -93,6 +94,7 @@ def request_runtime_intent(
             status=MembershipStatus.ACTIVE,
             workspace__is_active=True,
             workspace__allies__pk=parsed_ally_id,
+            workspace__allies__deletion_state=AllyDeletionState.ACTIVE,
         )
         .first()
     )

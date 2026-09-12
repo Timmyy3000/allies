@@ -15,7 +15,10 @@ from allies.api.schemas import OnboardingAttemptRequest
 from allies.models import (
     Ally,
     AllyBinding,
+    AllyDeletionMarker,
+    AllyDeletionState,
     BindingStatus,
+    DeletionOperation,
     OnboardingAttempt,
     ProvisioningOperation,
     ProvisioningStatus,
@@ -119,6 +122,68 @@ def seed_ally(*, workspace, user, ally_id: str, name: str) -> Ally:
         content_fingerprint=(digest[::-1] * 2)[:64],
     )
     return ally
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("method", ["get", "post"])
+@pytest.mark.parametrize("scope", ["foreign_ally", "foreign_workspace", "both_foreign"])
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
+    ALLIES_AUTH_DIGEST_KEY="d" * 32,
+    ALLIES_AUTH_JWT_KEY="j" * 32,
+)
+def test_deletion_endpoints_reject_cross_tenant_scope(method, scope):
+    user = User.objects.create_user()
+    workspace = Workspace.objects.create(owner=user, name="Owned workspace")
+    Membership.objects.create(
+        workspace=workspace, user=user, role="owner", status="active"
+    )
+    other_user = User.objects.create_user()
+    other_workspace = Workspace.objects.create(
+        owner=other_user, name="Foreign workspace"
+    )
+    Membership.objects.create(
+        workspace=other_workspace, user=other_user, role="owner", status="active"
+    )
+    own = seed_ally(
+        workspace=workspace,
+        user=user,
+        ally_id="00000000-0000-4000-8000-000000000041",
+        name="Mira",
+    )
+    foreign = seed_ally(
+        workspace=other_workspace,
+        user=other_user,
+        ally_id="00000000-0000-4000-8000-000000000042",
+        name="Nova",
+    )
+    target_workspace = workspace if scope == "foreign_ally" else other_workspace
+    target = own if scope == "foreign_workspace" else foreign
+    client = Client(enforce_csrf_checks=True)
+    csrf = client.get("/api/v1/auths/csrf", HTTP_HOST="testserver")["X-CSRFToken"]
+    client.cookies[cookie_name("access")] = issue_session(user).access_token
+    url = f"/api/v1/workspaces/{target_workspace.id}/allies/{target.id}/deletion"
+    headers = {
+        "HTTP_HOST": "testserver",
+        "HTTP_ORIGIN": "http://localhost:3000",
+        "HTTP_X_CSRFTOKEN": csrf,
+    }
+    response = (
+        client.get(url, **headers)
+        if method == "get"
+        else client.post(
+            url,
+            json.dumps({"confirmation": f"{target.name} - deletes me"}),
+            content_type="application/json",
+            **headers,
+        )
+    )
+    assert response.status_code == 404
+    assert response.json()["data"] == {"code": "ally_unavailable"}
+    assert not DeletionOperation.objects.exists()
+    assert not AllyDeletionMarker.objects.exists()
+    assert not Ally.objects.exclude(deletion_state=AllyDeletionState.ACTIVE).exists()
 
 
 @pytest.mark.django_db

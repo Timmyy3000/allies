@@ -14,7 +14,7 @@ from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
-from allies.models import Ally, ProvisioningStatus
+from allies.models import Ally, AllyDeletionState, ProvisioningStatus
 from auths.config import digest_key
 from auths.models import User
 from auths.throttle import (
@@ -267,12 +267,26 @@ def enforce_send_rate_limit(
 def _conversation_for_send(*, workspace, conversation_id: UUID | str) -> Conversation:
     parsed_conversation_id = _parse_uuid(conversation_id)
     try:
-        return (
-            Conversation.objects.select_for_update()
-            .select_related("ally", "ally__workspace")
-            .get(pk=parsed_conversation_id, ally__workspace=workspace)
+        ally_id = Conversation.objects.values_list("ally_id", flat=True).get(
+            pk=parsed_conversation_id,
+            ally__workspace=workspace,
+            ally__deletion_state=AllyDeletionState.ACTIVE,
         )
-    except Conversation.DoesNotExist as exc:
+        Ally.objects.select_for_update().get(
+            pk=ally_id,
+            workspace=workspace,
+            deletion_state=AllyDeletionState.ACTIVE,
+        )
+        return (
+            Conversation.objects.select_for_update(of=("self",))
+            .select_related("ally", "ally__workspace")
+            .get(
+                pk=parsed_conversation_id,
+                ally__workspace=workspace,
+                ally__deletion_state=AllyDeletionState.ACTIVE,
+            )
+        )
+    except (Ally.DoesNotExist, Conversation.DoesNotExist) as exc:
         raise ConversationUnavailable("conversation unavailable") from exc
 
 
@@ -338,7 +352,10 @@ def _claim_next_turn_locked(
 ) -> Message | None:
     """Claim the earliest live send while the caller holds Conversation."""
 
-    if FileAllyTombstone.objects.filter(ally_id=conversation.ally_id).exists():
+    if (
+        conversation.ally.deletion_state != AllyDeletionState.ACTIVE
+        or FileAllyTombstone.objects.filter(ally_id=conversation.ally_id).exists()
+    ):
         return None
     if Message.objects.filter(
         conversation=conversation,
@@ -606,10 +623,22 @@ def claim_next_turn(*, conversation_id: UUID | str) -> Message | None:
     parsed_conversation_id = _parse_uuid(conversation_id)
     with transaction.atomic():
         try:
-            conversation = Conversation.objects.select_for_update().get(
-                pk=parsed_conversation_id
+            ally_id = Conversation.objects.values_list("ally_id", flat=True).get(
+                pk=parsed_conversation_id,
+                ally__deletion_state=AllyDeletionState.ACTIVE,
             )
-        except Conversation.DoesNotExist as exc:
+            Ally.objects.select_for_update().get(
+                pk=ally_id, deletion_state=AllyDeletionState.ACTIVE
+            )
+            conversation = (
+                Conversation.objects.select_for_update(of=("self",))
+                .select_related("ally")
+                .get(
+                    pk=parsed_conversation_id,
+                    ally__deletion_state=AllyDeletionState.ACTIVE,
+                )
+            )
+        except (Ally.DoesNotExist, Conversation.DoesNotExist) as exc:
             raise ConversationUnavailable("conversation unavailable") from exc
         message = _claim_next_turn_locked(conversation=conversation)
         if message is not None:
@@ -707,10 +736,22 @@ def complete_turn(*, message_id: UUID | str, status: str) -> Message:
         raise ConversationUnavailable("conversation unavailable") from exc
     with transaction.atomic():
         try:
-            conversation = Conversation.objects.select_for_update().get(
-                pk=existing.conversation_id
+            ally_id = Conversation.objects.values_list("ally_id", flat=True).get(
+                pk=existing.conversation_id,
+                ally__deletion_state=AllyDeletionState.ACTIVE,
             )
-        except Conversation.DoesNotExist as exc:
+            Ally.objects.select_for_update().get(
+                pk=ally_id, deletion_state=AllyDeletionState.ACTIVE
+            )
+            conversation = (
+                Conversation.objects.select_for_update(of=("self",))
+                .select_related("ally")
+                .get(
+                    pk=existing.conversation_id,
+                    ally__deletion_state=AllyDeletionState.ACTIVE,
+                )
+            )
+        except (Ally.DoesNotExist, Conversation.DoesNotExist) as exc:
             raise ConversationUnavailable("conversation unavailable") from exc
         message = Message.objects.select_for_update().get(pk=existing.pk)
         if message.status in terminal:

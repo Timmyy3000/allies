@@ -32,7 +32,7 @@ from allies.gateways.contracts import (
     canonical_json_bytes,
 )
 from allies.gateways.foundry import create_execution_intent, reconcile_execution_intent
-from allies.models import AllyBinding, BindingStatus
+from allies.models import Ally, AllyBinding, AllyDeletionState, BindingStatus
 from chat.exceptions import (
     DispatchConflict,
     DispatchUnavailable,
@@ -208,6 +208,8 @@ def _first_turn_bootstrap(message: Message) -> FirstTurnBootstrap | None:
 
 
 def _command_for_message(message: Message) -> tuple[ExecutionCommand, bytes, str]:
+    if message.conversation.ally.deletion_state != AllyDeletionState.ACTIVE:
+        raise DispatchConflict("ally deletion is pending")
     if (
         message.sender != MessageSender.USER
         or message.origin != MessageOrigin.SEND
@@ -358,7 +360,10 @@ def _validate_outbox_command(message: Message) -> None:
 def _dispatch_accepted_locked(
     *, conversation: Conversation, message: Message
 ) -> DispatchReceipt:
-    if FileAllyTombstone.objects.filter(ally_id=conversation.ally_id).exists():
+    if (
+        conversation.ally.deletion_state != AllyDeletionState.ACTIVE
+        or FileAllyTombstone.objects.filter(ally_id=conversation.ally_id).exists()
+    ):
         return DispatchReceipt(
             message_id=message.id,
             status=DispatchState.FAILED,
@@ -475,6 +480,7 @@ def _claim_due(*, now, limit: int) -> list[tuple[UUID, int, bool]]:
             message__sender=MessageSender.USER,
             message__origin=MessageOrigin.SEND,
             message__status__in=NONTERMINAL_MESSAGE_STATUSES,
+            message__conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
         )
         .order_by(
             "message__conversation_id", "message__sequence", "next_attempt_at", "id"
@@ -519,7 +525,12 @@ def _claim_due(*, now, limit: int) -> list[tuple[UUID, int, bool]]:
             )
             if row is None:
                 continue
-            if FileAllyTombstone.objects.filter(ally_id=conversation.ally_id).exists():
+            if (
+                conversation.ally.deletion_state != AllyDeletionState.ACTIVE
+                or FileAllyTombstone.objects.filter(
+                    ally_id=conversation.ally_id
+                ).exists()
+            ):
                 _terminalize_claim_locked(
                     conversation=conversation,
                     message=message,
@@ -993,6 +1004,66 @@ def _mark_terminal(
     )
 
 
+def _mark_deleted_if_fenced(
+    *, pk: UUID, fence: int, outbox: DispatchOutbox, now
+) -> bool:
+    """Serialize a late dispatch callback with the Ally deletion fence."""
+
+    with transaction.atomic():
+        ally = (
+            Ally.objects.select_for_update()
+            .filter(pk=outbox.message.conversation.ally_id)
+            .first()
+        )
+        if ally is not None and ally.deletion_state == AllyDeletionState.ACTIVE:
+            return False
+        Message.objects.filter(
+            pk=outbox.message_id,
+            status__in=NONTERMINAL_MESSAGE_STATUSES,
+            deleted_at__isnull=True,
+        ).update(
+            status=MessageLifecycle.FAILED,
+            retry_allowed=False,
+            updated_at=now,
+        )
+        _mark_terminal(pk, fence, DispatchState.FAILED, "ally_deleted", now=now)
+        return True
+
+
+def _finish_accepted_dispatch(
+    *, pk: UUID, fence: int, outbox: DispatchOutbox, receipt_digest: str, now
+) -> str:
+    """Persist a successful receipt only while the Ally remains admitted."""
+
+    with transaction.atomic():
+        ally = (
+            Ally.objects.select_for_update()
+            .filter(pk=outbox.message.conversation.ally_id)
+            .first()
+        )
+        if ally is None or ally.deletion_state != AllyDeletionState.ACTIVE:
+            Message.objects.filter(
+                pk=outbox.message_id,
+                status__in=NONTERMINAL_MESSAGE_STATUSES,
+                deleted_at__isnull=True,
+            ).update(
+                status=MessageLifecycle.FAILED,
+                retry_allowed=False,
+                updated_at=now,
+            )
+            _mark_terminal(pk, fence, DispatchState.FAILED, "ally_deleted", now=now)
+            return "failed"
+        updated = _mark_terminal(
+            pk,
+            fence,
+            DispatchState.ACCEPTED,
+            "",
+            now=now,
+            receipt_digest=receipt_digest,
+        )
+        return "accepted" if updated else "deferred"
+
+
 def _mark_reconciliation_exhausted(pk: UUID, fence: int, *, now) -> bool:
     return bool(
         DispatchOutbox.objects.filter(
@@ -1017,6 +1088,8 @@ def _reconcile_one(
     now,
     permit_post: bool,
 ) -> str | None:
+    if _mark_deleted_if_fenced(pk=pk, fence=fence, outbox=outbox, now=now):
+        return "failed"
     try:
         reconciliation = reconcile_execution_intent(
             outbox.message_id, outbox.command_fingerprint
@@ -1053,15 +1126,14 @@ def _reconcile_one(
                 now=now,
             )
             return "failed"
-        updated = _mark_terminal(
-            pk,
-            fence,
-            DispatchState.ACCEPTED,
-            "",
-            now=now,
+        finished = _finish_accepted_dispatch(
+            pk=pk,
+            fence=fence,
+            outbox=outbox,
             receipt_digest=_receipt_digest(reconciliation),
+            now=now,
         )
-        return "reconciled" if updated else "deferred"
+        return "reconciled" if finished == "accepted" else finished
     if reconciliation.status == "not_found":
         if permit_post and fence < DISPATCH_MAX_ATTEMPTS and outbox.command_bytes:
             return None
@@ -1078,6 +1150,8 @@ def _dispatch_one(pk: UUID, fence: int, reconcile_first: bool, *, now) -> str:
     outbox = DispatchOutbox.objects.select_related(
         "message__conversation__ally__binding"
     ).get(pk=pk)
+    if _mark_deleted_if_fenced(pk=pk, fence=fence, outbox=outbox, now=now):
+        return "failed"
     try:
         binding_status = outbox.message.conversation.ally.binding.status
     except AllyBinding.DoesNotExist:
@@ -1169,16 +1243,13 @@ def _dispatch_one(pk: UUID, fence: int, reconcile_first: bool, *, now) -> str:
             pk, fence, DispatchState.FAILED, "receipt_identity_mismatch", now=now
         )
         return "failed"
-    digest = _receipt_digest(receipt)
-    updated = _mark_terminal(
-        pk,
-        fence,
-        DispatchState.ACCEPTED,
-        "",
+    return _finish_accepted_dispatch(
+        pk=pk,
+        fence=fence,
+        outbox=outbox,
+        receipt_digest=_receipt_digest(receipt),
         now=now,
-        receipt_digest=digest,
     )
-    return "accepted" if updated else "deferred"
 
 
 def dispatch_pending_messages(*, now=None, limit: int = 20) -> DispatchReport:

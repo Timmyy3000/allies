@@ -39,6 +39,14 @@ class FileObjectKind(models.TextChoices):
     OBJECT = "object", "Object"
 
 
+class FileIOOutcome(models.TextChoices):
+    NONE = "none", "Not started"
+    IN_FLIGHT = "in_flight", "In flight"
+    COMPLETED = "completed", "Completed"
+    AMBIGUOUS = "ambiguous", "Ambiguous"
+    ABORTED = "aborted", "Aborted"
+
+
 class PublicationState(models.TextChoices):
     UPLOADING = "uploading", "Uploading"
     VALIDATING = "validating", "Validating"
@@ -161,6 +169,18 @@ class FileStagingObject(models.Model):
     cleanup_attempts = models.PositiveSmallIntegerField(default=0)
     cleanup_lease_until = models.DateTimeField(null=True, blank=True)
     cleanup_last_error = models.CharField(max_length=64, blank=True, default="")
+    io_outcome = models.CharField(
+        max_length=16,
+        choices=FileIOOutcome.choices,
+        default=FileIOOutcome.NONE,
+        editable=False,
+    )
+    version_key_marker = models.CharField(
+        max_length=500, blank=True, default="", editable=False
+    )
+    version_id_marker = models.CharField(
+        max_length=128, blank=True, default="", editable=False
+    )
     deleted_at = models.DateTimeField(null=True, blank=True)
     cleanup_after = models.DateTimeField()
     created_at = models.DateTimeField(auto_now_add=True)

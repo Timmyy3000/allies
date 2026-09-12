@@ -11,7 +11,7 @@ from django.db import transaction
 from django.db.models import Exists, OuterRef, Q
 from django.utils import timezone
 
-from allies.models import Ally
+from allies.models import Ally, AllyDeletionState
 from auths.models import User
 from chat.models import (
     Conversation,
@@ -70,7 +70,9 @@ def _scope(*, user: User, workspace_id, conversation_id, message_id, context=Non
         conversation_id = _uuid(conversation_id)
         ally_id = Conversation.objects.only("ally_id").get(pk=conversation_id).ally_id
         ally = Ally.objects.select_for_update().get(
-            pk=ally_id, workspace=context.workspace
+            pk=ally_id,
+            workspace=context.workspace,
+            deletion_state=AllyDeletionState.ACTIVE,
         )
         conversation = Conversation.objects.select_for_update().get(
             pk=conversation_id, ally=ally
@@ -155,8 +157,13 @@ def reconcile_file_message(*, message_id) -> Message:
             probe = Message.objects.only("id", "conversation_id").get(
                 pk=_uuid(message_id)
             )
-            Conversation.objects.select_for_update().get(pk=probe.conversation_id)
-            message = Message.objects.select_for_update().get(pk=probe.pk)
+            conversation = Conversation.objects.select_for_update().get(
+                pk=probe.conversation_id,
+                ally__deletion_state=AllyDeletionState.ACTIVE,
+            )
+            message = Message.objects.select_for_update().get(
+                pk=probe.pk, conversation=conversation
+            )
         except (Message.DoesNotExist, Conversation.DoesNotExist) as exc:
             raise FileScopeUnavailable("file unavailable") from exc
         if message.preparation == MessagePreparation.READY:
@@ -197,7 +204,10 @@ def recover_file_preparation(*, limit: int = 20) -> int:
             has_unready=False,
         )
     ids = list(
-        Message.objects.filter(deleted_at__isnull=True)
+        Message.objects.filter(
+            deleted_at__isnull=True,
+            conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
+        )
         .alias(
             has_files=Exists(active_files),
             has_failed=Exists(active_files.filter(file__state__in=_FAILED_STATES)),

@@ -46,6 +46,24 @@ class LabelGenerationState(models.TextChoices):
     UNAVAILABLE = "unavailable", "Unavailable"
 
 
+class AllyDeletionState(models.TextChoices):
+    ACTIVE = "active", "Active"
+    PENDING = "pending", "Pending deletion"
+    REPAIR_REQUIRED = "repair_required", "Deletion needs repair"
+
+
+class DeletionOperationState(models.TextChoices):
+    PENDING = "pending", "Pending"
+    COMPLETE = "complete", "Complete"
+    REPAIR_REQUIRED = "repair_required", "Repair required"
+
+
+class DeletionStage(models.TextChoices):
+    FOUNDRY = "foundry", "Foundry cleanup"
+    FILES = "files", "File cleanup"
+    PURGE = "purge", "Relational purge"
+
+
 class Ally(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(
@@ -64,6 +82,11 @@ class Ally(models.Model):
         choices=LabelGenerationState.choices,
         default=LabelGenerationState.UNAVAILABLE,
     )
+    deletion_state = models.CharField(
+        max_length=16,
+        choices=AllyDeletionState.choices,
+        default=AllyDeletionState.ACTIVE,
+    )
     appearance_catalog_version = models.CharField(
         max_length=APPEARANCE_CATALOG_VERSION_MAX_LENGTH
     )
@@ -81,6 +104,10 @@ class Ally(models.Model):
             models.Index(
                 fields=("label_generation_state", "updated_at"),
                 name="ally_label_state_updated_idx",
+            ),
+            models.Index(
+                fields=("workspace", "deletion_state", "id"),
+                name="ally_workspace_deletion_idx",
             ),
         ]
 
@@ -357,3 +384,97 @@ class ProvisioningOperation(models.Model):
 
     def __str__(self) -> str:
         return str(self.id)
+
+
+def default_deletion_expiry():
+    return timezone.now() + timedelta(hours=24)
+
+
+class DeletionOperation(models.Model):
+    """Durable, content-free coordinator for one Ally deletion."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        on_delete=models.PROTECT,
+        related_name="ally_deletion_operations",
+    )
+    ally_id = models.UUIDField(editable=False)
+    binding_id = models.UUIDField(editable=False)
+    state = models.CharField(
+        max_length=24,
+        choices=DeletionOperationState.choices,
+        default=DeletionOperationState.PENDING,
+    )
+    stage = models.CharField(
+        max_length=16,
+        choices=DeletionStage.choices,
+        default=DeletionStage.FOUNDRY,
+    )
+    attempt_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    supersedes_attempt_id = models.UUIDField(null=True, blank=True, editable=False)
+    lifecycle_epoch = models.PositiveIntegerField(default=1, editable=False)
+    attempt_count = models.PositiveSmallIntegerField(default=0, editable=False)
+    next_attempt_at = models.DateTimeField(default=timezone.now)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    expires_at = models.DateTimeField(default=default_deletion_expiry)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+    safe_error_code = models.CharField(max_length=64, blank=True, default="")
+    foundry_state = models.CharField(max_length=24, blank=True, default="")
+    foundry_attempt_id = models.UUIDField(null=True, blank=True, editable=False)
+    foundry_resume_attempt_id = models.UUIDField(null=True, blank=True, editable=False)
+    foundry_receipt_id = models.CharField(
+        max_length=128, blank=True, default="", editable=False
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("created_at", "id")
+        constraints = [
+            models.UniqueConstraint(
+                fields=("workspace", "ally_id"),
+                name="allies_deletion_scope_uniq",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(lifecycle_epoch__gt=0),
+                name="allies_deletion_epoch_positive",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=("state", "next_attempt_at", "lease_expires_at", "id"),
+                name="allies_deletion_due_idx",
+            ),
+            models.Index(
+                fields=("workspace", "ally_id"),
+                name="allies_deletion_identity_idx",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return str(self.id)
+
+
+class AllyDeletionMarker(models.Model):
+    """Permanent scoped marker retained after the Ally row is purged."""
+
+    workspace = models.ForeignKey(
+        "workspaces.Workspace",
+        on_delete=models.PROTECT,
+        related_name="ally_deletion_markers",
+    )
+    ally_id = models.UUIDField(primary_key=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=("workspace", "ally_id"),
+                name="ally_deletion_marker_scope_idx",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return str(self.ally_id)
