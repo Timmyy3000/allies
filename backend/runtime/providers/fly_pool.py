@@ -203,8 +203,74 @@ class FlyPoolAdapter:
             volume_attached_machine_ref=volume.attached_machine_id,
             images=images,
             config_fingerprint=fingerprint,
+            cpu_kind=machine.cpu_kind,
+            cpus=machine.cpus,
+            memory_mb=machine.memory_mb,
+            volume_size_gb=volume.size_gb,
             blank=blank,
         )
+
+    def park(self, workspace: Workspace) -> bool:
+        """Stop one owned pool Machine and prove the stopped state."""
+
+        if (
+            not workspace.fly_app_ref
+            or not workspace.volume_ref
+            or not workspace.machine_ref
+        ):
+            raise ProviderNotFoundError(
+                "pool workspace binding is incomplete", operation="pool.park"
+            )
+        names = deterministic_resource_names(workspace.id)
+        if workspace.fly_app_ref != names.app:
+            raise ProviderOwnershipError(
+                "pool App reference is not deterministic", operation="pool.park"
+            )
+        with provider_workspace_context(workspace.id):
+            app = self.provider.inspect_app(workspace.fly_app_ref)
+            if app is None:
+                raise ProviderNotFoundError(
+                    "recorded pool App is missing", operation="pool.park"
+                )
+            self._check_app(app.name, app.organization, workspace.fly_app_ref)
+            machine = self._machine(workspace.fly_app_ref, workspace.machine_ref)
+            if machine is None:
+                raise ProviderNotFoundError(
+                    "recorded pool Machine is missing", operation="pool.park"
+                )
+            self._check_machine(
+                machine,
+                workspace,
+                names.machine(workspace.machine_generation),
+            )
+            if machine.state is MachineState.STOPPED:
+                return True
+            if machine.state is not MachineState.STARTED:
+                raise ProviderRetryableError(
+                    "pool Machine is not safely stoppable", operation="pool.park"
+                )
+            self.provider.stop_machine(
+                workspace.fly_app_ref,
+                workspace.machine_ref,
+            )
+            observed = self._machine(
+                workspace.fly_app_ref,
+                workspace.machine_ref,
+            )
+            if observed is None:
+                raise ProviderRetryableError(
+                    "pool Machine stop proof is unavailable", operation="pool.park"
+                )
+            self._check_machine(
+                observed,
+                workspace,
+                names.machine(workspace.machine_generation),
+            )
+            if observed.state is not MachineState.STOPPED:
+                raise ProviderRetryableError(
+                    "pool Machine did not stop", operation="pool.park"
+                )
+        return True
 
     def cleanup(self, workspace: Workspace) -> bool:
         """Delete only exact, independently rechecked owned resources."""

@@ -19,6 +19,7 @@ from runtime.models import (
     WorkspaceProvisioningPhase,
 )
 from runtime.services.release_targets import is_pending_release_target
+from runtime.services.runtime_intents import request_onboarding_wake_locked
 from runtime.services.runtime_readiness import is_runtime_ready
 
 RESERVED_TENANT_PREFIX = "pool:"
@@ -65,7 +66,10 @@ def _assign_ready_workspace_once(tenant_ref: str, now: datetime) -> Workspace | 
 
     candidate_ids = list(
         ReadyWorkspaceBundle.objects.filter(
-            state=ReadyWorkspaceBundleState.READY,
+            state__in=(
+                ReadyWorkspaceBundleState.READY,
+                ReadyWorkspaceBundleState.SLEEPING,
+            ),
             phase_claim_owner__isnull=True,
             phase_claim_until__isnull=True,
         )
@@ -77,7 +81,10 @@ def _assign_ready_workspace_once(tenant_ref: str, now: datetime) -> Workspace | 
             ReadyWorkspaceBundle.objects.select_for_update(skip_locked=True)
             .filter(
                 pk=candidate_id,
-                state=ReadyWorkspaceBundleState.READY,
+                state__in=(
+                    ReadyWorkspaceBundleState.READY,
+                    ReadyWorkspaceBundleState.SLEEPING,
+                ),
                 phase_claim_owner__isnull=True,
                 phase_claim_until__isnull=True,
             )
@@ -94,9 +101,20 @@ def _assign_ready_workspace_once(tenant_ref: str, now: datetime) -> Workspace | 
             _try_mark_candidate_evicting(candidate, now, "workspace_missing")
             continue
         if not _eligible(candidate, workspace, now):
+            if candidate.state == ReadyWorkspaceBundleState.SLEEPING and _eligible(
+                candidate,
+                workspace,
+                now,
+                require_sleeping_freshness=False,
+            ):
+                # A stopped spare whose inspection proof aged out is
+                # temporarily unavailable.  Maintenance will inspect it; age
+                # alone must never recycle its owned resources.
+                continue
             _try_mark_candidate_evicting(candidate, now, "stale_candidate")
             continue
 
+        sleeping = candidate.state == ReadyWorkspaceBundleState.SLEEPING
         workspace.tenant_ref = tenant_ref
         workspace.save(update_fields=["tenant_ref", "updated_at"])
         candidate.state = ReadyWorkspaceBundleState.ASSIGNED
@@ -105,6 +123,8 @@ def _assign_ready_workspace_once(tenant_ref: str, now: datetime) -> Workspace | 
         candidate.save(
             update_fields=["state", "assigned_at", "safe_error_code", "updated_at"]
         )
+        if sleeping:
+            request_onboarding_wake_locked(workspace, now=now)
         return workspace
     return None
 
@@ -113,8 +133,13 @@ def _eligible(
     bundle: ReadyWorkspaceBundle,
     workspace: Workspace,
     now: datetime,
+    *,
+    require_sleeping_freshness: bool = True,
 ) -> bool:
-    if bundle.state != ReadyWorkspaceBundleState.READY:
+    if bundle.state not in {
+        ReadyWorkspaceBundleState.READY,
+        ReadyWorkspaceBundleState.SLEEPING,
+    }:
         return False
     if bundle.region != getattr(settings, "READY_WORKSPACE_POOL_REGION", ""):
         return False
@@ -128,14 +153,20 @@ def _eligible(
         return False
     if not workspace.volume_ref or bundle.blank_volume_ref != workspace.volume_ref:
         return False
-    if bundle.ready_at is None or bundle.expires_at is None or bundle.expires_at <= now:
+    if bundle.ready_at is None or bundle.expires_at is None:
+        return False
+    if (
+        bundle.state != ReadyWorkspaceBundleState.SLEEPING or require_sleeping_freshness
+    ) and bundle.expires_at <= now:
         return False
     health_freshness = getattr(
         settings, "READY_WORKSPACE_POOL_HEALTH_FRESHNESS_SECONDS", 60
     )
-    if bundle.last_health_at is None or bundle.last_health_at < now - timedelta(
-        seconds=health_freshness
-    ):
+    if bundle.last_health_at is None:
+        return False
+    if (
+        bundle.state != ReadyWorkspaceBundleState.SLEEPING or require_sleeping_freshness
+    ) and bundle.last_health_at < now - timedelta(seconds=health_freshness):
         return False
     if bundle.phase_claim_owner is not None or bundle.phase_claim_until is not None:
         return False
@@ -154,7 +185,10 @@ def _eligible(
         return False
     if is_pending_release_target(workspace.release_target):
         return False
-    if not is_runtime_ready(workspace, now=now):
+    if (
+        bundle.state == ReadyWorkspaceBundleState.READY
+        and not is_runtime_ready(workspace, now=now)
+    ):
         return False
     if (
         RuntimeCredential.objects.filter(
@@ -187,7 +221,10 @@ def mark_ready_bundle_evicting(
                 ReadyWorkspaceBundle.objects.select_for_update()
                 .filter(
                     pk=bundle_id,
-                    state=ReadyWorkspaceBundleState.READY,
+                    state__in=(
+                        ReadyWorkspaceBundleState.READY,
+                        ReadyWorkspaceBundleState.SLEEPING,
+                    ),
                 )
                 .first()
             )

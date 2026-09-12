@@ -46,6 +46,8 @@ _IMMUTABLE_IMAGE = re.compile(r"^[^@\s]+@sha256:[0-9a-f]{64}$", re.IGNORECASE)
 _POOL_STATES = (
     ReadyWorkspaceBundleState.PREPARING,
     ReadyWorkspaceBundleState.READY,
+    ReadyWorkspaceBundleState.PARKING,
+    ReadyWorkspaceBundleState.SLEEPING,
     ReadyWorkspaceBundleState.EVICTING,
     ReadyWorkspaceBundleState.FAILED,
 )
@@ -85,6 +87,10 @@ class PoolProviderSnapshot:
     volume_attached_machine_ref: str | None
     images: Mapping[str, str]
     config_fingerprint: str
+    cpu_kind: str | None = None
+    cpus: int | None = None
+    memory_mb: int | None = None
+    volume_size_gb: int | None = None
     blank: bool = False
 
 
@@ -94,6 +100,8 @@ class ReadyPoolAdapter(Protocol):
     def activate(self, workspace_id: UUID) -> Any: ...
 
     def inspect(self, workspace: Workspace) -> PoolProviderSnapshot | Any: ...
+
+    def park(self, workspace: Workspace) -> bool: ...
 
     def cleanup(self, workspace: Workspace) -> Any: ...
 
@@ -110,6 +118,8 @@ class MaintenanceResult:
     skipped: int = 0
     ready: int = 0
     preparing: int = 0
+    parking: int = 0
+    sleeping: int = 0
     evicting: int = 0
     failed_rows: int = 0
 
@@ -129,6 +139,8 @@ class MaintenanceResult:
             "skipped": self.skipped,
             "ready": self.ready,
             "preparing": self.preparing,
+            "parking": self.parking,
+            "sleeping": self.sleeping,
             "evicting": self.evicting,
             "failed_rows": self.failed_rows,
         }
@@ -145,6 +157,7 @@ class _PoolConfig:
     ready_ttl_seconds: int
     health_freshness_seconds: int
     phase_claim_seconds: int
+    sleep_enabled: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +294,9 @@ def _pool_config() -> _PoolConfig:
             ACTIVATION_CLAIM_SECONDS,
             int(getattr(settings, "READY_WORKSPACE_POOL_PHASE_CLAIM_SECONDS", 60)),
         ),
+        sleep_enabled=bool(
+            getattr(settings, "READY_WORKSPACE_POOL_SLEEP_ENABLED", False)
+        ),
     )
 
 
@@ -303,6 +319,7 @@ def _claim_or_reserve(
                 workspace__tenant_ref__startswith=RESERVED_TENANT_PREFIX,
                 state__in=[
                     ReadyWorkspaceBundleState.EVICTING,
+                    ReadyWorkspaceBundleState.PARKING,
                     ReadyWorkspaceBundleState.PREPARING,
                     ReadyWorkspaceBundleState.FAILED,
                 ],
@@ -337,6 +354,8 @@ def _claim_or_reserve(
                 "cleanup"
                 if bundle.state == ReadyWorkspaceBundleState.EVICTING
                 or (bundle.state == ReadyWorkspaceBundleState.FAILED and exhausted)
+                else "park"
+                if bundle.state == ReadyWorkspaceBundleState.PARKING
                 else "prepare"
             )
             bundle.phase_claim_owner = owner
@@ -390,6 +409,37 @@ def _claim_or_reserve(
                 ]
             )
             return _Claim(bundle.id, workspace.id, owner, "cleanup")
+
+        if config.sleep_enabled:
+            parking = _parking_candidate(config, now)
+            if parking is not None:
+                bundle, workspace = parking
+                bundle.state = ReadyWorkspaceBundleState.PARKING
+                bundle.phase_claim_owner = owner
+                bundle.phase_claim_until = claim_until
+                bundle.save(
+                    update_fields=[
+                        "state",
+                        "phase_claim_owner",
+                        "phase_claim_until",
+                        "updated_at",
+                    ]
+                )
+                return _Claim(bundle.id, workspace.id, owner, "park")
+
+            sleeping = _sleeping_candidate(config, now)
+            if sleeping is not None:
+                bundle, workspace = sleeping
+                bundle.phase_claim_owner = owner
+                bundle.phase_claim_until = claim_until
+                bundle.save(
+                    update_fields=[
+                        "phase_claim_owner",
+                        "phase_claim_until",
+                        "updated_at",
+                    ]
+                )
+                return _Claim(bundle.id, workspace.id, owner, "sleep")
 
         # Revalidate one healthy row per pass so a live provider failure is
         # discovered even when the durable health timestamp is still fresh.
@@ -445,7 +495,11 @@ def _drain_ready_bundle(
     rows = (
         ReadyWorkspaceBundle.objects.select_for_update(skip_locked=True)
         .filter(
-            state=ReadyWorkspaceBundleState.READY,
+            state__in=(
+                ReadyWorkspaceBundleState.READY,
+                ReadyWorkspaceBundleState.PARKING,
+                ReadyWorkspaceBundleState.SLEEPING,
+            ),
             workspace__tenant_ref__startswith=RESERVED_TENANT_PREFIX,
         )
         .filter(available_claim)
@@ -498,6 +552,66 @@ def _stale_ready_bundle(
     return None
 
 
+def _parking_candidate(
+    config: _PoolConfig,
+    now: datetime,
+) -> tuple[ReadyWorkspaceBundle, Workspace] | None:
+    rows = (
+        ReadyWorkspaceBundle.objects.select_for_update(skip_locked=True)
+        .filter(
+            state=ReadyWorkspaceBundleState.READY,
+            workspace__tenant_ref__startswith=RESERVED_TENANT_PREFIX,
+            region=config.region,
+            release_fingerprint=config.release_fingerprint,
+            config_version=config.config_version,
+        )
+        .filter(Q(phase_claim_owner__isnull=True) | Q(phase_claim_until__lte=now))
+        .order_by("ready_at", "id")[:MAX_MAINTENANCE_LIMIT]
+    )
+    for bundle in rows:
+        workspace = (
+            Workspace.objects.select_for_update().filter(pk=bundle.workspace_id).first()
+        )
+        if workspace is None or _workspace_claim_live(workspace, now):
+            continue
+        if bundle.blank_volume_ref != workspace.volume_ref:
+            continue
+        if not _db_ready_evidence(bundle, workspace, config, now):
+            continue
+        return bundle, workspace
+    return None
+
+
+def _sleeping_candidate(
+    config: _PoolConfig,
+    now: datetime,
+) -> tuple[ReadyWorkspaceBundle, Workspace] | None:
+    rows = (
+        ReadyWorkspaceBundle.objects.select_for_update(skip_locked=True)
+        .filter(
+            state=ReadyWorkspaceBundleState.SLEEPING,
+            workspace__tenant_ref__startswith=RESERVED_TENANT_PREFIX,
+            region=config.region,
+            release_fingerprint=config.release_fingerprint,
+            config_version=config.config_version,
+            next_attempt_at__lte=now,
+        )
+        .filter(Q(phase_claim_owner__isnull=True) | Q(phase_claim_until__lte=now))
+        .order_by("last_health_at", "ready_at", "id")[:MAX_MAINTENANCE_LIMIT]
+    )
+    for bundle in rows:
+        workspace = (
+            Workspace.objects.select_for_update().filter(pk=bundle.workspace_id).first()
+        )
+        if (
+            workspace is not None
+            and workspace.tenant_ref.startswith(RESERVED_TENANT_PREFIX)
+            and not _workspace_claim_live(workspace, now)
+        ):
+            return bundle, workspace
+    return None
+
+
 def _health_candidate(
     config: _PoolConfig,
     now: datetime,
@@ -542,6 +656,10 @@ def _run_claim(
         return _record_failure(claim, "workspace_missing", config, _clock_now(clock))
     if claim.action == "cleanup":
         return _run_cleanup(claim, workspace, adapter, config, now, clock)
+    if claim.action == "park":
+        return _run_park(claim, workspace, adapter, config, clock)
+    if claim.action == "sleep":
+        return _run_sleep_check(claim, workspace, adapter, config, clock)
     if claim.action == "health":
         return _run_health_check(claim, workspace, adapter, config, now, clock)
     return _run_prepare(claim, workspace, adapter, config, now, clock)
@@ -598,6 +716,81 @@ def _run_prepare(
     return "skipped"
 
 
+def _run_park(
+    claim: _Claim,
+    workspace: Workspace,
+    adapter: ReadyPoolAdapter,
+    config: _PoolConfig,
+    clock: Callable[[], datetime],
+) -> str:
+    if not _claim_is_live(claim, _clock_now(clock)):
+        return "skipped"
+    try:
+        if not _park_side_effect_allowed(claim, _clock_now(clock)):
+            return "skipped"
+        if _call_adapter(adapter, "park", workspace) is not True:
+            raise PoolReadinessPending()
+    except PoolReadinessPending:
+        return _record_pending(claim, config, _clock_now(clock))
+    except Exception as exc:  # noqa: BLE001 - parking is an external boundary
+        completed_at = _clock_now(clock)
+        if _is_retryable(exc):
+            return _record_phase_retry(
+                claim, _safe_code(exc, "park_pending"), config, completed_at
+            )
+        if not _transition_to_evicting(
+            claim, _safe_code(exc, "park_failed"), completed_at
+        ):
+            return "skipped"
+        workspace.refresh_from_db()
+        return _run_cleanup(claim, workspace, adapter, config, completed_at, clock)
+    completed_at = _clock_now(clock)
+    if _mark_sleeping(claim, config, completed_at):
+        return "refreshed"
+    return "skipped"
+
+
+def _run_sleep_check(
+    claim: _Claim,
+    workspace: Workspace,
+    adapter: ReadyPoolAdapter,
+    config: _PoolConfig,
+    clock: Callable[[], datetime],
+) -> str:
+    try:
+        snapshot = _call_adapter(adapter, "inspect", workspace)
+        completed_at = _clock_now(clock)
+        machine_state = _normalize_state(_snapshot_value(snapshot, "machine_state"))
+        if machine_state == MachineState.STARTED.value:
+            if not _transition_to_parking(claim, completed_at):
+                return "skipped"
+            workspace.refresh_from_db()
+            return _run_park(claim, workspace, adapter, config, clock)
+        _validate_ready(
+            workspace,
+            snapshot,
+            config,
+            completed_at,
+            require_blank_proof=True,
+            sleeping=True,
+        )
+    except Exception as exc:  # noqa: BLE001 - sleep inspection is external I/O
+        completed_at = _clock_now(clock)
+        if _is_retryable(exc) or _readiness_pending(exc):
+            return _record_phase_retry(
+                claim, _safe_code(exc, "sleep_inspection_failed"), config, completed_at
+            )
+        if not _transition_to_evicting(
+            claim, _safe_code(exc, "sleep_validation_failed"), completed_at
+        ):
+            return "skipped"
+        workspace.refresh_from_db()
+        return _run_cleanup(claim, workspace, adapter, config, completed_at, clock)
+    if _refresh_sleep(claim, config, completed_at):
+        return "refreshed"
+    return "skipped"
+
+
 def _run_health_check(
     claim: _Claim,
     workspace: Workspace,
@@ -645,6 +838,8 @@ def _run_cleanup(
         )
         return "failed"
     try:
+        if not _cleanup_side_effect_allowed(claim, _clock_now(clock)):
+            return "skipped"
         completed = _call_adapter(adapter, "cleanup", workspace)
         if completed is False:
             raise PoolReadinessPending()
@@ -673,8 +868,13 @@ def _validate_ready(
     now: datetime,
     *,
     require_blank_proof: bool = False,
+    sleeping: bool = False,
 ) -> None:
-    if not _db_blank_ready(workspace, now):
+    if not _db_blank_ready(
+        workspace,
+        now,
+        require_runtime_ready=not sleeping,
+    ):
         raise PoolValidationError("workspace_not_blank")
     if snapshot is None:
         raise PoolReadinessPending()
@@ -688,21 +888,23 @@ def _validate_ready(
         workspace.id, workspace.volume_ref
     ):
         raise PoolValidationError("blank_volume_proof_missing")
-    if (
-        _normalize_state(_snapshot_value(snapshot, "machine_state"))
-        != MachineState.STARTED.value
-    ):
+    machine_state = _normalize_state(_snapshot_value(snapshot, "machine_state"))
+    if sleeping:
+        if machine_state != MachineState.STOPPED.value:
+            raise PoolReadinessPending()
+    elif machine_state != MachineState.STARTED.value:
         raise PoolReadinessPending()
     containers = _snapshot_value(snapshot, "health_containers", {})
-    if not isinstance(containers, Mapping):
-        raise PoolReadinessPending()
     required = {"hermes", "allies-runtime"}
-    if set(containers) != required or any(
-        _normalize_state(value)
-        not in {ContainerState.STARTED.value, "healthy", "passing"}
-        for value in containers.values()
-    ):
-        raise PoolReadinessPending()
+    if not sleeping:
+        if not isinstance(containers, Mapping):
+            raise PoolReadinessPending()
+        if set(containers) != required or any(
+            _normalize_state(value)
+            not in {ContainerState.STARTED.value, "healthy", "passing"}
+            for value in containers.values()
+        ):
+            raise PoolReadinessPending()
     expected = {
         "app_ref": workspace.fly_app_ref,
         "volume_ref": workspace.volume_ref,
@@ -712,9 +914,9 @@ def _validate_ready(
     for key, value in expected.items():
         if not value or _snapshot_value(snapshot, key) != value:
             raise PoolValidationError(f"provider_{key}_mismatch")
-    if (
-        _snapshot_value(snapshot, "volume_attached_machine_ref")
-        != workspace.machine_ref
+    attached_machine = _snapshot_value(snapshot, "volume_attached_machine_ref")
+    if attached_machine != workspace.machine_ref and not (
+        sleeping and attached_machine is None
     ):
         raise PoolValidationError("volume_attachment_mismatch")
     owner = _snapshot_value(snapshot, "ownership_workspace_id")
@@ -748,9 +950,29 @@ def _validate_ready(
         raise PoolValidationError("provider_config_fingerprint_invalid")
     if fingerprint != config.release_fingerprint:
         raise PoolValidationError("provider_config_fingerprint_mismatch")
+    expected_cpu_kind = str(getattr(settings, "WORKSPACE_CPU_KIND", "shared"))
+    expected_cpus = int(getattr(settings, "WORKSPACE_CPUS", 2))
+    expected_memory_mb = int(getattr(settings, "WORKSPACE_MEMORY_MB", 2048))
+    expected_volume_size_gb = int(
+        getattr(settings, "WORKSPACE_VOLUME_SIZE_GB", 10)
+    )
+    if _snapshot_value(snapshot, "cpu_kind") != expected_cpu_kind:
+        raise PoolValidationError("provider_cpu_kind_mismatch")
+    if _snapshot_value(snapshot, "cpus") != expected_cpus:
+        raise PoolValidationError("provider_cpus_mismatch")
+    if _snapshot_value(snapshot, "memory_mb") != expected_memory_mb:
+        raise PoolValidationError("provider_memory_mismatch")
+    volume_size_gb = _snapshot_value(snapshot, "volume_size_gb")
+    if type(volume_size_gb) is not int or volume_size_gb < expected_volume_size_gb:
+        raise PoolValidationError("provider_volume_size_mismatch")
 
 
-def _db_blank_ready(workspace: Workspace, now: datetime) -> bool:
+def _db_blank_ready(
+    workspace: Workspace,
+    now: datetime,
+    *,
+    require_runtime_ready: bool = True,
+) -> bool:
     return bool(
         workspace.tenant_ref.startswith(RESERVED_TENANT_PREFIX)
         and workspace.provisioning_phase == WorkspaceProvisioningPhase.IDLE
@@ -760,7 +982,10 @@ def _db_blank_ready(workspace: Workspace, now: datetime) -> bool:
         and workspace.activation_claim_expires_at is None
         and workspace.provisioning_claim_token is None
         and workspace.provisioning_claim_expires_at is None
-        and is_runtime_ready(workspace, now=now)
+        and (
+            not require_runtime_ready
+            or is_runtime_ready(workspace, now=now)
+        )
         and RuntimeCredential.objects.filter(
             workspace_id=workspace.id,
             machine_generation=workspace.machine_generation,
@@ -1026,6 +1251,152 @@ def _refresh_health(claim: _Claim, config: _PoolConfig, now: datetime) -> bool:
                 "updated_at",
             ]
         )
+    return True
+
+
+def _park_side_effect_allowed(claim: _Claim, now: datetime) -> bool:
+    with transaction.atomic():
+        bundle = (
+            ReadyWorkspaceBundle.objects.select_for_update()
+            .filter(
+                pk=claim.bundle_id,
+                workspace_id=claim.workspace_id,
+                state=ReadyWorkspaceBundleState.PARKING,
+                phase_claim_owner=claim.owner,
+                phase_claim_until__gt=now,
+            )
+            .first()
+        )
+        workspace = (
+            Workspace.objects.select_for_update().filter(pk=claim.workspace_id).first()
+        )
+        return bool(
+            bundle is not None
+            and workspace is not None
+            and workspace.tenant_ref.startswith(RESERVED_TENANT_PREFIX)
+            and not _workspace_claim_live(workspace, now)
+        )
+
+
+def _mark_sleeping(claim: _Claim, config: _PoolConfig, now: datetime) -> bool:
+    with transaction.atomic():
+        bundle = (
+            ReadyWorkspaceBundle.objects.select_for_update()
+            .filter(
+                pk=claim.bundle_id,
+                workspace_id=claim.workspace_id,
+                state=ReadyWorkspaceBundleState.PARKING,
+                phase_claim_owner=claim.owner,
+                phase_claim_until__gt=now,
+            )
+            .first()
+        )
+        workspace = (
+            Workspace.objects.select_for_update().filter(pk=claim.workspace_id).first()
+        )
+        if (
+            bundle is None
+            or workspace is None
+            or not workspace.tenant_ref.startswith(RESERVED_TENANT_PREFIX)
+            or bundle.blank_volume_ref != workspace.volume_ref
+            or not _db_blank_ready(
+                workspace,
+                now,
+                require_runtime_ready=False,
+            )
+        ):
+            return False
+        bundle.state = ReadyWorkspaceBundleState.SLEEPING
+        bundle.ready_at = bundle.ready_at or now
+        bundle.expires_at = now + timedelta(seconds=config.ready_ttl_seconds)
+        bundle.last_health_at = now
+        bundle.next_attempt_at = now + timedelta(
+            seconds=config.health_freshness_seconds
+        )
+        bundle.attempt_count = 0
+        bundle.safe_error_code = None
+        bundle.phase_claim_owner = None
+        bundle.phase_claim_until = None
+        bundle.save(
+            update_fields=[
+                "state",
+                "ready_at",
+                "expires_at",
+                "last_health_at",
+                "next_attempt_at",
+                "attempt_count",
+                "safe_error_code",
+                "phase_claim_owner",
+                "phase_claim_until",
+                "updated_at",
+            ]
+        )
+        return True
+
+
+def _refresh_sleep(claim: _Claim, config: _PoolConfig, now: datetime) -> bool:
+    with transaction.atomic():
+        bundle = (
+            ReadyWorkspaceBundle.objects.select_for_update()
+            .filter(
+                pk=claim.bundle_id,
+                state=ReadyWorkspaceBundleState.SLEEPING,
+                phase_claim_owner=claim.owner,
+                phase_claim_until__gt=now,
+            )
+            .first()
+        )
+        workspace = (
+            Workspace.objects.select_for_update().filter(pk=claim.workspace_id).first()
+        )
+        if (
+            bundle is None
+            or workspace is None
+            or not workspace.tenant_ref.startswith(RESERVED_TENANT_PREFIX)
+            or bundle.blank_volume_ref != workspace.volume_ref
+        ):
+            return False
+        bundle.last_health_at = now
+        bundle.expires_at = now + timedelta(seconds=config.ready_ttl_seconds)
+        bundle.next_attempt_at = now + timedelta(
+            seconds=config.health_freshness_seconds
+        )
+        bundle.attempt_count = 0
+        bundle.safe_error_code = None
+        bundle.phase_claim_owner = None
+        bundle.phase_claim_until = None
+        bundle.save(
+            update_fields=[
+                "last_health_at",
+                "expires_at",
+                "next_attempt_at",
+                "attempt_count",
+                "safe_error_code",
+                "phase_claim_owner",
+                "phase_claim_until",
+                "updated_at",
+            ]
+        )
+        return True
+
+
+def _transition_to_parking(claim: _Claim, now: datetime) -> bool:
+    with transaction.atomic():
+        bundle = (
+            ReadyWorkspaceBundle.objects.select_for_update()
+            .filter(
+                pk=claim.bundle_id,
+                phase_claim_until__gt=now,
+                state=ReadyWorkspaceBundleState.SLEEPING,
+            )
+            .first()
+        )
+        if bundle is None or bundle.phase_claim_owner != claim.owner:
+            return False
+        bundle.state = ReadyWorkspaceBundleState.PARKING
+        bundle.next_attempt_at = now
+        bundle.safe_error_code = None
+        bundle.save(update_fields=["state", "next_attempt_at", "safe_error_code", "updated_at"])
         return True
 
 
@@ -1151,9 +1522,47 @@ def _record_retry(claim: _Claim, code: str, config: _PoolConfig, now: datetime) 
                 "updated_at",
             ]
         )
-        return (
-            "failed" if bundle.state == ReadyWorkspaceBundleState.FAILED else "skipped"
+    return (
+        "failed" if bundle.state == ReadyWorkspaceBundleState.FAILED else "skipped"
+    )
+
+
+def _record_phase_retry(
+    claim: _Claim,
+    code: str,
+    config: _PoolConfig,
+    now: datetime,
+) -> str:
+    with transaction.atomic():
+        bundle = (
+            ReadyWorkspaceBundle.objects.select_for_update()
+            .filter(
+                pk=claim.bundle_id,
+                phase_claim_until__gt=now,
+                phase_claim_owner=claim.owner,
+            )
+            .first()
         )
+        if bundle is None:
+            return "skipped"
+        bundle.attempt_count = min(bundle.attempt_count + 1, config.max_attempts)
+        bundle.safe_error_code = _safe_code_value(code, "provider_retryable")
+        bundle.next_attempt_at = now + timedelta(
+            seconds=min(60, 2 ** max(0, bundle.attempt_count - 1))
+        )
+        bundle.phase_claim_owner = None
+        bundle.phase_claim_until = None
+        bundle.save(
+            update_fields=[
+                "attempt_count",
+                "safe_error_code",
+                "next_attempt_at",
+                "phase_claim_owner",
+                "phase_claim_until",
+                "updated_at",
+            ]
+        )
+        return "skipped"
 
 
 def _record_failure(
@@ -1210,6 +1619,31 @@ def _cleanup_allowed(workspace: Workspace, now: datetime) -> bool:
     )
 
 
+def _cleanup_side_effect_allowed(claim: _Claim, now: datetime) -> bool:
+    """Recheck pool ownership immediately before provider cleanup I/O."""
+
+    with transaction.atomic():
+        bundle = (
+            ReadyWorkspaceBundle.objects.select_for_update()
+            .filter(
+                pk=claim.bundle_id,
+                workspace_id=claim.workspace_id,
+                state=ReadyWorkspaceBundleState.EVICTING,
+                phase_claim_owner=claim.owner,
+                phase_claim_until__gt=now,
+            )
+            .first()
+        )
+        workspace = (
+            Workspace.objects.select_for_update().filter(pk=claim.workspace_id).first()
+        )
+        return bool(
+            bundle is not None
+            and workspace is not None
+            and _cleanup_allowed(workspace, now)
+        )
+
+
 def _has_owned_resources(workspace: Workspace) -> bool:
     return bool(
         workspace.fly_app_ref
@@ -1253,7 +1687,10 @@ def _claim_is_live(claim: _Claim, now: datetime) -> bool:
 
 def _fresh_ready_count(config: _PoolConfig, now: datetime) -> int:
     return ReadyWorkspaceBundle.objects.filter(
-        state=ReadyWorkspaceBundleState.READY,
+        state__in=(
+            ReadyWorkspaceBundleState.READY,
+            ReadyWorkspaceBundleState.SLEEPING,
+        ),
         workspace__tenant_ref__startswith=RESERVED_TENANT_PREFIX,
         region=config.region,
         release_fingerprint=config.release_fingerprint,
@@ -1407,6 +1844,12 @@ def _pool_counts() -> dict[str, int]:
         ).count(),
         "preparing": ReadyWorkspaceBundle.objects.filter(
             state=ReadyWorkspaceBundleState.PREPARING
+        ).count(),
+        "parking": ReadyWorkspaceBundle.objects.filter(
+            state=ReadyWorkspaceBundleState.PARKING
+        ).count(),
+        "sleeping": ReadyWorkspaceBundle.objects.filter(
+            state=ReadyWorkspaceBundleState.SLEEPING
         ).count(),
         "evicting": ReadyWorkspaceBundle.objects.filter(
             state=ReadyWorkspaceBundleState.EVICTING

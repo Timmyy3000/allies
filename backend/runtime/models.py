@@ -109,6 +109,7 @@ class RuntimeOperationState(models.TextChoices):
 class RuntimeOperationTrigger(models.TextChoices):
     SPECULATIVE = "speculative", "Speculative"
     EXECUTION = "execution", "Execution"
+    ONBOARDING = "onboarding", "Onboarding"
 
 
 class RuntimeIntentType(models.TextChoices):
@@ -273,6 +274,8 @@ class Workspace(models.Model):
 class ReadyWorkspaceBundleState(models.TextChoices):
     PREPARING = "preparing", "Preparing"
     READY = "ready", "Ready"
+    PARKING = "parking", "Parking"
+    SLEEPING = "sleeping", "Sleeping"
     ASSIGNED = "assigned", "Assigned"
     EVICTING = "evicting", "Evicting"
     EVICTED = "evicted", "Evicted"
@@ -369,6 +372,21 @@ class ReadyWorkspaceBundle(models.Model):
                     )
                 ),
                 name="ready_pool_bundle_ready_evidence",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    ~Q(state__in=[
+                        ReadyWorkspaceBundleState.PARKING,
+                        ReadyWorkspaceBundleState.SLEEPING,
+                    ])
+                    | (
+                        Q(blank_volume_ref__isnull=False)
+                        & Q(ready_at__isnull=False)
+                        & Q(expires_at__isnull=False)
+                        & Q(last_health_at__isnull=False)
+                    )
+                ),
+                name="ready_pool_bundle_sleep_evidence",
             ),
         ]
         indexes: ClassVar = [

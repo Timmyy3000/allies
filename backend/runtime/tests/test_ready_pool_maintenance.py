@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from datetime import timedelta
 from hashlib import sha256
+from threading import Event, Thread
 from uuid import uuid4
 
 import pytest
+from django.db import close_old_connections, connection
 from django.test import override_settings
 from django.utils import timezone
 
@@ -18,11 +20,15 @@ from runtime.models import (
     WorkspaceProvisioningPhase,
 )
 from runtime.providers import ProviderRetryableError
+from runtime.services import ready_pool_maintenance
 from runtime.services.ready_pool_maintenance import (
     PoolProviderSnapshot,
     PoolReadinessPending,
     _Claim,
+    _pool_config,
     _record_fresh_blank_volume,
+    _run_cleanup,
+    _run_park,
     maintain_ready_pool_once,
     pool_config_fingerprint,
 )
@@ -54,6 +60,8 @@ class FakePoolAdapter:
         self.activations: list[str] = []
         self.inspections = 0
         self.cleanups: list[str] = []
+        self.parks: list[str] = []
+        self.machine_state = "started"
 
     def activate(self, workspace_id):
         self.activations.append(str(workspace_id))
@@ -93,7 +101,7 @@ class FakePoolAdapter:
             volume_ref=workspace.volume_ref,
             machine_ref=workspace.machine_ref,
             region=bundle.region,
-            machine_state="started",
+            machine_state=self.machine_state,
             health_containers={"hermes": "started", "allies-runtime": "started"},
             ownership_workspace_id=workspace.id,
             ownership_operation_id=workspace.provisioning_id,
@@ -105,6 +113,10 @@ class FakePoolAdapter:
                 images=POOL_IMAGES,
                 containers=tuple(POOL_IMAGES),
             ),
+            cpu_kind="shared",
+            cpus=2,
+            memory_mb=2048,
+            volume_size_gb=10,
             blank=True,
         )
 
@@ -113,6 +125,11 @@ class FakePoolAdapter:
         RuntimeCredential.objects.filter(workspace_id=workspace.id).update(
             revoked_at=timezone.now()
         )
+        return True
+
+    def park(self, workspace):
+        self.parks.append(str(workspace.id))
+        self.machine_state = "stopped"
         return True
 
 
@@ -214,6 +231,73 @@ def test_first_pass_prepares_and_promotes_one_complete_bundle():
     assert bundle.blank_volume_ref == bundle.workspace.volume_ref
     assert bundle.phase_claim_owner is None
     assert adapter.activations == [str(bundle.workspace_id)]
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(**{**POOL_SETTINGS, "READY_WORKSPACE_POOL_SLEEP_ENABLED": True})
+def test_sleeping_pool_parks_once_and_refreshes_without_activation_churn():
+    now = timezone.now()
+    adapter = FakePoolAdapter()
+
+    first = maintain_ready_pool_once(adapter=adapter, now=now)
+    second = maintain_ready_pool_once(adapter=adapter, now=now + timedelta(seconds=1))
+    bundle = ReadyWorkspaceBundle.objects.get()
+
+    assert first.ready == 1
+    assert second.refreshed == 1
+    assert bundle.state == ReadyWorkspaceBundleState.SLEEPING
+    assert len(adapter.activations) == 1
+    assert adapter.parks == [str(bundle.workspace_id)]
+    Workspace.objects.filter(pk=bundle.workspace_id).update(
+        ready_generation=None,
+        ready_start_epoch=None,
+        ready_boot_id=None,
+        ready_at=None,
+        runtime_last_seen_at=None,
+    )
+
+    third = maintain_ready_pool_once(
+        adapter=adapter,
+        now=now + timedelta(minutes=35),
+    )
+
+    bundle.refresh_from_db()
+    assert third.refreshed == 1
+    assert bundle.state == ReadyWorkspaceBundleState.SLEEPING
+    assert len(adapter.activations) == 1
+    assert len(adapter.parks) == 1
+
+    fourth = maintain_ready_pool_once(
+        adapter=adapter,
+        now=now + timedelta(minutes=36),
+    )
+
+    bundle.refresh_from_db()
+    assert fourth.refreshed == 1
+    assert bundle.state == ReadyWorkspaceBundleState.SLEEPING
+    assert len(adapter.activations) == 1
+    assert len(adapter.parks) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(**{**POOL_SETTINGS, "READY_WORKSPACE_POOL_SLEEP_ENABLED": True})
+def test_sleeping_inspection_of_running_machine_parks_without_reactivation():
+    now = timezone.now()
+    adapter = FakePoolAdapter()
+    maintain_ready_pool_once(adapter=adapter, now=now)
+    maintain_ready_pool_once(adapter=adapter, now=now + timedelta(seconds=1))
+    adapter.machine_state = "started"
+
+    result = maintain_ready_pool_once(
+        adapter=adapter,
+        now=now + timedelta(seconds=61),
+    )
+
+    bundle = ReadyWorkspaceBundle.objects.get()
+    assert result.refreshed == 1
+    assert bundle.state == ReadyWorkspaceBundleState.SLEEPING
+    assert len(adapter.activations) == 1
+    assert len(adapter.parks) == 2
 
 
 @pytest.mark.django_db(transaction=True)
@@ -459,6 +543,99 @@ def test_late_completion_cannot_promote_a_fenced_claim():
     assert (
         ReadyWorkspaceBundle.objects.get().state == ReadyWorkspaceBundleState.PREPARING
     )
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(**{**POOL_SETTINGS, "READY_WORKSPACE_POOL_SLEEP_ENABLED": True})
+def test_expired_parking_claim_cannot_stop_a_reassigned_row():
+    now = timezone.now()
+    adapter = FakePoolAdapter()
+    maintain_ready_pool_once(adapter=adapter, now=now)
+    bundle = ReadyWorkspaceBundle.objects.get()
+    workspace = Workspace.objects.get(pk=bundle.workspace_id)
+    ReadyWorkspaceBundle.objects.filter(pk=bundle.pk).update(
+        state=ReadyWorkspaceBundleState.PARKING,
+        phase_claim_owner="expired-worker",
+        phase_claim_until=now - timedelta(seconds=1),
+    )
+
+    claim = _Claim(bundle.id, workspace.id, "expired-worker", "park")
+    assert _run_park(claim, workspace, adapter, _pool_config(), lambda: now) == (
+        "skipped"
+    )
+    assert adapter.parks == []
+
+
+@pytest.mark.django_db(transaction=True)
+@override_settings(**POOL_SETTINGS)
+def test_expired_cleanup_claim_cannot_delete_after_reassignment(monkeypatch):
+    if connection.vendor != "postgresql":
+        pytest.skip("requires PostgreSQL row-lock semantics")
+    now = timezone.now()
+    workspace = Workspace.objects.create(tenant_ref=f"pool:{uuid4()}")
+    bundle = ReadyWorkspaceBundle.objects.create(
+        workspace=workspace,
+        state=ReadyWorkspaceBundleState.EVICTING,
+        region="ams",
+        release_fingerprint=POOL_SETTINGS["READY_WORKSPACE_POOL_RELEASE_FINGERPRINT"],
+        config_version=1,
+        next_attempt_at=now,
+        phase_claim_owner="old-worker",
+        phase_claim_until=now + timedelta(minutes=5),
+    )
+    claim = _Claim(bundle.id, workspace.id, "old-worker", "cleanup")
+    adapter = FakePoolAdapter()
+    paused = Event()
+    resume = Event()
+    original = ready_pool_maintenance._cleanup_side_effect_allowed
+
+    def pause_before_cleanup_side_effect(claim, observed_at):
+        paused.set()
+        assert resume.wait(timeout=5)
+        return original(claim, observed_at)
+
+    monkeypatch.setattr(
+        ready_pool_maintenance,
+        "_cleanup_side_effect_allowed",
+        pause_before_cleanup_side_effect,
+    )
+    result_holder = []
+    error_holder = []
+
+    def run_cleanup():
+        close_old_connections()
+        try:
+            result_holder.append(
+                _run_cleanup(
+                    claim,
+                    workspace,
+                    adapter,
+                    _pool_config(),
+                    now,
+                    lambda: now,
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 - report worker failures below
+            error_holder.append(exc)
+        finally:
+            connection.close()
+
+    worker = Thread(target=run_cleanup)
+    worker.start()
+    assert paused.wait(timeout=5)
+    ReadyWorkspaceBundle.objects.filter(pk=bundle.pk).update(
+        phase_claim_owner="new-worker",
+        phase_claim_until=now + timedelta(minutes=5),
+    )
+    resume.set()
+    worker.join(timeout=5)
+
+    assert not worker.is_alive()
+    assert error_holder == []
+    assert result_holder == ["skipped"]
+    assert adapter.cleanups == []
+    bundle.refresh_from_db()
+    assert bundle.phase_claim_owner == "new-worker"
 
 
 def test_pool_fingerprint_changes_with_region_images_and_topology():

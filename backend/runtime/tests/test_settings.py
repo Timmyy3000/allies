@@ -46,6 +46,7 @@ def run_settings_probe(**overrides):
         "ALLIES_RUNTIME_ACTIVITY_WAIT_SECONDS",
         "ALLIES_RUNTIME_ACTIVITY_WAIT_MAX_WAITERS",
         "READY_WORKSPACE_POOL_TARGET",
+        "READY_WORKSPACE_POOL_SLEEP_ENABLED",
         "WORKSPACE_CPU_KIND",
         "WORKSPACE_CPUS",
         "WORKSPACE_MEMORY_MB",
@@ -565,3 +566,14 @@ def test_rich_approval_setting_is_explicit_and_environment_scoped(
     result = run_settings_probe(DJANGO_DEBUG="true", **overrides)
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == str(expected)
+
+
+def test_sleeping_ready_pool_defaults_off(monkeypatch):
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "PROBE",
+        "import config.settings as s; print(s.READY_WORKSPACE_POOL_SLEEP_ENABLED)",
+    )
+    result = run_settings_probe(DJANGO_DEBUG="true")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "False"

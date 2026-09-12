@@ -42,7 +42,7 @@ class FakeProvider:
             names.volume,
             workspace.fly_app_ref,
             "ams",
-            1,
+            10,
             attached_machine_id=workspace.machine_ref,
         )
         self.machine = MachineRecord(
@@ -64,6 +64,9 @@ class FakeProvider:
                 "hermes": "registry.example/hermes@sha256:" + "a" * 64,
                 "allies-runtime": "registry.example/runtime@sha256:" + "b" * 64,
             },
+            cpu_kind="shared",
+            cpus=2,
+            memory_mb=2048,
         )
         self.calls: list[str] = []
 
