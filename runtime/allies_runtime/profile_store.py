@@ -1240,7 +1240,9 @@ class ProfileStore:
         if _is_symlink(root):
             raise ProfileStoreError("profile tombstone namespace is symlinked")
         try:
-            root.mkdir(exist_ok=True)
+            root.mkdir(mode=0o755, exist_ok=True)
+            if os.name != "nt" and os.geteuid() == 0:
+                os.chmod(root, 0o755)
         except OSError:
             raise ProfileStoreError(
                 "profile tombstone namespace is unavailable"
