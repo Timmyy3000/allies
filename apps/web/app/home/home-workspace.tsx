@@ -74,6 +74,8 @@ import { useConversationFiles } from "./attachments/use-conversation-files";
 import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
 import { MobileHomeRosterExact } from "./_exact/mobile-home-roster-exact";
 import { HomeReadySplash } from "./home-ready-splash";
+import { RecipesButton } from "./recipes-button";
+import { latestAllyReply, type AllyReplyPreview } from "./ally-preview";
 import { useIsMobileHome } from "./use-is-mobile-home";
 import styles from "./home.module.css";
 import attachmentStyles from "./attachments/attachments.module.css";
@@ -251,13 +253,23 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   const allyPreviewQueries = useQueries({
     queries: allies.slice(0, ALLY_PREVIEW_LIMIT).map((ally) => ({
       queryKey: [...conversationQueryKey(workspaceId, ally.id), "preview"] as const,
-      queryFn: ({ signal }: { signal: AbortSignal }) => session.runCloudOperation(
-        (operationSignal) => session.client.getAllyConversation(workspaceId, ally.id, {
-          limit: 1,
-          signal: operationSignal,
-        }),
-        { signal },
-      ),
+      queryFn: async ({ signal }: { signal: AbortSignal }) => {
+        const readPage = (cursor?: string) => session.runCloudOperation(
+          (operationSignal) => session.client.getAllyConversation(workspaceId, ally.id, {
+            limit: 20, ...(cursor ? { cursor } : {}), signal: operationSignal,
+          }), { signal },
+        );
+        const first = await readPage();
+        let page = first;
+        let reply = latestAllyReply(page);
+        const cursors = new Set<string>();
+        while (!reply && page.nextCursor && cursors.size < 3 && !cursors.has(page.nextCursor)) {
+          cursors.add(page.nextCursor);
+          page = await readPage(page.nextCursor);
+          reply = latestAllyReply(page);
+        }
+        return { ...first, previewReply: reply, previewHistoryRemaining: Boolean(!reply && page.nextCursor) };
+      },
       enabled: Boolean(workspaceId),
       retry: false,
       staleTime: 30_000,
@@ -271,7 +283,12 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
         (latest, message) => (!latest || message.sequence > latest.sequence ? message : latest),
         null,
       );
-      return [ally.id, { latestMessage, isPending: Boolean(query?.isPending), isError: Boolean(query?.isError) }] as const;
+      return [ally.id, {
+        latestMessage,
+        latestReply: query?.data?.previewReply ?? null,
+        historyRemaining: query?.data?.previewHistoryRemaining ?? false,
+        isPending: Boolean(query?.isPending), isError: Boolean(query?.isError),
+      }] as const;
     })),
     [allies, allyPreviewQueries],
   );
@@ -508,7 +525,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
             {handoffRetryAvailable ? <button type="button" onClick={retryHandoff}>Try again</button> : null}
           </main>
         ) : (
-          <OnboardingStateProvider initialStep="name">
+          <OnboardingStateProvider initialStep="job">
             <AuthenticatedAllyFlowProvider
               workspaceId={workspaceId}
               onCreated={handleCreated}
@@ -561,9 +578,9 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
           >
             {initials(accountQuery.data.displayName)}
           </Link>
-          <button type="button" className={`${styles.exactMobileAction} ${styles.exactMobileActionCreate}`} style={{ cursor: "default" }} aria-label="Chef" disabled>
+          <RecipesButton className={`${styles.exactMobileAction} ${styles.exactMobileActionCreate}`}>
             <ChefIcon />
-          </button>
+          </RecipesButton>
         </div>
         <button
           type="button"
@@ -576,10 +593,11 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
           <SearchIcon />
         </button>
       </header>
+      {/* Restore the view controls when the Routines sidebar is ready.
       <div className={styles.sidebarTabs} aria-label="Sidebar views">
         <button type="button" className={styles.sidebarTab} aria-pressed="true">My allies</button>
         <button type="button" className={`${styles.sidebarTab} ${styles.sidebarTabMuted}`} disabled>Routines</button>
-      </div>
+      </div> */}
       {searchOpen ? (
         <input
           id="ally-search"
@@ -685,12 +703,14 @@ function AllyIdentityAvatar({
 
 type AllyPreview = {
   latestMessage: MessageViewModel | null;
+  latestReply: AllyReplyPreview | null;
+  historyRemaining: boolean;
   isPending: boolean;
   isError: boolean;
 };
 
-function previewText(message: MessageViewModel | null): string {
-  if (!message?.content.trim()) return "No messages yet";
+function previewText(message: AllyReplyPreview | null): string {
+  if (!message?.content.trim()) return "No reply yet";
   return message.content
     .replace(/[`*_>#\[\]]/g, "")
     .replace(/\s+/g, " ")
@@ -752,7 +772,7 @@ function AllyConversationRow({
             ? allySecondaryLine(ally)
             : preview.isPending && !latestMessage
               ? "Opening conversation…"
-              : previewText(latestMessage)}
+              : preview.historyRemaining ? "Open conversation" : previewText(preview.latestReply)}
         </span>
       </span>
     </Link>
@@ -2421,7 +2441,7 @@ function ConversationPane({
   };
 
   const restoreFileText = (content: string) => { const combined = [content, draftRef.current].filter(Boolean).join("\n\n"); draftRef.current = combined; setDraft(combined); void conversationQuery.refetch(); };
-  const frame = <><ConversationFrame stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} onOpenSettings={onOpenSettings} canvasRef={messageCanvasRef}
+  const frame = <><ConversationFrame settingsHref={`/allies/${encodeURIComponent(ally.id)}/settings`} stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} onOpenSettings={onOpenSettings} canvasRef={messageCanvasRef}
     fileRecovery={attachments.cancelled.map(record => <div className={attachmentStyles.savedDraft} key={record.id} role="group" aria-label="Saved cancelled file message"><span>Saved cancelled message · {record.files.length} files</span><button type="button" onClick={() => { attachments.restoreDraft(record); restoreFileText(record.content); }}>Restore draft</button><button type="button" onClick={() => attachments.discard(record.id)}>Discard saved copy</button></div>)}
     attachments={attachments.tray} onAttach={preparingFiles ? undefined : attachments.open}
     onFileOpen={attachments.openFile}

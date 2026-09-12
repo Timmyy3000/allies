@@ -98,7 +98,7 @@ export function ConversationHeader({
           <SettingsIcon />
         </button>
       ) : (
-        <Link className={`${styles.frameIconHit} ${styles.frameSettingsMobile}`} href={settingsHref} aria-label="Account settings">
+        <Link className={`${styles.frameIconHit} ${styles.frameSettingsMobile}`} href={settingsHref} aria-label={`${name} settings`}>
           <SettingsIcon />
         </Link>
       )}
@@ -108,10 +108,10 @@ export function ConversationHeader({
           <span>{name} settings</span>
         </button>
       ) : (
-        <span className={styles.frameSettingsDesktop}>
+        <Link className={styles.frameSettingsDesktop} href={settingsHref}>
           <FrameIcon name="settings-desktop" className={styles.frameSettingsIcon} />
           <span>{name} settings</span>
-        </span>
+        </Link>
       )}
     </header>
   );

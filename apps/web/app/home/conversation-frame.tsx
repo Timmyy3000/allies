@@ -41,6 +41,7 @@ import {
 import styles from "./conversation-frame.module.css";
 
 export interface ConversationFrameProps {
+  settingsHref?: string;
   model: ProductionConversationFrameModel;
   actions: ProductionConversationFrameActions;
   onOpenSettings?: () => void;
@@ -56,7 +57,7 @@ export interface ConversationFrameProps {
   onFileOpen?: (fileId: string) => void;
 }
 
-export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, sleeping = false, stateReady = true, runtimeIntentStatus = null, attachments, fileRecovery, onAttach, messageAttachments, publications, onFileOpen }: ConversationFrameProps) {
+export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, settingsHref = "/account", sleeping = false, stateReady = true, runtimeIntentStatus = null, attachments, fileRecovery, onAttach, messageAttachments, publications, onFileOpen }: ConversationFrameProps) {
   useEffect(() => {
     // Markdown dialogs portal outside the conversation's accent scope.
     const previous = document.body.style.getPropertyValue("--active-chat-accent");
@@ -220,7 +221,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
         name={model.ally.name}
         subtitle={model.ally.job}
         homeHref="/home"
-        settingsHref="/account"
+        settingsHref={settingsHref}
         onSettings={onOpenSettings}
         sleeping={docked}
         avatar={null}

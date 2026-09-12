@@ -1896,3 +1896,22 @@ textarea::placeholder {
 .waitlist-preview-status { gap: 10px; font-size: 16px; line-height: 24px; }
 .waitlist-preview-composer { min-height: 52px; }
 .waitlist-preview-send:disabled { opacity: 0.55; }
+
+.onboarding-intro-scene {
+  position: relative;
+  flex: 1 0 300px;
+  min-height: 300px;
+  width: 100%;
+  max-width: 440px;
+  margin: 24px 0;
+  align-self: center;
+}
+
+.onboarding-job-stack .onboarding-editor-card {
+  flex-basis: 250px;
+  height: 250px;
+}
+
+.onboarding-step-heading h1 {
+  overflow-wrap: anywhere;
+}

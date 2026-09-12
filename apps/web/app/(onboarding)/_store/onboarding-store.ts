@@ -27,6 +27,7 @@ export const NAME_LIMIT = 80;
 export const JOB_LIMIT = 200;
 
 export type OnboardingStep =
+  | "intro"
   | "welcome"
   | "name"
   | "look"
@@ -36,6 +37,8 @@ export type OnboardingStep =
 
 type OnboardingState = {
   step: OnboardingStep;
+  hasIntroduction: boolean;
+  hasSeenJobNudge: boolean;
   name: string;
   shape: AllyShape;
   hasSwipedAvatar: boolean;
@@ -47,6 +50,7 @@ type OnboardingState = {
 };
 
 type OnboardingActions = {
+  markJobNudgeSeen: () => void;
   setName: (name: string) => void;
   setShape: (shape: AllyShape) => void;
   markSwiped: () => void;
@@ -70,6 +74,7 @@ type OnboardingActions = {
 type OnboardingStore = OnboardingState & OnboardingActions;
 
 type OnboardingAction =
+  | { type: "markJobNudgeSeen" }
   | { type: "setName"; name: string }
   | { type: "setShape"; shape: AllyShape }
   | { type: "markSwiped" }
@@ -83,15 +88,18 @@ type OnboardingAction =
 
 const BACK: Record<OnboardingStep, OnboardingStep | null> = {
   welcome: null,
-  name: "welcome",
+  intro: "welcome",
+  job: "intro",
+  name: "job",
   look: "name",
-  job: "look",
-  personality: "job",
+  personality: "look",
   preview: "personality",
 };
 
 const INITIAL_STATE: OnboardingState = {
   step: "welcome",
+  hasIntroduction: true,
+  hasSeenJobNudge: false,
   name: "",
   shape: "ghosty",
   hasSwipedAvatar: false,
@@ -108,6 +116,8 @@ function personalityPrompt(trait: string) {
 
 function reduceOnboardingState(state: OnboardingState, action: OnboardingAction): OnboardingState {
   switch (action.type) {
+    case "markJobNudgeSeen":
+      return { ...state, hasSeenJobNudge: true };
     case "setName":
       return { ...state, name: action.name.slice(0, NAME_LIMIT) };
     case "setShape":
@@ -171,10 +181,11 @@ export function OnboardingStateProvider({
   const [state, dispatch] = useReducer(
     reduceOnboardingState,
     initialStep,
-    (step): OnboardingState => ({ ...INITIAL_STATE, step }),
+    (step): OnboardingState => ({ ...INITIAL_STATE, step, hasIntroduction: step === "welcome" || step === "intro" }),
   );
   const actions = useMemo<OnboardingActions>(
     () => ({
+      markJobNudgeSeen: () => dispatch({ type: "markJobNudgeSeen" }),
       setName: (name) => dispatch({ type: "setName", name }),
       setShape: (shape) => dispatch({ type: "setShape", shape }),
       markSwiped: () => dispatch({ type: "markSwiped" }),

@@ -59,7 +59,7 @@ test("app entry preserves the landing and opens existing onboarding", async ({ p
   const start = page.getByRole("link", { name: "Make your first ally" });
   await expect(start).toHaveAttribute("href", "/onboarding");
   await start.click();
-  await expect(page.getByTestId("name-ally")).toBeVisible();
+  await expect(page.getByTestId("onboarding-introduction")).toBeVisible();
 });
 
 test("welcome controls stay usable on short phones", async ({ page }, testInfo) => {
@@ -124,7 +124,7 @@ test("signed-in launch reaches Home and remembers an install dismissal", async (
   await expect(page.getByRole("link", { name: "PWA tester" })).toBeVisible();
   expect(await offerNativeInstall(page)).toBe(true);
   await expect(page.getByRole("button", { name: "Install Allies", exact: true })).toBeVisible({ timeout: 10_000 });
-  await page.getByRole("button", { name: "My allies", exact: true }).click({ trial: true });
+  await page.getByRole("link", { name: "PWA tester" }).click({ trial: true });
   await page.getByRole("button", { name: /^Make an ally$/i }).click({ trial: true });
   await page.screenshot({ path: testInfo.outputPath("install-invitation.png") });
   await page.getByRole("button", { name: "Not now", exact: true }).click();

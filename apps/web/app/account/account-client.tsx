@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { AlliesLoading } from "@/components/allies-loading";
+import { BackButton } from "@/components/back-button";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
@@ -240,53 +241,12 @@ export function AccountClient() {
   return (
     <AccountShell>
       <header className={styles.header}>
-        <Brand />
-        <Link href="/home" className={styles.backLink}><span aria-hidden="true">←</span> Back to chats</Link>
+        <BackButton onClick={() => router.push("/home")} />
+        <h1>Settings</h1>
       </header>
 
-      <div className={styles.intro}>
-        <div>
-          <p className={styles.eyebrow}>Your space</p>
-          <h1>Account</h1>
-          <p className={styles.copy}>A little about you. Make yourself at home.</p>
-        </div>
-      </div>
-
       <div className={styles.grid}>
-        <section className={styles.card} aria-labelledby="profile-title">
-          <div className={styles.sectionHeading}>
-            <div>
-              <h2 id="profile-title">Your name</h2>
-              <p className={styles.sectionCopy}>What your Allies call you.</p>
-            </div>
-          </div>
-          <form className={styles.editor} onSubmit={(event) => void submitProfile(event)}>
-            <label className={styles.fieldLabel} htmlFor="display-name">Display name</label>
-            <input
-              id="display-name"
-              name="displayName"
-              className={styles.textInput}
-              ref={displayNameInput}
-              defaultValue={account.displayName}
-              onChange={() => {
-                setProfileMessage(null);
-                setProfileError(null);
-              }}
-              autoComplete="name"
-              maxLength={80}
-              required
-              aria-invalid={Boolean(profileError)}
-              aria-describedby={profileError ? "profile-error" : "profile-status"}
-            />
-            <button type="submit" className={styles.primaryAction} disabled={profilePending}>
-              {profilePending ? "Saving…" : "Save changes"}
-            </button>
-            <p id="profile-status" className={styles.formStatus} aria-live="polite">{profileMessage}</p>
-            {profileError ? <p id="profile-error" className={styles.formError} role="alert">{profileError}</p> : null}
-          </form>
-        </section>
-
-        <section className={`${styles.card} ${styles.avatarCard}`} aria-labelledby="avatar-title">
+        <section className={styles.card} aria-labelledby="avatar-title">
           <div className={styles.sectionHeading}>
             <div>
               <h2 id="avatar-title">Your photo</h2>
@@ -336,12 +296,44 @@ export function AccountClient() {
           {avatarError ? <p className={styles.formError} role="alert">{avatarError}</p> : null}
           </div>
         </section>
+
+        <section className={styles.card} aria-labelledby="profile-title">
+          <div className={styles.sectionHeading}>
+            <div>
+              <h2 id="profile-title">Your name</h2>
+              <p className={styles.sectionCopy}>What your Allies call you.</p>
+            </div>
+          </div>
+          <form className={styles.editor} onSubmit={(event) => void submitProfile(event)}>
+            <label className={styles.fieldLabel} htmlFor="display-name">Display name</label>
+            <input
+              id="display-name"
+              name="displayName"
+              className={styles.textInput}
+              ref={displayNameInput}
+              defaultValue={account.displayName}
+              onChange={() => {
+                setProfileMessage(null);
+                setProfileError(null);
+              }}
+              autoComplete="name"
+              maxLength={80}
+              required
+              aria-invalid={Boolean(profileError)}
+              aria-describedby={profileError ? "profile-error" : "profile-status"}
+            />
+            <button type="submit" className={styles.primaryAction} disabled={profilePending}>
+              {profilePending ? "Saving…" : "Save changes"}
+            </button>
+            <p id="profile-status" className={styles.formStatus} aria-live="polite">{profileMessage}</p>
+            {profileError ? <p id="profile-error" className={styles.formError} role="alert">{profileError}</p> : null}
+          </form>
+        </section>
       </div>
 
       <section className={styles.sessionRow} aria-label="Session">
-        <div><h2>See you soon</h2><p className={styles.sectionCopy}>Your Allies will be here when you return.</p></div>
         <button type="button" className={styles.logoutButton} onClick={() => void logout()} disabled={logoutPending}>
-          {logoutPending ? "Signing out…" : "Sign out"}<span aria-hidden="true"> ↗</span>
+          {logoutPending ? "Signing out…" : "Sign out"}
         </button>
       </section>
 
