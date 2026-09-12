@@ -259,6 +259,7 @@ export class FileTransfers {
   private running = new Map<string, Promise<void>>();
   private loaded = new Map<string, Promise<void>>();
   private clearing = new Set<string>();
+  private clearedScopes = new Set<string>();
   readonly drafts = new Map<string, SelectedFile[]>();
   constructor(
     private client: CloudClient,
@@ -277,6 +278,11 @@ export class FileTransfers {
     this.listeners.forEach((listener) => listener());
   }
   private async save(record: FileTransfer) {
+    if (this.clearedScopes.has(record.scope)) {
+      this.records = this.records.filter((current) => current.id !== record.id);
+      this.emit();
+      return;
+    }
     await this.storage.persist(record);
     const index = this.records.findIndex((r) => r.id === record.id);
     if (index < 0) this.records.push(record);
@@ -284,6 +290,7 @@ export class FileTransfers {
     this.emit();
   }
   async restore(scope: string) {
+    if (this.clearedScopes.has(scope)) return;
     if (!this.loaded.has(scope))
       this.loaded.set(
         scope,
@@ -322,6 +329,35 @@ export class FileTransfers {
       );
     await this.loaded.get(scope);
   }
+  async clearScope(scope: string) {
+    const alreadyCleared = this.clearedScopes.has(scope);
+    let loadFailed = false;
+    let persistedRecords: FileTransfer[] = [];
+    try {
+      if (alreadyCleared) persistedRecords = await this.storage.load(scope);
+      else await this.restore(scope);
+    } catch {
+      loadFailed = true;
+    }
+    this.clearedScopes.add(scope);
+    this.drafts.delete(scope);
+    const targetRecords = [
+      ...this.records.filter((record) => record.scope === scope),
+      ...persistedRecords.filter((record) => (
+        record.scope === scope && !this.records.some((current) => current.id === record.id)
+      )),
+    ];
+    targetRecords.forEach((record) => {
+      this.operations.get(record.id)?.abort();
+      record.files.forEach((file) => this.releasePreview(file));
+    });
+    this.records = this.records.filter((record) => record.scope !== scope);
+    const eraseResults = await Promise.allSettled(targetRecords.map((record) => this.storage.erase(record.id)));
+    this.emit();
+    if (loadFailed || eraseResults.some((result) => result.status === "rejected")) {
+      throw new Error("Some saved Ally file drafts could not be erased from this browser.");
+    }
+  }
   async prepare(
     scope: string,
     workspaceId: string,
@@ -331,6 +367,9 @@ export class FileTransfers {
     files: SelectedFile[],
   ): Promise<FileTransfer> {
     await this.restore(scope);
+    if (this.clearedScopes.has(scope)) {
+      throw new Error("File drafts are unavailable for this Ally.");
+    }
     validateSelectedFiles(files);
     if (this.records.filter((r) => r.scope === scope).length >= 10)
       throw new Error(

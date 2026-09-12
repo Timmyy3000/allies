@@ -12,6 +12,9 @@ import {
   allySeedInputSchema,
   allyResponseSchema,
   allySettingsInputSchema,
+  allyDeletionInputSchema,
+  allyDeletionResponseSchema,
+  toAllyDeletionViewModel,
   conversationResponseSchema,
   createAllyInputSchema,
   messageAcceptanceResponseSchema,
@@ -30,6 +33,8 @@ import {
   type AllySeedInput,
   type AllyViewModel,
   type AllySettingsInput,
+  type AllyDeletionInput,
+  type AllyDeletionViewModel,
   type ConversationViewModel,
   type CreateAllyInput,
   type MessageAcceptanceViewModel,
@@ -682,6 +687,41 @@ export function createCloudClient(options: CloudClientOptions) {
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => toAllyViewModel(successEnvelope(savedAllySettingsSchema).parse(data).data),
+        [200],
+      );
+    },
+
+    async requestAllyDeletion(
+      workspaceId: string, allyId: string, input: AllyDeletionInput, signal?: AbortSignal,
+    ): Promise<AllyDeletionViewModel> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const ally = parsePathSegment(allyId);
+      const body = parseInput(allyDeletionInputSchema, input);
+      return unwrap(
+        api.POST("/api/v1/workspaces/{workspace_id}/allies/{ally_id}/deletion", {
+          params: { path: { workspace_id: workspace, ally_id: ally } }, body,
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toAllyDeletionViewModel(successEnvelope(allyDeletionResponseSchema.refine(
+          (value) => value.ally_id === ally, "Deletion belongs to a different Ally",
+        )).parse(data).data),
+        [200, 202],
+      );
+    },
+
+    async getAllyDeletion(workspaceId: string, allyId: string, signal?: AbortSignal): Promise<AllyDeletionViewModel> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const ally = parsePathSegment(allyId);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/allies/{ally_id}/deletion", {
+          params: { path: { workspace_id: workspace, ally_id: ally } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toAllyDeletionViewModel(successEnvelope(allyDeletionResponseSchema.refine(
+          (value) => value.ally_id === ally, "Deletion belongs to a different Ally",
+        )).parse(data).data),
         [200],
       );
     },

@@ -159,6 +159,20 @@ function renderHome(
   const client = {
     getCurrentAccount: vi.fn(async () => account),
     listAllies: vi.fn(async () => allies),
+    requestAllyDeletion: vi.fn(async (_workspaceId: string, allyId: string) => ({
+      allyId,
+      operationId: "00000000-0000-4000-8000-000000000020",
+      state: "pending" as const,
+      retryable: true,
+      safeErrorCode: "",
+    })),
+    getAllyDeletion: vi.fn(async (_workspaceId: string, allyId: string) => ({
+      allyId,
+      operationId: "00000000-0000-4000-8000-000000000020",
+      state: "pending" as const,
+      retryable: true,
+      safeErrorCode: "",
+    })),
     updateAllySettings: vi.fn(async (_workspaceId: string, allyId: string, input: { label: string; showLabel: boolean; settingsRevision: number }) => ({
       ...(allies.find((candidate) => candidate.id === allyId) ?? ally),
       label: input.label,
@@ -226,6 +240,27 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     expect(row.textContent).not.toContain("Thanks for that");
     expect(getAllyConversation).toHaveBeenCalledTimes(2);
     expect(getAllyConversation.mock.calls[1][2]?.cursor).toBe("older");
+  });
+
+  it("stops older preview pages when deletion begins during a pending history request", async () => {
+    const page: ConversationViewModel = {
+      id: "conversation", allyId: ally.id, messages: [], assistantReplies: [], routineItems: [], nextCursor: "older",
+    };
+    let resolveOlder!: (value: ConversationViewModel) => void;
+    const older = new Promise<ConversationViewModel>((resolve) => { resolveOlder = resolve; });
+    const getAllyConversation = vi.fn(async (_workspace: string, _ally: string, options?: { cursor?: string }) => (
+      options?.cursor ? older : page
+    ));
+    const client = renderHome([ally], null, { getAllyConversation });
+    await waitFor(() => expect(getAllyConversation).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      client.queryClient.setQueryData(["workspaces", account.workspace.id, "allies"], [{ ...ally, deletionState: "pending" }]);
+    });
+    await waitFor(() => expect(screen.queryByRole("link", { name: /Mira/ })).toBeNull());
+    await act(async () => { resolveOlder({ ...page, nextCursor: "even-older" }); });
+    expect(getAllyConversation).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("link", { name: /Mira/ })).toBeNull();
+    expect(client.queryClient.getQueryData(["workspaces", account.workspace.id, "allies", ally.id, "conversation", "preview"])).toBeUndefined();
   });
 
   it("loads the real roster and opens the created Ally through its actual page", async () => {
@@ -462,6 +497,207 @@ describe("HomeWorkspace", () => {
     );
     expect(await screen.findByText("chief of staff")).toBeTruthy();
     expect(within(dialog).getByRole("status").textContent).toBe("Settings saved.");
+  });
+
+  it("requires the exact deletion phrase and focuses confirmation before the destructive action", async () => {
+    const client = renderHome([ally], ally.id);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Ally" }));
+
+    const confirmation = within(dialog).getByRole("textbox", { name: /Type the exact phrase to confirm/ }) as HTMLInputElement;
+    await waitFor(() => expect(document.activeElement).toBe(confirmation));
+    const deleteButton = within(dialog).getByRole("button", { name: "Delete Ally" }) as HTMLButtonElement;
+    expect(within(dialog).getByText("Mira - deletes me")).toBeTruthy();
+    expect(deleteButton.disabled).toBe(true);
+
+    fireEvent.change(confirmation, { target: { value: "Mira - deletes Me" } });
+    expect(deleteButton.disabled).toBe(true);
+    fireEvent.click(deleteButton);
+    expect(client.requestAllyDeletion).not.toHaveBeenCalled();
+  });
+
+  it("keeps a lost deletion request pending, then removes only the target after completion", async () => {
+    const sibling = { ...ally, id: "00000000-0000-4000-8000-000000000010", name: "Sage" };
+    const pending = {
+      allyId: ally.id,
+      operationId: "00000000-0000-4000-8000-000000000020",
+      state: "pending" as const,
+      retryable: true,
+      safeErrorCode: "request_unknown",
+    };
+    const complete = {
+      allyId: ally.id,
+      state: "complete" as const,
+      retryable: false,
+      safeErrorCode: "",
+    };
+    const requestAllyDeletion = vi.fn().mockRejectedValue({ kind: "network" });
+    const getAllyDeletion = vi.fn()
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(complete);
+    const client = renderHome([ally, sibling], ally.id, { requestAllyDeletion, getAllyDeletion });
+    const targetKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`;
+    const siblingKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${sibling.id}`;
+    window.localStorage.setItem(targetKey, JSON.stringify([{ id: "target-queued", content: "remove me", intentKey: "target-intent", queuedAt: 1 }]));
+    window.localStorage.setItem(`${targetKey}:removed:target-old`, String(Date.now()));
+    window.localStorage.setItem(siblingKey, JSON.stringify([{ id: "sibling-queued", content: "keep me", intentKey: "sibling-intent", queuedAt: 1 }]));
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Ally" }));
+    const confirmation = within(dialog).getByRole("textbox", { name: /Type the exact phrase to confirm/ });
+    fireEvent.change(confirmation, { target: { value: "Mira - deletes me" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Ally" }));
+
+    await waitFor(() => expect(screen.getByText("We couldn't confirm the request. We'll keep checking its status.")).toBeTruthy());
+    expect(screen.getByTestId("ally-deletion-status")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Sage/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+    await waitFor(() => expect(getAllyDeletion).toHaveBeenCalledOnce());
+    expect(screen.getByTestId("ally-deletion-status")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Sage/ })).toBeTruthy();
+    expect(screen.queryByRole("link", { name: /Mira/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh deletion status" }));
+    await waitFor(() => expect(getAllyDeletion).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByTestId("ally-deletion-status")).toBeNull());
+    expect(screen.getByRole("link", { name: /Sage/ })).toBeTruthy();
+    expect(window.localStorage.getItem(targetKey)).toBeNull();
+    expect(window.localStorage.getItem(`${targetKey}:removed:target-old`)).toBeNull();
+    expect(window.localStorage.getItem(siblingKey)).toContain("sibling-queued");
+    expect(client.queryClient.getQueryData(["workspaces", account.workspace.id, "allies", ally.id, "conversation"])).toBeUndefined();
+  });
+
+  it("reconciles a concurrent deletion conflict before entering tracked pending state", async () => {
+    const sibling = { ...ally, id: "00000000-0000-4000-8000-000000000010", name: "Sage" };
+    const pending = {
+      allyId: ally.id,
+      operationId: "00000000-0000-4000-8000-000000000020",
+      state: "pending" as const,
+      retryable: true,
+      safeErrorCode: "",
+    };
+    const complete = {
+      allyId: ally.id,
+      state: "complete" as const,
+      retryable: false,
+      safeErrorCode: "",
+    };
+    const requestAllyDeletion = vi.fn().mockRejectedValue({
+      kind: "conflict",
+      status: 409,
+      code: "deletion_conflict",
+    });
+    const getAllyDeletion = vi.fn()
+      .mockResolvedValueOnce(pending)
+      .mockResolvedValueOnce(complete);
+    const client = renderHome([ally, sibling], ally.id, { requestAllyDeletion, getAllyDeletion });
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Ally" }));
+    fireEvent.change(
+      within(dialog).getByRole("textbox", { name: /Type the exact phrase to confirm/ }),
+      { target: { value: "Mira - deletes me" } },
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Ally" }));
+
+    await waitFor(() => expect(getAllyDeletion).toHaveBeenCalledTimes(1));
+    expect(screen.getByTestId("ally-deletion-status")).toBeTruthy();
+    expect(screen.getByText("This Ally is already being deleted. We'll keep checking its status.")).toBeTruthy();
+    expect(screen.queryByText("This deletion request conflicted with a change.")).toBeNull();
+    expect(client.queryClient.getQueryData<AllyViewModel[]>(["workspaces", account.workspace.id, "allies"])?.[0]?.deletionState).toBe("pending");
+    expect(screen.getByRole("link", { name: /Sage/ })).toBeTruthy();
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Refresh status" }));
+    await waitFor(() => expect(getAllyDeletion).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByTestId("ally-deletion-status")).toBeNull());
+    expect(screen.getByRole("link", { name: /Sage/ })).toBeTruthy();
+  });
+
+  it("keeps an exact-name deletion conflict in confirmation after status reconciliation finds no operation", async () => {
+    const requestAllyDeletion = vi.fn().mockRejectedValue({
+      kind: "conflict",
+      status: 409,
+      code: "deletion_conflict",
+    });
+    const getAllyDeletion = vi.fn().mockRejectedValue({ kind: "not-found", status: 404 });
+    const client = renderHome([ally], ally.id, { requestAllyDeletion, getAllyDeletion });
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Ally" }));
+    fireEvent.change(
+      within(dialog).getByRole("textbox", { name: /Type the exact phrase to confirm/ }),
+      { target: { value: "Mira - deletes me" } },
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Ally" }));
+
+    await waitFor(() => expect(getAllyDeletion).toHaveBeenCalledOnce());
+    expect(screen.getByRole("dialog", { name: "Mira settings" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("changed before deletion could start");
+    expect(screen.queryByTestId("ally-deletion-status")).toBeNull();
+    expect(screen.queryByText(/already being deleted/i)).toBeNull();
+    expect(screen.getByRole("link", { name: /Mira/ })).toBeTruthy();
+    expect(client.queryClient.getQueryData<AllyViewModel[]>(["workspaces", account.workspace.id, "allies"])?.[0]?.deletionState).toBeUndefined();
+  });
+
+  it("rejects a mismatched deletion status without fencing the other Ally", async () => {
+    const sibling = { ...ally, id: "00000000-0000-4000-8000-000000000010", name: "Sage" };
+    const requestAllyDeletion = vi.fn().mockRejectedValue({ kind: "conflict", status: 409 });
+    const getAllyDeletion = vi.fn().mockResolvedValue({
+      allyId: sibling.id,
+      operationId: "00000000-0000-4000-8000-000000000020",
+      state: "pending" as const,
+      retryable: true,
+      safeErrorCode: "",
+    });
+    const client = renderHome([ally, sibling], ally.id, { requestAllyDeletion, getAllyDeletion });
+
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Ally" }));
+    fireEvent.change(
+      within(dialog).getByRole("textbox", { name: /Type the exact phrase to confirm/ }),
+      { target: { value: "Mira - deletes me" } },
+    );
+    fireEvent.click(within(dialog).getByRole("button", { name: "Delete Ally" }));
+
+    await waitFor(() => expect(getAllyDeletion).toHaveBeenCalledOnce());
+    expect(screen.getByRole("dialog", { name: "Mira settings" })).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain("couldn't verify whether another deletion is in progress");
+    expect(within(dialog).getByRole("button", { name: "Check status" })).toBeTruthy();
+    expect(screen.queryByTestId("ally-deletion-status")).toBeNull();
+    expect(screen.getByRole("link", { name: /Mira/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Sage/ })).toBeTruthy();
+    expect(client.queryClient.getQueryData<AllyViewModel[]>(["workspaces", account.workspace.id, "allies"])?.map((candidate) => candidate.deletionState)).toEqual([undefined, undefined]);
+  });
+
+  it("does not let a delayed settings save reactivate an Ally accepted for deletion", async () => {
+    let resolveSave!: (value: AllyViewModel) => void;
+    const updateAllySettings = vi.fn(() => new Promise<AllyViewModel>((resolve) => {
+      resolveSave = resolve;
+    }));
+    const client = renderHome([ally], ally.id, { updateAllySettings });
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    const label = within(dialog).getByRole("textbox", { name: "Label" });
+    fireEvent.change(label, { target: { value: "new label" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(updateAllySettings).toHaveBeenCalledOnce());
+
+    await act(async () => {
+      client.queryClient.setQueryData<AllyViewModel[]>(["workspaces", account.workspace.id, "allies"], [
+        { ...ally, deletionState: "pending" },
+      ]);
+    });
+    expect(await screen.findByTestId("ally-deletion-status")).toBeTruthy();
+
+    await act(async () => resolveSave({ ...ally, label: "new label", settingsRevision: 1 }));
+    await waitFor(() => expect(client.queryClient.getQueryData<AllyViewModel[]>(["workspaces", account.workspace.id, "allies"])?.[0]?.deletionState).toBe("pending"));
+    expect(screen.getByTestId("ally-deletion-status")).toBeTruthy();
   });
 
   it("keeps the draft and uses the refreshed revision after a settings conflict", async () => {

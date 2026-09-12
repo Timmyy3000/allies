@@ -78,10 +78,50 @@ export const allyResponseSchema = z
     label: allyLabelSchema.default(""),
     show_label: z.boolean().default(false),
     settings_revision: z.number().int().nonnegative().default(0),
+    deletion_state: z.enum(["active", "pending", "repair_required"]).default("active"),
   })
   .loose();
 
 export const allyListResponseSchema = z.object({ allies: z.array(allyResponseSchema) }).loose();
+
+export const allyDeletionInputSchema = z.object({
+  confirmation: z.string().min(1).max(128).refine((value) => !/[\p{Cc}\p{Cf}]/u.test(value)),
+}).strict();
+
+export const allyDeletionResponseSchema = z.object({
+  ally_id: uuidSchema,
+  operation_id: uuidSchema.optional(),
+  state: z.enum(["pending", "complete", "repair_required"]),
+  retryable: z.boolean(),
+  safe_error_code: z.string().max(64).regex(/^(?:[a-z][a-z0-9_]*)?$/u),
+}).loose().superRefine((value, context) => {
+  if (value.state !== "complete" && !value.operation_id) {
+    context.addIssue({ code: "custom", path: ["operation_id"], message: "Pending deletion requires an operation" });
+  }
+  if (value.state === "complete" && (value.retryable || value.safe_error_code)) {
+    context.addIssue({ code: "custom", path: ["state"], message: "Completed deletion cannot require recovery" });
+  }
+});
+
+export type AllyDeletionInput = z.input<typeof allyDeletionInputSchema>;
+export interface AllyDeletionViewModel {
+  allyId: string;
+  operationId?: string;
+  state: "pending" | "complete" | "repair_required";
+  retryable: boolean;
+  safeErrorCode: string;
+}
+
+export function toAllyDeletionViewModel(input: unknown): AllyDeletionViewModel {
+  const value = allyDeletionResponseSchema.parse(input);
+  return {
+    allyId: value.ally_id,
+    ...(value.operation_id ? { operationId: value.operation_id } : {}),
+    state: value.state,
+    retryable: value.retryable,
+    safeErrorCode: value.safe_error_code,
+  };
+}
 
 export const onboardingAttemptResponseSchema = z
   .object({
@@ -315,6 +355,7 @@ export interface AllyViewModel {
   label?: string;
   showLabel?: boolean;
   settingsRevision?: number;
+  deletionState?: "active" | "pending" | "repair_required";
 }
 
 export interface AllySeedInput {
@@ -468,6 +509,7 @@ export function toAllyViewModel(input: unknown): AllyViewModel {
     label: ally.label,
     showLabel: ally.show_label,
     settingsRevision: ally.settings_revision,
+    deletionState: ally.deletion_state,
   };
 }
 

@@ -221,6 +221,35 @@ jobs:
             });
             core.info(`Configured DNS for ${domain.domain}`);
 
+      - name: Deploy only the web service
+        shell: sh
+        run: |
+          set -eu
+          railway up \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --ci \
+            --yes \
+            --message "PR #${{ github.event.pull_request.number }} ${{ github.event.pull_request.head.sha }}"
+
+      - name: Retry a failed custom domain certificate
+        shell: sh
+        run: |
+          set -eu
+          railway domain status "$PR_PREVIEW_DOMAIN" \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json > /tmp/railway-preview-domain-status.json
+          if grep -q '"retryable"[[:space:]]*:[[:space:]]*true' /tmp/railway-preview-domain-status.json; then
+            railway domain certificate retry "$PR_PREVIEW_DOMAIN" \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment "$PR_ENVIRONMENT" \
+              --service "$RAILWAY_WEB_SERVICE_ID" \
+              --json >/dev/null
+          fi
+
       - name: Wait for the custom domain
         shell: sh
         timeout-minutes: 10
@@ -248,18 +277,6 @@ jobs:
             echo "::error::Railway did not verify the custom preview domain within 10 minutes"
             exit 1
           fi
-
-      - name: Deploy only the web service
-        shell: sh
-        run: |
-          set -eu
-          railway up \
-            --project "$RAILWAY_PROJECT_ID" \
-            --environment "$PR_ENVIRONMENT" \
-            --service "$RAILWAY_WEB_SERVICE_ID" \
-            --ci \
-            --yes \
-            --message "PR #${{ github.event.pull_request.number }} ${{ github.event.pull_request.head.sha }}"
 
       - name: Confirm the preview domain
         shell: sh
