@@ -157,7 +157,7 @@ afterEach(() => {
 });
 
 describe("ConversationFrame", () => {
-  it("moves only the started queue head into the transcript and keeps local removal available", () => {
+  it("moves only the started queue head into the transcript and keeps local removal available", async () => {
     const queuedModel = {
       ...model,
       messages: [{ ...model.messages[0], queued: true }],
@@ -178,7 +178,7 @@ describe("ConversationFrame", () => {
     }} actions={actions} runtimeIntentStatus="ready" />);
     expect(screen.getByText("First request", { selector: "article p" })).toBeTruthy();
     expect(screen.getByText("Next request").closest("ol")).toBeTruthy();
-    expect(screen.getAllByText("First request")).toHaveLength(1);
+    await waitFor(() => expect(screen.getAllByText("First request")).toHaveLength(1));
   });
 
   it("remeasures the avatar when the centred status label changes width", () => {

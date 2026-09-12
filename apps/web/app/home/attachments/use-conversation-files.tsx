@@ -7,7 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
-import { AnimatePresence, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { conversationQueryKey } from "../../../lib/allies/queries";
 import type {
@@ -222,14 +222,15 @@ export function useConversationFiles(
             </button>
           </div>
         )}
-        {preview && (
+        <AnimatePresence initial={false}>{preview && (
           <PrivateFilePreview
+            key={preview.id}
             file={preview}
             workspaceId={workspaceId}
             allyId={allyId}
             onClose={() => setPreview(null)}
           />
-        )}
+        )}</AnimatePresence>
       </>
     ),
     render: (
@@ -277,19 +278,20 @@ export function useConversationFiles(
                   />
                   <span>
                     {file.name}
-                    <small>
+                    <AnimatePresence initial={false} mode="wait"><motion.small
+                      key={local && pending ? local.state === "pending" && transfer.phase === "uploading" ? "uploading" : local.state === "validating" || local.state === "receiving" ? "checking" : local.state : "ready"}
+                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .14 }}
+                    >
                       {local && pending
-                        ? local.state === "pending" &&
-                          transfer.phase === "uploading"
+                        ? local.state === "pending" && transfer.phase === "uploading"
                           ? `Uploading ${local.progress}%`
-                          : local.state === "validating" ||
-                              local.state === "receiving"
+                          : local.state === "validating" || local.state === "receiving"
                             ? "Checking file…"
                             : local.state === "ready"
                               ? "Ready"
                               : "Needs attention"
-                        : `${(file.size / 1_000_000).toFixed(1)} MB`}
-                    </small>
+                        : `${local ? "✓ Ready · " : ""}${(file.size / 1_000_000).toFixed(1)} MB`}
+                    </motion.small></AnimatePresence>
                   </span>
                 </button>
                 {local &&
@@ -427,10 +429,12 @@ function PrivateFilePreview({
   onClose: () => void;
 }) {
   const session = useSession();
+  const reducedMotion = useReducedMotion();
   const [metadata, setMetadata] = useState<FileMetadata | null>(null),
     [url, setUrl] = useState(""),
     [text, setText] = useState(""),
     [error, setError] = useState("");
+  const [previewReady, setPreviewReady] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const downloadController = useRef<AbortController | null>(null);
   useEffect(() => () => downloadController.current?.abort(), []);
@@ -443,6 +447,7 @@ function PrivateFilePreview({
         setMetadata(null);
         setUrl("");
         setText("");
+        setPreviewReady(false);
         const info = await session.runCloudOperation(
           (signal) =>
             session.client.files.metadata(workspaceId, allyId, file.id, signal),
@@ -463,10 +468,16 @@ function PrivateFilePreview({
             { signal: controller.signal },
           );
           if (controller.signal.aborted) return;
-          if (info.preview_kind === "text") setText(await blob.text());
+          if (info.preview_kind === "text") {
+            const body = await blob.text();
+            if (controller.signal.aborted) return;
+            setText(body);
+            setPreviewReady(true);
+          }
           else {
             objectUrl = URL.createObjectURL(blob);
             setUrl(objectUrl);
+            setPreviewReady(true);
           }
         }
       } catch {
@@ -516,16 +527,18 @@ function PrivateFilePreview({
         setError("Download failed. Please try again.");
     }
   };
+  const previewState = error ? "error" : !metadata ? "loading" : metadata.preview_kind === "none" ? "none" : previewReady ? metadata.preview_kind : "loading";
   return (
-    <div className={styles.overlay}>
-      <button
+    <motion.div className={styles.overlay} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .18 }}>
+      <motion.button
         className={styles.backdrop}
         onClick={onClose}
         aria-label="Close preview"
         tabIndex={-1}
       />
-      <section
+      <motion.section
         className={styles.filePreview}
+        initial={{ opacity: 0, y: reducedMotion ? 0 : 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: reducedMotion ? 0 : 4 }} transition={{ duration: reducedMotion ? 0 : .2, ease: [.22, 1, .36, 1] }}
         role="dialog"
         aria-modal="true"
         aria-label={metadata?.name ?? file.name}
@@ -566,25 +579,27 @@ function PrivateFilePreview({
             ? `${metadata.type} · ${(metadata.size / 1_000_000).toFixed(1)} MB`
             : "Loading file…"}
         </p>
-        {error ? (
-          <p role="alert">
-            {error}
-            <button onClick={() => setAttempt((a) => a + 1)}>Retry</button>
-          </p>
-        ) : metadata?.preview_kind === "none" ? (
-          <p>Preview isn’t available for this file. You can download it.</p>
-        ) : metadata?.preview_kind === "text" ? (
-          <pre>{text}</pre>
-        ) : url && metadata?.preview_kind === "image" ? (
-          <img src={url} alt={file.name} />
-        ) : url && metadata?.preview_kind === "pdf" ? (
-          <iframe sandbox="" src={url} title={file.name} />
-        ) : null}
+        <div className={styles.previewBody}><AnimatePresence initial={false} mode="wait"><motion.div key={previewState} className={styles.previewContent} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .16 }}>
+          {error ? (
+            <p role="alert">
+              {error}
+              <button onClick={() => setAttempt((a) => a + 1)}>Retry</button>
+            </p>
+          ) : previewState === "loading" ? <p role="status">Loading preview…</p> : metadata?.preview_kind === "none" ? (
+            <p>Preview isn’t available for this file. You can download it.</p>
+          ) : metadata?.preview_kind === "text" ? (
+            <pre>{text}</pre>
+          ) : url && metadata?.preview_kind === "image" ? (
+            <img src={url} alt={file.name} />
+          ) : url && metadata?.preview_kind === "pdf" ? (
+            <iframe sandbox="" src={url} title={file.name} />
+          ) : null}
+        </motion.div></AnimatePresence></div>
         <footer>
           <button onClick={() => void download()}>Download</button>
         </footer>
-      </section>
-    </div>
+      </motion.section>
+    </motion.div>
   );
 }
 

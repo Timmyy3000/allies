@@ -1,4 +1,8 @@
 .announcement { position: fixed; z-index: 100; bottom: max(28px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: max-content; max-width: calc(100vw - 40px); }
-.toast { display: flex; align-items: center; gap: 16px; padding: 8px 8px 8px 18px; border: 1px solid var(--divider); border-radius: 20px; background: var(--surface); color: var(--text-primary); box-shadow: 0 8px 32px #0002; font-size: 14px; line-height: 20px; }
+.toast { display: flex; align-items: center; gap: 16px; padding: 8px 8px 8px 18px; border: 1px solid var(--divider); border-radius: 20px; background: var(--surface); color: var(--text-primary); box-shadow: 0 8px 32px #0002; font-size: 14px; line-height: 20px; animation: toast-in 180ms ease-out; }
+.toast[data-closing="true"] { animation: toast-out 180ms ease-in forwards; pointer-events: none; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes toast-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(4px); } }
 .toast button { width: 36px; height: 36px; flex-shrink: 0; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; font: inherit; font-size: 22px; }
 .toast button:focus-visible { outline: 2px solid #ff5800; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { .toast, .toast[data-closing="true"] { animation-duration: 0ms; } }
