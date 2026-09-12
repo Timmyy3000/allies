@@ -53,7 +53,7 @@ export function OnboardingPageClient() {
   if (resumeSignedIn) return <OnboardingHandoffScreen />;
 
   return (
-    <OnboardingStateProvider initialStep="name">
+    <OnboardingStateProvider initialStep="intro">
       {sessionStatus === "signed-in" && !resumeAfterGoogle ? (
         <OnboardingStatus message="Opening your Ally space…" />
       ) : sessionStatus === "unavailable" ? (

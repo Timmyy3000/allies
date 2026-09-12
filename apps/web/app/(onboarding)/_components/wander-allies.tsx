@@ -129,8 +129,8 @@ export function WanderAllies({
           body.fromY = body.y;
           body.toX = next.x;
           body.toY = next.y;
-          body.midX = (body.x + next.x) / 2 + rand(-90, 90);
-          body.midY = (body.y + next.y) / 2 + rand(-70, 70);
+          body.midX = Math.max(24, Math.min(artW - 86, (body.x + next.x) / 2 + rand(-90, 90)));
+          body.midY = Math.max(24, Math.min(artH - 84, (body.y + next.y) / 2 + rand(-70, 70)));
           body.flyStarted = time;
           body.flyDuration = rand(3200, 6200);
           body.mode = "fly";

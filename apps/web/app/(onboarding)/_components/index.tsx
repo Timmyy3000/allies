@@ -128,7 +128,7 @@ export default function Onboarding({
 
   const openDrawer = useCallback(() => {
     setDrawerOpen(true);
-    goTo("name");
+    goTo("intro");
   }, [goTo]);
 
   const closeDrawer = useCallback(() => {
@@ -222,7 +222,7 @@ function OnboardingStepFlow({
           }
           className="onboarding-step-panel"
         >
-          <OnboardingFlow onExit={onExit} />
+          <OnboardingFlow onExit={onExit} introductionAllies={INTRODUCTION_ALLIES} />
         </motion.div>
       </div>
     </LayoutGroup>
@@ -296,6 +296,13 @@ function FollowAlly({
     </div>
   );
 }
+
+const INTRODUCTION_ALLIES = [
+  <FollowAlly key="red" ally="red" state="idle" />,
+  <FollowAlly key="blue" ally="blue" state="idle" />,
+  <FollowAlly key="yellow" ally="yellow" state="idle" />,
+  <FollowAlly key="green" ally="green" state="idle" />,
+];
 
 function DesktopOnboarding({
   ctaHref,
@@ -636,7 +643,7 @@ export function MeetAllyButton({
       data-testid="make-first-ally"
       aria-disabled={!enabled}
       disabled={!enabled}
-      onClick={enabled ? onOpen ?? (() => startMakeAlly("name")) : undefined}
+      onClick={enabled ? onOpen ?? (() => startMakeAlly("intro")) : undefined}
       style={style}
     >
       {label}

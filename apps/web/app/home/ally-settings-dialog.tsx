@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import type { AllyViewModel } from "@allies/cloud-client";
 import { isCloudError } from "@allies/cloud-client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -192,7 +193,7 @@ export function AllySettingsDialog({
       closeDisabled={saving}
     >
       <form className={styles.settingsContent} onSubmit={handleSubmit} noValidate>
-        <p className={styles.settingsIntro}>Choose a short label for this Ally and decide whether it appears in your roster.</p>
+        <Link href={`/allies/${encodeURIComponent(ally.id)}/settings`}>View ally details</Link>
         <div className={styles.settingsField}>
           <label htmlFor="ally-label">Label</label>
           <input

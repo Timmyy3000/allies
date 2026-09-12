@@ -8,7 +8,7 @@ const greeting = "Hi, I’m Mira. Let’s plan your day.";
 const success = (data: unknown) => ({ status: "success", message: "ok", data });
 
 for (const mode of ["light", "dark"] as const) {
-  test(`guest preview survives Google handoff (${mode})`, async ({ page, baseURL }) => {
+  test(`guest preview survives Google handoff (${mode})`, async ({ page, baseURL }, testInfo) => {
     test.setTimeout(90_000);
     await page.setViewportSize(mode === "dark" ? { width: 1280, height: 900 } : { width: 390, height: 844 });
     await page.emulateMedia({ colorScheme: mode, reducedMotion: "reduce" });
@@ -17,6 +17,7 @@ for (const mode of ["light", "dark"] as const) {
     let signedIn = false;
     let createBody: Record<string, unknown> | undefined;
     let attempts = 0;
+    let attemptBody: Record<string, unknown> | undefined;
     let creations = 0;
     const ally = {
       id: allyId, binding_id: "00000000-0000-4000-8000-000000000007", operation_id: "00000000-0000-4000-8000-000000000008",
@@ -49,6 +50,7 @@ for (const mode of ["light", "dark"] as const) {
         : { status: 401, headers, json: { status: "error", message: "Sign in required" } });
       if (path === "/api/v1/onboarding/attempts") {
         attempts += 1;
+        attemptBody = request.postDataJSON();
         expect(request.headers()["x-csrftoken"]).toBe(attempt);
         return route.fulfill({ status: 200, headers, json: success({ attempt_token: attempt, greeting }) });
       }
@@ -81,15 +83,31 @@ for (const mode of ["light", "dark"] as const) {
     });
     await page.goto("/");
     await expect(page.locator("body")).toHaveCSS("background-color", mode === "dark" ? "rgb(17, 17, 17)" : "rgb(255, 255, 255)");
-    const skip = page.getByRole("button", { name: "Skip story animation" });
-    if (await skip.isVisible()) await skip.click();
     await page.getByRole("button", { name: "Meet your first ally" }).click();
-    await page.getByRole("textbox", { name: "Ally name" }).fill("Mira");
+    await expect(page.getByTestId("onboarding-introduction")).toBeVisible();
+    await expect(page.getByTestId("next-button")).toBeInViewport();
+    await page.getByTestId("onboarding-introduction").screenshot({ path: testInfo.outputPath("introduction.png"), animations: "disabled" });
     await page.getByTestId("next-button").click();
-    await page.getByTestId("color-#0d92fd").click();
-    await page.getByTestId("next-button").click();
+    await expect(page.getByTestId("next-button")).toBeDisabled();
     await page.getByRole("textbox", { name: "Ally job" }).fill("Help me plan my day");
     await page.getByTestId("next-button").click();
+    await expect(page.getByText("Add a little detail, or continue.")).toBeVisible();
+    await page.getByTestId("job-description").screenshot({ path: testInfo.outputPath("responsibility-nudge.png"), animations: "disabled" });
+    if (mode === "light") {
+      await expect(page.getByRole("textbox", { name: "Ally job" })).toBeFocused();
+    }
+    await page.getByTestId("next-button").click();
+    await expect(page.getByTestId("name-ally")).toBeVisible();
+    await page.getByTestId("back-button").click();
+    await expect(page.getByRole("textbox", { name: "Ally job" })).toHaveValue("Help me plan my day");
+    await page.getByTestId("next-button").click();
+    await page.getByRole("textbox", { name: "Ally name" }).fill("Mira");
+    await page.getByTestId("name-ally").screenshot({ path: testInfo.outputPath("name.png"), animations: "disabled" });
+    await page.getByTestId("next-button").click();
+    await expect(page.getByRole("heading", { name: "How should Mira look?" })).toBeVisible();
+    await page.getByTestId("color-#0d92fd").click();
+    await page.getByTestId("next-button").click();
+    await expect(page.getByRole("heading", { name: "What personality should Mira have?" })).toBeVisible();
     await page.getByTestId("trait-Concise").click();
     await page.getByTestId("next-button").click();
     await expect(page.getByText("Hi, I’m Mira. Let’s plan your day.", { exact: true })).toBeVisible();
@@ -99,8 +117,9 @@ for (const mode of ["light", "dark"] as const) {
     await expect(page.locator(".waitlist-auth-card")).toHaveCSS("background-color", mode === "dark" ? "rgb(22, 22, 22)" : "rgb(255, 255, 255)");
     await page.getByTestId("signup-google").click();
     await expect(page).toHaveURL(new RegExp(`/home/${allyId}`), { timeout: 25_000 });
-    await expect(page.getByText(greeting, { exact: true })).toBeVisible();
+    await expect(page.locator("article").getByText(greeting, { exact: true })).toBeVisible();
     await expect(page.locator("article").getByText("Help me plan tomorrow.", { exact: true })).toBeVisible();
+    expect(attemptBody).toMatchObject({ job: "Help me plan my day" });
     expect(attempts).toBe(1);
     expect(creations).toBe(1);
     expect(hydrationErrors).toEqual([]);

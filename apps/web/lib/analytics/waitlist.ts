@@ -6,7 +6,7 @@ const POSTHOG_CLOUD_HOSTS = new Set([
 ]);
 
 type WaitlistPresentation = "drawer" | "route";
-type WaitlistStep = "name" | "look" | "job" | "personality" | "preview";
+type WaitlistStep = "intro" | "name" | "look" | "job" | "personality" | "preview";
 
 type WaitlistEvents = {
   waitlist_ally_created: undefined;

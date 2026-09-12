@@ -214,6 +214,20 @@ async function clickSendMessage() {
 describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
   beforeEach(() => stubViewport(desktop));
 
+  it("previews the Ally's reply from older history instead of a newer user message", async () => {
+    const getAllyConversation = vi.fn(async (_workspace: string, _ally: string, options?: { cursor?: string }) => ({
+      id: "conversation", allyId: ally.id, assistantReplies: options?.cursor ? [] : [{ id: "partial", sourceMessageId: "question", conversationTurnOrdinal: 2, content: "suffix only", status: "completed", hasFullPrefix: false, createdAt: "2026-09-10T12:00:00Z", updatedAt: "2026-09-10T12:00:00Z" }], routineItems: [],
+      messages: options?.cursor ? [{ id: "answer", sender: "assistant", content: "I have your schedule ready", sequence: 1, status: "completed", createdAt: "2026-09-10T10:00:00Z", retryable: false }]
+        : [{ id: "question", sender: "user", content: "Thanks for that", sequence: 2, status: "completed", createdAt: "2026-09-10T11:00:00Z", retryable: false }],
+      nextCursor: options?.cursor ? null : "older",
+    }));
+    renderHome([ally], null, { getAllyConversation });
+    const row = await screen.findByRole("link", { name: /I have your schedule ready/ });
+    expect(row.textContent).not.toContain("Thanks for that");
+    expect(getAllyConversation).toHaveBeenCalledTimes(2);
+    expect(getAllyConversation.mock.calls[1][2]?.cursor).toBe("older");
+  });
+
   it("loads the real roster and opens the created Ally through its actual page", async () => {
     const client = renderHome([ally], null, {
       getAllyConversation: vi.fn(async (_workspaceId: string, selectedId: string) => ({
@@ -227,7 +241,7 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
       })),
     }, <HomePage />);
     expect(screen.queryByTestId("install-invitation")).toBeNull();
-    const row = await screen.findByRole("link", { name: /Mira/ });
+    const row = await screen.findByRole("link", { name: /Mira(?! settings)/ });
     expect(screen.getByTestId("install-invitation")).toBeTruthy();
     expect(row.getAttribute("href")).toBe(`/home/${ally.id}`);
     expect(client.listAllies).toHaveBeenCalledWith(account.workspace.id, expect.any(AbortSignal));
@@ -236,9 +250,10 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     expect(screen.queryByText("SD")).toBeNull();
     expect(screen.getByRole("link", { name: account.displayName }).getAttribute("href")).toBe("/account");
 
-    const chefButton = screen.getByRole("button", { name: "Chef" }) as HTMLButtonElement;
-    expect(chefButton.disabled).toBe(true);
+    const chefButton = screen.getByRole("button", { name: "Recipes" }) as HTMLButtonElement;
+    expect(chefButton.disabled).toBe(false);
     fireEvent.click(chefButton);
+    expect(screen.getByText("Recipes are coming soon.")).toBeTruthy();
     expect(screen.queryByRole("dialog", { name: "Make your Ally" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Make an Ally" }));
     expect(await screen.findByRole("dialog", { name: "Make your Ally" })).toBeTruthy();
@@ -761,7 +776,7 @@ describe("HomeWorkspace", () => {
     }));
     renderHome([ally], ally.id, { requestRuntimeIntent, sendMessage });
     const input = await screen.findByRole("textbox");
-    const row = screen.getByRole("link", { name: /Mira/ });
+    const row = screen.getByRole("link", { name: /Mira(?! settings)/ });
     await waitFor(() => expect(row.getAttribute("data-ally-sleeping")).toBe("true"));
     expect(row.querySelector("[data-testid=ally-avatar]")?.getAttribute("data-state")).toBe("sleeping");
 
@@ -803,7 +818,7 @@ describe("HomeWorkspace", () => {
   it("keeps the Ally list as the mobile Home entry", async () => {
     renderHome([ally]);
 
-    const row = await screen.findByRole("link", { name: /Mira/ });
+    const row = await screen.findByRole("link", { name: /Mira(?! settings)/ });
     expect(row.getAttribute("href")).toBe(`/home/${ally.id}`);
     expect(row.querySelector("[data-testid=ally-avatar]")).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
@@ -821,7 +836,7 @@ describe("HomeWorkspace", () => {
     stubViewport(true);
     renderHome([ally]);
 
-    expect(await screen.findByRole("link", { name: /Mira/ })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: /Mira(?! settings)/ })).toBeTruthy();
     expect(screen.getByTestId("dashboard-ui-push")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Search Allies" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Make an Ally" })).toBeTruthy();
@@ -832,16 +847,16 @@ describe("HomeWorkspace", () => {
 
   it("filters Allies by name without navigating and restores the list when search closes", async () => {
     renderHome([ally]);
-    expect(await screen.findByRole("link", { name: /Mira/ })).toBeTruthy();
+    expect(await screen.findByRole("link", { name: /Mira(?! settings)/ })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Search Allies" }));
     const search = screen.getByRole("searchbox", { name: "Filter Allies by name" });
     fireEvent.change(search, { target: { value: "  mIrA  " } });
-    expect(screen.getByRole("link", { name: /Mira/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Mira(?! settings)/ })).toBeTruthy();
     fireEvent.change(search, { target: { value: "no matching name" } });
-    expect(screen.queryByRole("link", { name: /Mira/ })).toBeNull();
-    expect(screen.getByRole("status").textContent).toBe("No Allies match your search.");
+    expect(screen.queryByRole("link", { name: /Mira(?! settings)/ })).toBeNull();
+    expect(screen.getByText("No Allies match your search.").getAttribute("role")).toBe("status");
     fireEvent.click(screen.getByRole("button", { name: "Search Allies" }));
-    expect(screen.getByRole("link", { name: /Mira/ })).toBeTruthy();
+    expect(screen.getByRole("link", { name: /Mira(?! settings)/ })).toBeTruthy();
     expect(replace).not.toHaveBeenCalled();
   });
 
@@ -849,7 +864,7 @@ describe("HomeWorkspace", () => {
     stubViewport(true);
     const secondAlly = { ...ally, id: "00000000-0000-4000-8000-000000000010", name: "Nova" };
     const client = renderHome([ally, secondAlly], ally.id, {}, <AllyHomePage />);
-    const row = await screen.findByRole("link", { name: /Mira/ });
+    const row = await screen.findByRole("link", { name: /Mira(?! settings)/ });
     await waitFor(() => expect(row.getAttribute("data-ally-sleeping")).toBe("true"));
     const avatar = row.querySelector("[data-testid=ally-avatar]");
     const sidebar = screen.getByRole("complementary", { name: "Ally sidebar" });
@@ -859,11 +874,12 @@ describe("HomeWorkspace", () => {
     client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout><AllyHomePage /></HomeLayout></QueryClientProvider>);
     expect(await screen.findByRole("heading", { name: "Nova" })).toBeTruthy();
     expect(screen.getByRole("complementary", { name: "Ally sidebar" })).toBe(sidebar);
-    expect(screen.getByRole("link", { name: /Mira/ })).toBe(row);
+    expect(screen.getByRole("link", { name: /Mira(?! settings)/ })).toBe(row);
     expect(row.querySelector("[data-testid=ally-avatar]")).toBe(avatar);
     expect(row.getAttribute("data-ally-sleeping")).toBe("true");
     expect((screen.getByRole("searchbox") as HTMLInputElement).value).toBe("MiRa");
-    expect((screen.getByRole("button", { name: "Routines" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: "Routines" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "My allies" })).toBeNull();
   });
 
   it("does not load another account's queued messages", async () => {
@@ -992,7 +1008,7 @@ describe("HomeWorkspace", () => {
       _allyId: string,
       options?: { limit?: number },
     ) => {
-      if (options?.limit === 1) return initialPage;
+      if (options?.limit === 20) return initialPage;
       return getAllyConversation.mock.calls.filter((call) => call[2]?.limit === 50).length === 1
         ? initialPage
         : refreshedPage;
@@ -1018,7 +1034,7 @@ describe("HomeWorkspace", () => {
     }));
     renderHome([ally], ally.id, { getAllyConversation, getConversation, getActivities, sendMessage });
 
-    expect(await screen.findByText("Latest durable reply")).toBeTruthy();
+    expect(await screen.findAllByText("Latest durable reply")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Earlier messages" }));
     expect(await screen.findByText("Earlier durable reply", { exact: false })).toBeTruthy();
 
@@ -1028,7 +1044,7 @@ describe("HomeWorkspace", () => {
     await waitFor(() => expect(
       getAllyConversation.mock.calls.filter((call) => call[2]?.limit === 50),
     ).toHaveLength(2));
-    await waitFor(() => expect(screen.getByText("Latest durable reply")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("Latest durable reply")).toBeTruthy());
     expect(screen.getByText("Earlier durable reply", { exact: false })).toBeTruthy();
   });
 
@@ -2077,7 +2093,7 @@ describe("HomeWorkspace", () => {
       conversationId,
       stuckMessage.id,
     ]);
-    expect(await screen.findAllByText("Still waiting")).toHaveLength(3);
+    expect(await screen.findAllByText("Still waiting")).toHaveLength(2);
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   });
 

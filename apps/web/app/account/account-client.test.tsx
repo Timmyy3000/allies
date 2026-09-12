@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AccountViewModel, AvatarViewModel } from "@allies/cloud-client";
 
-const navigation = vi.hoisted(() => ({ replace: vi.fn() }));
+const navigation = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => navigation }));
 const sessionMock = vi.hoisted(() => ({ useSession: vi.fn() }));
 const avatarUploadMock = vi.hoisted(() => ({ uploadAvatar: vi.fn() }));
@@ -94,7 +94,7 @@ describe("AccountClient", () => {
     const { client } = setupSession();
     renderAccount();
 
-    expect(screen.getByRole("heading", { name: "Account" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeTruthy();
 
 
 

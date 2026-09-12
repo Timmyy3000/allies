@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { DEFAULT_ACCENT, getAccentPalette } from "@/components/next-button";
 import {
@@ -16,7 +16,12 @@ import { OnboardingLayout } from "./onboarding-layout";
 import { PersistentAllyAvatar } from "./persistent-ally";
 import { StepHeading } from "./step-heading";
 
-export function JobDescriptionScreen() {
+export function JobDescriptionScreen({ onExit }: { onExit: () => void }) {
+  const hasIntroduction = useOnboardingStore((state) => state.hasIntroduction);
+  const hasSeenJobNudge = useOnboardingStore((state) => state.hasSeenJobNudge);
+  const markJobNudgeSeen = useOnboardingStore((state) => state.markJobNudgeSeen);
+  const [showNudge, setShowNudge] = useState(false);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
   const job = useOnboardingStore((state) => state.job);
   const shape = useOnboardingStore((state) => state.shape);
   const color = useOnboardingStore((state) => state.color);
@@ -26,7 +31,6 @@ export function JobDescriptionScreen() {
   const accent = color ?? DEFAULT_ACCENT;
   const palette = getAccentPalette(color);
   const filled = job.trim().length > 0;
-  const remaining = JOB_LIMIT - job.length;
   const [showHelp, setShowHelp] = useState(false);
   const { triggerRef, closeRef, requestRestoreFocus, onExitComplete } =
     useOnboardingHelpFocus();
@@ -34,12 +38,21 @@ export function JobDescriptionScreen() {
   return (
     <OnboardingLayout
       testId="job-description"
-      progress={0.7}
+      progress={0.25}
       color={accent}
-      onBack={back}
+      onBack={hasIntroduction ? back : onExit}
       nextActive={filled}
       nextColor={accent}
-      onNext={() => goTo("personality")}
+      nextLabel={showNudge ? "Continue" : "Next"}
+      onNext={() => {
+        if (!hasSeenJobNudge && job.trim().length < 40) {
+          markJobNudgeSeen();
+          setShowNudge(true);
+          inputRef.current?.focus();
+        } else {
+          goTo("name");
+        }
+      }}
     >
       <StepHeading
         mark={
@@ -52,9 +65,9 @@ export function JobDescriptionScreen() {
           />
         }
       >
-        What is my
+        What would you
         <br />
-        job description?
+        like help with?
       </StepHeading>
       <div className="onboarding-editor-stack onboarding-job-stack">
         <AnimatePresence initial={false} mode="wait" onExitComplete={onExitComplete}>
@@ -171,17 +184,18 @@ export function JobDescriptionScreen() {
               </div>
               <div className="step-stage onboarding-editor-card onboarding-editor-card--job">
                 <textarea
+                  ref={inputRef}
                   aria-label="Ally job"
                   data-testid="job-input"
                   value={job}
                   onChange={(event) => setJob(event.target.value)}
-                  placeholder="What do I handle for you?"
+                  placeholder="I’d like help with…"
                   maxLength={JOB_LIMIT}
                   className="onboarding-editor-input"
                 />
               </div>
-              <p data-testid="job-counter" className="onboarding-editor-counter">
-                {filled ? `${remaining} characters left` : "200 character limit"}
+              <p data-testid="job-counter" className="onboarding-editor-counter" role={showNudge ? "status" : undefined}>
+                {showNudge ? "Add a little detail, or continue." : `${job.length}/${JOB_LIMIT}`}
               </p>
             </motion.div>
           )}
