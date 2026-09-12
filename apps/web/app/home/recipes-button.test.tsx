@@ -14,8 +14,10 @@ it("announces, restarts, and dismisses the coming-soon notification", () => {
   act(() => vi.advanceTimersByTime(3000));
   expect(screen.getByText("Recipes are coming soon.")).toBeTruthy();
   act(() => vi.advanceTimersByTime(1000));
+  act(() => vi.advanceTimersByTime(250));
   expect(screen.queryByText("Recipes are coming soon.")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Recipes" }));
   fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }));
+  act(() => vi.advanceTimersByTime(250));
   expect(screen.queryByText("Recipes are coming soon.")).toBeNull();
 });

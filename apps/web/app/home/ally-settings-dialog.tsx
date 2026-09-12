@@ -5,6 +5,7 @@ import type { AllyDeletionViewModel, AllyViewModel } from "@allies/cloud-client"
 import { isCloudError } from "@allies/cloud-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
+import { motion, useReducedMotion } from "motion/react";
 
 import { useSession } from "../../lib/session/session-context";
 import { alliesQueryKey } from "../../lib/allies/query-keys";
@@ -132,6 +133,7 @@ export function AllySettingsDialog({
   onDeletionStatus: (status: AllyDeletionViewModel) => void;
   onRefreshDeletion: () => Promise<AllyDeletionViewModel>;
 }) {
+  const reducedMotion = useReducedMotion();
   const session = useSession();
   const queryClient = useQueryClient();
   const initial = settingsFor(ally);
@@ -381,6 +383,7 @@ export function AllySettingsDialog({
       closeDisabled={saving || currentDeletionView === "submitting"}
     >
       <form className={styles.settingsContent} onSubmit={currentDeletionView === "confirming" ? handleDelete : handleSubmit} noValidate>
+        <motion.div key={currentDeletionView} className={styles.settingsView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .16 }}>
         {currentDeletionView === "settings" ? (
           <>
             <Link href={`/allies/${encodeURIComponent(ally.id)}/settings`}>View ally details</Link>
@@ -437,7 +440,7 @@ export function AllySettingsDialog({
             <div className={frameStyles.frameSheetActions}>
               <button type="button" className={frameStyles.frameNeutralAction} onClick={onClose} disabled={saving}>Cancel</button>
               <button type="submit" className={frameStyles.frameAccentAction} disabled={saving}>
-                {saving ? "Saving…" : "Save"}
+                <motion.span key={saving ? "saving" : status ? "saved" : "save"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: reducedMotion ? 0 : .12 }}>{saving ? "Saving…" : status ? "Saved ✓" : "Save"}</motion.span>
               </button>
             </div>
           </>
@@ -492,6 +495,7 @@ export function AllySettingsDialog({
             </div>
           </>
         )}
+        </motion.div>
       </form>
     </BottomSheet>
   );

@@ -13,6 +13,7 @@ import {
   type FormEvent,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { motion, useReducedMotion } from "motion/react";
 
 import {
   isCloudError,
@@ -82,6 +83,7 @@ function UnavailableAccount({ onRetry }: { onRetry: () => void }) {
 }
 
 export function AccountClient() {
+  const reducedMotion = useReducedMotion();
   const session = useSession();
   const router = useRouter();
   const { restore } = session;
@@ -323,7 +325,7 @@ export function AccountClient() {
               aria-describedby={profileError ? "profile-error" : "profile-status"}
             />
             <button type="submit" className={styles.primaryAction} disabled={profilePending}>
-              {profilePending ? "Saving…" : "Save changes"}
+              <motion.span key={profilePending ? "saving" : profileMessage ? "saved" : "save"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: reducedMotion ? 0 : .12 }}>{profilePending ? "Saving…" : profileMessage ? "Saved ✓" : "Save changes"}</motion.span>
             </button>
             <p id="profile-status" className={styles.formStatus} aria-live="polite">{profileMessage}</p>
             {profileError ? <p id="profile-error" className={styles.formError} role="alert">{profileError}</p> : null}
