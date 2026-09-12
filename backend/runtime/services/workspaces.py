@@ -171,12 +171,21 @@ class WorkspaceSpec:
     volume_size_gb: int = 1
     filesystem: str = "ext4"
     containers: tuple[ContainerSpec, ...] | None = None
+    cpu_kind: str = "shared"
+    cpus: int = 1
+    memory_mb: int = 1024
 
     def __post_init__(self) -> None:
         if not self.organization or not self.region:
             raise ValueError("organization and region are required")
         if type(self.volume_size_gb) is not int or self.volume_size_gb <= 0:
             raise ValueError("volume_size_gb must be positive")
+        if self.cpu_kind not in {"shared", "performance"}:
+            raise ValueError("invalid workspace CPU kind")
+        if type(self.cpus) is not int or not 1 <= self.cpus <= 16:
+            raise ValueError("workspace CPUs must be between 1 and 16")
+        if type(self.memory_mb) is not int or not 1 <= self.memory_mb <= 131072:
+            raise ValueError("workspace memory must be between 1 and 131072 MB")
         if self.containers is not None and not isinstance(self.containers, tuple):
             object.__setattr__(self, "containers", tuple(self.containers))
 
@@ -222,6 +231,9 @@ class WorkspaceSpec:
             )
         return MachineSpec(
             app_name=names.app,
+            cpu_kind=self.cpu_kind,
+            cpus=self.cpus,
+            memory_mb=self.memory_mb,
             name=names.machine(generation),
             region=self.region,
             containers=containers,
@@ -893,6 +905,7 @@ class WorkspaceLifecycle:
         app_name = deterministic_resource_names(workspace_id).app
         volume_id = workspace.volume_ref
         previous = claim.previous_machine_ref
+        self._volume_by_id(app_name, volume_id, spec.volume_spec(workspace_id))
 
         if claim.phase == WorkspaceProvisioningPhase.OLD_MACHINE_STOPPED:
             with _observed_phase(
@@ -975,7 +988,7 @@ class WorkspaceLifecycle:
                             # The recorded Machine is already gone; continue to
                             # the authoritative Volume-detachment reconciliation.
                             pass
-                volume = self._volume_by_id(app_name, volume_id, spec)
+                volume = self._volume_by_id(app_name, volume_id, spec.volume_spec(workspace_id))
                 if volume.attached_machine_id:
                     if volume.attached_machine_id != previous:
                         raise ProviderAttachmentConflictError(
@@ -1099,7 +1112,7 @@ class WorkspaceLifecycle:
         return existing or self.provider.create_machine(spec)
 
     def _volume_by_id(
-        self, app_name: str, volume_id: str, spec: WorkspaceSpec | None
+        self, app_name: str, volume_id: str, spec: VolumeSpec | None
     ) -> VolumeRecord:
         volumes = tuple(self.provider.list_volumes(app_name))
         matches = [volume for volume in volumes if volume.id == volume_id]
@@ -1107,7 +1120,17 @@ class WorkspaceLifecycle:
             if not matches:
                 raise ProviderNotFoundError("workspace Volume was not found")
             raise ProviderTerminalError("workspace Volume identity is ambiguous")
-        return matches[0]
+        volume = matches[0]
+        if spec is not None and (
+            volume.app_name != spec.app_name
+            or volume.name != spec.name
+            or volume.region != spec.region
+            or volume.size_gb < spec.size_gb
+        ):
+            raise ProviderInvalidConfigurationError(
+                "workspace Volume does not match requested identity, placement or size"
+            )
+        return volume
 
     def _inspect_machine_by_id(
         self, app_name: str, machine_id: str

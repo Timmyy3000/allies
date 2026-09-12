@@ -46,6 +46,10 @@ def run_settings_probe(**overrides):
         "ALLIES_RUNTIME_ACTIVITY_WAIT_SECONDS",
         "ALLIES_RUNTIME_ACTIVITY_WAIT_MAX_WAITERS",
         "READY_WORKSPACE_POOL_TARGET",
+        "WORKSPACE_CPU_KIND",
+        "WORKSPACE_CPUS",
+        "WORKSPACE_MEMORY_MB",
+        "WORKSPACE_VOLUME_SIZE_GB",
         "READY_WORKSPACE_POOL_REGION",
         "READY_WORKSPACE_POOL_RELEASE_FINGERPRINT",
         "READY_WORKSPACE_POOL_CONFIG_VERSION",
@@ -515,6 +519,34 @@ def test_explicit_hint_enable_requires_delivery_credentials():
         "ALLIES_CLOUD_URL and ALLIES_CLOUD_EVENT_SERVICE_TOKEN are required"
         in result.stderr
     )
+
+
+def test_workspace_capacity_defaults_and_idle_window(monkeypatch):
+    monkeypatch.setattr(
+        sys.modules[__name__],
+        "PROBE",
+        "import config.settings as s; print(s.WORKSPACE_CPU_KIND, s.WORKSPACE_CPUS, "
+        "s.WORKSPACE_MEMORY_MB, s.WORKSPACE_VOLUME_SIZE_GB, "
+        "s.ALLIES_RUNTIME_KEEP_WARM_SECONDS)",
+    )
+    result = run_settings_probe(DJANGO_DEBUG="true")
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "shared 2 2048 10 1800"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"WORKSPACE_CPUS": "0"},
+        {"WORKSPACE_CPUS": "17"},
+        {"WORKSPACE_MEMORY_MB": "-1"},
+        {"WORKSPACE_VOLUME_SIZE_GB": "0"},
+        {"WORKSPACE_CPU_KIND": "unknown"},
+    ],
+)
+def test_invalid_workspace_capacity_fails_at_startup(overrides):
+    result = run_settings_probe(DJANGO_DEBUG="true", **overrides)
+    assert result.returncode != 0
 
 
 @pytest.mark.parametrize(

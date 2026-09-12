@@ -86,7 +86,9 @@ def release_setup(db, monkeypatch):
     provider = ImageProvider()
     workspace = Workspace.objects.create(tenant_ref=str(uuid4()))
     spec = WorkspaceSpec(
-        hermes_image=OLD["hermes"], runtime_image=OLD["allies-runtime"]
+        hermes_image=OLD["hermes"],
+        runtime_image=OLD["allies-runtime"],
+        volume_size_gb=10,
     )
     WorkspaceLifecycle(provider, sleep=lambda _: None, jitter=False).ensure_workspace(
         workspace.id, spec
@@ -118,6 +120,11 @@ def test_release_propagates_optional_activity_wait_setting(
     workspace, provider, _ = release_setup
     settings.ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED = enabled
     assert wake(workspace, provider).awaiting_readiness == 1
+    assert (
+        provider.last_machine_spec.cpu_kind,
+        provider.last_machine_spec.cpus,
+        provider.last_machine_spec.memory_mb,
+    ) == ("shared", 2, 2048)
     runtime = next(
         c for c in provider.last_machine_spec.containers if c.name == "allies-runtime"
     )

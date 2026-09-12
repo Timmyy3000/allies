@@ -163,6 +163,10 @@ class Command(BaseCommand):
             ):
                 provider.assert_proof_capabilities()
             base_spec = WorkspaceSpec(
+                cpu_kind=settings.WORKSPACE_CPU_KIND,
+                cpus=settings.WORKSPACE_CPUS,
+                memory_mb=settings.WORKSPACE_MEMORY_MB,
+                volume_size_gb=settings.WORKSPACE_VOLUME_SIZE_GB,
                 organization=required["FLY_ORG"],
                 region=required["FLY_REGION"],
                 hermes_image=required["HERMES_IMAGE"],
