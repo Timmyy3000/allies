@@ -4,6 +4,7 @@ import type {
   AssistantReplyViewModel,
   ActivitySnapshotViewModel,
   ActivityState,
+  AllyDeletionViewModel,
   AllyViewModel,
   ConversationViewModel,
   MessageViewModel,
@@ -69,7 +70,12 @@ import {
   type ConversationAccessFailure,
 } from "./conversation-access-error";
 import { ConversationFrame } from "./conversation-frame";
-import { AllySettingsDialog } from "./ally-settings-dialog";
+import {
+  ALLY_DELETION_INITIAL_POLL_MS,
+  ALLY_DELETION_MAX_POLL_DURATION_MS,
+  ALLY_DELETION_MAX_POLL_MS,
+  AllySettingsDialog,
+} from "./ally-settings-dialog";
 import { useConversationFiles } from "./attachments/use-conversation-files";
 import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
 import { MobileHomeRosterExact } from "./_exact/mobile-home-roster-exact";
@@ -77,6 +83,7 @@ import { HomeReadySplash } from "./home-ready-splash";
 import { RecipesButton } from "./recipes-button";
 import { latestAllyReply, type AllyReplyPreview } from "./ally-preview";
 import { useIsMobileHome } from "./use-is-mobile-home";
+import { fileTransfers } from "../../lib/files/transfers";
 import styles from "./home.module.css";
 import attachmentStyles from "./attachments/attachments.module.css";
 
@@ -108,6 +115,69 @@ type AcceptedOnboardingHandoff = {
   greeting: string;
   reply: string;
 };
+
+type AllyDeletionState = NonNullable<AllyViewModel["deletionState"]>;
+
+type DeletionPoll = {
+  startedAt: number;
+  delay: number;
+  timer: number | null;
+  controller: AbortController | null;
+  stopped: boolean;
+};
+
+function allyDeletionState(ally: AllyViewModel): AllyDeletionState {
+  return ally.deletionState ?? "active";
+}
+
+function isAllyDeleting(ally: AllyViewModel): boolean {
+  return allyDeletionState(ally) !== "active";
+}
+
+function isAllyScopedQuery(queryKey: readonly unknown[], workspaceId: string, allyId: string): boolean {
+  return queryKey[0] === "workspaces"
+    && queryKey[1] === workspaceId
+    && queryKey[2] === "allies"
+    && queryKey[3] === allyId;
+}
+
+function queuedMessagesStorageKey(userId: string, workspaceId: string, allyId: string): string {
+  return `allies:${QUEUED_MESSAGES_STORAGE_VERSION}:queued-messages:${encodeURIComponent(userId)}:${encodeURIComponent(workspaceId)}:${encodeURIComponent(allyId)}`;
+}
+
+function legacyQueuedMessagesStorageKey(workspaceId: string, allyId: string): string {
+  return `allies:v1:queued-messages:${workspaceId}:${allyId}`;
+}
+
+function queuedMessageFenceKey(storageKey: string): string {
+  return `${storageKey}:deleted`;
+}
+
+function isQueuedMessageStoragePurged(storageKey: string): boolean {
+  try {
+    return window.localStorage.getItem(queuedMessageFenceKey(storageKey)) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function purgeQueuedMessageStorage(storageKey: string): boolean {
+  let purged = true;
+  try {
+    window.localStorage.setItem(queuedMessageFenceKey(storageKey), "1");
+    window.localStorage.removeItem(storageKey);
+    const keys: string[] = [];
+    const prefix = `${storageKey}:removed:`;
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith(prefix)) keys.push(key);
+    }
+    keys.forEach((key) => window.localStorage.removeItem(key));
+  } catch {
+    purged = false;
+  }
+  return purged;
+}
 
 function allySettingsRevision(ally: AllyViewModel): number {
   return ally.settingsRevision ?? 0;
@@ -208,6 +278,16 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   const [searchOpen, setSearchOpen] = useState(false);
   const [sleepClock, setSleepClock] = useState<number | null>(null);
   const [recentActivityByAlly, setRecentActivityByAlly] = useState<Record<string, number>>({});
+  const deletionFence = useMemo(() => ({
+    deletedAllyIds: new Set<string>(),
+    states: new Map<string, AllyDeletionState>(),
+    polls: new Map<string, DeletionPoll>(),
+  }), []);
+  const [localCleanupFailure, setLocalCleanupFailure] = useState<{
+    allyName: string;
+    queueKeys: string[];
+    scope: string;
+  } | null>(null);
   const recordAllyActivity = useCallback((allyId: string) => {
     setRecentActivityByAlly((current) => ({ ...current, [allyId]: Date.now() }));
   }, []);
@@ -241,9 +321,36 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     enabled: session.state.status === "signed-in",
   });
   const workspaceId = accountQuery.data?.workspace.id ?? "";
+  const isAllySuppressed = useCallback((allyId: string) => (
+    deletionFence.deletedAllyIds.has(allyId) || deletionFence.states.get(allyId) !== undefined
+  ), [deletionFence]);
+  const normalizeFetchedAllies = useCallback((fetched: AllyViewModel[]): AllyViewModel[] => {
+    const visible = fetched
+      .filter((ally) => !deletionFence.deletedAllyIds.has(ally.id))
+      .map((ally) => {
+        const deletionState = deletionFence.states.get(ally.id);
+        return deletionState && deletionState !== "active"
+          ? { ...ally, deletionState }
+          : ally;
+      });
+    const visibleIds = new Set(visible.map((ally) => ally.id));
+    const cached = queryClient.getQueryData<AllyViewModel[]>(alliesQueryKey(workspaceId)) ?? [];
+    cached.forEach((ally) => {
+      if (visibleIds.has(ally.id) || deletionFence.deletedAllyIds.has(ally.id)) return;
+      const deletionState = deletionFence.states.get(ally.id) ?? allyDeletionState(ally);
+      if (deletionState === "active") return;
+      visible.push({ ...ally, deletionState });
+      visibleIds.add(ally.id);
+    });
+    return visible;
+  }, [deletionFence, queryClient, workspaceId]);
   const alliesOptions = useMemo(
-    () => alliesQueryOptions(session.client, session.runCloudOperation, workspaceId),
-    [session.client, session.runCloudOperation, workspaceId],
+    () => alliesQueryOptions({
+      listAllies: async (requestedWorkspaceId, signal) => normalizeFetchedAllies(
+        await session.client.listAllies(requestedWorkspaceId, signal),
+      ),
+    }, session.runCloudOperation, workspaceId),
+    [normalizeFetchedAllies, session.client, session.runCloudOperation, workspaceId],
   );
   const alliesQuery = useQuery({
     ...alliesOptions,
@@ -255,9 +362,18 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
       queryKey: [...conversationQueryKey(workspaceId, ally.id), "preview"] as const,
       queryFn: async ({ signal }: { signal: AbortSignal }) => {
         const readPage = (cursor?: string) => session.runCloudOperation(
-          (operationSignal) => session.client.getAllyConversation(workspaceId, ally.id, {
-            limit: 20, ...(cursor ? { cursor } : {}), signal: operationSignal,
-          }), { signal },
+          async (operationSignal) => {
+            if (isAllySuppressed(ally.id)) {
+              throw new Error("Ally conversation is unavailable during deletion");
+            }
+            const conversation = await session.client.getAllyConversation(workspaceId, ally.id, {
+              limit: 20, ...(cursor ? { cursor } : {}), signal: operationSignal,
+            });
+            if (isAllySuppressed(ally.id)) {
+              throw new Error("Ally conversation is unavailable during deletion");
+            }
+            return conversation;
+          }, { signal },
         );
         const first = await readPage();
         let page = first;
@@ -270,7 +386,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
         }
         return { ...first, previewReply: reply, previewHistoryRemaining: Boolean(!reply && page.nextCursor) };
       },
-      enabled: Boolean(workspaceId),
+      enabled: Boolean(workspaceId) && !isAllyDeleting(ally) && !isAllySuppressed(ally.id),
       retry: false,
       staleTime: 30_000,
     })),
@@ -320,17 +436,188 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     ? allies.find((ally) => ally.id === settingsAllyId)
       ?? (activeHandoff?.ally.id === settingsAllyId ? activeHandoff.ally : null)
     : null;
+  const stopDeletionPolling = useCallback((allyId: string) => {
+    const poll = deletionFence.polls.get(allyId);
+    if (!poll) return;
+    poll.stopped = true;
+    if (poll.timer !== null) window.clearTimeout(poll.timer);
+    poll.controller?.abort();
+    deletionFence.polls.delete(allyId);
+  }, [deletionFence]);
+  const completeAllyDeletion = useCallback((allyId: string) => {
+    if (deletionFence.deletedAllyIds.has(allyId)) return;
+    deletionFence.deletedAllyIds.add(allyId);
+    deletionFence.states.delete(allyId);
+    stopDeletionPolling(allyId);
+    void queryClient.cancelQueries({
+      predicate: (query) => isAllyScopedQuery(query.queryKey, workspaceId, allyId),
+    });
+    queryClient.removeQueries({
+      predicate: (query) => isAllyScopedQuery(query.queryKey, workspaceId, allyId),
+    });
+    queryClient.setQueryData<AllyViewModel[]>(alliesQueryKey(workspaceId), (current) => (
+      current?.filter((ally) => ally.id !== allyId)
+    ));
+    const userId = accountQuery.data?.userId;
+    if (userId) {
+      const targetAlly = allies.find((ally) => ally.id === allyId);
+      const scope = `${userId}:${workspaceId}:${allyId}`;
+      const queueKeys = [
+        queuedMessagesStorageKey(userId, workspaceId, allyId),
+        legacyQueuedMessagesStorageKey(workspaceId, allyId),
+      ];
+      const queuePurged = queueKeys.map(purgeQueuedMessageStorage).every(Boolean);
+      const reportFailure = () => setLocalCleanupFailure({
+        allyName: targetAlly?.name ?? "this Ally",
+        queueKeys,
+        scope,
+      });
+      if (!queuePurged) reportFailure();
+      void fileTransfers(session.client, session.runCloudOperation)
+        .clearScope(scope)
+        .catch(reportFailure);
+    }
+    if (selectedAllyId === allyId) router.replace("/home");
+  }, [accountQuery.data?.userId, allies, deletionFence, queryClient, router, selectedAllyId, session.client, session.runCloudOperation, stopDeletionPolling, workspaceId]);
+  const retryLocalCleanup = useCallback(() => {
+    const failure = localCleanupFailure;
+    if (!failure) return;
+    const queuePurged = failure.queueKeys.map(purgeQueuedMessageStorage).every(Boolean);
+    void fileTransfers(session.client, session.runCloudOperation)
+      .clearScope(failure.scope)
+      .then(() => { if (queuePurged) setLocalCleanupFailure(null); })
+      .catch(() => setLocalCleanupFailure(failure));
+  }, [localCleanupFailure, session.client, session.runCloudOperation]);
+  const applyAllyDeletionStatus = useCallback((status: AllyDeletionViewModel) => {
+    if (status.allyId !== "" && deletionFence.deletedAllyIds.has(status.allyId)) return;
+    if (status.state === "complete") {
+      completeAllyDeletion(status.allyId);
+      return;
+    }
+    const deletionState: AllyDeletionState = status.state === "pending" ? "pending" : "repair_required";
+    deletionFence.states.set(status.allyId, deletionState);
+    queryClient.setQueryData<AllyViewModel[]>(alliesQueryKey(workspaceId), (current) => (
+      current?.map((ally) => ally.id === status.allyId
+        ? { ...ally, deletionState }
+        : ally)
+    ));
+  }, [completeAllyDeletion, deletionFence, queryClient, workspaceId]);
+  const pollAllyDeletion = useCallback((allyId: string) => {
+    const poll = deletionFence.polls.get(allyId);
+    if (!poll || poll.stopped || poll.timer !== null || poll.controller !== null) return;
+    const schedule = () => {
+      const current = deletionFence.polls.get(allyId);
+      if (!current || current.stopped || current.timer !== null || current.controller !== null) return;
+      if (document.visibilityState === "hidden" || navigator.onLine === false) return;
+      const remaining = ALLY_DELETION_MAX_POLL_DURATION_MS - (Date.now() - current.startedAt);
+      if (remaining <= 0) {
+        current.stopped = true;
+        return;
+      }
+      current.timer = window.setTimeout(async () => {
+        current.timer = null;
+        if (document.visibilityState === "hidden" || navigator.onLine === false) {
+          schedule();
+          return;
+        }
+        const controller = new AbortController();
+        current.controller = controller;
+        try {
+          const status = await session.runCloudOperation(
+            (signal) => session.client.getAllyDeletion(workspaceId, allyId, signal),
+            { signal: controller.signal, retryTransient: false },
+          );
+          if (!deletionFence.deletedAllyIds.has(allyId)) {
+            applyAllyDeletionStatus(status);
+            if (status.state !== "complete") current.delay = Math.min(current.delay * 2, ALLY_DELETION_MAX_POLL_MS);
+          }
+        } catch {
+          current.delay = Math.min(current.delay * 2, ALLY_DELETION_MAX_POLL_MS);
+        } finally {
+          if (current.controller === controller) current.controller = null;
+          if (deletionFence.polls.get(allyId) === current && !current.stopped) schedule();
+        }
+      }, Math.min(current.delay, ALLY_DELETION_MAX_POLL_MS, remaining));
+    };
+    schedule();
+  }, [applyAllyDeletionStatus, deletionFence, session, workspaceId]);
+  const refreshAllyDeletion = useCallback(async (allyId: string) => {
+    if (deletionFence.deletedAllyIds.has(allyId)) {
+      throw new Error("Ally deletion is already complete");
+    }
+    const existing = deletionFence.polls.get(allyId);
+    if (!existing) {
+      deletionFence.polls.set(allyId, {
+        startedAt: Date.now(),
+        delay: ALLY_DELETION_INITIAL_POLL_MS,
+        timer: null,
+        controller: null,
+        stopped: false,
+      });
+    } else if (existing.stopped) {
+      existing.stopped = false;
+      existing.timer = null;
+      existing.controller = null;
+    }
+    const status = await session.runCloudOperation(
+      (signal) => session.client.getAllyDeletion(workspaceId, allyId, signal),
+      { retryTransient: false },
+    );
+    if (status.allyId !== allyId) throw new Error("Ally deletion status belongs to a different Ally");
+    applyAllyDeletionStatus(status);
+    if (status.state !== "complete") pollAllyDeletion(allyId);
+    return status;
+  }, [applyAllyDeletionStatus, deletionFence, pollAllyDeletion, session, workspaceId]);
+  useEffect(() => {
+    allies.forEach((ally) => {
+      const state = allyDeletionState(ally);
+      if (state === "active" || deletionFence.deletedAllyIds.has(ally.id)) return;
+      deletionFence.states.set(ally.id, state);
+      if (!deletionFence.polls.has(ally.id)) {
+        deletionFence.polls.set(ally.id, {
+          startedAt: Date.now(),
+          delay: ALLY_DELETION_INITIAL_POLL_MS,
+          timer: null,
+          controller: null,
+          stopped: false,
+        });
+      }
+      pollAllyDeletion(ally.id);
+    });
+  }, [allies, deletionFence, pollAllyDeletion]);
+  useEffect(() => {
+    const resume = () => {
+      if (document.visibilityState === "hidden" || navigator.onLine === false) return;
+      deletionFence.polls.forEach((poll, allyId) => {
+        if (poll.timer === null && poll.controller === null && !poll.stopped) pollAllyDeletion(allyId);
+      });
+    };
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+    return () => {
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
+    };
+  }, [deletionFence, pollAllyDeletion]);
+  useEffect(() => () => {
+    [...deletionFence.polls.keys()].forEach(stopDeletionPolling);
+  }, [deletionFence, stopDeletionPolling]);
   const openAllySettings = useCallback((allyId: string) => setSettingsAllyId(allyId), []);
   const replaceAlly = useCallback((updated: AllyViewModel) => {
-    let mergedResult = updated;
+    if (deletionFence.deletedAllyIds.has(updated.id)) return;
+    const activeDeletionState = deletionFence.states.get(updated.id);
+    const protectedUpdated = activeDeletionState
+      ? { ...updated, deletionState: activeDeletionState }
+      : updated;
+    let mergedResult = protectedUpdated;
     queryClient.setQueryData<AllyViewModel[]>(alliesQueryKey(workspaceId), (current) => {
-      if (!current) return [updated];
-      const existing = current.find((ally) => ally.id === updated.id);
-      const merged = mergeUpdatedAlly(existing, updated);
+      if (!current) return [protectedUpdated];
+      const existing = current.find((ally) => ally.id === protectedUpdated.id);
+      const merged = mergeUpdatedAlly(existing, protectedUpdated);
       mergedResult = merged;
-      if (!existing) return [...current, updated];
+      if (!existing) return [...current, protectedUpdated];
       if (merged === existing) return current;
-      return current.map((ally) => ally.id === updated.id ? merged : ally);
+      return current.map((ally) => ally.id === protectedUpdated.id ? merged : ally);
     });
 
     const currentHandoff = acceptedHandoffRef.current;
@@ -340,7 +627,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     const nextHandoff = { ...currentHandoff, ally: mergedHandoffAlly };
     acceptedHandoffRef.current = nextHandoff;
     setAcceptedHandoff(nextHandoff);
-  }, [queryClient, workspaceId]);
+  }, [deletionFence, queryClient, workspaceId]);
 
   if (!creatingAlly && dismissedCreateRoute) {
     setDismissedCreateRoute(false);
@@ -479,13 +766,14 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   const showDesktopDashboard = isDesktopDashboard;
   const showThread = Boolean(selectedAllyId) || showDesktopDashboard || Boolean(activeHandoff);
 
-  const threadBody = conversationAlly ? (
+  const threadBody = conversationAlly && !isAllyDeleting(conversationAlly) ? (
     <ConversationPane
       key={conversationAlly.id}
       userId={accountQuery.data.userId}
       workspaceId={workspaceId}
       canApprove={accountQuery.data.workspace.capabilities.includes("profile.write")}
       ally={conversationAlly}
+      isAllySuppressed={isAllySuppressed}
       onOpenSettings={() => openAllySettings(conversationAlly.id)}
       onActivity={() => recordAllyActivity(conversationAlly.id)}
       stateReady={sleepClock !== null && Boolean(allyPreviews.get(conversationAlly.id)) && !allyPreviews.get(conversationAlly.id)?.isPending}
@@ -498,6 +786,11 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
       handoffRetryToken={handoffRetryToken}
       onHandoffReady={handleHandoffReady}
       onHandoffRetryAvailable={handleHandoffRetryAvailable}
+    />
+  ) : conversationAlly && isAllyDeleting(conversationAlly) ? (
+    <AllyDeletionStatusPane
+      ally={conversationAlly}
+      onRefresh={() => refreshAllyDeletion(conversationAlly.id)}
     />
   ) : creatingAlly || !selectedAllyId ? (
     <EmptyThread />
@@ -593,6 +886,12 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
           <SearchIcon />
         </button>
       </header>
+      {localCleanupFailure ? (
+        <p className={styles.localCleanupNotice} role="alert">
+          Cloud deletion completed for {localCleanupFailure.allyName}, but this browser could not erase all of its saved local drafts.
+          <button type="button" onClick={retryLocalCleanup}>Retry local cleanup</button>
+        </p>
+      ) : null}
       {/* Restore the view controls when the Routines sidebar is ready.
       <div className={styles.sidebarTabs} aria-label="Sidebar views">
         <button type="button" className={styles.sidebarTab} aria-pressed="true">My allies</button>
@@ -641,6 +940,8 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
           workspaceId={workspaceId}
           onClose={() => setSettingsAllyId(null)}
           onSaved={replaceAlly}
+          onDeletionStatus={applyAllyDeletionStatus}
+          onRefreshDeletion={() => refreshAllyDeletion(settingsAlly.id)}
         />
       ) : null}
       {createOverlay}
@@ -743,15 +1044,12 @@ function AllyConversationRow({
   recentActivityAt?: number;
   exact?: boolean;
 }) {
-  const latestMessage = preview?.latestMessage ?? null;
+  const deleting = isAllyDeleting(ally);
+  const latestMessage = deleting ? null : preview?.latestMessage ?? null;
   const sleeping = isAllySleeping(ally, latestMessage, sleepClock, recentActivityAt);
-  return (
-    <Link
-      href={`/home/${encodeURIComponent(ally.id)}`}
-      className={`${styles.allyRow} ${selected ? styles.allyRowSelected : ""} ${exact ? styles.exactAllyRow : ""}`}
-      aria-current={selected ? "page" : undefined}
-      data-ally-sleeping={sleeping ? "true" : "false"}
-    >
+  const rowClassName = `${styles.allyRow} ${selected ? styles.allyRowSelected : ""} ${exact ? styles.exactAllyRow : ""} ${deleting ? styles.allyRowDisabled : ""}`;
+  const content = (
+    <>
       <span className={styles.allyAvatarWrap}>
         <AllyIdentityAvatar ally={ally} size={48} sleeping={sleeping} stateReady={sleepClock !== null && Boolean(preview) && !preview?.isPending} />
         <span
@@ -768,13 +1066,37 @@ function AllyConversationRow({
           <span className={styles.allyLabel} title={ally.label.trim()}>{ally.label.trim()}</span>
         ) : null}
         <span className={preview?.isPending ? styles.allyPreviewPending : styles.allyPreview}>
-          {preview === undefined || preview.isError
+          {deleting
+            ? allySecondaryLine(ally)
+            : preview === undefined || preview.isError
             ? allySecondaryLine(ally)
             : preview.isPending && !latestMessage
               ? "Opening conversation…"
               : preview.historyRemaining ? "Open conversation" : previewText(preview.latestReply)}
         </span>
       </span>
+    </>
+  );
+  if (deleting) {
+    return (
+      <div
+        className={rowClassName}
+        aria-disabled="true"
+        data-ally-deletion-state={allyDeletionState(ally)}
+        data-ally-sleeping={sleeping ? "true" : "false"}
+      >
+        {content}
+      </div>
+    );
+  }
+  return (
+    <Link
+      href={`/home/${encodeURIComponent(ally.id)}`}
+      className={rowClassName}
+      aria-current={selected ? "page" : undefined}
+      data-ally-sleeping={sleeping ? "true" : "false"}
+    >
+      {content}
     </Link>
   );
 }
@@ -786,6 +1108,7 @@ function ConversationPane({
   workspaceId,
   canApprove,
   ally,
+  isAllySuppressed,
   onOpenSettings,
   onActivity,
   workspaceRefreshError,
@@ -801,6 +1124,7 @@ function ConversationPane({
   workspaceId: string;
   canApprove: boolean;
   ally: AllyViewModel;
+  isAllySuppressed: (allyId: string) => boolean;
   onOpenSettings?: () => void;
   onActivity: () => void;
   sleeping: boolean;
@@ -1003,6 +1327,7 @@ function ConversationPane({
 
   const conversationQuery = useQuery<ConversationViewModel>({
     queryKey: conversationQueryKey(workspaceId, ally.id),
+    enabled: !isAllySuppressed(ally.id) && !isAllyDeleting(ally),
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
     refetchInterval: (query) => query.state.error
@@ -1013,8 +1338,12 @@ function ConversationPane({
     refetchIntervalInBackground: false,
     queryFn: ({ signal }) =>
       session.runCloudOperation(
-        (operationSignal) =>
-          session.client.getAllyConversation(workspaceId, ally.id, { limit: 50, signal: operationSignal }),
+        async (operationSignal) => {
+          if (isAllySuppressed(ally.id)) throw new Error("Ally conversation is unavailable during deletion");
+          const result = await session.client.getAllyConversation(workspaceId, ally.id, { limit: 50, signal: operationSignal });
+          if (isAllySuppressed(ally.id)) throw new Error("Ally conversation is unavailable during deletion");
+          return result;
+        },
         { signal },
       ),
   });
@@ -2518,6 +2847,47 @@ function EmptyThread({
   );
 }
 
+function AllyDeletionStatusPane({
+  ally,
+  onRefresh,
+}: {
+  ally: AllyViewModel;
+  onRefresh: () => Promise<AllyDeletionViewModel>;
+}) {
+  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const state = allyDeletionState(ally);
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      await onRefresh();
+    } catch {
+      setError("We couldn't check deletion yet. Try again when you're online.");
+    } finally {
+      setRefreshing(false);
+    }
+  };
+  return (
+    <div className={styles.emptyThread} data-testid="ally-deletion-status" role="status">
+      <div className={styles.emptyAlly} aria-hidden="true">
+        <AllyAvatar shape="ghosty" color="#ff5800" size={92} label="" />
+      </div>
+      <h1>{state === "repair_required" ? "Deletion needs attention" : `Deleting ${ally.name}`}</h1>
+      <p>{state === "repair_required"
+        ? "We couldn't finish removing this Ally. It stays unavailable until cleanup is confirmed."
+        : "Deletion is still in progress. This Ally stays unavailable until cleanup is confirmed."}</p>
+      {error ? <p role="alert">{error}</p> : null}
+      <div className={styles.emptyAction}>
+        <button type="button" onClick={() => void handleRefresh()} disabled={refreshing}>
+          {refreshing ? "Checking…" : "Refresh deletion status"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function mergeMessages(...groups: MessageViewModel[][]): MessageViewModel[] {
   return mergeConversationMessageCopies(...groups);
 }
@@ -2586,7 +2956,7 @@ function isLaterReplyStatus(
 }
 
 function canChat(ally: AllyViewModel): boolean {
-  return ally.provisioningState === "bound";
+  return ally.provisioningState === "bound" && !isAllyDeleting(ally);
 }
 
 function isGettingReady(ally: AllyViewModel): boolean {
@@ -2594,6 +2964,8 @@ function isGettingReady(ally: AllyViewModel): boolean {
 }
 
 function allySecondaryLine(ally: AllyViewModel): string {
+  if (allyDeletionState(ally) === "pending") return "Deleting…";
+  if (allyDeletionState(ally) === "repair_required") return "Deletion needs attention";
   if (ally.provisioningState === "bound") return ally.job;
   return provisioningLabel(ally.provisioningState);
 }
@@ -2780,6 +3152,7 @@ function SearchIcon() {
 }
 
 function readQueuedMessages(storageKey: string): QueuedMessage[] {
+  if (isQueuedMessageStoragePurged(storageKey)) return [];
   try {
     return parseQueuedMessages(window.localStorage.getItem(storageKey));
   } catch {
@@ -2907,6 +3280,7 @@ function readQueuedMessageTombstones(storageKey: string): Set<string> {
 }
 
 function persistQueuedMessageTombstone(storageKey: string, messageId: string): boolean {
+  if (isQueuedMessageStoragePurged(storageKey)) return true;
   try {
     window.localStorage.setItem(
       `${queuedMessageTombstonePrefix(storageKey)}${encodeURIComponent(messageId)}`,
@@ -2924,6 +3298,10 @@ function persistQueuedMessageTombstone(storageKey: string, messageId: string): b
 }
 
 function persistQueuedMessages(storageKey: string, messages: QueuedMessage[]): boolean {
+  if (isQueuedMessageStoragePurged(storageKey)) {
+    purgeQueuedMessageStorage(storageKey);
+    return true;
+  }
   try {
     if (messages.length) {
       window.localStorage.setItem(storageKey, JSON.stringify(messages));
