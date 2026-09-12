@@ -553,7 +553,13 @@ def test_earlier_occurrence_waits_for_effective_cancel_before_replacement(
 
 
 @pytest.mark.django_db
-def test_owner_decision_api_returns_pending_delivery_state(approval_account):
+def test_owner_decision_api_returns_pending_delivery_state(
+    approval_account, monkeypatch
+):
+    monkeypatch.setattr(
+        "routines.services.approvals.timezone.now",
+        lambda: BASE + timedelta(minutes=1),
+    )
     user, workspace, _ally, _binding, _conversation, routine, _occurrence, _run = (
         approval_account
     )
