@@ -69,6 +69,7 @@ class AllyResponse(Schema):
     label: str = ""
     show_label: bool = False
     settings_revision: int = 0
+    deletion_state: Literal["active", "pending", "repair_required"] = "active"
 
 
 class AllyListResponse(Schema):
@@ -86,6 +87,29 @@ class AllySettingsRequest(Schema):
     @classmethod
     def _normalize_label(cls, value: str) -> str:
         return normalize_label(value)
+
+
+class AllyDeletionRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    confirmation: StrictStr = Field(min_length=1, max_length=128)
+
+    @field_validator("confirmation")
+    @classmethod
+    def _validate_confirmation(cls, value: str) -> str:
+        if any(ord(char) < 32 or ord(char) == 127 for char in value):
+            raise ValueError("confirmation is invalid")
+        return value
+
+
+class AllyDeletionResponse(Schema):
+    ally_id: UUID
+    operation_id: UUID | None = None
+    state: Literal["pending", "complete", "repair_required"]
+    retryable: StrictBool
+    safe_error_code: StrictStr = Field(
+        default="", max_length=64, pattern=r"^(?:[a-z][a-z0-9_]*)?$"
+    )
 
 
 class RuntimeIntentRequest(Schema):

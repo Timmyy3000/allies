@@ -27,6 +27,14 @@ class PrivateFileStore(Protocol):
 
     def delete(self, *, key: str) -> None: ...
 
+    def erase_and_verify(
+        self,
+        *,
+        key: str,
+        key_marker: str | None = None,
+        version_id_marker: str | None = None,
+    ) -> tuple[str, str] | None: ...
+
 
 class InMemoryFileObjectStore:
     """A test-only private store. It is injected; it is never a deployment default."""
@@ -70,6 +78,20 @@ class InMemoryFileObjectStore:
     def delete(self, *, key: str) -> None:
         with self._lock:
             self.objects.pop(key, None)
+
+    def erase_and_verify(
+        self,
+        *,
+        key: str,
+        key_marker: str | None = None,
+        version_id_marker: str | None = None,
+    ) -> tuple[str, str] | None:
+        self.delete(key=key)
+        try:
+            self.metadata(key=key)
+        except FileObjectMissing:
+            return
+        raise RuntimeError("private object remains after deletion")
 
 
 class Boto3PrivateFileStore:
@@ -141,6 +163,78 @@ class Boto3PrivateFileStore:
 
     def delete(self, *, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=key)
+
+    def erase_and_verify(
+        self,
+        *,
+        key: str,
+        key_marker: str | None = None,
+        version_id_marker: str | None = None,
+    ) -> tuple[str, str] | None:
+        """Erase one bounded version page and return a durable continuation."""
+
+        versioning_response = self.client.get_bucket_versioning(Bucket=self.bucket)
+        if not isinstance(versioning_response, dict):
+            raise TypeError("versioning response is invalid")
+        versioning = versioning_response.get("Status")
+        if versioning not in {None, "", "Enabled", "Suspended"}:
+            raise RuntimeError("versioning status is unsupported")
+        if versioning in {None, ""}:
+            response_metadata = versioning_response.get("ResponseMetadata")
+            if (
+                not isinstance(response_metadata, dict)
+                or response_metadata.get("HTTPStatusCode") != 200
+            ):
+                raise RuntimeError("versioning capability is unknown")
+        if versioning in {"Enabled", "Suspended"}:
+            params: dict[str, object] = {
+                "Bucket": self.bucket,
+                "Prefix": key,
+                "MaxKeys": 100,
+            }
+            if key_marker is not None:
+                if not isinstance(version_id_marker, str):
+                    raise RuntimeError("version listing continuation is invalid")
+                params["KeyMarker"] = key_marker
+                params["VersionIdMarker"] = version_id_marker
+            page = self.client.list_object_versions(**params)
+            if not isinstance(page, dict):
+                raise RuntimeError("version listing response is invalid")
+            versions = page.get("Versions", ())
+            markers = page.get("DeleteMarkers", ())
+            if not isinstance(versions, list) or not isinstance(markers, list):
+                raise TypeError("version listing entries are invalid")
+            for entry in [*versions, *markers]:
+                if not isinstance(entry, dict):
+                    raise TypeError("version listing entry is invalid")
+                # Prefix queries can include sibling keys; only the exact owned
+                # key may be erased.
+                if entry.get("Key") != key:
+                    continue
+                version_id = entry.get("VersionId")
+                if not isinstance(version_id, str) or not version_id:
+                    raise RuntimeError("version entry has no identity")
+                self.client.delete_object(
+                    Bucket=self.bucket, Key=key, VersionId=version_id
+                )
+            truncated = page.get("IsTruncated")
+            if not isinstance(truncated, bool):
+                raise RuntimeError("version listing truncation is invalid")
+            if truncated:
+                next_key = page.get("NextKeyMarker")
+                next_version = page.get("NextVersionIdMarker")
+                if not isinstance(next_key, str) or not next_key:
+                    raise RuntimeError("version listing continuation is invalid")
+                if not isinstance(next_version, str) or not next_version:
+                    raise RuntimeError("version listing continuation is invalid")
+                return next_key, next_version
+        else:
+            self.delete(key=key)
+        try:
+            self.metadata(key=key)
+        except FileObjectMissing:
+            return None
+        raise RuntimeError("private object remains after deletion")
 
 
 _store: PrivateFileStore | None = None

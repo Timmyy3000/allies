@@ -20,9 +20,10 @@ from chat.models import (
     MessagePreparation,
     MessageSender,
 )
-from files.exceptions import FileConflict, FileScopeUnavailable
+from files.exceptions import FileConflict, FileScopeUnavailable, FileUnavailable
 from files.models import (
     FileDirection,
+    FileIOOutcome,
     FileObjectKind,
     FilePublication,
     FileStagingObject,
@@ -37,7 +38,11 @@ from files.services.access import (
     private_file_preview,
     private_file_stream,
 )
-from files.services.cleanup import cleanup_files, tombstone_ally_files
+from files.services.cleanup import (
+    cleanup_files,
+    mark_file_io_outcome,
+    tombstone_ally_files,
+)
 from files.services.intake import (
     InspectionResult,
     promote_inspected_file,
@@ -209,6 +214,69 @@ def test_tombstone_cleanup_deletes_once_and_releases_retained_charge(file_contex
     assert file.state == FileState.DELETED
     assert account.retained_bytes == 0
     assert cleanup_files(limit=100).deleted == 0
+
+
+@pytest.mark.django_db
+def test_ambiguous_remote_write_waits_for_explicit_settlement(file_context):
+    owner, workspace, ally, _conversation = file_context
+    data = b"ambiguous remote bytes"
+    reservation = _reserve(file_context, data, "cleanup-ambiguous-write-key")
+    file = reservation.files[0]
+
+    class AmbiguousStore(InMemoryFileObjectStore):
+        def put_stream(self, **kwargs):
+            super().put_stream(**kwargs)
+            raise TimeoutError("provider response lost after write")
+
+    store = AmbiguousStore()
+    set_file_store(store)
+    try:
+        with pytest.raises(FileUnavailable):
+            receive_file(
+                user=owner,
+                workspace_id=workspace.id,
+                ally_id=ally.id,
+                file_id=file.id,
+                generation=file.generation,
+                content_length=str(len(data)),
+                stream=BytesIO(data),
+            )
+
+        file.refresh_from_db()
+        candidate = FileStagingObject.objects.get(file=file, key=file.object_key)
+        now = timezone.now()
+        candidate.cleanup_after = now
+        candidate.save(update_fields=("cleanup_after",))
+
+        deferred = cleanup_files(now=now)
+        candidate.refresh_from_db()
+        file.refresh_from_db()
+        assert deferred.claimed == 0
+        assert deferred.deleted == 0
+        assert candidate.io_outcome == FileIOOutcome.AMBIGUOUS
+        assert candidate.deleted_at is None
+        assert file.state == FileState.RECEIVING
+        assert file.object_key in store.objects
+
+        assert (
+            mark_file_io_outcome(
+                file_id=file.id,
+                write_fence=file.write_fence,
+                key=file.object_key,
+                outcome=FileIOOutcome.ABORTED,
+            )
+            == 1
+        )
+        settled = cleanup_files(now=now + timedelta(seconds=61))
+        candidate.refresh_from_db()
+        file.refresh_from_db()
+        assert settled.deleted == 1
+        assert candidate.deleted_at is not None
+        assert file.state == FileState.FAILED
+        assert file.object_key == ""
+        assert store.objects == {}
+    finally:
+        set_file_store(None)
 
 
 @pytest.mark.django_db

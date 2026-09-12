@@ -12,6 +12,7 @@ from allies.exceptions import IdempotencyConflict, OnboardingInvalid
 from allies.models import (
     Ally,
     AllyBinding,
+    AllyDeletionState,
     LabelGenerationState,
     OnboardingAttempt,
     ProvisioningOperation,
@@ -295,7 +296,11 @@ def retrieve_ally(*, user: User, workspace_id: UUID | str, ally_id: UUID | str) 
         attempt = ally.onboarding_attempt
     except OnboardingAttempt.DoesNotExist:
         return ally
-    if attempt.consumed_at is not None and attempt.reply:
+    if (
+        ally.deletion_state == AllyDeletionState.ACTIVE
+        and attempt.consumed_at is not None
+        and attempt.reply
+    ):
         try:
             ensure_default_conversation(
                 ally=ally,

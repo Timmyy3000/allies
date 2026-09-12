@@ -27,7 +27,7 @@ from allies.gateways.contracts import (
     canonical_json_bytes,
 )
 from allies.gateways.foundry import submit_approval_decision
-from allies.models import AllyBinding, BindingStatus
+from allies.models import Ally, AllyBinding, AllyDeletionState, BindingStatus
 from auths.config import digest_key
 from chat.models import Conversation
 from common.uuids import canonical_uuid
@@ -87,7 +87,11 @@ def _conversation_for_user(*, user, workspace_id, conversation_id, capability):
         raise ApprovalNotFound("approval unavailable") from exc
     conversation = (
         Conversation.objects.select_related("ally", "ally__workspace")
-        .filter(pk=parsed_conversation_id, ally__workspace=context.workspace)
+        .filter(
+            pk=parsed_conversation_id,
+            ally__workspace=context.workspace,
+            ally__deletion_state=AllyDeletionState.ACTIVE,
+        )
         .first()
     )
     if conversation is None:
@@ -101,6 +105,7 @@ def _approval_queryset(*, context, conversation):
     ).filter(
         workspace=context.workspace,
         ally_id=conversation.ally_id,
+        ally__deletion_state=AllyDeletionState.ACTIVE,
         conversation=conversation,
         message__conversation=conversation,
     )
@@ -177,7 +182,12 @@ def reconcile_approval(approval: Approval, *, now: datetime | None = None) -> Ap
     """Reconcile one approval in a short transaction for read callers."""
 
     with transaction.atomic():
-        locked = Approval.objects.select_for_update().get(pk=approval.pk)
+        locked = Approval.objects.select_for_update(of=("self",)).get(pk=approval.pk)
+        if (
+            Ally.objects.values_list("deletion_state", flat=True).get(pk=locked.ally_id)
+            != AllyDeletionState.ACTIVE
+        ):
+            return locked
         _save_reconciliation(locked, now=now or timezone.now())
         return locked
 
@@ -192,6 +202,7 @@ def reconcile_conversation_approvals(
         pending_ids = list(
             Approval.objects.filter(
                 conversation_id=conversation_id,
+                ally__deletion_state=AllyDeletionState.ACTIVE,
                 status=ApprovalStatus.PENDING,
                 expires_at__lte=current,
             )
@@ -213,6 +224,7 @@ def reconcile_conversation_approvals(
         decision_ids = list(
             Approval.objects.filter(
                 conversation_id=conversation_id,
+                ally__deletion_state=AllyDeletionState.ACTIVE,
                 status=ApprovalStatus.DECISION_RECORDED,
                 acknowledgement_deadline_at__lte=current,
             )
@@ -463,6 +475,7 @@ def _mark_unknown(*, pk: UUID, fence: int, code: str, now: datetime) -> bool:
     return bool(
         Approval.objects.filter(
             pk=pk,
+            ally__deletion_state=AllyDeletionState.ACTIVE,
             status=ApprovalStatus.DECISION_RECORDED,
             delivery_state=ApprovalDeliveryState.IN_PROGRESS,
             delivery_attempt_count=fence,
@@ -481,6 +494,7 @@ def _mark_deferred(*, pk: UUID, fence: int, code: str, now: datetime) -> bool:
     return bool(
         Approval.objects.filter(
             pk=pk,
+            ally__deletion_state=AllyDeletionState.ACTIVE,
             status=ApprovalStatus.DECISION_RECORDED,
             delivery_state=ApprovalDeliveryState.IN_PROGRESS,
             delivery_attempt_count=fence,
@@ -498,6 +512,7 @@ def _mark_consent_expired(*, pk: UUID, fence: int, now: datetime) -> bool:
     return bool(
         Approval.objects.filter(
             pk=pk,
+            ally__deletion_state=AllyDeletionState.ACTIVE,
             status=ApprovalStatus.DECISION_RECORDED,
             delivery_state=ApprovalDeliveryState.IN_PROGRESS,
             delivery_attempt_count=fence,
@@ -517,6 +532,7 @@ def _mark_delivered(
     return bool(
         Approval.objects.filter(
             pk=pk,
+            ally__deletion_state=AllyDeletionState.ACTIVE,
             status=ApprovalStatus.DECISION_RECORDED,
             delivery_state=ApprovalDeliveryState.IN_PROGRESS,
             delivery_attempt_count=fence,
@@ -560,7 +576,10 @@ def _claim_due(*, now: datetime, limit: int) -> list[tuple[UUID, int]]:
     )
     bound = max(1, min(limit, 100))
     candidate_ids = list(
-        Approval.objects.filter(status=ApprovalStatus.DECISION_RECORDED)
+        Approval.objects.filter(
+            ally__deletion_state=AllyDeletionState.ACTIVE,
+            status=ApprovalStatus.DECISION_RECORDED,
+        )
         .filter(due)
         .order_by("delivery_next_attempt_at", "decided_at", "id")
         .values_list("pk", flat=True)[:bound]
@@ -574,6 +593,8 @@ def _claim_due(*, now: datetime, limit: int) -> list[tuple[UUID, int]]:
                     skip_locked=connection.features.has_select_for_update_skip_locked
                 ).get(pk=pk)
             except Approval.DoesNotExist:
+                continue
+            if approval.ally.deletion_state != AllyDeletionState.ACTIVE:
                 continue
             _save_reconciliation(approval, now=now)
             if approval.status != ApprovalStatus.DECISION_RECORDED:
@@ -666,7 +687,10 @@ def _deliver_one(*, pk: UUID, fence: int, now: datetime | None = None) -> str:
     approval = Approval.objects.select_related(
         "workspace", "ally", "conversation__ally__binding", "message"
     ).get(pk=pk)
-    if approval.status != ApprovalStatus.DECISION_RECORDED:
+    if (
+        approval.status != ApprovalStatus.DECISION_RECORDED
+        or approval.ally.deletion_state != AllyDeletionState.ACTIVE
+    ):
         return "skipped"
     deadline_result = _enforce_delivery_deadline(
         approval=approval, pk=pk, fence=fence, now=current

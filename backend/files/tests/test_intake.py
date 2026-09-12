@@ -1,13 +1,17 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from hashlib import sha256
 from io import BytesIO
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
 from django.core.cache import cache
+from django.db import close_old_connections, connection
 from django.utils import timezone
 
-from allies.models import Ally
+from allies.models import Ally, AllyBinding
+from allies.services import deletion
 from auths.models import User
 from chat.exceptions import IdempotencyConflict
 from chat.models import Conversation, DispatchOutbox, MessagePreparation
@@ -19,7 +23,7 @@ from files.exceptions import (
     FileValidation,
 )
 from files.inspection import FileInspection
-from files.models import FileStagingObject, FileState, FileStorageAccount
+from files.models import FileIOOutcome, FileStagingObject, FileState, FileStorageAccount
 from files.services import inspection as inspection_worker
 from files.services.inspection import _claim, inspect_due_files
 from files.services.intake import (
@@ -453,6 +457,85 @@ def test_promotion_rejects_a_verified_destination_mismatch(admission, settings):
         )
     file.refresh_from_db()
     assert file.state == FileState.REJECTED
+
+
+@pytest.mark.postgresql
+@pytest.mark.skipif(
+    connection.vendor != "postgresql",
+    reason="requires PostgreSQL row-lock semantics",
+)
+@pytest.mark.django_db(transaction=True)
+def test_delete_after_verified_promotion_copy_settles_candidate_before_fence(
+    admission, settings, monkeypatch
+):
+    user, workspace, ally, conversation = admission
+    AllyBinding.objects.create(ally=ally)
+    file, data = _validating_file(admission, key="file-promotion-delete-race-1")
+    settings.ALLIES_FILE_INSPECTION_ENABLED = True
+    source = InMemoryFileObjectStore()
+    source.put_stream(
+        key=file.object_key,
+        stream=BytesIO(data),
+        content_type="application/octet-stream",
+        size=len(data),
+        sha256=sha256(data).hexdigest(),
+    )
+    set_file_store(source)
+    final_lock_entered, release_final_lock = Event(), Event()
+
+    from files.services import intake
+
+    original_account_locked = intake._account_locked
+    account_lock_calls = 0
+
+    def hold_final_account_lock(workspace_id):
+        nonlocal account_lock_calls
+        account_lock_calls += 1
+        if account_lock_calls == 2:
+            final_lock_entered.set()
+            assert release_final_lock.wait(timeout=10)
+        return original_account_locked(workspace_id)
+
+    monkeypatch.setattr(intake, "_account_locked", hold_final_account_lock)
+    monkeypatch.setattr(
+        "allies.services.deletion._enqueue_reconciliation", lambda _id: None
+    )
+
+    def promote_once():
+        close_old_connections()
+        try:
+            with pytest.raises(FileConflict):
+                promote_inspected_file(
+                    file_id=file.id,
+                    generation=file.generation,
+                    result=InspectionResult(
+                        len(data), sha256(data).hexdigest(), "application/pdf", True
+                    ),
+                )
+        finally:
+            close_old_connections()
+            connection.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(promote_once)
+            assert final_lock_entered.wait(timeout=10)
+            deletion.request_ally_deletion(
+                user=user,
+                workspace_id=workspace.id,
+                ally_id=ally.id,
+                confirmation="Mira - deletes me",
+            )
+            release_final_lock.set()
+            future.result(timeout=10)
+        candidate = FileStagingObject.objects.get(
+            file=file, key__startswith="immutable/"
+        )
+        assert candidate.io_outcome == FileIOOutcome.COMPLETED
+        assert file.state == FileState.VALIDATING
+        assert conversation.ally_id == ally.id
+    finally:
+        set_file_store(None)
 
 
 @pytest.mark.django_db

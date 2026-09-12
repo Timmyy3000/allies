@@ -697,6 +697,11 @@ CELERY_BEAT_SCHEDULE["generate-pending-labels"] = {
     "schedule": 60.0,
     "options": {"queue": "cloud"},
 }
+CELERY_BEAT_SCHEDULE["reconcile-due-ally-deletions"] = {
+    "task": "allies.reconcile_due_ally_deletions",
+    "schedule": 15.0,
+    "options": {"queue": "cloud"},
+}
 CELERY_BEAT_SCHEDULE["dispatch-pending-messages"] = {
     "task": "chat.dispatch_pending_messages",
     "schedule": 15.0,

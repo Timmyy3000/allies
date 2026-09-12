@@ -16,7 +16,7 @@ from django.db import transaction
 from django.db.models import Max
 from django.utils import timezone
 
-from allies.models import Ally, ProvisioningStatus
+from allies.models import Ally, AllyDeletionState, ProvisioningStatus
 from auths.models import User
 from chat.exceptions import (
     IdempotencyConflict,
@@ -52,6 +52,7 @@ from files.models import (
     MAX_FILE_BYTES,
     FileAllyTombstone,
     FileDirection,
+    FileIOOutcome,
     FileObjectKind,
     FileStagingObject,
     FileState,
@@ -59,6 +60,7 @@ from files.models import (
     FileVersion,
     MessageFile,
 )
+from files.services.cleanup import mark_file_io_outcome
 from files.storage import FileObjectMissing, get_file_store
 from files.types import MEDIA_TYPES as _MEDIA_TYPES
 from workspaces.capabilities import Capability
@@ -181,7 +183,10 @@ def _scope_locked(*, workspace, conversation_id) -> tuple[Ally, Conversation]:
         )
     except (Conversation.DoesNotExist, Ally.DoesNotExist, TypeError, ValueError) as exc:
         raise FileScopeUnavailable("file unavailable") from exc
-    if FileAllyTombstone.objects.filter(ally=ally).exists():
+    if (
+        ally.deletion_state != AllyDeletionState.ACTIVE
+        or FileAllyTombstone.objects.filter(ally=ally).exists()
+    ):
         raise FileScopeUnavailable("file unavailable")
     return ally, conversation
 
@@ -409,6 +414,11 @@ def _reject_file(
 def _keep_recoverable(
     *, file_id, generation: int, fence, inspection_lease_token=None
 ) -> None:
+    mark_file_io_outcome(
+        file_id=file_id,
+        write_fence=fence,
+        outcome=FileIOOutcome.AMBIGUOUS,
+    )
     with transaction.atomic():
         current = FileVersion.objects.select_for_update().get(pk=file_id)
         if (
@@ -446,7 +456,9 @@ def receive_file(
     with transaction.atomic():
         try:
             ally = Ally.objects.select_for_update().get(
-                pk=ally_id, workspace=context.workspace
+                pk=ally_id,
+                workspace=context.workspace,
+                deletion_state=AllyDeletionState.ACTIVE,
             )
             if FileAllyTombstone.objects.filter(ally=ally).exists():
                 raise FileScopeUnavailable("file unavailable")
@@ -505,6 +517,7 @@ def receive_file(
             generation=file.generation,
             write_fence=fence,
             cleanup_after=now + timedelta(hours=24),
+            io_outcome=FileIOOutcome.IN_FLIGHT,
         )
         file.save(
             update_fields=(
@@ -525,6 +538,12 @@ def receive_file(
             sha256=file.sha256,
         )
     except _UploadBodyInvalid as exc:
+        mark_file_io_outcome(
+            file_id=file.id,
+            write_fence=fence,
+            key=key,
+            outcome=FileIOOutcome.AMBIGUOUS,
+        )
         _reject_file(
             file_id=file.id,
             generation=generation,
@@ -533,8 +552,20 @@ def receive_file(
         )
         raise FileValidation("uploaded bytes invalid") from exc
     except Exception as exc:
+        mark_file_io_outcome(
+            file_id=file.id,
+            write_fence=fence,
+            key=key,
+            outcome=FileIOOutcome.AMBIGUOUS,
+        )
         _keep_recoverable(file_id=file.id, generation=generation, fence=fence)
         raise FileUnavailable("private storage unavailable") from exc
+    mark_file_io_outcome(
+        file_id=file.id,
+        write_fence=fence,
+        key=key,
+        outcome=FileIOOutcome.COMPLETED,
+    )
     if (
         not bounded.complete()
         or bounded.total != expected_length
@@ -564,6 +595,10 @@ def receive_file(
             or current.source_message_id != message.id
             or message.deleted_at
             or message.preparation != MessagePreparation.UPLOADING
+            or not Ally.objects.filter(
+                pk=current.ally_id,
+                deletion_state=AllyDeletionState.ACTIVE,
+            ).exists()
             or FileAllyTombstone.objects.filter(ally_id=current.ally_id).exists()
         ):
             raise FileConflict("stale file upload")
@@ -586,6 +621,8 @@ def promote_inspected_file(
         )
         _account_locked(probe.workspace)
         ally = Ally.objects.select_for_update().get(pk=probe.ally_id)
+        if ally.deletion_state != AllyDeletionState.ACTIVE:
+            raise FileConflict("stale inspection")
         conversation = Conversation.objects.select_for_update().get(
             pk=source.conversation_id, ally=ally
         )
@@ -654,6 +691,7 @@ def promote_inspected_file(
             write_fence=file.write_fence,
             kind=FileObjectKind.PROMOTION,
             cleanup_after=timezone.now() + timedelta(hours=24),
+            io_outcome=FileIOOutcome.IN_FLIGHT,
         )
     try:
         store = get_file_store()
@@ -673,6 +711,12 @@ def promote_inspected_file(
         or result.sha256 != digest
         or result.media_type != file.media_type
     ):
+        mark_file_io_outcome(
+            file_id=file_id,
+            write_fence=fence,
+            key=immutable_key,
+            outcome=FileIOOutcome.ABORTED,
+        )
         _reject_file(
             file_id=file_id,
             generation=generation,
@@ -704,6 +748,12 @@ def promote_inspected_file(
         )
         raise FileUnavailable("private storage unavailable") from exc
     if destination_size != size or destination_digest != digest:
+        mark_file_io_outcome(
+            file_id=file_id,
+            write_fence=fence,
+            key=immutable_key,
+            outcome=FileIOOutcome.COMPLETED,
+        )
         _reject_file(
             file_id=file_id,
             generation=generation,
@@ -712,6 +762,14 @@ def promote_inspected_file(
             inspection_lease_token=inspection_lease_token,
         )
         raise FileValidation("immutable promotion verification failed")
+    # The copy is now verified. Settle its candidate before reacquiring the
+    # admission locks so a concurrent deletion can safely clean this object.
+    mark_file_io_outcome(
+        file_id=file_id,
+        write_fence=fence,
+        key=immutable_key,
+        outcome=FileIOOutcome.COMPLETED,
+    )
     with transaction.atomic():
         probe = FileVersion.objects.only(
             "id", "workspace_id", "ally_id", "source_message_id", "publication_id"
@@ -721,6 +779,8 @@ def promote_inspected_file(
         )
         account = _account_locked(probe.workspace)
         ally = Ally.objects.select_for_update().get(pk=probe.ally_id)
+        if ally.deletion_state != AllyDeletionState.ACTIVE:
+            raise FileConflict("stale inspection")
         conversation = Conversation.objects.select_for_update().get(
             pk=source.conversation_id, ally=ally
         )
@@ -752,6 +812,7 @@ def promote_inspected_file(
                 )
             )
             or file.object_key != staging_key
+            or ally.deletion_state != AllyDeletionState.ACTIVE
             or FileAllyTombstone.objects.filter(ally_id=file.ally_id).exists()
         ):
             raise FileConflict("stale inspection")

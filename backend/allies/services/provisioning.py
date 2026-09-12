@@ -21,6 +21,7 @@ from allies.gateways.foundry import (
     provision_profile,
 )
 from allies.models import (
+    AllyDeletionState,
     BindingStatus,
     ProvisioningOperation,
     ProvisioningStatus,
@@ -110,6 +111,7 @@ def _claim_due(*, now, limit: int) -> list[tuple[UUID, int]]:
         status=ProvisioningStatus.IN_PROGRESS,
         lease_expires_at__lte=now,
     )
+    due &= Q(binding__ally__deletion_state=AllyDeletionState.ACTIVE)
     with transaction.atomic():
         ProvisioningOperation.objects.filter(
             expires_at__lte=now,
@@ -245,6 +247,8 @@ def accept_profile_readiness_hint(
                     binding__ally__workspace_id=payload.workspace_id,
                 )
             )
+            if operation.binding.ally.deletion_state != AllyDeletionState.ACTIVE:
+                return HintResult("ignored")
             if operation.expires_at <= now or operation.status in {
                 ProvisioningStatus.SUCCEEDED,
                 ProvisioningStatus.FAILED,
@@ -316,6 +320,18 @@ def _dispatch_claimed(pk: UUID, fence: int) -> tuple[str, int | None]:
         "workspace_id": str(operation.workspace_id),
         "retry_count": fence - 1,
     }
+    if operation.binding.ally.deletion_state != AllyDeletionState.ACTIVE:
+        ProvisioningOperation.objects.filter(
+            pk=pk,
+            attempt_count=fence,
+            status=ProvisioningStatus.IN_PROGRESS,
+        ).update(
+            status=ProvisioningStatus.REPAIR_REQUIRED,
+            safe_error_code="ally_deletion_pending",
+            lease_expires_at=None,
+            completed_at=timezone.now(),
+        )
+        return "repair_required", None
     if operation.readiness_hint_received_at is not None:
         emit_event(
             "runtime.operation.succeeded",
@@ -371,6 +387,23 @@ def _dispatch_claimed(pk: UUID, fence: int) -> tuple[str, int | None]:
             completed_at=timezone.now(),
         )
         return "failed", None
+    if not ProvisioningOperation.objects.filter(
+        pk=pk,
+        attempt_count=fence,
+        status=ProvisioningStatus.IN_PROGRESS,
+        binding__ally__deletion_state=AllyDeletionState.ACTIVE,
+    ).exists():
+        ProvisioningOperation.objects.filter(
+            pk=pk,
+            attempt_count=fence,
+            status=ProvisioningStatus.IN_PROGRESS,
+        ).update(
+            status=ProvisioningStatus.REPAIR_REQUIRED,
+            safe_error_code="ally_deletion_pending",
+            lease_expires_at=None,
+            completed_at=timezone.now(),
+        )
+        return "repair_required", None
     try:
         with readiness_phase("provisioning.activation_roundtrip", **identity):
             activate_workspace(request.workspace_id)

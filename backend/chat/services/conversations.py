@@ -9,7 +9,13 @@ from django.db.models import Prefetch, QuerySet
 from django.db.models.functions import Coalesce, Length
 from django.utils import timezone
 
-from allies.models import Ally, AllyBinding, BindingStatus, OnboardingAttempt
+from allies.models import (
+    Ally,
+    AllyBinding,
+    AllyDeletionState,
+    BindingStatus,
+    OnboardingAttempt,
+)
 from auths.models import User
 from chat.exceptions import (
     ConversationUnavailable,
@@ -170,6 +176,8 @@ def ensure_default_conversation(
     try:
         with transaction.atomic():
             locked_ally = Ally.objects.select_for_update().get(pk=ally.pk)
+            if locked_ally.deletion_state != AllyDeletionState.ACTIVE:
+                raise ConversationUnavailable("conversation unavailable")
             conversation = (
                 Conversation.objects.filter(ally=locked_ally, is_default=True)
                 .order_by("id")
@@ -220,6 +228,9 @@ def activate_onboarding_reply(*, ally: Ally) -> Message:
     """Promote the retained onboarding reply into the first real conversation turn."""
 
     with transaction.atomic():
+        ally = Ally.objects.select_for_update().get(pk=ally.pk)
+        if ally.deletion_state != AllyDeletionState.ACTIVE:
+            raise OnboardingHandoffUnavailable("onboarding handoff unavailable")
         conversation = (
             Conversation.objects.select_for_update()
             .filter(ally=ally, is_default=True)
@@ -284,6 +295,8 @@ def activate_onboarding_reply(*, ally: Ally) -> Message:
 def reconcile_onboarding_reply(*, ally: Ally) -> Message | None:
     """Repair a bound Ally whose retained onboarding reply was never promoted."""
 
+    if ally.deletion_state != AllyDeletionState.ACTIVE:
+        return None
     try:
         binding = AllyBinding.objects.only("status").get(ally_id=ally.pk)
     except AllyBinding.DoesNotExist:
@@ -322,6 +335,8 @@ def reconcile_onboarding_reply(*, ally: Ally) -> Message | None:
 def reconcile_ally_conversation(*, ally: Ally) -> Conversation:
     """Resolve the CLD-003 handoff without fabricating missing source text."""
 
+    if ally.deletion_state != AllyDeletionState.ACTIVE:
+        raise OnboardingHandoffUnavailable("onboarding handoff unavailable")
     try:
         attempt = ally.onboarding_attempt
     except OnboardingAttempt.DoesNotExist as exc:
@@ -345,6 +360,7 @@ def _conversation_for_workspace(
         return Conversation.objects.select_related("ally", "ally__workspace").get(
             pk=parsed_conversation_id,
             ally__workspace=workspace,
+            ally__deletion_state=AllyDeletionState.ACTIVE,
         )
     except Conversation.DoesNotExist as exc:
         raise ConversationUnavailable("conversation unavailable") from exc
@@ -471,7 +487,9 @@ def retrieve_conversation(
     else:
         try:
             ally = Ally.objects.select_related("workspace").get(
-                pk=_parse_uuid(ally_id), workspace=context.workspace
+                pk=_parse_uuid(ally_id),
+                workspace=context.workspace,
+                deletion_state=AllyDeletionState.ACTIVE,
             )
         except Ally.DoesNotExist as exc:
             raise ConversationUnavailable("conversation unavailable") from exc

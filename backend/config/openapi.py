@@ -120,6 +120,17 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             "retryable": False,
         },
     },
+    "SuccessResponse_AllyDeletionResponse_": {
+        "status": "success",
+        "message": "Ally deletion accepted",
+        "data": {
+            "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "operation_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d78",
+            "state": "pending",
+            "retryable": True,
+            "safe_error_code": "",
+        },
+    },
     "SuccessResponse_AllyListResponse_": {
         "status": "success",
         "message": "Allies loaded",
