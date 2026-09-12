@@ -12,6 +12,7 @@
   flex: 1;
   flex-direction: column;
   gap: 18px;
+  overflow-y: auto;
   color: var(--text-primary);
 }
 
@@ -113,6 +114,102 @@
   color: #c84f3f;
 }
 
+.deleteSection,
+.deleteWarning,
+.deleteStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.deleteSection {
+  margin-top: 4px;
+  padding-top: 18px;
+  border-top: 1px solid var(--divider);
+}
+
+.deleteSection h3,
+.deleteWarning h3,
+.deleteStatus h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 22px;
+}
+
+.deleteSection p,
+.deleteWarning p,
+.deleteStatus p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.deleteButton {
+  min-height: 46px;
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 0 18px;
+  border: 1px solid #c84f3f;
+  border-radius: 60px;
+  background: transparent;
+  color: #c84f3f;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.deleteButton:hover:not(:disabled) {
+  background: rgb(200 79 63 / 9%);
+}
+
+.deleteButton:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 3px;
+}
+
+.deleteButton:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.deleteWarning {
+  margin-top: 10px;
+  padding: 16px;
+  border: 1px solid rgb(200 79 63 / 35%);
+  border-radius: 16px;
+  background: rgb(200 79 63 / 6%);
+}
+
+.deleteWarning .settingsField {
+  margin-top: 8px;
+}
+
+.deleteWarning code {
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-weight: 650;
+}
+
+.deleteStatus {
+  margin-top: 12px;
+  padding: 18px 16px;
+  border: 1px solid var(--divider);
+  border-radius: 16px;
+  background: var(--surface-secondary);
+}
+
+.deletionError {
+  margin: 0;
+  color: #c84f3f;
+  font-size: 13px;
+  line-height: 18px;
+}
+
 .settingsContent button:disabled {
   cursor: wait;
   opacity: 0.55;
@@ -121,5 +218,14 @@
 @media (prefers-color-scheme: dark) {
   .settingsMessages [role="alert"] {
     color: #f09a8a;
+  }
+
+  .deleteButton,
+  .deletionError {
+    color: #f09a8a;
+  }
+
+  .deleteButton {
+    border-color: #f09a8a;
   }
 }

@@ -64,14 +64,18 @@ function conversation(sent: boolean) {
   return success({ id: conversationId, ally_id: allyId, messages, assistant_replies: assistantReplies, next_cursor: null });
 }
 
-async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false, seedConversation = false, withActivity = false, withRoutine = false, withResult = false) {
+async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false, seedConversation = false, withActivity = false, withRoutine = false, withResult = false, withDeletion = false) {
   let sent = seedConversation;
   let settings = { label: "chief of staff", show_label: false, settings_revision: 0 };
+  let deletionAccepted = false;
+  let deleted = false;
+  let deletionStatusReads = 0;
   let sentRequest: { body: string | null; csrf: string | undefined } | null = null;
   let releaseSend: (() => void) | null = null;
   let approvalStatus = "pending";
   const approvalId = "00000000-0000-4000-8000-000000000010";
   const approval = () => ({ id: approvalId, message_id: sentMessageId, status: approvalStatus, expires_at: now, decided_at: approvalStatus === "pending" ? null : new Date().toISOString(), acknowledgement_deadline_at: approvalStatus === "pending" ? null : new Date(Date.now() + 30_000).toISOString() });
+  const sibling = () => ({ ...ally(), id: "00000000-0000-4000-8000-000000000011", name: "Sage" });
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -93,7 +97,10 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
       return route.fulfill({ status: 204, headers: { ...headers, "x-csrftoken": csrfToken } });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies`) {
-      return route.fulfill({ status: 200, headers, json: success({ allies: [{ ...ally(), ...settings }] }) });
+      const allies = deleted
+        ? [sibling()]
+        : [{ ...ally(), ...settings, ...(deletionAccepted ? { deletion_state: "pending" } : {}) }, ...(withDeletion ? [sibling()] : [])];
+      return route.fulfill({ status: 200, headers, json: success({ allies }) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}/settings` && request.method() === "PATCH") {
       expect(request.headers()["x-csrftoken"]).toBe(csrfToken);
@@ -101,6 +108,20 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
       expect(payload.settings_revision).toBe(settings.settings_revision);
       settings = { ...payload, settings_revision: settings.settings_revision + 1 };
       return route.fulfill({ status: 200, headers, json: success({ ...ally(), ...settings }) });
+    }
+    if (withDeletion && url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}/deletion`) {
+      if (request.method() === "POST") {
+        expect(request.headers()["x-csrftoken"]).toBe(csrfToken);
+        expect(request.postDataJSON()).toEqual({ confirmation: "Ada - deletes me" });
+        deletionAccepted = true;
+        return route.abort("failed");
+      }
+      deletionStatusReads += 1;
+      if (deletionStatusReads >= 2) {
+        deleted = true;
+        return route.fulfill({ status: 200, headers, json: success({ ally_id: allyId, state: "complete", retryable: false, safe_error_code: "" }) });
+      }
+      return route.fulfill({ status: 202, headers, json: success({ ally_id: allyId, operation_id: "00000000-0000-4000-8000-000000000012", state: "pending", retryable: true, safe_error_code: "" }) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}`) {
       return route.fulfill({ status: 200, headers, json: success(ally()) });
@@ -181,7 +202,11 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
     }
     return route.fulfill({ status: 404, headers, json: { status: "error", message: `Unhandled ${url.pathname}` } });
   });
-  return { sentRequest: () => sentRequest, releaseSend: () => releaseSend?.() };
+  return {
+    sentRequest: () => sentRequest,
+    releaseSend: () => releaseSend?.(),
+    deletionStatusReads: () => deletionStatusReads,
+  };
 }
 
 test("redirects signed-out visitors to sign-in", async ({ page }) => {
@@ -546,6 +571,40 @@ test("edits an Ally label, opts into roster display, and persists hiding it", as
   await page.goto("/home");
   await page.reload();
   await expect(page.getByText("calendar manager", { exact: true })).toHaveCount(0);
+});
+
+test("keeps an accepted Ally deletion pending through a lost response and removes only that Ally", async ({ page }) => {
+  const fixture = await fixtureCloud(page, "signed-in", false, false, false, false, false, true);
+  await page.goto(`/home/${allyId}`);
+  const settingsButton = page.getByRole("button", { name: "Ada settings", exact: true });
+  await settingsButton.click();
+  const dialog = page.getByRole("dialog", { name: "Ada settings" });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name: "Delete Ally", exact: true }).click();
+  const confirmation = dialog.locator("#ally-delete-confirmation");
+  await expect(confirmation).toBeFocused();
+  await expect(dialog.getByText("Ada - deletes me", { exact: true })).toBeVisible();
+  await confirmation.fill("Ada - deletes me");
+  await dialog.getByRole("button", { name: "Delete Ally", exact: true }).click();
+
+  await expect(dialog.getByText("We couldn't confirm the request. We'll keep checking its status.")).toBeVisible();
+  await expect(page.locator('[data-ally-deletion-state="pending"]')).toHaveCount(1);
+  await dialog.getByRole("button", { name: "Close", exact: true }).last().click();
+  await expect(dialog).toHaveCount(0);
+
+  await page.evaluate(() => Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" }));
+  await page.waitForTimeout(2_200);
+  expect(fixture.deletionStatusReads()).toBe(0);
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.waitForTimeout(2_200);
+  expect(fixture.deletionStatusReads()).toBeGreaterThanOrEqual(1);
+
+  await page.getByRole("button", { name: "Refresh deletion status", exact: true }).click();
+  await expect(page.getByRole("link", { name: /Sage/ })).toBeVisible();
+  await expect(page.getByRole("link", { name: /Ada/ })).toHaveCount(0);
 });
 
 for (const colorScheme of ["light", "dark"] as const) {

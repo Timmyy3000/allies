@@ -38,6 +38,7 @@ export function NameAllyScreen({ onBack }: { onBack?: () => void }) {
         <input
           className="onboarding-field"
           aria-label="Ally name"
+          placeholder="Samantha"
           data-testid="ally-name-input"
           value={name}
           onChange={(event) => commitNameEdit(event.currentTarget.value)}

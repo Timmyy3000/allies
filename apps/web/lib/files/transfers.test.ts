@@ -249,4 +249,26 @@ describe("file send recovery", () => {
       ),
     ).toHaveLength(0);
   });
+  it("clears one Ally scope and fences late draft preparation", async () => {
+    const f = fixture();
+    const record = await f.prepare();
+    f.manager.drafts.set(scope, [{ ...record.files[0], file: record.files[0].file }]);
+
+    await f.manager.clearScope(scope);
+
+    expect(f.manager.find(record.id)).toBeUndefined();
+    expect(f.saved.has(record.id)).toBe(false);
+    expect(f.manager.drafts.has(scope)).toBe(false);
+    await expect(f.prepare()).rejects.toThrow("unavailable for this Ally");
+  });
+  it("reports persistent cleanup failure for explicit recovery", async () => {
+    const f = fixture();
+    const record = await f.prepare();
+    f.storage.erase.mockRejectedValueOnce(new Error("disk full"));
+
+    await expect(f.manager.clearScope(scope)).rejects.toThrow("could not be erased");
+    expect(f.saved.has(record.id)).toBe(true);
+    await f.manager.clearScope(scope);
+    expect(f.saved.has(record.id)).toBe(false);
+  });
 });

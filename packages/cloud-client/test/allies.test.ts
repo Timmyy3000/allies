@@ -27,6 +27,7 @@ const ally = {
   label: "",
   show_label: false,
   settings_revision: 0,
+  deletion_state: "active",
 } as const;
 
 const listResponse = defineApiFixture("/api/v1/workspaces/{workspace_id}/allies", "get", 200, {
@@ -239,6 +240,7 @@ describe("Ally and conversation Cloud client boundary", () => {
       label: "",
       showLabel: false,
       settingsRevision: 0,
+      deletionState: "active",
     }]);
     await expect(client.getAlly(ids.workspace, ids.ally)).resolves.toMatchObject({ id: ids.ally });
     await expect(client.createAlly(ids.workspace, {
