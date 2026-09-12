@@ -1,0 +1,441 @@
+diff --git a/agent/chat_completion_helpers.py b/agent/chat_completion_helpers.py
+index 3b7d8b036..24cf17b95 100644
+--- a/agent/chat_completion_helpers.py
++++ b/agent/chat_completion_helpers.py
+@@ -895,6 +895,7 @@ def interruptible_api_call(agent, api_kwargs: dict):
+     agent._touch_activity("waiting for non-streaming API response")
+ 
+     t = threading.Thread(target=_context_thread_target(_call), daemon=True)
++    agent.__dict__.setdefault("_allies_background_threads", []).append(t)
+     t.start()
+     _poll_count = 0
+     while t.is_alive():
+@@ -2681,6 +2682,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
+         t = threading.Thread(
+             target=_context_thread_target(_bedrock_call), daemon=True
+         )
++        agent.__dict__.setdefault("_allies_background_threads", []).append(t)
+         t.start()
+         while t.is_alive():
+             t.join(timeout=0.3)
+@@ -4081,6 +4083,7 @@ def interruptible_streaming_api_call(agent, api_kwargs: dict, *, on_first_delta=
+             _stream_stale_timeout = max(_stream_stale_timeout, _reasoning_floor)
+ 
+     t = threading.Thread(target=_context_thread_target(_call), daemon=True)
++    agent.__dict__.setdefault("_allies_background_threads", []).append(t)
+     t.start()
+     _last_heartbeat = time.time()
+     _HEARTBEAT_INTERVAL = 30.0  # seconds between gateway activity touches
+diff --git a/agent/memory_manager.py b/agent/memory_manager.py
+index f2dd3313a..44c7f701d 100644
+--- a/agent/memory_manager.py
++++ b/agent/memory_manager.py
+@@ -1152,7 +1152,7 @@ class MemoryManager:
+                     provider.name, e,
+                 )
+ 
+-    def shutdown_all(self) -> None:
++    def shutdown_all(self, *, checked: bool = False) -> None:
+         """Shut down all providers (reverse order for clean teardown).
+ 
+         Drains the background sync/prefetch executor first (bounded by
+@@ -1162,10 +1162,19 @@ class MemoryManager:
+         the interpreter rather than blocking exit.
+         """
+         self._drain_sync_executor()
++        if checked:
++            if any(thread.is_alive() for thread in self._external_prefetch_threads.values()):
++                raise RuntimeError("memory_prefetch_pending")
++            with self._sync_executor_lock:
++                if any(not future.done() for future in self._background_futures):
++                    raise RuntimeError("memory_workers_pending")
+         for provider in reversed(self._providers):
+             try:
+-                provider.shutdown()
++                shutdown = getattr(provider, "shutdown_checked", provider.shutdown) if checked else provider.shutdown
++                shutdown()
+             except Exception as e:
++                if checked:
++                    raise RuntimeError("memory_shutdown_failed") from None
+                 logger.warning(
+                     "Memory provider '%s' shutdown failed: %s",
+                     provider.name, e,
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index 93e15b767..fb7fcc89c 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -40,6 +40,7 @@ Requires:
+ """
+ 
+ import asyncio
++from allies_profile_deletion import ProfileDeletionManager
+ import errno
+ import hashlib
+ import hmac
+@@ -863,13 +864,15 @@ def _reap_disconnected_agent_processes(
+ 
+     from gateway.run import _reap_gateway_turn_processes
+ 
+-    threading.Thread(
++    reaper = threading.Thread(
+         target=_reap_gateway_turn_processes,
+         args=(process_task_id, process_baseline),
+         kwargs={"source": source, "is_still_current": is_still_current},
+         name=f"api-turn-reaper-{process_task_id[:12]}",
+         daemon=True,
+-    ).start()
++    )
++    agent.__dict__.setdefault("_allies_reapers", []).append(reaper)
++    reaper.start()
+ 
+ 
+ # Per-task-id run epochs for the reap gate above. task_id is a conversation
+@@ -1042,6 +1045,8 @@ class ResponseStore:
+ 
+     def put(self, response_id: str, data: Dict[str, Any]) -> None:
+         """Store a response, evicting the oldest if at capacity."""
++        from allies_profile_deletion import current_profile_key
++        data = {**data, "allies_profile_key": current_profile_key()}
+         self._conn.execute(
+             "INSERT OR REPLACE INTO responses (response_id, data, accessed_at) VALUES (?, ?, ?)",
+             (response_id, json.dumps(data, default=str), time.time()),
+@@ -1541,6 +1546,7 @@ class APIServerAdapter(BasePlatformAdapter):
+         self._runner: Optional["web.AppRunner"] = None
+         self._site: Optional["web.TCPSite"] = None
+         self._response_store = ResponseStore()
++        self._allies_deletion = ProfileDeletionManager(self)
+         # Active run streams: run_id -> asyncio.Queue of SSE event dicts
+         self._run_streams: Dict[str, "asyncio.Queue[Optional[Dict]]"] = {}
+         # Creation timestamps for orphaned-run TTL sweep
+@@ -2100,7 +2106,7 @@ class APIServerAdapter(BasePlatformAdapter):
+             token = _api_request_profile.set(profile)
+             try:
+                 with self._profile_scope(profile):
+-                    return await handler(request)
++                    return await self._allies_deletion.handle(profile, request, handler)
+             finally:
+                 _api_request_profile.reset(token)
+ 
+@@ -2119,6 +2125,7 @@ class APIServerAdapter(BasePlatformAdapter):
+             ("GET", "/v1/models", self._handle_models),
+             ("GET", "/api/model/options", self._handle_model_options),
+             ("GET", "/v1/capabilities", self._handle_capabilities),
++            ("POST", "/v1/profiles/{profile_key}/quiesce", self._allies_deletion.endpoint),
+             ("GET", "/v1/skills", self._handle_skills),
+             ("GET", "/v1/toolsets", self._handle_toolsets),
+             ("GET", "/api/sessions", self._handle_list_sessions),
+@@ -2242,6 +2249,7 @@ class APIServerAdapter(BasePlatformAdapter):
+         """
+         from hermes_state import SessionDB
+ 
++        self._allies_deletion.check_home(home)
+         key = str(home)
+         cache = getattr(self, "_session_dbs", None)
+         if cache is None:
+@@ -2654,7 +2662,13 @@ class APIServerAdapter(BasePlatformAdapter):
+             )
+         return None
+ 
+-    def _create_agent(
++    def _create_agent(self, *args, **kwargs):
++        self._allies_deletion.check_current_home()
++        agent = self._create_agent_untracked(*args, **kwargs)
++        self._allies_deletion.track_agent(agent)
++        return agent
++
++    def _create_agent_untracked(
+         self,
+         ephemeral_system_prompt: Optional[str] = None,
+         session_id: Optional[str] = None,
+@@ -3180,6 +3194,9 @@ class APIServerAdapter(BasePlatformAdapter):
+ 
+         return web.json_response({
+             "object": "hermes.api_server.capabilities",
++            "hermes_instance_id": self._allies_deletion.instance_id,
++            "profile_quiescence_version": 1,
++            "profile_quiescence_v1": True,
+             "platform": "hermes-agent",
+             "model": self._model_name,
+             "auth": {
+@@ -4021,6 +4038,7 @@ class APIServerAdapter(BasePlatformAdapter):
+         queue: "asyncio.Queue[Optional[tuple[str, Dict[str, Any]]]]" = asyncio.Queue()
+         message_id = f"msg_{uuid.uuid4().hex}"
+         run_id = f"run_{uuid.uuid4().hex}"
++        self._allies_deletion.track_run(run_id)
+         seq = 0
+         profile_id = _api_request_profile.get()
+         rich_requested = request.headers.get("X-Allies-Rich-Approvals", "").strip() == "1"
+@@ -6855,6 +6873,7 @@ class APIServerAdapter(BasePlatformAdapter):
+                     # running on purpose. Mirrors the same race-window guard
+                     # in gateway/run.py's _run_sync_with_timeout_lifecycle.
+                     if agent is not None:
++                        self._allies_deletion.retire_agent(agent)
+                         _clear_turn_process_ownership(agent)
+                     if approval_session_token is not None:
+                         try:
+@@ -6883,7 +6902,7 @@ class APIServerAdapter(BasePlatformAdapter):
+         self._activate_admitted_request()
+         self._inflight_agent_runs += 1
+         try:
+-            return await loop.run_in_executor(None, _run)
++            return await self._allies_deletion.run_sync(request_profile, _run)
+         finally:
+             self._inflight_agent_runs -= 1
+ 
+@@ -7091,6 +7110,7 @@ class APIServerAdapter(BasePlatformAdapter):
+ 
+         run_id = f"run_{uuid.uuid4().hex}"
+         session_id = session_id or run_id
++        self._allies_deletion.track_run(run_id)
+         # Approval queues gate host-side tool execution and must be isolated
+         # per API run.  Client-provided session IDs and memory session keys are
+         # conversation/memory scopes, not authorization namespaces: multiple
+@@ -7246,6 +7266,7 @@ class APIServerAdapter(BasePlatformAdapter):
+                             # stop/cancel can't reap background work this
+                             # run deliberately left running (same race-window
+                             # guard as gateway/run.py and _run_agent above).
++                            self._allies_deletion.retire_agent(agent)
+                             _clear_turn_process_ownership(agent)
+                             try:
+                                 unregister_gateway_notify(approval_session_key)
+@@ -7267,7 +7288,7 @@ class APIServerAdapter(BasePlatformAdapter):
+                         }
+                         return r, u
+ 
+-                result, usage = await asyncio.get_running_loop().run_in_executor(None, _run_sync)
++                result, usage = await self._allies_deletion.run_sync(request_profile, _run_sync)
+                 if run_id in self._stopping_run_ids:
+                     _put_event_if_active({
+                         "event": "run.cancelled",
+@@ -7392,7 +7413,7 @@ class APIServerAdapter(BasePlatformAdapter):
+                 self._stopping_run_ids.discard(run_id)
+ 
+         self._activate_admitted_request()
+-        task = asyncio.create_task(_run_and_close())
++        task = self._allies_deletion.start(request_profile, _run_and_close())
+         self._active_run_tasks[run_id] = task
+         try:
+             self._background_tasks.add(task)
+diff --git a/run_agent.py b/run_agent.py
+index 110bd2e56..6432ef1ef 100644
+--- a/run_agent.py
++++ b/run_agent.py
+@@ -1820,6 +1820,7 @@ class AIAgent:
+         t = threading.Thread(
+             target=propagate_context_to_thread(target), daemon=True, name="bg-review"
+         )
++        self.__dict__.setdefault("_allies_background_threads", []).append(t)
+         t.start()
+ 
+     def _build_memory_write_metadata(
+@@ -4202,7 +4203,7 @@ class AIAgent:
+         except Exception:
+             pass
+ 
+-    def close(self) -> None:
++    def close(self, *, checked: bool = False, preserve_task_resources: bool = False) -> None:
+         """Release all resources held by this agent instance.
+ 
+         Cleans up subprocess resources that would otherwise become orphans:
+@@ -4218,36 +4219,44 @@ class AIAgent:
+         """
+         task_id = getattr(self, "session_id", None) or ""
+ 
+-        # 1. Kill background processes for this task
+-        try:
+-            from tools.process_registry import process_registry
+-            process_registry.kill_all(task_id=task_id)
+-        except Exception:
+-            pass
++        if checked:
++            self._allies_close_failed = False
+ 
+-        # 2. Clean terminal sandbox environments
+-        try:
+-            cleanup_vm(task_id)
+-        except Exception:
+-            pass
++        if not preserve_task_resources:
++            # 1. Kill background processes for this task
++            try:
++                from tools.process_registry import process_registry
++                process_registry.kill_all(task_id=task_id)
++            except Exception:
++                if checked:
++                    self._allies_close_failed = True
+ 
+-        # 3. Clean browser daemon sessions
+-        try:
+-            cleanup_browser(task_id)
+-        except Exception:
+-            pass
++            # 2. Clean terminal sandbox environments
++            try:
++                cleanup_vm(task_id)
++            except Exception:
++                if checked:
++                    self._allies_close_failed = True
+ 
+-        # 4. Release the session-owned computer-use backend.  This ends the
+-        # exact cua-driver session, drops typed-browser refs/grants, and stops
+-        # a private embedded daemon when Hermes YOLO selected unrestricted
+-        # mode.  The import is lazy so sessions without computer_use retain
+-        # the narrow core footprint.
+-        try:
+-            from tools.computer_use import release_computer_use_session
++            # 3. Clean browser daemon sessions
++            try:
++                cleanup_browser(task_id)
++            except Exception:
++                if checked:
++                    self._allies_close_failed = True
++
++            # 4. Release the session-owned computer-use backend.  This ends the
++            # exact cua-driver session, drops typed-browser refs/grants, and stops
++            # a private embedded daemon when Hermes YOLO selected unrestricted
++            # mode.  The import is lazy so sessions without computer_use retain
++            # the narrow core footprint.
++            try:
++                from tools.computer_use import release_computer_use_session
+ 
+-            release_computer_use_session(task_id)
+-        except Exception:
+-            pass
++                release_computer_use_session(task_id)
++            except Exception:
++                if checked:
++                    self._allies_close_failed = True
+ 
+         # 5. Close active child agents
+         try:
+@@ -4258,25 +4267,42 @@ class AIAgent:
+                 try:
+                     child.close()
+                 except Exception:
+-                    pass
++                    if checked:
++                        self._allies_close_failed = True
+         except Exception:
+-            pass
++            if checked:
++                self._allies_close_failed = True
+ 
+         # 6. Close the OpenAI/httpx client
+         try:
+             client = getattr(self, "client", None)
+             if client is not None:
+-                self._close_openai_client(client, reason="agent_close", shared=True)
++                if checked:
++                    client.close()
++                else:
++                    self._close_openai_client(client, reason="agent_close", shared=True)
+                 self.client = None
+         except Exception:
+-            pass
++            if checked:
++                self._allies_close_failed = True
+ 
+         # 6b. Close the cached per-request wire client (reused across
+         # sequential LLM calls; see _create_request_openai_client).
+         try:
+-            self._close_cached_request_openai_client(reason="agent_close")
++            if checked:
++                with self._openai_client_lock():
++                    cache = getattr(self, "_request_client_cache", None)
++                    if cache and cache.get("in_use"):
++                        raise RuntimeError("request_client_in_use")
++                    if cache and cache.get("client") is not None:
++                        cache["client"].close()
++                        cache["client"] = None
++                        cache["kwargs"] = None
++            else:
++                self._close_cached_request_openai_client(reason="agent_close")
+         except Exception:
+-            pass
++            if checked:
++                self._allies_close_failed = True
+ 
+         # 6c. Close the Codex app-server session. The runtime already drops
+         # it on turn crash / retirement (agent/codex_runtime.py), but hard
+@@ -4288,10 +4314,13 @@ class AIAgent:
+         try:
+             codex_session = getattr(self, "_codex_session", None)
+             if codex_session is not None:
+-                self._codex_session = None
++                if not checked:
++                    self._codex_session = None
+                 codex_session.close()
++                self._codex_session = None
+         except Exception:
+-            pass
++            if checked:
++                self._allies_close_failed = True
+ 
+         # 7. Free conversation history.  Mirrors _release_evicted_agent_soft's
+         # soft-eviction clear — close() is the hard teardown for true session
+@@ -4302,7 +4331,8 @@ class AIAgent:
+         try:
+             self._session_messages = []
+         except Exception:
+-            pass
++            if checked:
++                self._allies_close_failed = True
+ 
+         # The references above are now gone; on Linux/glibc, return their free
+         # heap pages immediately instead of retaining the process RSS high-water
+@@ -4311,7 +4341,8 @@ class AIAgent:
+             from hermes_cli.mem_trim import trim_memory
+             trim_memory(force=True, reason="agent close")
+         except Exception:
+-            pass
++            if checked:
++                self._allies_close_failed = True
+ 
+         # 8. Finalize the owned SQLite session row unless this agent is only a
+         # temporary helper that deliberately handed session ownership forward
+@@ -4321,13 +4352,17 @@ class AIAgent:
+         # an already-ended row, so this never clobbers a 'compression' /
+         # 'cron_complete' / 'cli_close' reason set by an earlier terminal path.
+         try:
+-            if getattr(self, "_end_session_on_close", True):
++            if not preserve_task_resources and getattr(self, "_end_session_on_close", True):
+                 session_db = getattr(self, "_session_db", None)
+                 session_id = getattr(self, "session_id", None)
+                 if session_db and session_id:
+                     session_db.end_session(session_id, "agent_close")
+         except Exception:
+-            pass
++            if checked:
++                self._allies_close_failed = True
++
++        if checked and getattr(self, "_allies_close_failed", False):
++            raise RuntimeError("agent_close_failed")
+ 
+     def _hydrate_todo_store(self, history: List[Dict[str, Any]]) -> None:
+         """
+diff --git a/tools/computer_use/tool.py b/tools/computer_use/tool.py
+index 1422ff67e..58e15dac7 100644
+--- a/tools/computer_use/tool.py
++++ b/tools/computer_use/tool.py
+@@ -265,7 +265,7 @@ def _get_backend(session_id: str = "") -> ComputerUseBackend:
+             pass
+ 
+ 
+-def release_computer_use_session(session_id: str) -> bool:
++def release_computer_use_session(session_id: str, *, checked: bool = False) -> bool:
+     """Release one session-owned computer-use backend.
+ 
+     This is the production lifecycle seam for hosts and policy plugins. It
+@@ -307,6 +307,12 @@ def release_computer_use_session(session_id: str) -> bool:
+         else:
+             backend.stop()
+     except Exception:
++        if checked:
++            with _backend_lock:
++                _backends[sid] = backend
++                if call_lock is not None:
++                    _backend_call_locks[sid] = call_lock
++            raise RuntimeError("computer_use_shutdown_failed") from None
+         logger.debug(
+             "computer_use backend release failed for session %s",
+             sid,

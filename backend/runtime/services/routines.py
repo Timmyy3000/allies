@@ -1212,6 +1212,8 @@ def _resolve_scope(
     )
     if profile is None:
         raise RuntimeNotFoundError("routine binding is unavailable")
+    if profile.cleanup_requires_quiescence:
+        raise RuntimeFencedError("profile deletion is in progress")
     return workspace, profile
 
 

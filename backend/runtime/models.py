@@ -571,6 +571,9 @@ class RuntimeProfile(models.Model):
         blank=True,
     )
     cleanup_operation_id = models.UUIDField(null=True, blank=True)
+    cleanup_requires_quiescence = models.BooleanField(default=False)
+    cleanup_attempt_id = models.UUIDField(null=True, blank=True)
+    cleanup_previous_attempt_id = models.UUIDField(null=True, blank=True)
     cleanup_context_digest = models.CharField(max_length=64, default="", blank=True)
     cleanup_request_digest = models.CharField(max_length=64, default="", blank=True)
     cleanup_expires_at = models.DateTimeField(null=True, blank=True)
@@ -685,6 +688,11 @@ class RuntimeProfile(models.Model):
                     raise RuntimeConflictError("Hermes profile key is immutable")
                 return super().save(*args, **kwargs)
         return super().save(*args, **kwargs)
+
+
+class DeletedProfile(models.Model):
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    profile_id = models.UUIDField(primary_key=True)
 
 
 class ProvisioningHintDeliveryState(models.TextChoices):

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
+from .errors import HermesError
 from .foundry import (
     FencedError,
     FoundryClient,
@@ -25,6 +27,7 @@ from .profile_store import (
     ProfileSeed,
     ProfileStore,
 )
+from .quiescence import QuiescenceError
 
 
 class ProfileReconciliationBlocked(RuntimeError):
@@ -47,10 +50,15 @@ class ProfileReconciler:
         store: ProfileStore,
         *,
         correlation_id: str | None = None,
+        hermes: Any | None = None,
+        worker: Any | None = None,
     ) -> None:
         self.foundry = foundry
         self.store = store
         self.correlation_id = correlation_id
+        self.hermes = hermes
+        self.worker = worker
+        self._hermes_instance_id: str | None = None
 
     async def reconcile(self) -> ReconciliationReport:
         with observe_runtime_operation(
@@ -67,14 +75,23 @@ class ProfileReconciler:
             materialized: list[ProfileReceipt] = []
             cleaned: list[ProfileReceipt] = []
             blocked: list[str] = []
+            deletion_pending: list[str] = []
             for profile in desired:
                 if profile.cleanup_operation_id and profile.lifecycle_state in {
                     "cleanup_pending",
                     "deprovisioned",
+                    "repair_required",
                 }:
                     receipt = await self._cleanup(profile)
                     if receipt is None:
-                        blocked.append(profile.profile_id)
+                        if profile.cleanup_requires_quiescence:
+                            # A fenced deletion may remain pending while the
+                            # target writer drains.  Keep that profile out of
+                            # admission, but do not make an unrelated sibling
+                            # miss readiness or claims.
+                            deletion_pending.append(profile.profile_id)
+                        else:
+                            blocked.append(profile.profile_id)
                     else:
                         cleaned.append(receipt)
                     continue
@@ -96,7 +113,9 @@ class ProfileReconciler:
                 raise ProfileReconciliationBlocked(
                     "one or more Hermes profiles require repair"
                 )
-            return ReconciliationReport(tuple(materialized), tuple(cleaned), ())
+            return ReconciliationReport(
+                tuple(materialized), tuple(cleaned), tuple(deletion_pending)
+            )
 
     async def _materialize(self, profile: ProfileDesiredState) -> ProfileReceipt | None:
         with observe_runtime_operation(
@@ -197,14 +216,185 @@ class ProfileReconciler:
     async def _cleanup(self, profile: ProfileDesiredState) -> ProfileReceipt | None:
         if profile.cleanup_operation_id is None or not profile.cleanup_request_digest:
             return None
-        if profile.active_lease_count:
+        requires_quiescence = bool(profile.cleanup_requires_quiescence)
+        quiescence = None
+        runtime_start_epoch = getattr(
+            getattr(self.foundry, "last_reconciliation_snapshot", None),
+            "runtime_start_epoch",
+            None,
+        )
+        attempt_id = profile.cleanup_attempt_id
+        if requires_quiescence:
+            if (
+                self.hermes is None
+                or not attempt_id
+                or not isinstance(runtime_start_epoch, int)
+                or not isinstance(self.correlation_id, str)
+            ):
+                return None
+            prepare_fence = getattr(self.store, "fence_deletion", None)
+            if not callable(prepare_fence):
+                return None
+            try:
+                fence_receipt = await asyncio.to_thread(
+                    prepare_fence,
+                    profile.hermes_profile_key,
+                    profile.cleanup_operation_id,
+                    profile.lifecycle_epoch,
+                    profile.cleanup_expires_at,
+                    attempt_id=attempt_id,
+                    request_digest=profile.cleanup_request_digest,
+                )
+                if getattr(fence_receipt, "status", None) not in {
+                    ProfileCleanupStatus.FENCED,
+                    ProfileCleanupStatus.DEPROVISIONED,
+                } or getattr(fence_receipt, "repair_code", None):
+                    return None
+            except (HermesError, QuiescenceError, TimeoutError, OSError, ValueError):
+                return None
+            worker_fence = getattr(self.worker, "fence_profile", None)
+            worker_quiesce = getattr(self.worker, "quiesce_profile", None)
+            if not callable(worker_fence) or not callable(worker_quiesce):
+                return None
+            try:
+                # Fence runtime admission before contacting Hermes, but do
+                # not wait for a worker that may be blocked inside Hermes.
+                fence_result = worker_fence(profile.hermes_profile_key)
+                if asyncio.iscoroutine(fence_result) or hasattr(
+                    fence_result, "__await__"
+                ):
+                    await fence_result
+            except (HermesError, QuiescenceError, TimeoutError, OSError, ValueError):
+                return None
+            identity = getattr(self.hermes, "hermes_instance_id", None)
+            if not callable(identity):
+                return None
+            try:
+                # A listener boot identity is single-use.  Resolve it fresh
+                # for every deletion attempt, including retries after a
+                # Hermes restart; a cached acknowledgement could authorize a
+                # different process.
+                identity = identity()
+                if asyncio.iscoroutine(identity) or hasattr(identity, "__await__"):
+                    identity = await identity
+                hermes_instance_id = str(identity)
+                self._hermes_instance_id = hermes_instance_id
+            except (HermesError, TimeoutError, OSError, ValueError):
+                return None
+            quiesce = getattr(self.hermes, "quiesce_profile", None)
+            if not callable(quiesce):
+                return None
+            try:
+                proof = quiesce(
+                    profile.hermes_profile_key,
+                    operation_id=profile.cleanup_operation_id,
+                    attempt_id=attempt_id,
+                    lifecycle_epoch=profile.lifecycle_epoch,
+                    request_digest=profile.cleanup_request_digest,
+                    machine_generation=profile.machine_generation,
+                    runtime_start_epoch=runtime_start_epoch,
+                    hermes_instance_id=hermes_instance_id,
+                )
+                if asyncio.iscoroutine(proof) or hasattr(proof, "__await__"):
+                    proof = await proof
+                if hasattr(proof, "complete") and not proof.complete:
+                    return None
+                if not isinstance(proof, Mapping):
+                    proof = proof.to_dict() if hasattr(proof, "to_dict") else None
+                if not isinstance(proof, Mapping):
+                    return None
+                quiescence = {
+                    name: proof[name]
+                    for name in (
+                        "state",
+                        "safe_error_code",
+                        "active_runs",
+                        "active_profile_io",
+                        "open_profile_stores",
+                        "owned_children",
+                    )
+                    if name in proof
+                }
+                if (
+                    set(quiescence)
+                    != {
+                        "state",
+                        "safe_error_code",
+                        "active_runs",
+                        "active_profile_io",
+                        "open_profile_stores",
+                        "owned_children",
+                    }
+                    or quiescence["state"] != "quiesced"
+                    or quiescence["safe_error_code"] != ""
+                    or any(quiescence[name] != 0 for name in (
+                        "active_runs",
+                        "active_profile_io",
+                        "open_profile_stores",
+                        "owned_children",
+                    ))
+                ):
+                    return None
+            except (HermesError, QuiescenceError, TimeoutError, OSError, ValueError):
+                return None
+            try:
+                worker_result = worker_quiesce(
+                    profile.hermes_profile_key, timeout_seconds=30.0
+                )
+                if asyncio.iscoroutine(worker_result) or hasattr(
+                    worker_result, "__await__"
+                ):
+                    worker_result = await worker_result
+                worker_state = (
+                    worker_result[0]
+                    if isinstance(worker_result, tuple)
+                    else getattr(worker_result, "state", None)
+                )
+                if worker_state != "quiesced":
+                    return None
+            except (HermesError, QuiescenceError, TimeoutError, OSError, ValueError):
+                return None
+
+            # Hermes quiescence settles STOPPING work; ask Foundry again so a
+            # stale first snapshot cannot be reported as a zero-lease delete.
+            try:
+                current_profiles = await self.foundry.reconcile_profiles()
+            except Exception:  # noqa: BLE001 - failed lease recheck is unsafe
+                return None
+            current = next(
+                (
+                    item
+                    for item in current_profiles
+                    if item.profile_id == profile.profile_id
+                ),
+                None,
+            )
+            if (
+                current is None
+                or current.cleanup_operation_id != profile.cleanup_operation_id
+                or current.cleanup_request_digest != profile.cleanup_request_digest
+                or current.lifecycle_epoch != profile.lifecycle_epoch
+                or current.active_lease_count != 0
+            ):
+                return None
+        elif profile.active_lease_count:
             return None
+        cleanup_kwargs = (
+            {
+                "attempt_id": attempt_id,
+                "request_digest": profile.cleanup_request_digest,
+                "deletion": True,
+            }
+            if requires_quiescence
+            else {}
+        )
         store_receipt = await asyncio.to_thread(
             self.store.cleanup,
             profile.hermes_profile_key,
             profile.cleanup_operation_id,
             profile.lifecycle_epoch,
             profile.cleanup_expires_at,
+            **cleanup_kwargs,
         )
         if store_receipt.status is ProfileCleanupStatus.FENCED:
             return None
@@ -218,6 +408,18 @@ class ProfileReconciler:
             result_code=result_code,
             deleted=deleted,
             active_lease_count=0,
+            **(
+                {
+                    "attempt_id": attempt_id,
+                    "machine_generation": profile.machine_generation,
+                    "runtime_start_epoch": runtime_start_epoch,
+                    "runtime_boot_id": self.correlation_id,
+                    "hermes_instance_id": hermes_instance_id,
+                    "quiescence": quiescence,
+                }
+                if requires_quiescence
+                else {}
+            ),
         )
 
 

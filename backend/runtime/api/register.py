@@ -49,6 +49,7 @@ from runtime.services.executions import (
 )
 from runtime.services.files import open_incoming_file
 from runtime.services.leases import acknowledge_stopped, renew_lease
+from runtime.services.profile_deletion import coordinate_profile_deletion
 from runtime.services.profiles import (
     ProfileSeed,
     accept_cleanup_receipt,
@@ -89,6 +90,8 @@ from .schemas import (
     ExecutionCommand,
     FailRequest,
     MaterializationReceiptRequest,
+    ProfileDeletionRequest,
+    ProfileDeletionResumeRequest,
     ProfileProvisioningRequest,
     PublicationFrozenRequest,
     PublicationIntentRequest,
@@ -474,10 +477,42 @@ def register(api: NinjaExtraAPI) -> None:
                 result_code=payload.result_code,
                 deleted=payload.deleted,
                 active_lease_count=payload.active_lease_count,
+                attempt_id=payload.attempt_id,
+                machine_generation=payload.machine_generation,
+                runtime_start_epoch=payload.runtime_start_epoch,
+                runtime_boot_id=payload.runtime_boot_id,
+                hermes_instance_id=payload.hermes_instance_id,
+                quiescence=payload.quiescence.model_dump()
+                if payload.quiescence
+                else None,
             )
             return JsonResponse(_profile_receipt_json(receipt), status=200)
         except RuntimeDomainError as exc:
             return _error(exc)
+
+    @api.post("/internal/profile-deletion", auth=None)
+    def profile_deletion(request: HttpRequest, payload: ProfileDeletionRequest):
+        try:
+            _authenticate_cloud_service(request)
+            receipt = coordinate_profile_deletion(
+                **payload.model_dump(exclude={"version"})
+            )
+            return JsonResponse(receipt, status=200)
+        except RuntimeDomainError as exc:
+            return _profile_provisioning_error(exc)
+
+    @api.post("/internal/profile-deletion/resume", auth=None)
+    def profile_deletion_resume(
+        request: HttpRequest, payload: ProfileDeletionResumeRequest
+    ):
+        try:
+            _authenticate_cloud_service(request)
+            receipt = coordinate_profile_deletion(
+                **payload.model_dump(exclude={"version"})
+            )
+            return JsonResponse(receipt, status=200)
+        except RuntimeDomainError as exc:
+            return _profile_provisioning_error(exc)
 
     @api.post("/internal/profile-provisioning", auth=None)
     def profile_provisioning(
@@ -1075,6 +1110,10 @@ def _profile_json(profile):
             str(profile.cleanup_operation_id) if profile.cleanup_operation_id else None
         ),
         "cleanup_context_digest": profile.cleanup_context_digest,
+        "cleanup_requires_quiescence": profile.cleanup_requires_quiescence,
+        "cleanup_attempt_id": str(profile.cleanup_attempt_id)
+        if profile.cleanup_attempt_id
+        else None,
         "cleanup_request_digest": profile.cleanup_request_digest,
         "cleanup_receipt_id": (
             str(profile.cleanup_receipt_id) if profile.cleanup_receipt_id else None

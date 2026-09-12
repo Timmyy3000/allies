@@ -36,7 +36,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Run enkii
-        uses: Timmyy3000/enkii@v1.2.0
+        uses: Timmyy3000/enkii@v1.3.0
         with:
           openrouter_api_key: ${{ secrets.OPENROUTER_API_KEY }}
           # A non-empty path enables Enkii's policy-review lane.

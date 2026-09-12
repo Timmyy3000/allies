@@ -35,6 +35,7 @@ from runtime.models import (
     IN_FLIGHT_PROVISIONING_PHASES,
     Attempt,
     AttemptStatus,
+    DeletedProfile,
     ExecutionStatus,
     Lease,
     LeaseState,
@@ -142,6 +143,8 @@ class ProfileDesiredState:
     cleanup_receipt_id: UUID | None
     cleanup_result_code: str
     cleanup_expires_at: datetime | None
+    cleanup_requires_quiescence: bool
+    cleanup_attempt_id: UUID | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,11 +182,15 @@ def ensure_runtime_profile(
         )
         if workspace is None:
             raise RuntimeValidationError("workspace does not exist")
+        if DeletedProfile.objects.filter(profile_id=profile_uuid).exists():
+            raise RuntimeFencedError("profile has been deleted")
         profile = (
             RuntimeProfile.objects.select_for_update().filter(pk=profile_uuid).first()
         )
         if profile is not None:
             _assert_profile_identity(profile, workspace_uuid, ally_ref, key)
+            if profile.cleanup_requires_quiescence:
+                raise RuntimeFencedError("profile deletion is in progress")
             _assert_seed_compatible(profile, payload, fingerprint)
             if not profile.seed_payload:
                 profile.seed_payload = payload
@@ -507,6 +514,12 @@ def accept_cleanup_receipt(
     result_code: str,
     deleted: bool,
     active_lease_count: int,
+    attempt_id: UUID | None = None,
+    machine_generation: int | None = None,
+    runtime_start_epoch: int | None = None,
+    runtime_boot_id: UUID | None = None,
+    hermes_instance_id: UUID | None = None,
+    quiescence: Mapping[str, Any] | None = None,
 ) -> ProfileReconciliationReceipt:
     """Apply a runtime cleanup observation or durable repair result."""
 
@@ -552,6 +565,43 @@ def accept_cleanup_receipt(
             raise RuntimeIdempotencyConflictError(
                 "cleanup receipt does not match the request"
             )
+        if profile.cleanup_requires_quiescence:
+            if (
+                profile.cleanup_attempt_id != attempt_id
+                or profile.lifecycle_epoch != lifecycle_epoch
+            ):
+                raise RuntimeFencedError("cleanup attempt is stale")
+            if (
+                profile.cleanup_expires_at is None
+                or timezone.now() >= profile.cleanup_expires_at
+            ):
+                raise RuntimeFencedError("cleanup attempt has expired")
+            if deleted:
+                if (
+                    machine_generation != workspace.machine_generation
+                    or runtime_start_epoch != workspace.runtime_start_epoch
+                    or runtime_boot_id is None
+                    or runtime_boot_id != workspace.ready_boot_id
+                    or workspace.ready_generation != machine_generation
+                    or workspace.ready_start_epoch != runtime_start_epoch
+                    or not isinstance(hermes_instance_id, UUID)
+                ):
+                    raise RuntimeFencedError("cleanup proof belongs to a stale runtime")
+                if (
+                    not isinstance(quiescence, Mapping)
+                    or quiescence.get("state") != "quiesced"
+                    or quiescence.get("safe_error_code") != ""
+                    or any(
+                        type(quiescence.get(key)) is not int or quiescence[key] != 0
+                        for key in (
+                            "active_runs",
+                            "active_profile_io",
+                            "open_profile_stores",
+                            "owned_children",
+                        )
+                    )
+                ):
+                    raise RuntimeConflictError("profile resource closure is unverified")
         if profile.cleanup_receipt_id is not None:
             if profile.cleanup_result_code != result_code:
                 raise RuntimeIdempotencyConflictError(
@@ -918,6 +968,8 @@ def _desired_state(profile: RuntimeProfile) -> ProfileDesiredState:
         cleanup_receipt_id=profile.cleanup_receipt_id,
         cleanup_result_code=profile.cleanup_result_code,
         cleanup_expires_at=profile.cleanup_expires_at,
+        cleanup_requires_quiescence=profile.cleanup_requires_quiescence,
+        cleanup_attempt_id=profile.cleanup_attempt_id,
     )
 
 
@@ -1057,9 +1109,11 @@ def _fence_profile_leases(profile_id: UUID) -> None:
             routine.save(update_fields=["status", "terminal_receipt", "updated_at"])
         cancel_live_approval_requests(attempt, now=observed_at)
         if routine is not None:
-            current = RoutineLeaseAcquisition.objects.select_for_update().filter(
-                lease_id=lease.id, current=True
-            ).first()
+            current = (
+                RoutineLeaseAcquisition.objects.select_for_update()
+                .filter(lease_id=lease.id, current=True)
+                .first()
+            )
             if current is not None:
                 current.current = False
                 current.retired_at = observed_at

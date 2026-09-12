@@ -157,6 +157,8 @@ def _create_contract_execution_once(
     profile = RuntimeProfile.objects.select_for_update().get(
         pk=profile_id, workspace_id=workspace.id
     )
+    if profile.cleanup_requires_quiescence:
+        raise RuntimeConflictError("profile deletion is in progress")
     if profile.ally_ref != str(command.cloud.ally_id):
         raise RuntimeNotFoundError("execution binding is unavailable")
     _ensure_conversation_binding(
@@ -253,6 +255,8 @@ def _create_execution_once(
     profile = RuntimeProfile.objects.select_for_update().get(
         pk=profile_id, workspace_id=workspace.id
     )
+    if profile.cleanup_requires_quiescence:
+        raise RuntimeConflictError("profile deletion is in progress")
     conversation_ref = payload.get("cloud_conversation_ref")
     if conversation_ref is not None:
         validate_nonempty(

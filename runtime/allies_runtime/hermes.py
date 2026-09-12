@@ -38,6 +38,12 @@ from .errors import (
 )
 from .files import validate_hermes_file_context
 from .observability import build_event, emit_runtime_event
+from .quiescence import (
+    QuiescenceError,
+    QuiescenceProof,
+    QuiescenceRequest,
+    parse_quiescence_proof,
+)
 
 _PROFILE_ID = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$")
@@ -149,6 +155,9 @@ class HermesStreamResult:
 class HermesSession:
     profile_id: str
     session_id: str
+
+
+HermesQuiescence = QuiescenceProof
 
 
 @dataclass(frozen=True, slots=True)
@@ -1538,6 +1547,7 @@ class HermesClient:
         body: bytes | None = None,
         headers: Mapping[str, str] | None = None,
         accepted_statuses: tuple[int, ...] = (),
+        timeout: float | None = None,
     ) -> Any:
         request_headers = {
             "Accept": "application/json, text/event-stream",
@@ -1553,7 +1563,10 @@ class HermesClient:
             headers=request_headers,
         )
         try:
-            return urlopen(request, timeout=self.settings.request_timeout)
+            return urlopen(
+                request,
+                timeout=self.settings.request_timeout if timeout is None else timeout,
+            )
         except HTTPError as exc:
             if exc.code in accepted_statuses:
                 return exc
@@ -1564,6 +1577,129 @@ class HermesClient:
             # Do not preserve the provider message; it can contain a URL or
             # request headers from a lower-level exception.
             raise HermesDisconnected("Hermes connection failed") from exc
+
+    async def hermes_instance_id(self) -> str:
+        """Return the current listener boot identity advertised by Hermes."""
+
+        token = await asyncio.wait_for(self._credential(), 5.0)
+
+        def read_identity() -> str:
+            response = None
+            try:
+                response = self._request(
+                    method="GET", path="/v1/capabilities", token=token, timeout=5.0
+                )
+                payload = _decode_json(_read_bounded(response))
+                value = payload.get("hermes_instance_id")
+                if value is None:
+                    runtime = payload.get("runtime")
+                    if isinstance(runtime, Mapping):
+                        value = runtime.get("hermes_instance_id")
+                features = payload.get("features")
+                capability = (
+                    payload.get("profile_quiescence_v1") is True
+                    or (
+                        isinstance(features, Mapping)
+                        and features.get("profile_quiescence_v1") is True
+                    )
+                )
+                if not capability:
+                    raise HermesMalformedResponse(
+                        "Hermes profile quiescence capability was unavailable"
+                    )
+                try:
+                    if not isinstance(value, str) or value != value.lower():
+                        raise ValueError
+                    parsed = str(UUID(value))
+                    if parsed != value:
+                        raise ValueError
+                    return parsed
+                except (TypeError, ValueError):
+                    raise HermesMalformedResponse(
+                        "Hermes quiescence identity was unavailable"
+                    ) from None
+            finally:
+                if response is not None:
+                    response.close()
+
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(read_identity), 30.0)
+        except TimeoutError as exc:
+            raise HermesTimeout("Hermes quiescence identity timed out") from exc
+
+    async def quiesce_profile(
+        self,
+        profile_key: str,
+        *,
+        operation_id: str,
+        attempt_id: str,
+        lifecycle_epoch: int,
+        request_digest: str,
+        machine_generation: int,
+        runtime_start_epoch: int,
+        hermes_instance_id: str | None = None,
+    ) -> HermesQuiescence:
+        """Fence and close one profile through Hermes' listener control route."""
+
+        profile_key = _profile_path(profile_key)
+        if hermes_instance_id is None:
+            hermes_instance_id = await self.hermes_instance_id()
+        try:
+            request = QuiescenceRequest(
+                operation_id=operation_id,
+                attempt_id=attempt_id,
+                lifecycle_epoch=lifecycle_epoch,
+                request_digest=request_digest,
+                machine_generation=machine_generation,
+                runtime_start_epoch=runtime_start_epoch,
+                hermes_instance_id=hermes_instance_id,
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Hermes quiescence request was invalid") from exc
+
+        token = await asyncio.wait_for(self._credential(), 5.0)
+        body = json.dumps(request.to_dict(), separators=(",", ":")).encode("utf-8")
+        path = f"/v1/profiles/{profile_key}/quiesce"
+
+        def request_quiescence() -> tuple[int, Mapping[str, Any]]:
+            response = None
+            try:
+                response = self._request(
+                    method="POST",
+                    path=path,
+                    token=token,
+                    body=body,
+                    accepted_statuses=(202, 409),
+                    timeout=5.0,
+                )
+                status = int(getattr(response, "status", 200))
+                payload = _decode_json(_read_bounded(response))
+                return status, payload
+            finally:
+                if response is not None:
+                    response.close()
+
+        try:
+            status, payload = await asyncio.wait_for(
+                asyncio.to_thread(request_quiescence), 30.0
+            )
+        except TimeoutError as exc:
+            raise HermesTimeout("Hermes quiescence timed out") from exc
+        if status == 409:
+            raise HermesError("Hermes quiescence identity was stale")
+        try:
+            proof = parse_quiescence_proof(
+                payload, expected=request, profile_key=profile_key
+            )
+        except QuiescenceError as exc:
+            raise HermesMalformedResponse(
+                "Hermes quiescence response was malformed"
+            ) from exc
+        if status == 202 and proof.state != "quiescing":
+            raise HermesMalformedResponse("Hermes quiescence response was malformed")
+        if status == 200 and not proof.complete:
+            raise HermesMalformedResponse("Hermes quiescence response was incomplete")
+        return proof
 
     async def health(self) -> HermesHealth:
         try:
@@ -2223,6 +2359,7 @@ __all__ = [
     "HermesClient",
     "HermesEvent",
     "HermesHealth",
+    "HermesQuiescence",
     "HermesSession",
     "HermesStreamResult",
     "StableSessionIdentifiers",
