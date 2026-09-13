@@ -432,7 +432,8 @@ test("beta settings navigation and roster controls", async ({ page }, testInfo) 
   await page.getByRole("button", { name: "Dismiss notification" }).click();
   await page.getByRole("navigation", { name: "Choose an Ally" }).getByRole("link").click();
   await page.getByRole("button", { name: "Ada settings", exact: true }).filter({ visible: true }).click();
-  await page.getByRole("link", { name: "View ally details" }).click();
+  await expect(page.getByRole("dialog", { name: "Ada settings" })).toBeVisible();
+  await page.goto(`/allies/${allyId}/settings`);
   await expect(page.getByRole("heading", { name: "Ally settings" })).toBeVisible();
   await expect(page.getByText("Helpful and concise.")).toBeVisible();
   await expect(page.getByLabel("Label", { exact: true })).toHaveAttribute("readonly", "");
@@ -547,8 +548,6 @@ test("edits an Ally label, opts into roster display, and persists hiding it", as
   await expect(dialog.getByLabel("Label", { exact: true })).toHaveValue("chief of staff");
   await expect(dialog.getByRole("checkbox", { name: /Show label/ })).not.toBeChecked();
   await dialog.getByRole("button", { name: "Close", exact: true }).focus();
-  await page.keyboard.press("Tab");
-  await expect(dialog.getByRole("link", { name: "View ally details" })).toBeFocused();
   await page.keyboard.press("Tab");
   await expect(dialog.getByLabel("Label", { exact: true })).toBeFocused();
   await dialog.getByLabel("Label", { exact: true }).fill("calendar manager");
