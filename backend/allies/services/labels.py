@@ -516,7 +516,7 @@ def update_ally_settings(
     normalized_label = normalize_label(label)
     with transaction.atomic():
         ally = (
-            Ally.objects.select_for_update()
+            Ally.objects.select_for_update(of=("self",))
             .select_related("workspace", "binding", "binding__provisioning_operation")
             .filter(
                 workspace=context.workspace,

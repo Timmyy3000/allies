@@ -407,6 +407,7 @@ def test_creation_sets_pending_state_and_enqueues_label_after_commit(
     ALLIES_AUTH_DIGEST_KEY="d" * 32,
     ALLIES_AUTH_JWT_KEY="j" * 32,
 )
+@pytest.mark.postgresql
 def test_settings_patch_returns_persisted_label_fields_and_fences_revision(account):
     user, workspace = account
     ally = make_ally(account)
@@ -443,6 +444,20 @@ def test_settings_patch_returns_persisted_label_fields_and_fences_revision(accou
     assert response.json()["data"]["settings_revision"] == 1
     assert stale.status_code == 409
     assert stale.json()["data"] == {"code": "settings_conflict"}
+
+    hidden = client.patch(
+        f"/api/v1/workspaces/{workspace.id}/allies/{ally.id}/settings",
+        json.dumps(
+            {"label": "chief of staff", "show_label": False, "settings_revision": 1}
+        ),
+        content_type="application/json",
+        **headers,
+    )
+    assert hidden.status_code == 200
+    ally.refresh_from_db()
+    assert ally.label == "chief of staff"
+    assert ally.show_label is False
+    assert ally.settings_revision == 2
 
 
 @pytest.mark.django_db
