@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import type { AllyDeletionViewModel, AllyViewModel } from "@allies/cloud-client";
 import { isCloudError } from "@allies/cloud-client";
 import { useQueryClient } from "@tanstack/react-query";
@@ -386,7 +385,6 @@ export function AllySettingsDialog({
         <motion.div key={currentDeletionView} className={styles.settingsView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .16 }}>
         {currentDeletionView === "settings" ? (
           <>
-            <Link href={`/allies/${encodeURIComponent(ally.id)}/settings`}>View ally details</Link>
             <div className={styles.settingsField}>
               <label htmlFor="ally-label">Label</label>
               <input
