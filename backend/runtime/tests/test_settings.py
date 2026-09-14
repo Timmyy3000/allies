@@ -21,7 +21,7 @@ print(settings.ALLIES_RUNTIME_REASONING_EFFORT)
 """
 
 
-def run_settings_probe(**overrides):
+def run_settings_probe(*, probe=None, **overrides):
     environment = os.environ.copy()
     for name in (
         "DATABASE_URL",
@@ -30,6 +30,7 @@ def run_settings_probe(**overrides):
         "DJANGO_SECRET_KEY",
         "DJANGO_TRUST_PROXY_HEADERS",
         "DJANGO_TRUSTED_PROXY_IPS",
+        "DJANGO_HEALTHCHECK_ALLOW_HTTP",
         "ALLIES_CLOUD_SERVICE_TOKEN",
         "ALLIES_CLOUD_EVENT_DELIVERY_ENABLED",
         "ALLIES_CLOUD_URL",
@@ -77,13 +78,24 @@ def run_settings_probe(**overrides):
         environment["ALLIES_CLOUD_EVENT_SERVICE_TOKEN"] = "c" * 32
     environment.update(overrides)
     return subprocess.run(
-        [sys.executable, "-c", PROBE],
+        [sys.executable, "-c", PROBE if probe is None else probe],
         cwd=BACKEND_ROOT,
         env=environment,
         capture_output=True,
         text=True,
         check=False,
     )
+
+
+@pytest.mark.parametrize("enabled, expected", [("false", "[]"), ("true", "['^healthz$']")])
+def test_http_healthcheck_exemption_is_explicit(enabled, expected):
+    result = run_settings_probe(
+        probe="import config.settings as s; print(s.SECURE_REDIRECT_EXEMPT)",
+        DJANGO_DEBUG="true",
+        DJANGO_HEALTHCHECK_ALLOW_HTTP=enabled,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == expected
 
 
 def test_development_mode_keeps_sqlite_fallback():

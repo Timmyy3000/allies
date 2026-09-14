@@ -179,6 +179,19 @@ def test_healthz_ignores_forwarded_https_from_untrusted_peer(client):
 
 
 @pytest.mark.django_db
+@override_settings(SECURE_SSL_REDIRECT=True, SECURE_REDIRECT_EXEMPT=[r"^healthz$"])
+def test_http_probe_exemption_keeps_application_routes_secure(client):
+    assert client.get("/healthz").status_code == 200
+    assert client.get("/healthz/private").status_code == 301
+    assert client.get("/api/v1/workspaces").status_code == 301
+    with (
+        patch("config.health._health_cache_expires_at", 0.0),
+        patch("config.health.connection.cursor", side_effect=DatabaseError),
+    ):
+        assert client.get("/healthz").status_code == 503
+
+
+@pytest.mark.django_db
 def test_healthz_fails_closed_when_initial_postgres_probe_fails(client):
     with (
         patch("config.health.connection.vendor", "postgresql"),
