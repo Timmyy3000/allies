@@ -216,12 +216,20 @@ def test_onboarding_wake_retries_without_execution_or_runtime_intent_and_exhaust
     assert provider.start_calls == 5
 
 
+@override_settings(
+    ALLIES_RUNTIME_IDLE_STOP_ENABLED=True,
+    ALLIES_RUNTIME_KEEP_WARM_SECONDS=1800,
+)
 def test_onboarding_retry_then_current_readiness_clears_error(workspace):
     now = timezone.now()
     bundle = create_assigned_sleeping_bundle(workspace, now)
     with transaction.atomic():
         locked = Workspace.objects.select_for_update().get(pk=workspace.id)
         request_onboarding_wake_locked(locked, now=now)
+
+    workspace.refresh_from_db()
+    keep_warm_until = workspace.speculative_keep_warm_until
+    assert keep_warm_until == now + timedelta(seconds=1800)
 
     provider = FakePowerProvider(workspace)
     provider.start_error = ProviderCapacityError("temporary provider capacity")
@@ -230,6 +238,7 @@ def test_onboarding_retry_then_current_readiness_clears_error(workspace):
     bundle.refresh_from_db()
     assert first.failed == 1
     assert bundle.safe_error_code == "onboarding_wake_failed"
+    assert workspace.speculative_keep_warm_until == keep_warm_until
 
     provider.start_error = None
     retry_at = workspace.runtime_operation_requested_at
@@ -253,6 +262,18 @@ def test_onboarding_retry_then_current_readiness_clears_error(workspace):
     assert bundle.safe_error_code is None
     workspace.refresh_from_db()
     assert workspace.runtime_operation_state == RuntimeOperationState.IDLE
+    assert workspace.speculative_keep_warm_until == keep_warm_until
+
+    before_expiry = stop_idle_workspaces(
+        provider=provider,
+        now=keep_warm_until - timedelta(seconds=1),
+    )
+    assert before_expiry.stopped == 0
+    assert provider.stop_calls == 0
+
+    at_expiry = stop_idle_workspaces(provider=provider, now=keep_warm_until)
+    assert at_expiry.stopped == 1
+    assert provider.stop_calls == 1
 
 
 def test_onboarding_wake_rejects_receipt_from_before_current_start_epoch(workspace):
