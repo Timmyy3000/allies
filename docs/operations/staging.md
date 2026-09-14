@@ -1,11 +1,13 @@
 # Staging verification
 
 The `staging` branch remains the deployment source for the hosted staging
-environment. If the hosting platform's built-in deployment healthcheck probes
-an internal service port over HTTP, configure that check to use the public
-HTTPS endpoint instead. This is a hosting-platform setting rather than Foundry
-application code. The repository verifies the public HTTPS surface after the
-branch is updated.
+environment. Prefer a public HTTPS deployment healthcheck. When the platform
+can only probe an internal port over HTTP, set
+`DJANGO_HEALTHCHECK_ALLOW_HTTP=true` and use `/healthz`. This opt-in exempts only
+that exact path from Django's HTTPS redirect; application routes retain their
+HTTPS policy. The health response contains only readiness status and still
+returns 503 when the database is unavailable. The flag defaults to false.
+The repository verifies the public HTTPS surface after the branch is updated.
 
 ## Public HTTPS gate
 
