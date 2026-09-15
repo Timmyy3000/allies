@@ -77,7 +77,7 @@ test.describe("chat frame geometry and behavior", () => {
     expect(geometry.documentWidth).toBeLessThanOrEqual(geometry.viewportWidth);
   });
 
-  test("keeps focused mobile input readable without zoom-sized text or overflow", async ({ page }) => {
+  test("keeps the mobile input above the iOS focus zoom threshold without overflow", async ({ page }) => {
     await page.setViewportSize({ width: 375, height: 812 });
     await openFrame(page, CHAT_FRAME_IDS[0]);
     const input = page.locator("#ally-message");
@@ -91,9 +91,13 @@ test.describe("chat frame geometry and behavior", () => {
       pageWidth: document.documentElement.scrollWidth,
     }));
     expect(geometry.fontSize).toBeGreaterThanOrEqual(16);
+
     expect(geometry.left).toBeGreaterThanOrEqual(0);
     expect(geometry.right).toBeLessThanOrEqual(geometry.viewportWidth);
     expect(geometry.pageWidth).toBeLessThanOrEqual(geometry.viewportWidth);
+
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await expect(input).toHaveCSS("font-size", "14px");
   });
 
   test("keeps long mobile bubbles compact", async ({ page }) => {

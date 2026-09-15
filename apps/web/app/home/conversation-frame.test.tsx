@@ -530,7 +530,7 @@ describe("ConversationFrame", () => {
     expect(view.container.querySelector("details")?.open).toBe(false);
   });
 
-  it("uses the Ally accent for active activity icons and muted color for terminal rows", () => {
+  it("uses the readable activity accent for active icons and muted color for terminal rows", () => {
     const activeEntry = { ...model.activityGroups[0].entries[0], activityId: "call-a", activityAttemptId: "attempt-a", activityKind: "web_search" };
     const terminalEntry = { ...activeEntry, id: "activity-2", kind: "activity_completed" as const, outcome: "failed" as const, text: "Could not finish searching" };
     const active: ProductionConversationFrameModel = {
@@ -545,7 +545,7 @@ describe("ConversationFrame", () => {
     const icons = [...view.container.querySelectorAll('[class*="frameActivityEntries"] svg')];
 
     expect(icons).toHaveLength(2);
-    expect([...icons[0].querySelectorAll("path")].every((path) => path.getAttribute("fill") === "var(--chat-accent)")).toBe(true);
+    expect([...icons[0].querySelectorAll("path")].every((path) => path.getAttribute("fill") === "var(--chat-activity-accent, var(--chat-accent))")).toBe(true);
     expect([...icons[1].querySelectorAll("path")].every((path) => path.getAttribute("fill") === "var(--text-secondary)")).toBe(true);
   });
 

@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
+import { Inter } from "next/font/google";
 import "generative-loaders/styles.css";
 import "streamdown/styles.css";
 import "./globals.css";
@@ -31,6 +32,8 @@ const openRunde = localFont({
   variable: "--font-open-runde",
   display: "swap",
 });
+
+const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
 
 const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://yourallies.io";
 const siteTitle = "We're your allies";
@@ -103,7 +106,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${openRunde.variable} ${openRunde.className} h-full antialiased`}
+      className={`${openRunde.variable} ${inter.variable} ${openRunde.className} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
         <AppProviders>{children}</AppProviders>

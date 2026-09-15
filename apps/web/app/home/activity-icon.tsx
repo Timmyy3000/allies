@@ -45,5 +45,5 @@ const icons: Record<string, Icon> = {
 export function ActivityIcon({ kind, tone }: { kind?: string | null; tone?: "accent" | "muted" | "default" }) {
   const iconKind = kind ?? "unknown";
   const Icon = Object.prototype.hasOwnProperty.call(icons, iconKind) ? icons[iconKind] : More;
-  return <Icon variant="Bulk" size={18} color={tone === "muted" ? "var(--text-secondary)" : "var(--chat-accent)"} aria-hidden="true" />;
+  return <Icon variant="Bulk" size={18} color={tone === "muted" ? "var(--text-secondary)" : "var(--chat-activity-accent, var(--chat-accent))"} aria-hidden="true" />;
 }
