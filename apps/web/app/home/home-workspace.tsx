@@ -78,8 +78,7 @@ import {
 } from "./ally-settings-dialog";
 import { useConversationFiles } from "./attachments/use-conversation-files";
 import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
-import { MobileHomeRosterExact } from "./_exact/mobile-home-roster-exact";
-import { HomeReadySplash } from "./home-ready-splash";
+import { AlliesLoading } from "../../components/allies-loading";
 import { RecipesButton } from "./recipes-button";
 import { latestAllyReply, type AllyReplyPreview } from "./ally-preview";
 import { useIsMobileHome } from "./use-is-mobile-home";
@@ -754,12 +753,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     || alliesQuery.isPending;
 
   if (waitingForWorkspace) {
-    return (
-      <main className={isMobileHome ? styles.exactMobileHost : styles.exactHost}>
-        {isMobileHome ? <MobileHomeRosterExact allies={<></>} actions={<></>} createControl={<></>} /> : null}
-        <HomeReadySplash />
-      </main>
-    );
+    return <AlliesLoading />;
   }
 
   const invalidSelection = Boolean(selectedAllyId && !creatingAlly && !conversationAlly);
