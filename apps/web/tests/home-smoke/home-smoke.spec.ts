@@ -209,6 +209,27 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
   };
 }
 
+test("restores composer spacing after the mobile keyboard closes", async ({ page }, testInfo) => {
+  await fixtureCloud(page, "signed-in");
+  await page.goto(`/home/${allyId}`);
+  const input = page.getByLabel("Message Ada");
+  await expect(input).toBeVisible();
+  const padding = () => input.evaluate(element => getComputedStyle(element.closest('[data-testid="conversation-composer"]')!.parentElement!).paddingBottom);
+  const original = await padding();
+  await input.fill("Keyboard regression check");
+  await page.evaluate(() => {
+    const height = window.visualViewport!.height - 300;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+    Object.defineProperty(window.visualViewport, "height", { configurable: true, value: height });
+    window.visualViewport!.dispatchEvent(new Event("resize"));
+  });
+  await expect(page.getByTestId("conversation-frame-shell")).toHaveAttribute("data-keyboard-open", "");
+  await expect.poll(padding).toBe(testInfo.project.name === "mobile" ? "8px" : original);
+  await input.blur();
+  await expect(page.getByTestId("conversation-frame-shell")).not.toHaveAttribute("data-keyboard-open");
+  await expect.poll(padding).toBe(original);
+});
+
 test("redirects signed-out visitors to sign-in", async ({ page }) => {
   await fixtureCloud(page, "signed-out");
   await page.goto("/home");
