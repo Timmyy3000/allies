@@ -23,9 +23,15 @@ from files.exceptions import (
     FileValidation,
 )
 from files.inspection import FileInspection
-from files.models import FileIOOutcome, FileStagingObject, FileState, FileStorageAccount
+from files.models import (
+    FileIOOutcome,
+    FileStagingObject,
+    FileState,
+    FileStorageAccount,
+    FileVersion,
+)
 from files.services import inspection as inspection_worker
-from files.services.inspection import _claim, inspect_due_files
+from files.services.inspection import _claim, inspect_due_files, inspect_file
 from files.services.intake import (
     CHUNK_BYTES,
     InspectionResult,
@@ -296,6 +302,111 @@ def _validating_file(admission, *, key="file-promotion-key-00001"):
         stream=BytesIO(data),
     )
     return file, data
+
+
+@pytest.mark.django_db(transaction=True)
+def test_receive_file_enqueues_inspection_after_commit(admission, monkeypatch):
+    user, workspace, ally, conversation = admission
+    queued = []
+    monkeypatch.setattr("files.services.intake._enqueue_file_inspection", queued.append)
+    data = b"abc"
+    file = reserve_send(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        content="",
+        files=manifest(data),
+        key="file-immediate-inspection-001",
+    ).files[0]
+
+    received = receive_file(
+        user=user,
+        workspace_id=workspace.id,
+        ally_id=ally.id,
+        file_id=file.id,
+        generation=1,
+        content_length="3",
+        stream=BytesIO(data),
+    )
+
+    assert queued == [received.id]
+
+
+@pytest.mark.django_db(transaction=True)
+def test_direct_inspection_schedules_retry_from_persisted_state(
+    admission, settings, monkeypatch
+):
+    file, _data = _validating_file(admission, key="file-direct-inspection-retry-001")
+    settings.ALLIES_FILE_SCANNER_HOST = "scanner.internal"
+    queued = []
+    monkeypatch.setattr(
+        "files.tasks.enqueue_file_inspection",
+        lambda file_id, *, countdown=0: queued.append((file_id, countdown)),
+    )
+
+    def inspector(**_kwargs):
+        return FileInspection(
+            accepted=False,
+            media_type="application/pdf",
+            preview_kind="pdf",
+            safe_error_code="scanner_timeout",
+            scanner_clean=False,
+        )
+
+    assert inspect_file(file_id=file.id, inspector=inspector) == 1
+    file.refresh_from_db()
+    assert file.state == FileState.VALIDATING
+    assert file.inspection_attempts == 1
+    assert queued == [(file.id, 5)]
+    assert inspect_file(file_id=file.id, inspector=inspector) == 0
+
+    FileVersion.objects.filter(pk=file.id).update(
+        inspection_due_at=timezone.now() - timedelta(seconds=1)
+    )
+    assert inspect_file(file_id=file.id, inspector=inspector) == 1
+    file.refresh_from_db()
+    assert file.inspection_attempts == 2
+    assert queued == [(file.id, 5), (file.id, 30)]
+
+    FileVersion.objects.filter(pk=file.id).update(
+        inspection_due_at=timezone.now() - timedelta(seconds=1)
+    )
+    assert inspect_file(file_id=file.id, inspector=inspector) == 1
+    file.refresh_from_db()
+    assert file.state == FileState.REJECTED
+    assert file.inspection_attempts == 3
+    assert queued == [(file.id, 5), (file.id, 30)]
+    assert inspect_file(file_id=file.id, inspector=inspector) == 0
+
+
+@pytest.mark.django_db(transaction=True)
+def test_broker_failure_keeps_upload_recoverable_by_sweep(
+    admission, settings, monkeypatch
+):
+    def unavailable(**_kwargs):
+        raise ConnectionError("broker unavailable")
+
+    monkeypatch.setattr("files.tasks.current_app.connection_for_write", unavailable)
+    file, data = _validating_file(admission, key="file-broker-recovery-001")
+    file.refresh_from_db()
+    assert file.state == FileState.VALIDATING
+    settings.ALLIES_FILE_INSPECTION_ENABLED = True
+    settings.ALLIES_FILE_SCANNER_HOST = "scanner.internal"
+
+    def inspector(**_kwargs):
+        return FileInspection(
+            accepted=True,
+            media_type="application/pdf",
+            preview_kind="pdf",
+            safe_error_code=None,
+            scanner_clean=True,
+            actual_size=len(data),
+            sha256=sha256(data).hexdigest(),
+        )
+
+    assert inspect_due_files(limit=20, inspector=inspector) == 1
+    file.refresh_from_db()
+    assert file.state == FileState.READY
 
 
 @pytest.mark.django_db
