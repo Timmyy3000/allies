@@ -22,6 +22,7 @@ export interface ActivityPresentationEntry {
   activityKind?: string | null;
   outcome?: "completed" | "failed" | "stopped" | "unavailable" | null;
   durationMs?: number | null;
+  approval?: ActivityViewModel["approval"];
   firstSequence?: number;
   terminalSequence?: number;
 }
@@ -182,6 +183,7 @@ function toPresentationEntry(activity: ActivityViewModel): ActivityPresentationE
     activityKind: activity.activityKind,
     outcome: activity.outcome,
     durationMs: activity.durationMs,
+    approval: activity.approval,
     firstSequence: activity.sequence,
     terminalSequence: activity.outcome ? activity.sequence : undefined,
   };

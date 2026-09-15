@@ -711,7 +711,7 @@ function ActivityGroup({ group, ongoing = false }: { group: ProductionConversati
       entries={group.entries.map((entry) => ({
         id: entry.id,
         text: activityText(entry),
-        activityKind: entry.activityKind,
+        activityKind: entry.approval ? "approval" : entry.activityKind,
         durationMs: entry.durationMs,
         tone: entry.kind === "awaiting_action"
           ? "accent"
