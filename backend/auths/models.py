@@ -164,6 +164,37 @@ class ExternalIdentity(models.Model):
         return f"{self.provider}:{self.subject}"
 
 
+class BetaInvite(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    code_digest = models.CharField(max_length=64, unique=True, editable=False)
+    claimed_email = models.EmailField(
+        max_length=254, unique=True, null=True, blank=True, editable=False
+    )
+    claimed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    revoked_at = models.DateTimeField(null=True, blank=True, editable=False)
+    consumed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    created_at = models.DateTimeField(auto_now_add=True, editable=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=(
+                    Q(claimed_email__isnull=True, claimed_at__isnull=True)
+                    | Q(claimed_email__isnull=False, claimed_at__isnull=False)
+                ),
+                name="auth_beta_invite_claim_coherent",
+            ),
+            models.CheckConstraint(
+                condition=Q(consumed_at__isnull=True) | Q(claimed_at__isnull=False),
+                name="auth_beta_invite_consumed_claimed",
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return str(self.id)
+
+
 class UserProfile(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name="profile")

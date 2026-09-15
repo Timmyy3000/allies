@@ -20,6 +20,11 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "message": "Authentication started",
         "data": {"redirect_url": "https://provider.example/authorize"},
     },
+    "SuccessResponse_ClaimInviteResponse_": {
+        "status": "success",
+        "message": "Invite claimed",
+        "data": {"claimed": True},
+    },
     "SuccessResponse_NativeAuthorizationStartResponse_": {
         "status": "success",
         "message": "Native sign-in started",
@@ -723,6 +728,36 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
                 }
                 for code in codes
             }
+
+    invite_claim = (
+        schema.get("paths", {}).get("/api/v1/auths/invites/claim", {}).get("post")
+    )
+    if isinstance(invite_claim, dict):
+        invite_claim["security"] = []
+        invite_claim["description"] = (
+            f"{invite_claim.get('description', '').rstrip()}\n\n"
+            "This browser-only operation requires a trusted Origin or Referer and "
+            "matching CSRF cookie/header. Claiming an invite records only the "
+            "normalized email grant; it does not create an account. Responses are "
+            "never cacheable."
+        ).strip()
+        _add_header_parameter(
+            invite_claim,
+            "Origin",
+            "Required and must match a configured trusted frontend origin.",
+        )
+        _add_header_parameter(
+            invite_claim,
+            "Referer",
+            "Browser alternative to Origin; its origin must be trusted.",
+        )
+        _add_header_parameter(
+            invite_claim,
+            "X-CSRFToken",
+            "Required with the browser CSRF cookie.",
+        )
+        for status in (200, 403, 409, 422, 429, 503):
+            _add_no_store_header(invite_claim, status)
 
     allies_create = (
         schema.get("paths", {})

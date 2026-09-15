@@ -88,6 +88,9 @@ def error_responses(*statuses: int) -> dict[int, Any]:
 def _domain_status(code: str, default: int = 400) -> int:
     return {
         "provider_unavailable": 404,
+        "invite_required": 403,
+        "invite_unavailable": 409,
+        "invite_consumed": 409,
         "already_linked_elsewhere": 409,
         "storage_unavailable": 503,
         "throttle_unavailable": 503,

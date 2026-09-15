@@ -33,6 +33,7 @@ from auths.exceptions import (
     AuthDomainError,
     InvalidFlow,
     InvalidRedirect,
+    InviteRequired,
     NativeCallbackInProgress,
     NativeConfigurationInvalid,
     NativeUnavailable,
@@ -542,6 +543,21 @@ def complete_native_callback(
         return _finalize_provider_result(
             transaction_row.pk, claim_digest=_digest(claim), identity=identity
         )
+    except InviteRequired:
+        failed = _mark_failed(
+            transaction_row.pk,
+            claim_digest=_digest(claim),
+            error_code="invite_required",
+        )
+        if failed is not None:
+            emit_auth_event(
+                "auth.native.flow.rejected",
+                outcome="rejected",
+                reason_code="invite_required",
+                provider=provider_key.value,
+            )
+            return failed
+        raise NativeUnavailable("native flow failed") from None
     except (AuthDomainError, DatabaseError, ValueError):
         failed = _mark_failed(
             transaction_row.pk,
