@@ -21,6 +21,7 @@ from chat.models import (
 )
 from chat.services.messages import claim_next_turn
 from files.exceptions import FileConflict, FileScopeUnavailable
+from files.inspection import FileInspection
 from files.models import (
     FileAllyTombstone,
     FileDirection,
@@ -35,6 +36,7 @@ from files.models import (
     PublicationState,
 )
 from files.services.cleanup import _complete, tombstone_ally_files
+from files.services.inspection import inspect_due_files, inspect_file
 from files.services.intake import InspectionResult, promote_inspected_file, reserve_send
 from files.services.preparation import (
     arm_file_message,
@@ -104,6 +106,68 @@ def _prepared_message():
     )
     MessageFile.objects.create(message=message, file=file, position=0)
     return user, workspace, conversation, message
+
+
+@pytest.mark.django_db(transaction=True)
+def test_direct_inspection_and_sweep_share_one_postgresql_lease(settings, monkeypatch):
+    _user, _workspace, _conversation, message = _prepared_message()
+    file = FileVersion.objects.get(source_message=message)
+    file.state = FileState.VALIDATING
+    file.object_key = "staging/race/report.pdf"
+    file.actual_size = None
+    file.save(update_fields=("state", "object_key", "actual_size", "updated_at"))
+    store = InMemoryFileObjectStore()
+    data = b"pdf"
+    store.put_stream(
+        key=file.object_key,
+        stream=BytesIO(data),
+        content_type="application/octet-stream",
+        size=len(data),
+        sha256=sha256(data).hexdigest(),
+    )
+    set_file_store(store)
+    settings.ALLIES_FILE_SCANNER_HOST = "scanner.internal"
+    entered = Event()
+    release = Event()
+    monkeypatch.setattr(
+        "files.tasks.enqueue_file_inspection", lambda *_args, **_kwargs: None
+    )
+
+    def blocking_inspector(**_kwargs):
+        entered.set()
+        assert release.wait(timeout=10)
+        return FileInspection(
+            accepted=False,
+            media_type="application/pdf",
+            preview_kind="pdf",
+            safe_error_code="scanner_timeout",
+            scanner_clean=False,
+        )
+
+    def inspect_direct():
+        close_old_connections()
+        try:
+            return inspect_file(file_id=file.id, inspector=blocking_inspector)
+        finally:
+            close_old_connections()
+            connection.close()
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            direct = executor.submit(inspect_direct)
+            assert entered.wait(timeout=10)
+            swept = inspect_due_files(
+                limit=20,
+                inspector=lambda **_kwargs: pytest.fail("leased file was rescanned"),
+            )
+            release.set()
+            assert direct.result(timeout=10) == 1
+        file.refresh_from_db()
+        assert swept == 0
+        assert file.inspection_attempts == 1
+    finally:
+        release.set()
+        set_file_store(None)
 
 
 @pytest.mark.django_db(transaction=True)
