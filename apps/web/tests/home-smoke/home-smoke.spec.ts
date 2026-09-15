@@ -240,10 +240,11 @@ test("restores composer spacing after the mobile keyboard closes", async ({ page
   await expect.poll(padding).toBe(original);
 });
 
-test("redirects signed-out visitors to sign-in", async ({ page }) => {
+test("redirects signed-out visitors home with Google sign-in available", async ({ page }) => {
   await fixtureCloud(page, "signed-out");
   await page.goto("/home");
-  await expect(page).toHaveURL(/\/sign-in\?returnTo=%2Fhome$/);
+  await expect(page).toHaveURL(new URL("/", page.url()).toString());
+  await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
 });
 
 for (const colorScheme of ["light", "dark"] as const) {
