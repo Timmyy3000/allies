@@ -1,6 +1,6 @@
 import {
   Book, Calendar, Code, Cpu, DocumentText, Eye, Gallery, GlobalSearch,
-  MagicStar, More, People, SearchNormal, TaskSquare, Video, VolumeHigh,
+  MagicStar, More, People, SearchNormal, TaskSquare, Verify, Video, VolumeHigh,
   type Icon,
 } from "iconsax-reactjs";
 
@@ -39,6 +39,7 @@ const icons: Record<string, Icon> = {
   routine_delete: Calendar,
   routine_result: Calendar,
   delegate_task: People,
+  approval: Verify,
   unknown: MagicStar,
 };
 
