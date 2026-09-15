@@ -25,8 +25,8 @@ permissions:
   contents: read
 
 jobs:
-  quality:
-    name: Interface CI suite
+  checks:
+    name: Types, tests, lint and mobile
     runs-on: blacksmith-2vcpu-ubuntu-2404
     env:
       NEXT_PUBLIC_CLOUD_API_URL: https://cloud.invalid
@@ -68,6 +68,45 @@ jobs:
         run: bun run test:run
       - name: Lint web and mobile
         run: bun run lint
+      - name: Export mobile iOS bundle
+        if: steps.scope.outputs.mobile == 'true'
+        run: bun run bundle:mobile
+
+  web:
+    name: Web build and browser tests
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    env:
+      NEXT_PUBLIC_CLOUD_API_URL: https://cloud.invalid
+      EXPO_PUBLIC_CLOUD_API_URL: https://cloud.invalid
+      CHAT_FRAMES_PORT: 3011
+    outputs:
+      source_sha: ${{ steps.record_source.outputs.sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+      - name: Record validated source SHA
+        id: record_source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Select validation scope
+        id: scope
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_FULL: ${{ github.event_name != 'pull_request' || github.base_ref != 'dev' }}
+        run: |
+          if [ "$CI_FULL" != "true" ] && git show "$CI_BASE_SHA:scripts/ci-scope.ts" > "$RUNNER_TEMP/ci-scope.ts"; then
+            bun "$RUNNER_TEMP/ci-scope.ts" >> "$GITHUB_OUTPUT"
+          else
+            printf 'web=true\nmobile=true\nbrowsers=true\nmotion=true\n' >> "$GITHUB_OUTPUT"
+          fi
       - name: Build web
         if: steps.scope.outputs.web == 'true'
         run: bun run build:web
@@ -126,6 +165,27 @@ jobs:
             apps/web/tests/chat-frames/__screenshots__/chat-chromium
           if-no-files-found: error
           retention-days: 30
-      - name: Export mobile iOS bundle
-        if: steps.scope.outputs.mobile == 'true'
-        run: bun run bundle:mobile
+
+  quality:
+    name: Interface CI suite
+    if: ${{ always() }}
+    needs: [checks, web]
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    outputs:
+      source_sha: ${{ steps.gate.outputs.source_sha }}
+    steps:
+      - name: Require both lanes on the same commit
+        id: gate
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          CHECKS_SHA: ${{ needs.checks.outputs.source_sha }}
+          WEB_SHA: ${{ needs.web.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CHECKS_RESULT" = success
+          test "$WEB_RESULT" = success
+          [[ "$CHECKS_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$CHECKS_SHA" = "$WEB_SHA"
+          echo "source_sha=$CHECKS_SHA" >> "$GITHUB_OUTPUT"

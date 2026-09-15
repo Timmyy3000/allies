@@ -247,6 +247,19 @@ test("redirects signed-out visitors home with Google sign-in available", async (
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
 });
 
+test("preserves invite-required feedback when returning home after Google sign-in", async ({ page }) => {
+  await fixtureCloud(page, "signed-out");
+  await page.goto("/home?auth_error=invite_required");
+  await expect(page).toHaveURL(new URL("/?auth_error=invite_required", page.url()).toString());
+  await expect(page.getByRole("alert").filter({ hasText: "You’ll need a beta invite" })).toContainText("You’ll need a beta invite");
+  await expect(page.getByRole("link", { name: "Claim your invite" })).toHaveAttribute("href", "/claim-invite");
+  await page.getByRole("button", { name: "Dismiss invite notification" }).click();
+  await expect(page).toHaveURL(new URL("/", page.url()).toString());
+  await expect(page.getByRole("alert").filter({ hasText: "You’ll need a beta invite" })).not.toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("alert").filter({ hasText: "You’ll need a beta invite" })).not.toBeVisible();
+});
+
 for (const colorScheme of ["light", "dark"] as const) {
   test(`routine stays in its turn and confirms deletion in ${colorScheme} mode`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
