@@ -183,6 +183,15 @@ export function ClaimInviteClient() {
                     </div>
                   )}
                 />
+                {errorMessage && (
+                  <p
+                    id="claim-invite-error"
+                    className={styles.error}
+                    role="alert"
+                  >
+                    {errorMessage}
+                  </p>
+                )}
                 <AnimatePresence initial={false}>
                   {completeCode && (
                     <motion.div
@@ -227,15 +236,6 @@ export function ClaimInviteClient() {
                           }
                         />
                       </div>
-                      {errorMessage && (
-                        <p
-                          id="claim-invite-error"
-                          className={styles.error}
-                          role="alert"
-                        >
-                          {errorMessage}
-                        </p>
-                      )}
                       <div className={styles.actions}>
                         <Link href="/" className={styles.secondaryAction}>
                           Home

@@ -51,6 +51,22 @@ beforeEach(() => {
 });
 
 describe("ClaimInviteClient", () => {
+  it("shows validation feedback when Enter submits an incomplete code", () => {
+    const claimInvite = vi.fn();
+    sessionMock.useSession.mockReturnValue({
+      client: { claimInvite },
+      runCloudOperation: vi.fn(),
+    });
+    render(<ClaimInviteClient />);
+    const codeInput = screen.getByLabelText("Invite code");
+    fireEvent.change(codeInput, { target: { value: "ABC" } });
+    fireEvent.submit(codeInput.closest("form")!);
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Enter a valid invite code",
+    );
+    expect(claimInvite).not.toHaveBeenCalled();
+  });
+
   it("reveals email and claim together while keeping the code editable and making no early request", async () => {
     const claimInvite = vi.fn(async () => undefined);
     sessionMock.useSession.mockReturnValue({
