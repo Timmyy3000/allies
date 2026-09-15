@@ -31,6 +31,8 @@ PROFILE_KEY = "allies-approval-profile-key-0001"
 MEMORY_KEY = "allies-approval-memory-key-0001"
 SYNTHETIC_QUERY_SECRET = "synthetic-opaque-query-secret"
 SYNTHETIC_FRAGMENT_SECRET = "synthetic-fragment-secret"
+SYNTHETIC_CAPABILITY = "SYNTHETIC_CAPABILITY_0123456789"
+SYNTHETIC_INVITE_CAPABILITY = "SYNTHETIC_INVITE_CAPABILITY_0123456789"
 
 
 def _seed_profile(root: Path) -> None:
@@ -179,7 +181,7 @@ async def _run() -> None:
                             notify,
                             {
                                 "command": (
-                                    "curl https://synthetic-user:synthetic-pass@host/invite"
+                                    "curl https://synthetic-user:synthetic-pass@host/docs/invite"
                                     f"?token={SYNTHETIC_QUERY_SECRET}&public=1"
                                 ),
                                 "pattern_key": "stream-terminal",
@@ -292,6 +294,101 @@ async def _run() -> None:
                     )
                     is None
                 )
+                assert (
+                    approval._safe_hermes_plugin_preview(
+                        json.dumps(
+                            {
+                                "tool": "connect",
+                                "args": {
+                                    "inviteUrl": (
+                                        "https://host/api/invitations/"
+                                        f"{SYNTHETIC_CAPABILITY}"
+                                    )
+                                },
+                            }
+                        )
+                    )
+                    is None
+                )
+
+                # The shared producer redacts capability path segments for
+                # terminal, execute_code, and plugin previews alike. Query
+                # credentials are masked while ordinary document paths stay
+                # useful to the approver.
+                capability_url = (
+                    "https://example.com/connect/agent/"
+                    f"{SYNTHETIC_CAPABILITY}==?workspace=allies&token={SYNTHETIC_QUERY_SECRET}"
+                )
+                connection_url = (
+                    "wss://example.com/connection/"
+                    f"{SYNTHETIC_CAPABILITY}?workspace=allies&token={SYNTHETIC_QUERY_SECRET}"
+                )
+                invite_url = (
+                    "https://example.com/%69nvite/"
+                    f"{SYNTHETIC_INVITE_CAPABILITY}?recipient=team&token={SYNTHETIC_QUERY_SECRET}"
+                )
+                normal_url = (
+                    "https://example.com/docs/connect/very-long-document-name"
+                    "?workspace=allies&recipient=team"
+                )
+                preview_cases = {
+                    "terminal": (
+                        f"connection_url = '({capability_url}), ' "
+                        f"websocket_url = '{connection_url}' "
+                        f"invite_url = '{invite_url}' "
+                        f"path={normal_url}"
+                    ),
+                    "execute_code": (
+                        f"print({capability_url!r}); print({connection_url!r}); "
+                        f"print(({invite_url!r})); "
+                        f"open({normal_url!r})"
+                    ),
+                    "plugin_tool": json.dumps(
+                        {
+                            "tool": "connect",
+                            "args": {
+                                "connectionUrl": capability_url,
+                                "websocketUrl": connection_url,
+                                "inviteUrl": invite_url,
+                                "documentUrl": normal_url,
+                            },
+                        }
+                    ),
+                }
+                for action_kind, command in preview_cases.items():
+                    preview = approval._redact_hermes_approval_preview(
+                        command, action_kind
+                    )
+                    assert preview is not None
+                    assert SYNTHETIC_CAPABILITY not in preview
+                    assert SYNTHETIC_QUERY_SECRET not in preview
+                    assert "https://example.com/connect/agent/***" in preview
+                    assert "wss://example.com/connection/***" in preview
+                    assert "https://example.com/invite/***" in preview
+                    assert "very-long-document-name" in preview
+                    assert "workspace=allies" in preview
+                    assert "recipient=team" in preview
+
+                malformed_cases = {
+                    "terminal": (
+                        "https:///connect/"
+                        f"{SYNTHETIC_CAPABILITY}"
+                    ),
+                    "execute_code": "print('https://example.com/%63onnect/')",
+                    "plugin_tool": json.dumps(
+                        {
+                            "tool": "connect",
+                            "args": {
+                                "inviteUrl": "https://example.com/invite/",
+                            },
+                        }
+                    ),
+                }
+                for action_kind, command in malformed_cases.items():
+                    assert (
+                        approval._redact_hermes_approval_preview(command, action_kind)
+                        is None
+                    )
 
                 # Preview construction occurs outside the registration lock.
                 # If the stream disappears during that work, the second
@@ -478,13 +575,15 @@ async def _run() -> None:
                     action_kind="terminal",
                     action_label="Run terminal command",
                     command=(
-                        "curl https://synthetic-user:synthetic-pass@host/invite"
+                        "curl https://synthetic-user:synthetic-pass@host/connect/agent/"
+                        f"{SYNTHETIC_CAPABILITY}=="
                         f"?token={SYNTHETIC_QUERY_SECRET}&public=1"
                     ),
                 )
                 terminal_request = terminal[1][0]
                 assert terminal_request["action_preview"] == (
-                    "curl https://synthetic-user:***@host/invite?token=***&public=1"
+                    "curl https://synthetic-user:***@host/connect/agent/***"
+                    "?token=***&public=1"
                 )
                 assert len(terminal_request["action_preview"].encode()) <= 16 * 1024
                 approval_id = terminal_request["hermes_approval_id"]
@@ -543,9 +642,17 @@ async def _run() -> None:
                     run_id="approval-code-run",
                     action_kind="execute_code",
                     action_label="Run code",
-                    command="print('synthetic code')",
+                    command=f"print({capability_url!r})",
                 )
                 execute_request = execute[1][0]
+                execute_preview = execute_request["action_preview"]
+                assert SYNTHETIC_CAPABILITY not in execute_preview
+                assert SYNTHETIC_QUERY_SECRET not in execute_preview
+                assert (
+                    "https://example.com/connect/agent/***"
+                    "?workspace=allies&token=***"
+                    in execute_preview
+                )
                 execute_response = await client.post(
                     f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
                     headers=headers,
@@ -584,7 +691,7 @@ async def _run() -> None:
                 assert "synthetic-pass" not in plugin_preview
                 assert SYNTHETIC_QUERY_SECRET not in plugin_preview
                 assert SYNTHETIC_FRAGMENT_SECRET not in plugin_preview
-                assert "https://host/invite/opaque" in plugin_preview
+                assert "https://host/invite/***" in plugin_preview
                 assert "workspace=allies" in plugin_preview
                 assert "recipient=team" in plugin_preview
                 plugin_response = await client.post(
