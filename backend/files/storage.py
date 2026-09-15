@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from io import BytesIO
 from threading import RLock
 from typing import BinaryIO, Protocol
+from urllib.parse import urlsplit
 
 from botocore.config import Config
 from django.conf import settings
@@ -173,19 +175,27 @@ class Boto3PrivateFileStore:
     ) -> tuple[str, str] | None:
         """Erase one bounded version page and return a durable continuation."""
 
-        versioning_response = self.client.get_bucket_versioning(Bucket=self.bucket)
-        if not isinstance(versioning_response, dict):
-            raise TypeError("versioning response is invalid")
-        versioning = versioning_response.get("Status")
-        if versioning not in {None, "", "Enabled", "Suspended"}:
-            raise RuntimeError("versioning status is unsupported")
-        if versioning in {None, ""}:
-            response_metadata = versioning_response.get("ResponseMetadata")
-            if (
-                not isinstance(response_metadata, dict)
-                or response_metadata.get("HTTPStatusCode") != 200
-            ):
-                raise RuntimeError("versioning capability is unknown")
+        endpoint = urlsplit(settings.ALLIES_FILE_STORAGE_ENDPOINT_URL)
+        # R2 has no object versions and does not implement GetBucketVersioning.
+        is_r2 = endpoint.scheme == "https" and re.fullmatch(
+            r"[a-f0-9]{32}(?:\.(?:eu|fedramp|us))?\.r2\.cloudflarestorage\.com",
+            endpoint.hostname or "",
+        )
+        versioning = None
+        if not is_r2:
+            versioning_response = self.client.get_bucket_versioning(Bucket=self.bucket)
+            if not isinstance(versioning_response, dict):
+                raise TypeError("versioning response is invalid")
+            versioning = versioning_response.get("Status")
+            if versioning not in {None, "", "Enabled", "Suspended"}:
+                raise RuntimeError("versioning status is unsupported")
+            if versioning in {None, ""}:
+                response_metadata = versioning_response.get("ResponseMetadata")
+                if (
+                    not isinstance(response_metadata, dict)
+                    or response_metadata.get("HTTPStatusCode") != 200
+                ):
+                    raise RuntimeError("versioning capability is unknown")
         if versioning in {"Enabled", "Suspended"}:
             params: dict[str, object] = {
                 "Bucket": self.bucket,

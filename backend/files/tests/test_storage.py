@@ -1,6 +1,7 @@
 from io import BytesIO
 
 import pytest
+from botocore.exceptions import ClientError
 
 from files.storage import (
     Boto3PrivateFileStore,
@@ -129,3 +130,60 @@ def test_boto_erase_requires_success_evidence_for_unversioned_status():
 
     with pytest.raises(RuntimeError, match="versioning capability"):
         store.erase_and_verify(key="private/mira/file")
+
+
+@pytest.mark.parametrize("head_code", ["404", "AccessDenied", None])
+def test_r2_erasure_verifies_absence_without_versioning_api(settings, head_code):
+    settings.ALLIES_FILE_STORAGE_ENDPOINT_URL = (
+        "https://" + "a" * 32 + ".r2.cloudflarestorage.com"
+    )
+    deleted = []
+
+    class Client:
+        def get_bucket_versioning(self, **kwargs):
+            pytest.fail("R2 does not support the versioning API")
+
+        def delete_object(self, **kwargs):
+            deleted.append(kwargs)
+
+        def head_object(self, **kwargs):
+            if head_code:
+                raise ClientError({"Error": {"Code": head_code}}, "HeadObject")
+            return {"ContentLength": 1}
+
+    store = object.__new__(Boto3PrivateFileStore)
+    store.bucket = "private-files"
+    store.client = Client()
+    if head_code == "404":
+        assert store.erase_and_verify(key="owned/file") is None
+    elif head_code:
+        with pytest.raises(ClientError):
+            store.erase_and_verify(key="owned/file")
+    else:
+        with pytest.raises(RuntimeError, match="remains after deletion"):
+            store.erase_and_verify(key="owned/file")
+    assert deleted == [{"Bucket": "private-files", "Key": "owned/file"}]
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    [
+        "https://s3.example.com",
+        "https://" + "a" * 32 + ".r2.cloudflarestorage.com.attacker.test",
+        "http://" + "a" * 32 + ".r2.cloudflarestorage.com",
+    ],
+)
+def test_other_endpoints_do_not_bypass_versioning_failure(settings, endpoint):
+    settings.ALLIES_FILE_STORAGE_ENDPOINT_URL = endpoint
+
+    class Client:
+        def get_bucket_versioning(self, **kwargs):
+            raise ClientError(
+                {"Error": {"Code": "AccessDenied"}}, "GetBucketVersioning"
+            )
+
+    store = object.__new__(Boto3PrivateFileStore)
+    store.bucket = "private-files"
+    store.client = Client()
+    with pytest.raises(ClientError):
+        store.erase_and_verify(key="owned/file")
