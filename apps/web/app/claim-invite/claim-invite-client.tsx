@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { OTPInput } from "input-otp";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 
 import { isCloudError } from "@allies/cloud-client";
@@ -25,7 +28,11 @@ function claimInviteErrorMessage(error: unknown): string {
     if (error.kind === "security") {
       return "We couldn't complete that securely. Try again.";
     }
-    if (error.kind === "network" || error.kind === "timeout" || error.kind === "server") {
+    if (
+      error.kind === "network" ||
+      error.kind === "timeout" ||
+      error.kind === "server"
+    ) {
       return "Invite claiming is temporarily unavailable. Check your connection and try again.";
     }
   }
@@ -33,11 +40,9 @@ function claimInviteErrorMessage(error: unknown): string {
   return "We couldn't claim that invite. Try again.";
 }
 
-function returnLink(path: string, returnTo: string): string {
-  return `${path}?returnTo=${encodeURIComponent(returnTo)}`;
-}
-
-export function ClaimInviteClient({ returnTo }: { returnTo: string }) {
+export function ClaimInviteClient() {
+  const router = useRouter();
+  const reducedMotion = useReducedMotion();
   const { client, runCloudOperation } = useSession();
   const [code, setCode] = useState("");
   const [email, setEmail] = useState("");
@@ -46,18 +51,27 @@ export function ClaimInviteClient({ returnTo }: { returnTo: string }) {
   const controllerRef = useRef<AbortController | null>(null);
   const requestGeneration = useRef(0);
 
-  useEffect(() => () => {
-    requestGeneration.current += 1;
-    controllerRef.current?.abort();
-  }, []);
+  useEffect(() => {
+    if (state !== "success") return;
+    const timeout = window.setTimeout(() => router.replace("/"), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [state, router]);
+
+  useEffect(
+    () => () => {
+      requestGeneration.current += 1;
+      controllerRef.current?.abort();
+    },
+    [],
+  );
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (state === "submitting") return;
+    if (state === "submitting" || state === "success") return;
 
     const normalizedCode = code.trim();
     const normalizedEmail = email.trim();
-    if (!normalizedCode || normalizedCode.length > 128 || !normalizedEmail) {
+    if (!/^[A-Z2-7]{8}$/.test(normalizedCode) || !normalizedEmail) {
       setState("error");
       setErrorMessage("Enter a valid invite code and email address.");
       return;
@@ -72,14 +86,20 @@ export function ClaimInviteClient({ returnTo }: { returnTo: string }) {
 
     try {
       await runCloudOperation(
-        (signal) => client.claimInvite({ code: normalizedCode, email: normalizedEmail }, { signal }),
+        (signal) =>
+          client.claimInvite(
+            { code: normalizedCode, email: normalizedEmail },
+            { signal },
+          ),
         { csrf: true, signal: controller.signal },
       );
-      if (controller.signal.aborted || generation !== requestGeneration.current) return;
+      if (controller.signal.aborted || generation !== requestGeneration.current)
+        return;
       setCode("");
       setState("success");
     } catch (error) {
-      if (controller.signal.aborted || generation !== requestGeneration.current) return;
+      if (controller.signal.aborted || generation !== requestGeneration.current)
+        return;
       setState("error");
       setErrorMessage(claimInviteErrorMessage(error));
     } finally {
@@ -87,92 +107,164 @@ export function ClaimInviteClient({ returnTo }: { returnTo: string }) {
     }
   };
 
-  const signInHref = returnLink("/sign-in", returnTo);
-
-  if (state === "success") {
-    return (
-      <main className={styles.page}>
-        <div className={styles.shell}>
-          <section className={`${styles.panel} ph-no-capture`} aria-labelledby="claim-invite-success-title">
-            <div className={styles.mark} aria-hidden="true">✦</div>
-            <p className={styles.eyebrow}>Invite claimed</p>
-            <h1 id="claim-invite-success-title">You’re ready to continue</h1>
-            <p className={styles.copy}>
-              Your invite is ready for <span className={styles.privateEmail}>{email}</span>. Continue with the Google account that uses this email.
-            </p>
-            <Link className={styles.primaryAction} href={signInHref}>Continue with Google</Link>
-          </section>
-        </div>
-      </main>
-    );
-  }
+  const completeCode = /^[A-Z2-7]{8}$/.test(code);
+  const currentStep = state === "success" ? "success" : "claim";
+  const transition = {
+    duration: reducedMotion ? 0 : 0.22,
+    ease: [0.22, 1, 0.36, 1] as const,
+  };
 
   return (
     <main className={styles.page}>
-      <div className={styles.shell}>
-        <section className={`${styles.panel} ph-no-capture`} aria-labelledby="claim-invite-title">
-          <div className={styles.mark} aria-hidden="true">✦</div>
-          <p className={styles.eyebrow}>Beta access</p>
-          <h1 id="claim-invite-title">Claim your invite</h1>
-          <p className={styles.copy}>
-            Enter the code you received and the email for the Google account you’ll use with Allies.
-          </p>
-
-          <form className={styles.form} onSubmit={(event) => void submit(event)}>
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="invite-code">Invite code</label>
-              <input
-                id="invite-code"
-                name="code"
-                className={styles.input}
-                value={code}
-                disabled={state === "submitting"}
-                onChange={(event) => {
-                  setCode(event.target.value);
-                  setErrorMessage(null);
-                  if (state === "error") setState("idle");
-                }}
-                autoComplete="off"
-                spellCheck={false}
-                maxLength={128}
-                required
-                aria-invalid={Boolean(errorMessage)}
-                aria-describedby={errorMessage ? "claim-invite-error" : undefined}
-              />
-            </div>
-            <div className={styles.field}>
-              <label className={styles.label} htmlFor="invite-email">Email for Google sign-in</label>
-              <input
-                id="invite-email"
-                name="email"
-                type="email"
-                className={styles.input}
-                value={email}
-                disabled={state === "submitting"}
-                onChange={(event) => {
-                  setEmail(event.target.value);
-                  setErrorMessage(null);
-                  if (state === "error") setState("idle");
-                }}
-                autoComplete="email"
-                maxLength={254}
-                required
-                aria-invalid={Boolean(errorMessage)}
-                aria-describedby={errorMessage ? "claim-invite-error" : undefined}
-              />
-            </div>
-            <button type="submit" className={styles.primaryAction} disabled={state === "submitting"}>
-              {state === "submitting" ? "Checking your invite…" : "Claim invite"}
-            </button>
-            <p className={styles.status} role="status" aria-live="polite" aria-atomic="true">
-              {state === "submitting" ? "Checking your invite…" : null}
+      <motion.section
+        layout={!reducedMotion}
+        transition={transition}
+        className={`${styles.panel} ph-no-capture`}
+        aria-labelledby="claim-invite-title"
+      >
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={currentStep}
+            initial={{ opacity: 0, y: reducedMotion ? 0 : 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: reducedMotion ? 0 : -6 }}
+            transition={transition}
+          >
+            <h1 id="claim-invite-title">
+              {currentStep === "success" ? "You're in" : "Claim your invite"}
+            </h1>
+            <p className={styles.copy}>
+              {currentStep === "success"
+                ? "Invite claimed. Taking you home…"
+                : "Enter your invite code to get started."}
             </p>
-            {errorMessage ? <p id="claim-invite-error" className={styles.error} role="alert">{errorMessage}</p> : null}
-          </form>
-
-          <Link className={styles.secondaryAction} href={signInHref}>Already have an account? Sign in</Link>
-        </section>
-      </div>
+            {currentStep === "success" ? (
+              <div className={styles.successAction}>
+                <Link href="/" className={styles.primaryAction}>
+                  Go home
+                </Link>
+              </div>
+            ) : (
+              <form
+                className={styles.form}
+                onSubmit={(event) => void submit(event)}
+              >
+                <label className={styles.status} htmlFor="invite-code">
+                  Invite code
+                </label>
+                <OTPInput
+                  id="invite-code"
+                  value={code}
+                  maxLength={8}
+                  inputMode="text"
+                  autoComplete="one-time-code"
+                  pattern="^[a-zA-Z2-7]*$"
+                  containerClassName={styles.codeInput}
+                  onChange={(value) => {
+                    setCode(value.toUpperCase());
+                    setErrorMessage(null);
+                  }}
+                  disabled={state === "submitting"}
+                  render={({ slots }) => (
+                    <div className={styles.slots} aria-hidden="true">
+                      {slots.map((slot, index) => (
+                        <div
+                          key={index}
+                          className={styles.slot}
+                          data-active={slot.isActive}
+                          data-filled={Boolean(slot.char)}
+                        >
+                          {slot.char}
+                          {slot.hasFakeCaret && (
+                            <span className={styles.caret} />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                />
+                <AnimatePresence initial={false}>
+                  {completeCode && (
+                    <motion.div
+                      className={styles.claimFields}
+                      key="claim-fields"
+                      initial={{
+                        height: 0,
+                        opacity: 0,
+                        y: reducedMotion ? 0 : 12,
+                      }}
+                      animate={{ height: "auto", opacity: 1, y: 0 }}
+                      exit={{
+                        height: 0,
+                        opacity: 0,
+                        y: reducedMotion ? 0 : 12,
+                      }}
+                      transition={transition}
+                      style={{ overflow: "hidden" }}
+                    >
+                      <div className={styles.field}>
+                        <label className={styles.label} htmlFor="invite-email">
+                          Email for Google sign-in
+                        </label>
+                        <input
+                          id="invite-email"
+                          name="email"
+                          type="email"
+                          className={styles.input}
+                          value={email}
+                          disabled={state === "submitting"}
+                          onChange={(event) => {
+                            setEmail(event.target.value);
+                            setErrorMessage(null);
+                            if (state === "error") setState("idle");
+                          }}
+                          autoComplete="email"
+                          maxLength={254}
+                          required
+                          aria-invalid={Boolean(errorMessage)}
+                          aria-describedby={
+                            errorMessage ? "claim-invite-error" : undefined
+                          }
+                        />
+                      </div>
+                      {errorMessage && (
+                        <p
+                          id="claim-invite-error"
+                          className={styles.error}
+                          role="alert"
+                        >
+                          {errorMessage}
+                        </p>
+                      )}
+                      <div className={styles.actions}>
+                        <Link href="/" className={styles.secondaryAction}>
+                          Home
+                        </Link>
+                        <button
+                          type="submit"
+                          className={styles.primaryAction}
+                          disabled={state === "submitting" || !completeCode}
+                        >
+                          {state === "submitting"
+                            ? "Claiming…"
+                            : "Claim invite"}
+                        </button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </form>
+            )}
+          </motion.div>
+        </AnimatePresence>
+        <p className={styles.status} role="status" aria-live="polite">
+          {state === "submitting"
+            ? "Claiming your invite…"
+            : state === "success"
+              ? "Invite claimed. Taking you home."
+              : null}
+        </p>
+      </motion.section>
     </main>
   );
 }

@@ -228,6 +228,19 @@ async function clickSendMessage() {
 describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
   beforeEach(() => stubViewport(desktop));
 
+  it("shows the animated loader immediately until the initial roster is ready", async () => {
+    let resolveAllies!: (value: AllyViewModel[]) => void;
+    const getAllies = vi.fn(() => new Promise<AllyViewModel[]>((resolve) => { resolveAllies = resolve; }));
+    renderHome([ally], null, { listAllies: getAllies });
+    expect(screen.getByRole("status", { name: "Loading your space" })).toBeTruthy();
+    expect(screen.queryByText("My allies")).toBeNull();
+    expect(screen.queryByText("Events")).toBeNull();
+    await waitFor(() => expect(getAllies).toHaveBeenCalled());
+    await act(async () => resolveAllies([ally]));
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading your space" })).toBeNull());
+    expect(screen.getByRole("navigation", { name: "Choose an Ally" })).toBeTruthy();
+  });
+
   it("previews the Ally's reply from older history instead of a newer user message", async () => {
     const getAllyConversation = vi.fn(async (_workspace: string, _ally: string, options?: { cursor?: string }) => ({
       id: "conversation", allyId: ally.id, assistantReplies: options?.cursor ? [] : [{ id: "partial", sourceMessageId: "question", conversationTurnOrdinal: 2, content: "suffix only", status: "completed", hasFullPrefix: false, createdAt: "2026-09-10T12:00:00Z", updatedAt: "2026-09-10T12:00:00Z" }], routineItems: [],
