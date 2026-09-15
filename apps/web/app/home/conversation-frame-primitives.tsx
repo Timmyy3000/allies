@@ -718,19 +718,23 @@ export function CartSummary({
 
 export function BottomSheet({
   title,
+  headerContent,
   children,
   onClose,
   labelledBy,
   className = "",
+  style,
   modal = false,
   hideHeader = false,
   closeDisabled = false,
 }: {
   title?: string;
+  headerContent?: ReactNode;
   children: ReactNode;
   onClose: () => void;
   labelledBy?: string;
   className?: string;
+  style?: CSSProperties;
   modal?: boolean;
   hideHeader?: boolean;
   closeDisabled?: boolean;
@@ -794,14 +798,14 @@ export function BottomSheet({
           aria-labelledby={modal ? undefined : label}
         >
         {hideHeader ? null : <div className={styles.frameSheetTop}>
-          {title ? <h2 id={labelledBy ?? "conversation-sheet-title"}>{title}</h2> : <span />}
+          {headerContent ?? (title ? <h2 id={labelledBy ?? "conversation-sheet-title"}>{title}</h2> : <span />)}
           <button type="button" className={styles.frameSheetClose} aria-label="Close" disabled={closeDisabled} onClick={() => void handleClose()}><CloseIcon /></button>
         </div>}
         {children}
       </section>
   );
-  return modal ? <dialog ref={dialogRef} className={`${styles.frameOverlay} ${styles.frameNativeSheet} ${className}`} aria-labelledby={label} onCancel={(event) => { event.preventDefault(); void handleClose(); }}>{content}</dialog>
-    : <div className={`${styles.frameOverlay} ${className}`} role="presentation">{content}</div>;
+  return modal ? <dialog ref={dialogRef} style={style} className={`${styles.frameOverlay} ${styles.frameNativeSheet} ${className}`} aria-labelledby={label} onCancel={(event) => { event.preventDefault(); void handleClose(); }}>{content}</dialog>
+    : <div className={`${styles.frameOverlay} ${className}`} style={style} role="presentation">{content}</div>;
 }
 
 export function ApprovalSheet({

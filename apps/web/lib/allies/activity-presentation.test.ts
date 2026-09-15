@@ -119,6 +119,21 @@ describe("mergeActivityPresentation", () => {
     ]);
   });
 
+  it("preserves activity approval identity for approval-specific icons", () => {
+    const approval = {
+      id: "00000000-0000-4000-8000-000000000001",
+      status: "pending" as const,
+      expiresAt: "2026-09-03T00:05:00Z",
+      decidedAt: null,
+    };
+    const result = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, {
+      conversationId: "conversation-1",
+      activities: [activity("approval", 1, { approval })],
+    });
+
+    expect(result.groupsByKey[activityTurnKey("message-1", 1)]?.entries[0]?.approval).toEqual(approval);
+  });
+
   it("uses both message id and turn ordinal as the group key", () => {
     const result = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, {
       conversationId: "conversation-1",

@@ -64,7 +64,8 @@ function conversation(sent: boolean) {
   return success({ id: conversationId, ally_id: allyId, messages, assistant_replies: assistantReplies, next_cursor: null });
 }
 
-async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false, seedConversation = false, withActivity = false, withRoutine = false, withResult = false, withDeletion = false) {
+async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false, seedConversation = false, withActivity = false, withRoutine = false, withResult = false, withDeletion = false, approvalOptions?: { appearanceKey: string; preview: string }) {
+  const fixtureAlly = () => ({ ...ally(), ...(approvalOptions ? { appearance: { catalog_version: "v1", key: approvalOptions.appearanceKey } } : {}) });
   let sent = seedConversation;
   let settings = { label: "chief of staff", show_label: false, settings_revision: 0 };
   let deletionAccepted = false;
@@ -99,7 +100,7 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies`) {
       const allies = deleted
         ? [sibling()]
-        : [{ ...ally(), ...settings, ...(deletionAccepted ? { deletion_state: "pending" } : {}) }, ...(withDeletion ? [sibling()] : [])];
+        : [{ ...fixtureAlly(), ...settings, ...(deletionAccepted ? { deletion_state: "pending" } : {}) }, ...(withDeletion ? [sibling()] : [])];
       return route.fulfill({ status: 200, headers, json: success({ allies }) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}/settings` && request.method() === "PATCH") {
@@ -107,7 +108,7 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
       const payload = request.postDataJSON();
       expect(payload.settings_revision).toBe(settings.settings_revision);
       settings = { ...payload, settings_revision: settings.settings_revision + 1 };
-      return route.fulfill({ status: 200, headers, json: success({ ...ally(), ...settings }) });
+      return route.fulfill({ status: 200, headers, json: success({ ...fixtureAlly(), ...settings }) });
     }
     if (withDeletion && url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}/deletion`) {
       if (request.method() === "POST") {
@@ -124,7 +125,7 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
       return route.fulfill({ status: 202, headers, json: success({ ally_id: allyId, operation_id: "00000000-0000-4000-8000-000000000012", state: "pending", retryable: true, safe_error_code: "" }) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}`) {
-      return route.fulfill({ status: 200, headers, json: success(ally()) });
+      return route.fulfill({ status: 200, headers, json: success(fixtureAlly()) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}/conversation`) {
       const payload = conversation(sent);
@@ -179,7 +180,16 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
         expect(request.postDataJSON()).toEqual({ decision: "approve" });
         approvalStatus = "decision_recorded";
       }
-      return route.fulfill({ status: 200, headers, json: success({ ...approval(), action_label: "Connect a knowledge space", action_preview: "Connect to the selected knowledge space using the supplied credential." }) });
+      const requestId = "00000000-0000-4000-8000-000000000030";
+      const digest = `sha256:${"a".repeat(64)}`;
+      return route.fulfill({ status: 200, headers, json: success({
+        ...approval(), contract_version: "approval.v1", approval_request_id: requestId, preview_digest: digest,
+        action_label: "Run code", action_preview: approvalOptions?.preview ?? "connect_knowledge_space(credential='[REDACTED]')",
+        technical_details: { action_kind: "execute_code", action_label: "Run code", action_preview: approvalOptions?.preview ?? "connect_knowledge_space(credential='[REDACTED]')" },
+        explanation: { version: "approval-explanation.v1", approval_request_id: requestId, preview_digest: digest, source: "model",
+          action: "Connect your knowledge space", target: "Your selected knowledge service",
+          consequence: "Your Ally will be able to read the notes you have shared", reason: "Your permission is needed to finish connecting" },
+      }) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages` && request.method() === "POST") {
       sentRequest = { body: request.postData(), csrf: request.headers()["x-csrftoken"] };
@@ -208,6 +218,27 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
     deletionStatusReads: () => deletionStatusReads,
   };
 }
+
+test("restores composer spacing after the mobile keyboard closes", async ({ page }, testInfo) => {
+  await fixtureCloud(page, "signed-in");
+  await page.goto(`/home/${allyId}`);
+  const input = page.getByLabel("Message Ada");
+  await expect(input).toBeVisible();
+  const padding = () => input.evaluate(element => getComputedStyle(element.closest('[data-testid="conversation-composer"]')!.parentElement!).paddingBottom);
+  const original = await padding();
+  await input.fill("Keyboard regression check");
+  await page.evaluate(() => {
+    const height = window.visualViewport!.height - 300;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: height });
+    Object.defineProperty(window.visualViewport, "height", { configurable: true, value: height });
+    window.visualViewport!.dispatchEvent(new Event("resize"));
+  });
+  await expect(page.getByTestId("conversation-frame-shell")).toHaveAttribute("data-keyboard-open", "");
+  await expect.poll(padding).toBe(testInfo.project.name === "mobile" ? "8px" : original);
+  await input.blur();
+  await expect(page.getByTestId("conversation-frame-shell")).not.toHaveAttribute("data-keyboard-open");
+  await expect.poll(padding).toBe(original);
+});
 
 test("redirects signed-out visitors to sign-in", async ({ page }) => {
   await fixtureCloud(page, "signed-out");
@@ -280,25 +311,68 @@ for (const colorScheme of ["light", "dark"] as const) {
   });
 }
 
-test("shows a real conversation approval and records the choice before runtime acknowledgement", async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 375, height: 812 });
+for (const colorScheme of ["light", "dark"] as const) {
+test(`shows a real conversation approval and records the choice in ${colorScheme} mode`, async ({ page }, testInfo) => {
+  if (testInfo.project.name === "mobile") await page.setViewportSize({ width: 375, height: 812 });
+  await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
   await fixtureCloud(page, "signed-in", true);
   await page.goto(`/home/${allyId}`);
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("Connect a knowledge space")).toBeVisible();
+  await expect(dialog.getByText("Connect your knowledge space")).toBeVisible();
+  await expect(dialog.getByText("Your selected knowledge service")).toBeVisible();
+  const preview = dialog.locator("pre");
+  await expect(preview).not.toBeVisible();
+  const disclosure = dialog.getByText("View technical details", { exact: true });
+  await disclosure.click();
+  await expect(preview).toBeVisible();
+  await expect(preview).toHaveText("connect_knowledge_space(credential='[REDACTED]')");
+  await disclosure.click();
+  const approve = dialog.getByRole("button", { name: "Approve", exact: true });
+  const reject = dialog.getByRole("button", { name: "Reject", exact: true });
+  for (const button of [approve, reject]) {
+    const geometry = await button.evaluate((element) => ({ height: element.getBoundingClientRect().height, radius: getComputedStyle(element).borderRadius, background: getComputedStyle(element).backgroundColor }));
+    expect(geometry.height).toBeGreaterThanOrEqual(48);
+    expect(parseFloat(geometry.radius)).toBeGreaterThanOrEqual(24);
+    expect(geometry.background).not.toBe("rgba(0, 0, 0, 0)");
+  }
+  await dialog.getByRole("button", { name: "Close", exact: true }).focus();
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
   await page.keyboard.press("Shift+Tab");
   expect(await dialog.evaluate((element) => document.activeElement === document.body || element.contains(document.activeElement))).toBe(true);
   await page.keyboard.press("Tab");
   await expect(dialog.getByRole("button", { name: "Close", exact: true })).toBeFocused();
-  await page.screenshot({ path: testInfo.outputPath("approval-mobile.png") });
+  await page.screenshot({ path: testInfo.outputPath(`approval-${colorScheme}.png`) });
   await page.keyboard.press("Escape");
   await expect(dialog).not.toBeVisible();
   await page.getByRole("button", { name: "Approval needed", exact: true }).click();
+  await expect(preview).not.toBeVisible();
   await dialog.getByRole("button", { name: "Approve", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Decision recorded · Waiting for Ally", exact: true })).toBeFocused();
+  await expect(page.getByText("Previous approvals")).toHaveCount(0);
+  await page.getByRole("button", { name: "Decision recorded · Waiting for Ally", exact: true }).click();
+  await expect(dialog.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Reject", exact: true })).toHaveCount(0);
+  await expect(dialog.getByText("Connect your knowledge space")).toBeVisible();
+});
+}
+
+test("real conversation approval scrolls complete technical details on a narrow screen", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
+  const safePreview = "print('Synthetic safe preview')\n".repeat(200);
+  await fixtureCloud(page, "signed-in", true, false, false, false, false, false, { appearanceKey: "ghosty:ff5800", preview: safePreview });
+  await page.goto(`/home/${allyId}`);
+  const dialog = page.getByRole("dialog");
+  const approve = dialog.getByRole("button", { name: "Approve", exact: true });
+  await expect(approve).toHaveCSS("background-color", "rgb(255, 88, 0)");
+  await dialog.getByText("View technical details", { exact: true }).click();
+  await expect(dialog.locator("pre")).toHaveText(safePreview);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await approve.scrollIntoViewIfNeeded();
+  await expect(approve).toBeInViewport();
+  await page.screenshot({ path: testInfo.outputPath("approval-narrow-details.png") });
 });
 
 test("keeps local message times outside bubbles without changing bubble geometry", async ({ page }) => {
