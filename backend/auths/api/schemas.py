@@ -52,10 +52,10 @@ class RedirectRequest(Schema):
 
 
 class ClaimInviteRequest(Schema):
-    code: str = Field(min_length=1, max_length=128)
+    code: str = Field(min_length=8, max_length=8)
     email: str = Field(min_length=1, max_length=254)
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
 
 
 class ClaimInviteResponse(Schema):
