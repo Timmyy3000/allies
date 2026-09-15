@@ -46,6 +46,10 @@
 }
 
 @media (max-width: 1023px) {
+  .frameProduction[data-keyboard-open] .frameComposerArea {
+    padding-bottom: 8px;
+  }
+
   .frameProduction {
     height: var(--chat-viewport-height, 100%);
     translate: 0 var(--chat-viewport-offset, 0);
