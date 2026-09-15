@@ -1,0 +1,208 @@
+name: Publish Runtime Release to Staging
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: runtime-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.ref == 'refs/heads/dev'
+    permissions:
+      contents: write
+      packages: write
+    name: Build and validate runtime release
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 60
+    steps:
+      - name: Check out the fixed dispatch commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Check the dispatch ref and checkout
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = refs/heads/dev
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+
+      - name: Set the bounded release directory
+        run: echo "RELEASE_DIRECTORY=$RUNNER_TEMP/runtime-release" >> "$GITHUB_ENV"
+
+      - name: Prepare release state
+        id: prepare
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RELEASE_DIRECTORY"
+          python scripts/runtime_release.py prepare
+
+      - name: Set up Docker Buildx
+        if: steps.prepare.outputs.mode == 'new'
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+
+      - name: Test provider policy boundary
+        if: steps.prepare.outputs.mode == 'new'
+        env:
+          PYTHONPATH: runtime/hermes-image/provider
+        run: uvx --from pytest==8.4.2 --with PyYAML==6.0.3 pytest runtime/hermes-image/provider/tests/test_provider.py runtime/hermes-image/tests -q
+
+      - name: Prepare hash-locked offline wheelhouse
+        if: steps.prepare.outputs.mode == 'new'
+        run: make hermes-image-wheelhouse
+
+      - name: Prove wheel hashes are enforced
+        if: steps.prepare.outputs.mode == 'new'
+        run: |
+          set -euo pipefail
+          cp -a runtime/hermes-image/wheelhouse /tmp/corrupt-wheelhouse
+          printf 'corrupt' >> /tmp/corrupt-wheelhouse/mnemosyne_hermes-0.5.0-py3-none-any.whl
+          if python runtime/hermes-image/verify_wheelhouse.py \
+            runtime/hermes-image/requirements.lock /tmp/corrupt-wheelhouse; then
+            echo "corrupted wheel unexpectedly passed hash verification" >&2
+            exit 1
+          fi
+
+      - name: Log in to GHCR
+        if: steps.prepare.outputs.mode == 'new' || steps.prepare.outputs.mode == 'candidate'
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GHCR_USER" --password-stdin
+
+      - name: Build and publish Hermes once
+        if: steps.prepare.outputs.mode == 'new'
+        id: hermes_image
+        env:
+          BUILDX_GIT_INFO: "1"
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/allies-hermes"
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=true \
+            --sbom=true \
+            --push \
+            --metadata-file "$RELEASE_DIRECTORY/hermes-build.json" \
+            --build-arg SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            --tag "$image:runtime-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-hermes" \
+            --file runtime/hermes-image/Dockerfile \
+            runtime/hermes-image
+          digest=$(jq -er '."containerimage.digest"' "$RELEASE_DIRECTORY/hermes-build.json")
+          echo "HERMES_IMAGE=$image@$digest" >> "$GITHUB_ENV"
+          echo "hermes_image=$image@$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish runtime once
+        if: steps.prepare.outputs.mode == 'new'
+        id: images
+        env:
+          BUILDX_GIT_INFO: "1"
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/allies-runtime"
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=true \
+            --sbom=true \
+            --push \
+            --metadata-file "$RELEASE_DIRECTORY/runtime-build.json" \
+            --tag "$image:runtime-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-runtime" \
+            --file runtime/Dockerfile \
+            runtime
+          digest=$(jq -er '."containerimage.digest"' "$RELEASE_DIRECTORY/runtime-build.json")
+          echo "RUNTIME_IMAGE=$image@$digest" >> "$GITHUB_ENV"
+          echo "runtime_image=$image@$digest" >> "$GITHUB_OUTPUT"
+
+      - name: Smoke-test the exact pushed digests and save the candidate
+        if: steps.prepare.outputs.mode == 'new' || steps.prepare.outputs.mode == 'candidate'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HERMES_IMAGE: ${{ steps.hermes_image.outputs.hermes_image || steps.prepare.outputs.hermes_image }}
+          RUNTIME_IMAGE: ${{ steps.images.outputs.runtime_image || steps.prepare.outputs.runtime_image }}
+        run: |
+          set -euo pipefail
+          docker pull "$HERMES_IMAGE"
+          docker pull "$RUNTIME_IMAGE"
+          sh runtime/hermes-image/smoke_release.sh "$HERMES_IMAGE" "$RUNTIME_IMAGE"
+          python scripts/runtime_release.py candidate \
+            --hermes-image "$HERMES_IMAGE" \
+            --runtime-image "$RUNTIME_IMAGE"
+
+  stage:
+    name: Apply the verified pair to staging
+    needs: publish
+    if: github.ref == 'refs/heads/dev' && needs.publish.result == 'success'
+    permissions:
+      contents: write
+      packages: read
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    environment: foundry / staging
+    env:
+      RELEASE_ID: runtime-${{ github.run_id }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+      RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+    steps:
+      - name: Check out the fixed dispatch commit
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+
+      - name: Check the dispatch ref
+        run: test "$GITHUB_REF" = refs/heads/dev
+
+      - name: Set the bounded release directory
+        run: echo "RELEASE_DIRECTORY=$RUNNER_TEMP/runtime-release" >> "$GITHUB_ENV"
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Re-read durable state for staging job retries
+        id: current
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python scripts/runtime_release.py prepare
+
+      - name: Apply and verify the staging pair
+        if: steps.current.outputs.mode == 'candidate'
+        env:
+          HERMES_IMAGE: ${{ steps.current.outputs.hermes_image }}
+          RUNTIME_IMAGE: ${{ steps.current.outputs.runtime_image }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RELEASE_DIRECTORY"
+          python scripts/integrations/railway/update_runtime_images.py \
+            --environment staging \
+            --hermes-image "$HERMES_IMAGE" \
+            --runtime-image "$RUNTIME_IMAGE" > "$RELEASE_DIRECTORY/receipt.json"
+
+      - name: Finalize the durable staging release
+        if: steps.current.outputs.mode != 'complete'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RELEASE_DIRECTORY"
+          python scripts/runtime_release.py finalize
+
+      - name: Summarize an already-complete release
+        if: steps.current.outputs.mode == 'complete'
+        run: echo "Release $RELEASE_ID is already finalized; no mutation was required." >> "$GITHUB_STEP_SUMMARY"
