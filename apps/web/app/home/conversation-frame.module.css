@@ -46,6 +46,10 @@
 }
 
 @media (max-width: 1023px) {
+  .frameProduction[data-keyboard-open] .frameComposerArea {
+    padding-bottom: 8px;
+  }
+
   .frameProduction {
     height: var(--chat-viewport-height, 100%);
     translate: 0 var(--chat-viewport-offset, 0);
@@ -1359,25 +1363,34 @@
 }
 
 .approvalRegion {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
 }
 
-.approvalReopen {
+.approvalHistoryRow {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 8px 10px;
   border: 0;
-  border-radius: 20px;
-  padding: 8px 12px;
+  border-radius: 14px;
+  background: transparent;
   font: inherit;
-  color: var(--text-secondary);
-  background: var(--chat-surface, var(--canvas));
+  text-align: left;
   cursor: pointer;
 }
+
+.approvalHistoryRow:hover { background: var(--chat-surface, var(--canvas)); }
+.approvalHistoryRow:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: 3px; }
+.approvalHistoryStatus { flex: 1; }
 
 .approvalModal {
   position: fixed;
   z-index: 100;
   background: rgb(0 0 0 / 14%);
+  --chat-ink: var(--text-primary);
+  --chat-surface: var(--surface);
+  --chat-activity-accent: var(--chat-accent);
 }
 
 .frameNativeSheet {
@@ -1419,6 +1432,27 @@
   scrollbar-color: var(--chat-accent) transparent;
 }
 
+.approvalModal .frameSheetTop {
+  min-height: 36px;
+  align-items: center;
+}
+
+.approvalModal .frameSheetClose {
+  width: 36px;
+  height: 36px;
+  flex-basis: 36px;
+  margin: 0 -8px 0 0;
+}
+
+.approvalBadge {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+}
+
+.approvalBadge svg { width: 31px; height: 31px; }
+
 .approvalModal .frameSheet::-webkit-scrollbar,
 .approvalPreview::-webkit-scrollbar,
 .frameActivityEntries::-webkit-scrollbar { width: 6px; }
@@ -1429,10 +1463,35 @@
 .approvalPreview::-webkit-scrollbar-thumb,
 .frameActivityEntries::-webkit-scrollbar-thumb { background: var(--chat-accent); border-radius: 999px; }
 
-.approvalModal .frameSheetQuestion { text-align: center; }
+.approvalModal .frameSheetQuestion { margin-top: 16px; text-align: center; }
+
+.approvalExplanation {
+  display: grid;
+  gap: 12px;
+  margin: 20px 0 0;
+}
+
+.approvalExplanation div { display: grid; gap: 2px; }
+.approvalExplanation dt { color: var(--text-secondary); font-size: 12px; font-weight: 600; }
+.approvalExplanation dd { margin: 0; overflow-wrap: anywhere; line-height: 1.4; }
+
+.approvalDetails {
+  margin-top: 18px;
+  border-top: 1px solid var(--divider);
+}
+
+.approvalDetails summary {
+  min-height: 44px;
+  padding-top: 14px;
+  color: var(--chat-accent);
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.approvalDetails summary:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: 3px; }
 
 .approvalPreview {
-  margin-top: 20px;
+  margin-top: 12px;
   min-height: 0;
   overflow: auto;
   overflow-wrap: anywhere;
@@ -1441,11 +1500,23 @@
 }
 
 .approvalPreview pre {
+  margin: 8px 0 0;
   white-space: pre-wrap;
   font: inherit;
   font-size: 14px;
   line-height: 1.5;
 }
+
+.approvalTechnicalMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.approvalTechnicalMeta strong { color: var(--text-primary); font-weight: 500; text-align: right; }
 
 .approvalModal button:disabled { cursor: default; opacity: 0.5; }
 
