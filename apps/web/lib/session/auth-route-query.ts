@@ -7,6 +7,7 @@ export const AUTH_RETURN_ERROR_CODES = [
   "invalid_state",
   "origin_rejected",
   "csrf_rejected",
+  "invite_required",
 ] as const;
 
 export type AuthReturnErrorCode = (typeof AUTH_RETURN_ERROR_CODES)[number];

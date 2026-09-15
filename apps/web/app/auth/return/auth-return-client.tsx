@@ -38,6 +38,25 @@ function ReturnShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+function InviteRequiredRecovery({ returnTo }: { returnTo: string }) {
+  const claimHref = `/claim-invite?returnTo=${encodeURIComponent(returnTo)}`;
+  const signInHref = `/sign-in?returnTo=${encodeURIComponent(returnTo)}`;
+
+  return (
+    <ReturnShell>
+      <p id="return-title" className={styles.eyebrow}>Invite required</p>
+      <h1>You’ll need a beta invite</h1>
+      <p className={styles.copy} role="alert">
+        You’ll need a beta invite to create an account. Claim it using the email for your Google account.
+      </p>
+      <div className={styles.actions}>
+        <Link className={styles.retryButton} href={claimHref}>Claim an invite</Link>
+        <Link className={styles.signInLink} href={signInHref}>Sign in again</Link>
+      </div>
+    </ReturnShell>
+  );
+}
+
 export function AuthReturnClient({
   returnTo,
   errorCode,
@@ -82,6 +101,10 @@ export function AuthReturnClient({
         <p className={styles.copy} role="status" aria-live="polite">Taking you there now…</p>
       </ReturnShell>
     );
+  }
+
+  if (errorCode === "invite_required") {
+    return <InviteRequiredRecovery returnTo={returnTo} />;
   }
 
   const settledMessage = callbackError ?? (

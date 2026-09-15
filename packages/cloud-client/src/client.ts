@@ -113,6 +113,15 @@ const waitlistEntrySchema = z.object({
   greeting: z.string().min(1),
 });
 const waitlistCompletionSchema = z.object({ email: maskedEmailSchema });
+export type ClaimInviteRequest = components["schemas"]["ClaimInviteRequest"];
+export type ClaimInviteResponse = components["schemas"]["ClaimInviteResponse"];
+export const claimInviteRequestSchema: z.ZodType<ClaimInviteRequest> = z.object({
+  code: z.string().trim().min(1).max(128).refine((value) => !hasControlCharacter(value)),
+  email: z.string().trim().max(254).pipe(z.email()),
+}).strict();
+export const claimInviteResponseSchema: z.ZodType<ClaimInviteResponse> = z.object({
+  claimed: z.literal(true),
+}).strict();
 
 function normalizeRequestSignal(signal?: AbortSignal): AbortSignal | undefined {
   if (!signal) return undefined;
@@ -442,6 +451,22 @@ export function createCloudClient(options: CloudClientOptions) {
         }) as Promise<ApiResult>,
         (data) =>
           successEnvelope(z.object({ redirect_url: externalHttpsUrlSchema }).loose()).parse(data).data.redirect_url,
+      );
+    },
+
+    async claimInvite(input: ClaimInviteRequest, options?: { signal?: AbortSignal }): Promise<void> {
+      const signal = options?.signal;
+      rejectPreAborted(signal);
+      const body = parseInput(claimInviteRequestSchema, input);
+      await unwrap(
+        api.POST("/api/v1/auths/invites/claim", {
+          body,
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => {
+          successEnvelope(claimInviteResponseSchema).parse(data);
+        },
+        [200],
       );
     },
 
