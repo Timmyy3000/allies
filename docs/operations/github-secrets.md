@@ -8,7 +8,7 @@ This file records secret names and their purpose only. Secret values must be add
 | `PROMOTION_TOKEN` | Protected branch promotions and Fastlane back-merge PRs | To be added |
 | `GITLEAKS_LICENSE` | Gitleaks scan if the action requires licensing | To be confirmed |
 | `DEPLOYMENT_TOKEN` | Future hosted Foundry deployment workflow | Not used yet |
-| `RAILWAY_TOKEN` | Publish Allies Runtime Images workflow | Required at repository scope; the account token is passed to Railway as `RAILWAY_API_TOKEN` |
+| `RAILWAY_TOKEN` | Optional runtime staging/publication and production promotion integration | Account API token, passed as `RAILWAY_API_TOKEN`; see [integration setup](integrations/railway-runtime-images.md) |
 
 The promotion credential should be a narrowly scoped GitHub App or fine-grained repository token with only the permissions required to update promotion branches and open the Fastlane back-merge PR.
 
@@ -23,16 +23,14 @@ The verifier also supports a manual `workflow_dispatch` URL input. It requires
 an `https://` URL and checks `/healthz` until the service returns HTTP 200 with
 `{"status":"ok"}`.
 
-The **Publish Allies Runtime Images** workflow builds and publishes the Hermes
-and runtime images from one commit. Select `staging` or `production` to update
-that Railway environment's shared `HERMES_IMAGE` and `RUNTIME_IMAGE` values as
-one API operation. Selecting `none` only publishes the images. Railway
-redeploys services that reference the changed shared values;
-existing Fly machines reconcile to the pair through Foundry's normal image
-update flow.
+Runtime publishing now targets staging only. Production promotion takes an
+explicit saved release ID and reuses both immutable image references without
+rebuilding. Use the [runtime release procedure](runtime-image-updates.md) for
+selection, retries and rollback. The built-in `GITHUB_TOKEN` needs package/release
+writes for publishing; production only reads packages/releases. PR validation
+has no publishing or deployment permissions.
 
-Promotion updates are serialized per environment, but a concurrency lock cannot
-order a re-run against a newer dispatch. Release operators must dispatch the
-current intended commit and must not re-run an older `update-railway` job after
-a newer promotion; dispatch the current commit again instead. Revisit this
-operator fence if a source-commit downgrade check is added.
+Runtime publication and production promotion each serialize their own runs.
+Staging can advance independently. Selecting an older production release is an
+intentional rollback, so review the selected ID before dispatch. Existing machine
+adoption is a separate canary/readiness check.
