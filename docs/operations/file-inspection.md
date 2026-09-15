@@ -66,3 +66,20 @@ complete.
 The task claims a 240-second inspection lease with a unique token. Promotion
 must check that token, its deadline, the generation, and the write fence after
 storage I/O. A stale worker cannot promote or reject a replacement generation.
+
+Durable uploads notify a file-specific inspection task only after their database
+transaction commits. Retryable failures persist their 5- or 30-second due time
+before publishing the next notification. Notifications use a short, non-retrying
+broker connection and may be lost without losing work: the bounded 30-second
+due-file sweep remains the recovery path for broker failure, worker restarts,
+and expired leases. Duplicate, early, leased, terminal, and missing-file tasks
+must therefore remain safe no-ops.
+
+The official ClamAV image starts FreshClam and clamd independently. If an update
+finishes before the daemon socket exists, notification can be missed. Railway's
+staging and production scanner services set `CLAMD_CONF_SelfCheck=10` so clamd
+detects that database replacement within ten seconds; `FRESHCLAM_CHECKS=12` and
+the persistent signature volumes remain enabled. After every scanner deployment,
+verify the configured self-check interval, a successful database status check,
+the daemon-reported definition timestamp, and a benign scan before accepting
+files. Container deployment success alone is not scanner-readiness evidence.
