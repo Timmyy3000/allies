@@ -19,8 +19,8 @@ from auths.exceptions import (
 )
 from auths.models import BetaInvite
 
-_INVITE_CODE_BYTES = 32
-_INVITE_CODE_MAX_LENGTH = 128
+_INVITE_CODE_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567"
+_INVITE_CODE_LENGTH = 8
 
 
 def _digest(code: str) -> str:
@@ -43,14 +43,18 @@ def normalize_invite_email(value: str) -> str:
 def _validate_code(code: str) -> str:
     if not isinstance(code, str):
         raise InviteValidation("code is invalid")
-    normalized = code.strip()
-    if not normalized or len(normalized) > _INVITE_CODE_MAX_LENGTH:
+    normalized = code.strip().upper()
+    if len(normalized) != _INVITE_CODE_LENGTH or any(
+        char not in _INVITE_CODE_ALPHABET for char in normalized
+    ):
         raise InviteValidation("code is invalid")
     return normalized
 
 
 def _new_code() -> tuple[str, str]:
-    raw = secrets.token_urlsafe(_INVITE_CODE_BYTES)
+    raw = "".join(
+        secrets.choice(_INVITE_CODE_ALPHABET) for _ in range(_INVITE_CODE_LENGTH)
+    )
     return raw, _digest(raw)
 
 
