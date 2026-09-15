@@ -197,13 +197,10 @@ def _safe_action_preview(preview: str) -> str:
     def sanitize_fragment(fragment: str) -> str | None:
         if not fragment:
             return ""
-        if "=" not in fragment and len(fragment) < 16:
-            return fragment
         sanitized = []
         for pair in fragment.split("&"):
             if not pair:
-                sanitized.append(pair)
-                continue
+                return None
             key, separator, _value = pair.partition("=")
             normalized_key = normalized_url_key(key)
             if separator and normalized_key in _CAPABILITY_SAFE_FRAGMENT_KEYS:
