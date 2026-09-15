@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, type C
 import { useQuery } from "@tanstack/react-query";
 import type { ApprovalDecision, ApprovalDetail, ApprovalSummary } from "@allies/cloud-client";
 import { BottomSheet } from "./conversation-frame-primitives";
+import { ActivityIcon } from "./activity-icon";
 import styles from "./conversation-frame.module.css";
 
 export interface ApprovalClient {
@@ -54,6 +55,33 @@ const statusText = {
   outcome_unknown: "Decision recorded; Ally outcome could not be confirmed",
 };
 
+function fallbackExplanation(pending: boolean) {
+  return pending ? {
+    action: "Your Ally is requesting permission to perform an action.",
+    target: "Review the technical details below for the exact request.",
+    consequence: "Approving lets the request proceed; rejecting stops it.",
+    reason: "Your Ally is waiting for your decision before continuing.",
+  } : {
+    action: "This action required your permission.",
+    target: "Review the technical details below for the exact request.",
+    consequence: "The recorded decision determines whether the request can proceed.",
+    reason: "A decision has already been recorded for this request.",
+  } as const;
+}
+
+const actionKindText = {
+  terminal: "Terminal command",
+  execute_code: "Code execution",
+  plugin_tool: "Plugin tool",
+} as const;
+
+function ApprovalBadge() {
+  return <svg viewBox="0 0 24 24" aria-hidden="true">
+    <path opacity=".4" d="M10.75 2.45c.69-.59 1.82-.59 2.52 0l1.58 1.36c.3.26.86.47 1.26.47h1.7c1.06 0 1.93.87 1.93 1.93v1.7c0 .39.21.96.47 1.26l1.36 1.58c.59.69.59 1.82 0 2.52l-1.36 1.58c-.26.3-.47.86-.47 1.26v1.7c0 1.06-.87 1.93-1.93 1.93h-1.7c-.39 0-.96.21-1.26.47l-1.58 1.36c-.69.59-1.82.59-2.52 0l-1.58-1.36c-.3-.26-.86-.47-1.26-.47H6.18c-1.06 0-1.93-.87-1.93-1.93V16.1c0-.39-.21-.95-.46-1.25l-1.35-1.59c-.58-.69-.58-1.81 0-2.5l1.35-1.59c.25-.3.46-.86.46-1.25V6.2c0-1.06.87-1.93 1.93-1.93h1.73c.3 0 .96-.21 1.26-.47l1.58-1.35Z" fill="#f5d308" />
+    <path d="M10.79 15.171a.75.75 0 0 1-.53-.22l-2.42-2.42a.754.754 0 0 1 0-1.06c.29-.29.77-.29 1.06 0l1.89 1.89 4.3-4.3c.29-.29.77-.29 1.06 0 .29.29.29.77 0 1.06l-4.83 4.83a.75.75 0 0 1-.53.22Z" fill="#fff" />
+  </svg>;
+}
+
 export function ConversationApprovals({ client, workspaceId, conversationId, allyName, accent, canApprove, enabled = true, children }: {
   client: ApprovalClient;
   workspaceId: string;
@@ -95,15 +123,16 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
     restoreFocusId.current = activeId;
     setOpenedId(null);
   };
-  const approvalButton = (approval: ApprovalSummary) => <button type="button" data-approval-id={approval.id} className={styles.approvalReopen} key={approval.id} onClick={() => setOpenedId(approval.id)}>
-    {statusText[approvalStatusAt(approval, now)]}
-  </button>;
+  const approvalButton = (approval: ApprovalSummary) => {
+    const status = approvalStatusAt(approval, now);
+    return <button type="button" data-approval-id={approval.id} className={`${styles.frameActivityEntry} ${styles.approvalHistoryRow} ${status === "pending" ? styles.frameActivityAccent : styles.frameActivityMuted}`} key={approval.id} onClick={() => setOpenedId(approval.id)}>
+      <ActivityIcon kind="approval" tone={status === "pending" ? "accent" : "muted"} />
+      <span className={styles.approvalHistoryStatus}>{statusText[status]}</span>
+    </button>;
+  };
   const list = (items: ApprovalSummary[], error = false) => items.length || error ? <div className={styles.approvalRegion} style={{ "--chat-accent": accent } as CSSProperties}>
     {error ? <button type="button" onClick={() => void summaries.refetch()}>Could not check approvals. Try again</button> : null}
-    {items.filter((approval) => ["pending", "decision_recorded"].includes(approvalStatusAt(approval, now))).map(approvalButton)}
-    {items.some((approval) => !["pending", "decision_recorded"].includes(approvalStatusAt(approval, now))) ? <details><summary>Previous approvals</summary>
-      {items.filter((approval) => !["pending", "decision_recorded"].includes(approvalStatusAt(approval, now))).map(approvalButton)}
-    </details> : null}
+    {items.map(approvalButton)}
   </div> : null;
   const slots: ConversationApprovalSlots = {
     forMessage: (messageId) => list(approvals.filter((approval) => approval.messageId === messageId)),
@@ -115,7 +144,6 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
     const frame = window.requestAnimationFrame(() => {
       const button = document.querySelector<HTMLButtonElement>(`[data-approval-id="${approvalId}"]`);
       if (button) {
-        button.closest("details")?.setAttribute("open", "");
         button.focus();
       }
       restoreFocusId.current = null;
@@ -124,7 +152,7 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
   }, [activeId, approvals]);
   return <>
     <ApprovalSlotsContext value={slots}>{children ?? <ConversationApprovalSlot />}</ApprovalSlotsContext>
-    {activeId ? <ApprovalDialog key={activeId} client={client} workspaceId={workspaceId} conversationId={conversationId} approvalId={activeId} summary={selected} intent={intents[activeId]} rememberIntent={(intent) => setIntents((prior) => ({ ...pruneDecisionIntents(prior, approvals), [activeId]: intent }))} now={now} allyName={allyName} canApprove={canApprove} onClose={() => close()} onRecorded={(approval) => {
+    {activeId ? <ApprovalDialog key={activeId} client={client} workspaceId={workspaceId} conversationId={conversationId} approvalId={activeId} summary={selected} intent={intents[activeId]} rememberIntent={(intent) => setIntents((prior) => ({ ...pruneDecisionIntents(prior, approvals), [activeId]: intent }))} now={now} allyName={allyName} accent={accent} canApprove={canApprove} onClose={() => close()} onRecorded={(approval) => {
       setRecorded((prior) => ({ ...prior, [approval.id]: confirmedStatus(prior[approval.id], approval) ?? approval }));
       close(false);
       void summaries.refetch();
@@ -132,9 +160,9 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
   </>;
 }
 
-function ApprovalDialog({ client, workspaceId, conversationId, approvalId, summary, intent, rememberIntent, now, allyName, canApprove, onClose, onRecorded }: {
+function ApprovalDialog({ client, workspaceId, conversationId, approvalId, summary, intent, rememberIntent, now, allyName, accent, canApprove, onClose, onRecorded }: {
   client: ApprovalClient; workspaceId: string; conversationId: string; approvalId: string;
-  summary?: ApprovalSummary; now: number; allyName: string; canApprove: boolean; onClose: () => void; onRecorded: (approval: ApprovalSummary) => void;
+  summary?: ApprovalSummary; now: number; allyName: string; accent: string; canApprove: boolean; onClose: () => void; onRecorded: (approval: ApprovalSummary) => void;
   intent?: DecisionIntent; rememberIntent: (intent: DecisionIntent) => void;
 }) {
   const detail = useQuery({
@@ -184,12 +212,25 @@ function ApprovalDialog({ client, workspaceId, conversationId, approvalId, summa
       setBusy(false);
     }
   };
-  return <BottomSheet modal onClose={onClose} labelledBy="approval-title" className={styles.approvalModal}>
-    <h2 id="approval-title" className={styles.frameSheetQuestion}>Allow {allyName} to perform this action?</h2>
-    {!data ? <p role="status">{detail.isError ? "Could not load this approval." : "Loading approval…"}</p> : <div className={styles.approvalPreview}>
-      <strong>{data.actionLabel}</strong>
-      <pre>{data.actionPreview}</pre>
-    </div>}
+  const explanation = data?.explanation ?? fallbackExplanation(status === "pending");
+  return <BottomSheet modal onClose={onClose} labelledBy="approval-title" className={styles.approvalModal} style={{ "--chat-accent": accent } as CSSProperties} headerContent={<span className={styles.approvalBadge}><ApprovalBadge /></span>}>
+    <h2 id="approval-title" className={styles.frameSheetQuestion}>{status === "pending" ? `Allow ${allyName} to perform this action?` : "Approval details"}</h2>
+    {!data ? <p role="status">{detail.isError ? "Could not load this approval." : "Loading approval…"}</p> : <>
+      <dl className={styles.approvalExplanation}>
+        <div><dt>Action</dt><dd>{explanation.action}</dd></div>
+        <div><dt>Target</dt><dd>{explanation.target}</dd></div>
+        <div><dt>Consequence</dt><dd>{explanation.consequence}</dd></div>
+        <div><dt>Reason</dt><dd>{explanation.reason}</dd></div>
+      </dl>
+      <details className={styles.approvalDetails}>
+        <summary>View technical details</summary>
+        <div className={styles.approvalPreview}>
+          {data.actionKind ? <p className={styles.approvalTechnicalMeta}><span>Type</span><strong>{actionKindText[data.actionKind]}</strong></p> : null}
+          <p className={styles.approvalTechnicalMeta}><span>Action</span><strong>{data.actionLabel}</strong></p>
+          <pre>{data.actionPreview}</pre>
+        </div>
+      </details>
+    </>}
     {!data && detail.isError ? <button type="button" onClick={() => void detail.refetch()}>Try again</button> : null}
     {status && status !== "pending" ? <p role="status">{statusText[status]}</p> : null}
     {failed && status === "pending" ? <p role="alert">The decision could not be confirmed. Retry the same choice to check safely.</p> : null}
