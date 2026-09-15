@@ -156,10 +156,22 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
     const viewport = window.visualViewport;
     if (!shell || !viewport) return;
     let frame = 0;
+    let restingHeight = viewport.height;
+    let restingWidth = window.innerWidth;
     const canvas = () => shell.querySelector<HTMLElement>('[data-testid="conversation-frame-canvas"]');
     const textareaIsFocused = () => document.activeElement instanceof HTMLTextAreaElement
       && shell.contains(document.activeElement);
     const sync = () => {
+      const focused = textareaIsFocused();
+      const unzoomed = Math.abs(viewport.scale - 1) < 0.05;
+      if (Math.abs(window.innerWidth - restingWidth) > 80) {
+        restingWidth = window.innerWidth;
+        restingHeight = focused ? 0 : viewport.height;
+      }
+      if (!focused && unzoomed) restingHeight = Math.max(restingHeight, viewport.height);
+      // iOS can shrink innerHeight and visualViewport.height together when typing.
+      shell.toggleAttribute("data-keyboard-open", focused && unzoomed
+        && Math.max(restingHeight, window.innerHeight) - viewport.height > 100);
       if (!textareaIsFocused()) {
         shell.style.removeProperty("--chat-viewport-height");
         shell.style.removeProperty("--chat-viewport-offset");
@@ -188,12 +200,16 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
     shell.addEventListener("focusout", handleFocusOut);
     viewport.addEventListener("resize", sync);
     viewport.addEventListener("scroll", sync);
+    window.addEventListener("resize", sync);
+    sync();
     return () => {
       window.cancelAnimationFrame(frame);
       shell.removeEventListener("focusin", handleFocusIn);
       shell.removeEventListener("focusout", handleFocusOut);
       viewport.removeEventListener("resize", sync);
       viewport.removeEventListener("scroll", sync);
+      window.removeEventListener("resize", sync);
+      shell.removeAttribute("data-keyboard-open");
       shell.style.removeProperty("--chat-viewport-height");
       shell.style.removeProperty("--chat-viewport-offset");
     };
@@ -695,7 +711,7 @@ function ActivityGroup({ group, ongoing = false }: { group: ProductionConversati
       entries={group.entries.map((entry) => ({
         id: entry.id,
         text: activityText(entry),
-        activityKind: entry.activityKind,
+        activityKind: entry.approval ? "approval" : entry.activityKind,
         durationMs: entry.durationMs,
         tone: entry.kind === "awaiting_action"
           ? "accent"
