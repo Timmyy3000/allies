@@ -389,7 +389,7 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     selectedSegment.mockReturnValue(route === "home" ? null : route === "new" ? "new" : ally.id);
     render(<QueryClientProvider client={queryClient}><HomeLayout>{page}</HomeLayout></QueryClientProvider>);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in?returnTo=%2Fhome"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
     expect(screen.queryByText("SD")).toBeNull();
     expect(screen.queryByRole("button", { name: "Make an Ally" })).toBeNull();
     expect(screen.queryByText("Sally Morano")).toBeNull();
@@ -3125,6 +3125,6 @@ describe("HomeWorkspace", () => {
     });
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><HomeWorkspace selectedAllyId={null} /></QueryClientProvider>);
-    await waitFor(() => expect(replace).toHaveBeenCalledWith("/sign-in?returnTo=%2Fhome"));
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
   });
 });
