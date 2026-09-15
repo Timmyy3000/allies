@@ -25,6 +25,22 @@ class ProviderRejected(AuthDomainError):
     code = "provider_rejected"
 
 
+class InviteRequired(AuthDomainError):
+    code = "invite_required"
+
+
+class InviteUnavailable(AuthDomainError):
+    code = "invite_unavailable"
+
+
+class InviteValidation(AuthDomainError):
+    code = "validation_error"
+
+
+class InviteConsumed(AuthDomainError):
+    code = "invite_consumed"
+
+
 class NativeUnavailable(AuthDomainError):
     code = "auth_unavailable"
 

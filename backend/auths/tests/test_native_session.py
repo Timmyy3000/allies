@@ -9,7 +9,7 @@ import pytest
 from django.core.cache import cache
 from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
-from django.test import Client
+from django.test import Client, override_settings
 from django.utils import timezone
 
 from auths.api import native as native_api
@@ -24,12 +24,14 @@ from auths.exceptions import (
     SessionInvalid,
 )
 from auths.models import (
+    ExternalIdentity,
     NativeAuthorizationTransaction,
     NativeCompletionMode,
     NativeExchangeCode,
     NativeTransactionStatus,
     SessionClientKind,
     SessionFamily,
+    User,
 )
 from auths.providers.base import ProviderFlow, ProviderKey, VerifiedIdentity
 from auths.services import native_authorization, native_sessions
@@ -46,6 +48,7 @@ from auths.services.native_sessions import (
 )
 from auths.services.sessions import authenticate_access, issue_session
 from auths.throttle import ThrottleExceeded, ThrottleUnavailable
+from workspaces.models import Membership, Workspace
 
 APP_REDIRECT = "allies://auth/callback"
 NATIVE_CALLBACK = "https://cloud.example/api/v1/auths/native/callback/google"
@@ -145,6 +148,42 @@ def _start_flow(fixture_provider, *, completion_mode=NativeCompletionMode.REDIRE
 
 def _callback_query(location: str) -> dict[str, list[str]]:
     return parse_qs(urlparse(location).query)
+
+
+@pytest.mark.django_db
+def test_native_invite_required_is_persisted_as_terminal_failure(fixture_provider):
+    _, provider_state, _, _ = _start_flow(fixture_provider)
+    graph_counts = (
+        User.objects.count(),
+        ExternalIdentity.objects.count(),
+        Workspace.objects.count(),
+        Membership.objects.count(),
+    )
+    with override_settings(ALLIES_BETA_INVITES_REQUIRED=True):
+        first = complete_native_callback(
+            provider=ProviderKey.GOOGLE,
+            provider_state=provider_state,
+            provider_code="provider:invite-required",
+        )
+        second = complete_native_callback(
+            provider=ProviderKey.GOOGLE,
+            provider_state=provider_state,
+            provider_code="provider:invite-required",
+        )
+
+    transaction_row = NativeAuthorizationTransaction.objects.get(
+        state_digest=native_authorization._digest(provider_state)
+    )
+    assert transaction_row.status == NativeTransactionStatus.FAILED
+    assert transaction_row.error_code == "invite_required"
+    assert first.error_code == second.error_code == "invite_required"
+    assert NativeExchangeCode.objects.count() == 0
+    assert graph_counts == (
+        User.objects.count(),
+        ExternalIdentity.objects.count(),
+        Workspace.objects.count(),
+        Membership.objects.count(),
+    )
 
 
 @pytest.mark.django_db
