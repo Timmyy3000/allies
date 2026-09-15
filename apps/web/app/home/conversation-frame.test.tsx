@@ -606,6 +606,48 @@ describe("ConversationFrame", () => {
     expect(view.container.querySelector('summary > span[role="status"]')).toBe(liveRegion);
   });
 
+  it("removes the keyboard inset after dismissal or zoom, even when both viewport heights shrink", () => {
+    const originalHeight = Object.getOwnPropertyDescriptor(window, "innerHeight")!;
+    const originalViewport = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    const viewport = new EventTarget() as VisualViewport;
+    let height = 797;
+    let scale = 1;
+    Object.defineProperties(viewport, {
+      height: { get: () => height },
+      scale: { get: () => scale },
+      offsetTop: { value: 0 },
+    });
+    Object.defineProperty(window, "innerHeight", { configurable: true, get: () => height });
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    const view = render(<ConversationFrame model={model} actions={actions} />);
+    const shell = screen.getByTestId("conversation-frame-shell");
+    try {
+      act(() => screen.getByRole("textbox").focus());
+      expect(shell.hasAttribute("data-keyboard-open")).toBe(false);
+      height = 428;
+      act(() => viewport.dispatchEvent(new Event("resize")));
+      expect(shell.hasAttribute("data-keyboard-open")).toBe(true);
+      height = 797;
+      act(() => viewport.dispatchEvent(new Event("resize")));
+      expect(shell.hasAttribute("data-keyboard-open")).toBe(false);
+      height = 428;
+      scale = 2;
+      act(() => viewport.dispatchEvent(new Event("resize")));
+      expect(shell.hasAttribute("data-keyboard-open")).toBe(false);
+      scale = 1;
+      act(() => viewport.dispatchEvent(new Event("resize")));
+      expect(shell.hasAttribute("data-keyboard-open")).toBe(true);
+      act(() => screen.getByRole("textbox").blur());
+      act(() => viewport.dispatchEvent(new Event("resize")));
+      expect(shell.hasAttribute("data-keyboard-open")).toBe(false);
+    } finally {
+      view.unmount();
+      Object.defineProperty(window, "innerHeight", originalHeight);
+      if (originalViewport) Object.defineProperty(window, "visualViewport", originalViewport);
+      else Reflect.deleteProperty(window, "visualViewport");
+    }
+  });
+
   it("falls back safely for prototype-named activity kinds", () => {
     const entry = { ...model.activityGroups[0].entries[0], activityKind: "constructor" };
     expect(() => render(<ConversationFrame model={{ ...model, activityGroups: [{ ...model.activityGroups[0], entries: [entry] }] }} actions={actions} />)).not.toThrow();
