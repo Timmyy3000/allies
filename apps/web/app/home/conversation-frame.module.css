@@ -3,6 +3,9 @@
   --chat-muted: var(--text-muted);
   --chat-surface: var(--surface);
   --chat-accent: #ff2d55;
+  --chat-activity-accent: var(--chat-activity-light-accent, var(--chat-accent));
+  --chat-copy-font: var(--font-inter), sans-serif;
+  --chat-copy-size: 14px;
   --chat-on-accent: #fff;
   --chat-safe-top: env(safe-area-inset-top, 0px);
   --chat-safe-bottom: env(safe-area-inset-bottom, 0px);
@@ -270,8 +273,9 @@
   width: 100%;
   margin: 0;
   color: var(--chat-muted);
-  font-size: 12px;
-  font-weight: 500;
+  font-family: var(--chat-copy-font);
+  font-size: var(--chat-copy-size);
+  font-weight: 400;
   letter-spacing: -0.46px;
   line-height: 15px;
   text-align: center;
@@ -449,12 +453,12 @@
 .framePresenceActivity {
   flex: 1;
   min-width: 0;
-  color: var(--chat-accent);
-  font-size: 16px;
+  color: var(--chat-activity-accent);
+  font-size: var(--chat-copy-size);
   font-weight: 400;
   line-height: 36px;
   letter-spacing: -0.5px;
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--chat-copy-font);
 }
 
 .framePresenceActivity .frameActivity { width: 100%; }
@@ -464,11 +468,11 @@
 }
 
 .frameThinkingLabel {
-  color: var(--chat-accent);
-  font-size: 16px;
+  color: var(--chat-activity-accent);
+  font-size: var(--chat-copy-size);
   font-weight: 400;
   letter-spacing: -1px;
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--chat-copy-font);
 }
 
 .frameAssistantMessage [data-streamdown="table-wrapper"] {
@@ -570,8 +574,9 @@
   pointer-events: none;
   transform: translateY(4px);
   color: var(--text-secondary);
-  font-size: 11px;
-  font-weight: 500;
+  font-family: var(--chat-copy-font);
+  font-size: var(--chat-copy-size);
+  font-weight: 400;
   line-height: 14px;
   opacity: 0;
   transition: opacity 180ms ease;
@@ -593,6 +598,7 @@
 
 .frameMessageTimestamp + :is(.frameActivity, .approvalRegion) {
   margin-top: 18px;
+  translate: 0 1px;
 }
 
 .frameAssistantMessage:focus-visible,
@@ -606,8 +612,8 @@
   min-width: 0;
   align-self: flex-start;
   color: var(--text-primary);
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 16px;
+  font-family: var(--chat-copy-font);
+  font-size: var(--chat-copy-size);
   font-style: normal;
   font-weight: 400;
   letter-spacing: -0.5px;
@@ -615,7 +621,7 @@
 }
 
 .frameAssistantMessage :is(strong, [data-streamdown="strong"]) {
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .frameAssistantMessage :is(h1, h2, h3, h4, h5, h6) {
@@ -719,7 +725,7 @@
 }
 
 .frameUserBubble {
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--chat-copy-font);
   max-width: min(279px, 100%);
   align-self: flex-end;
   box-sizing: border-box;
@@ -727,7 +733,7 @@
   border-radius: 30px;
   background: #ff2d55;
   color: var(--chat-on-accent);
-  font-size: 14px;
+  font-size: var(--chat-copy-size);
   font-weight: 400;
   letter-spacing: -0.48px;
   line-height: 18.2px;
@@ -759,7 +765,9 @@
   display: block;
   margin-top: 4px;
   color: var(--chat-on-accent);
-  font-size: 11px;
+  font-family: var(--chat-copy-font);
+  font-size: var(--chat-copy-size);
+  font-weight: 400;
   line-height: 14px;
   text-align: right;
 }
@@ -770,8 +778,8 @@
   border: 0;
   background: transparent;
   font: inherit;
-  font-size: 11px;
-  font-weight: 700;
+  font-size: var(--chat-copy-size);
+  font-weight: 400;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 3px;
@@ -789,22 +797,22 @@
   gap: 6px;
   align-self: flex-start;
   color: var(--chat-accent);
-  font-size: 16px;
+  font-size: var(--chat-copy-size);
   font-weight: 400;
   letter-spacing: -0.5px;
   line-height: 19px;
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--chat-copy-font);
 }
 
 .frameActivity {
   interpolate-size: allow-keywords;
   align-self: flex-start;
-  color: var(--chat-accent);
-  font-size: 14px;
+  color: var(--chat-activity-accent);
+  font-size: var(--chat-copy-size);
   line-height: 18px;
   font-weight: 400;
   letter-spacing: -0.5px;
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--chat-copy-font);
 }
 
 .frameActivity[data-ongoing="false"] { color: var(--text-secondary); }
@@ -870,7 +878,7 @@
 
 .frameActivityEntry svg { flex: 0 0 18px; }
 .frameActivityEntry span { min-width: 0; overflow-wrap: anywhere; }
-.frameActivityEntry small { color: var(--text-secondary); white-space: nowrap; }
+.frameActivityEntry small { color: var(--text-secondary); font-size: var(--chat-copy-size); font-weight: 400; white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
   .frameActivityLabel { animation: none; }
   .frameActivity::details-content,
@@ -878,7 +886,7 @@
 }
 
 .frameActivityAccent {
-  color: var(--chat-accent);
+  color: var(--chat-activity-accent);
 }
 
 .frameActivityMuted {
@@ -924,13 +932,13 @@
   flex: 1;
   overflow: hidden;
   color: var(--chat-ink);
-  font-size: 14px;
+  font-size: var(--chat-copy-size);
   font-weight: 400;
   letter-spacing: -0.5px;
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--chat-copy-font);
 }
 
 .frameQueuePill > button {
@@ -942,10 +950,10 @@
   background: transparent;
   color: var(--chat-accent);
   font: inherit;
-  font-size: 14px;
+  font-size: var(--chat-copy-size);
   font-weight: 400;
   cursor: pointer;
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--chat-copy-font);
 }
 
 .frameQueuePill > button:last-child {
@@ -1051,12 +1059,12 @@
   background: transparent;
   color: var(--text-primary);
   font: inherit;
-  font-size: 16px;
+  font-size: 16px; /* Prevent iOS Safari focus zoom on mobile. */
   font-weight: 400;
   letter-spacing: -0.49px;
   line-height: 22px;
   padding: 7px 0;
-  font-family: "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: var(--chat-copy-font);
 }
 
 .frameComposer textarea::placeholder {
@@ -1111,8 +1119,8 @@
   .framePasteDialog textarea { scrollbar-width: auto; scrollbar-color: auto; }
 }
 .framePastedText > span:first-child { color: var(--chat-accent); font-size: 26px; }
-.framePastedText strong { display: block; font-size: 14px; font-weight: 600; }
-.framePastedText small { display: block; color: var(--text-secondary); font-size: 12px; line-height: 18px; }
+.framePastedText strong { display: block; font-family: var(--chat-copy-font); font-size: var(--chat-copy-size); font-weight: 400; }
+.framePastedText small { display: block; color: var(--text-secondary); font-family: var(--chat-copy-font); font-size: var(--chat-copy-size); font-weight: 400; line-height: 18px; }
 
 .frameComposerArea > dialog.framePasteDialog {
   box-sizing: border-box;
@@ -1141,7 +1149,9 @@
   background: var(--surface);
   color: var(--text-primary);
   font: inherit;
-  font-size: 14px;
+  font-family: var(--chat-copy-font);
+  font-size: var(--chat-copy-size);
+  font-weight: 400;
   line-height: 1.6;
 }
 .framePasteDialog footer { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 16px; }
@@ -1185,7 +1195,9 @@
 .frameQuietState {
   margin: 0 0 8px;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-family: var(--chat-copy-font);
+  font-size: var(--chat-copy-size);
+  font-weight: 400;
   line-height: 16px;
   text-align: center;
 }
@@ -1392,6 +1404,7 @@
 .frameNativeSheet:not([open]) { display: none; }
 
 @media (prefers-color-scheme: dark) {
+  .frameShell { --chat-activity-accent: var(--chat-accent); }
   .frameOverlay {
     background: rgb(0 0 0 / 64%);
   }
@@ -2237,6 +2250,7 @@
 @media (min-width: 1024px) {
   .frameProduction {
     --chat-history-clearance: 188px;
+    --chat-copy-size: 14px;
   }
 
   .frameHeader {
@@ -2342,7 +2356,7 @@
 
   .frameComposer textarea {
     align-self: center;
-    font-size: 16px;
+    font-size: var(--chat-copy-size);
     letter-spacing: -0.49px;
     line-height: 22px;
   }
@@ -2366,7 +2380,7 @@
 
   .frameUserBubble {
     border-radius: 30px;
-    font-size: 14px;
+    font-size: var(--chat-copy-size);
     font-weight: 400;
     letter-spacing: -0.48px;
     line-height: 18.2px;
