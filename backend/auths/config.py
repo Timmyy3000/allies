@@ -145,6 +145,22 @@ def provider_enabled(provider: str) -> bool:
     return False
 
 
+def beta_invites_required() -> bool:
+    return bool(setting("ALLIES_BETA_INVITES_REQUIRED", True))
+
+
+def invite_claim_limit() -> int:
+    return int(setting("ALLIES_AUTH_INVITE_CLAIM_LIMIT", 10))
+
+
+def invite_claim_global_limit() -> int:
+    return int(setting("ALLIES_AUTH_INVITE_CLAIM_GLOBAL_LIMIT", 600))
+
+
+def invite_claim_rate_limit_period_seconds() -> int:
+    return int(setting("ALLIES_AUTH_INVITE_CLAIM_RATE_LIMIT_PERIOD_SECONDS", 60))
+
+
 def avatar_max_bytes() -> int:
     return int(setting("ALLIES_AVATAR_MAX_BYTES", 5 * 1024 * 1024))
 
