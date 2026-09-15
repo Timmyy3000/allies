@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -11,6 +12,7 @@ from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from auths.audit import emit_auth_event
+from auths.config import digest_key
 from auths.exceptions import (
     InviteConsumed,
     InviteRequired,
@@ -24,7 +26,12 @@ _INVITE_CODE_LENGTH = 8
 
 
 def _digest(code: str) -> str:
-    return hashlib.sha256(code.encode("utf-8")).hexdigest()
+    key = digest_key()
+    if not key:
+        raise InviteUnavailable("invite hashing unavailable")
+    return hmac.new(
+        key, b"beta-invite:" + code.encode("utf-8"), hashlib.sha256
+    ).hexdigest()
 
 
 def normalize_invite_email(value: str) -> str:
