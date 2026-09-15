@@ -41,6 +41,11 @@ TEST_STORAGES = {
 }
 
 
+@pytest.fixture(autouse=True)
+def invite_digest_key(settings):
+    settings.ALLIES_AUTH_DIGEST_KEY = "invite-test-digest-key"
+
+
 def _verified_identity(subject: str, email: str = "person@example.com"):
     return VerifiedIdentity(
         provider="google",
@@ -61,7 +66,7 @@ def test_issue_claim_reset_revoke_and_digest_only_storage():
     assert len(raw_code) <= 128
     assert (
         invite.code_digest
-        == __import__("hashlib").sha256(raw_code.encode()).hexdigest()
+        != __import__("hashlib").sha256(raw_code.encode()).hexdigest()
     )
     assert raw_code not in str(BetaInvite.objects.get(pk=invite.pk).__dict__)
 
@@ -596,3 +601,34 @@ def test_fixed_length_invite_codes_allow_lowercase():
 def test_rejects_invalid_invite_code_format(code):
     with pytest.raises(InviteValidation):
         claim_invite(code=code, email="person@example.com")
+
+
+@pytest.mark.django_db
+def test_claim_api_strips_whitespace_before_fixed_length_validation():
+    invite, code = issue_invite()
+    client = Client(enforce_csrf_checks=True)
+    csrf = _csrf(client)
+    response = client.post(
+        "/api/v1/auths/invites/claim",
+        {"code": f" {code.lower()} ", "email": "person@example.com"},
+        content_type="application/json",
+        HTTP_X_CSRFTOKEN=csrf,
+        HTTP_ORIGIN="http://localhost:3000",
+        HTTP_HOST="testserver",
+    )
+    assert response.status_code == 200
+    invite.refresh_from_db()
+    assert invite.claimed_email == "person@example.com"
+
+
+@pytest.mark.django_db
+def test_invite_digest_depends_on_server_key():
+    invite, code = issue_invite()
+    with (
+        override_settings(ALLIES_AUTH_DIGEST_KEY="different-test-key"),
+        pytest.raises(InviteUnavailable),
+    ):
+        claim_invite(code=code, email="person@example.com")
+    claim_invite(code=code, email="person@example.com")
+    invite.refresh_from_db()
+    assert invite.claimed_email == "person@example.com"
