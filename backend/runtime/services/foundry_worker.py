@@ -9,7 +9,7 @@ from time import monotonic
 
 from django.db import close_old_connections, connection
 
-from .event_delivery import publish_pending_event_deliveries
+from .event_delivery import DeliveryReport, publish_pending_event_deliveries
 from .provisioning_hints import publish_due_profile_readiness_hints
 from .publications import wake_due_publications
 from .ready_pool_maintenance import maintain_ready_pool_once
@@ -101,11 +101,12 @@ def _run_loop(
     runs = 0
     try:
         while not stop_event.is_set():
+            result = None
             try:
                 close_old_connections()
                 if stop_event.is_set():
                     break
-                callback()
+                result = callback()
             except Exception as exc:  # noqa: BLE001 - one pass cannot kill a loop
                 _report_error(name, "pass", exc)
             finally:
@@ -116,6 +117,8 @@ def _run_loop(
             runs += 1
             if max_runs is not None and runs >= max_runs:
                 break
+            if isinstance(result, DeliveryReport) and result.delivered > 0:
+                continue
             if stop_event.wait(interval):
                 break
     finally:
