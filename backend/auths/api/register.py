@@ -3,6 +3,7 @@ from ninja_extra import NinjaExtraAPI
 from .authentication import AuthenticationController
 from .avatar import AvatarController
 from .identities import IdentityController
+from .invites import InviteController
 from .native import NativeAuthenticationController
 from .profile import ProfileController
 from .sessions import SessionController
@@ -16,6 +17,7 @@ def register(api: NinjaExtraAPI) -> None:
         NativeAuthenticationController,
         SessionController,
         IdentityController,
+        InviteController,
         ProfileController,
         AvatarController,
     )

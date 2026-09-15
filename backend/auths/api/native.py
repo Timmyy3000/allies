@@ -165,6 +165,7 @@ def _manual_callback_response(result: NativeCallbackResult) -> HttpResponse:
             "access_denied": "Sign-in was canceled.",
             "exchange_invalid": "This sign-in code has expired or was already used.",
             "flow_expired": "This sign-in attempt has expired.",
+            "invite_required": "A beta invite is required before creating an Allies account.",
             "provider_unavailable": "The sign-in provider is temporarily unavailable.",
         }.get(
             result.error_code
