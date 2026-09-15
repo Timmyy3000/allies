@@ -461,3 +461,159 @@ def test_explanation_boundary_rejects_foreign_user_without_provider(
             conversation_id=conversation.id,
             approval_id=approval.id,
         )
+
+
+def test_safe_action_preview_masks_connection_capability_paths_only():
+    capability = "SYNTHETIC_CAPABILITY_0123456789"
+    ordinary = "https://example.com/docs/very-long-document-name?recipient=team"
+    preview = (
+        f"connect https://example.com/connect/agent/{capability} then open {ordinary}"
+    )
+
+    safe = explanations._safe_action_preview(preview)
+
+    assert capability not in safe
+    assert "https://example.com/connect/agent/***" in safe
+    assert ordinary in safe
+    for delimiter in (",", ")"):
+        value = f"https://example.com/connect/agent/{capability}{delimiter}"
+        assert explanations._safe_action_preview(value) == (
+            f"https://example.com/connect/agent/***{delimiter}"
+        )
+    assert (
+        explanations._safe_action_preview(
+            f"https://example.com/connect/agent/{capability}=="
+        )
+        == "https://example.com/connect/agent/***"
+    )
+    assert (
+        explanations._safe_action_preview(f"https://example.com/inv%69te/{capability}")
+        == "https://example.com/invite/***"
+    )
+    credentialed = (
+        "https://synthetic-user:synthetic-pass@example.com/connect/agent/"
+        f"{capability}?token=SYNTHETIC_QUERY_SECRET&recipient=team"
+        "#section=overview&access_token=SYNTHETIC_FRAGMENT_SECRET"
+    )
+    safe_credentialed = explanations._safe_action_preview(credentialed)
+    assert safe_credentialed == (
+        "https://example.com/connect/agent/***?token=***&recipient=team"
+        "#section=overview&access_token=***"
+    )
+    assert "synthetic" not in safe_credentialed.lower()
+    assert (
+        explanations._safe_action_preview(
+            f"https://example.com/connect/{capability}?opaque=SYNTHETIC_QUERY_SECRET"
+        )
+        == "[redacted capability URL]"
+    )
+    docs_path = "https://example.com/docs/connect/very-long-document-name"
+    assert explanations._safe_action_preview(docs_path) == docs_path
+    for malformed in (
+        "https://example.com/connect",
+        "https://example.com/%63onnect/",
+        f"https://example.com/connect/foo/{capability}",
+    ):
+        assert explanations._safe_action_preview(malformed) == (
+            "[redacted capability URL]"
+        )
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLIES_APPROVAL_SUMMARIES_ENABLED=True,
+    ALLIES_WAITLIST_OPENAI_API_KEY="test-key",
+    CACHE_URL="redis://cache.test/0",
+)
+def test_legacy_unsafe_preview_uses_one_safe_model_and_detail_view(
+    conversation_records, monkeypatch
+):
+    user, workspace, conversation, _message, approval = _approval(conversation_records)
+    capability = "SYNTHETIC_CAPABILITY_0123456789"
+    raw_preview = (
+        "connect https://synthetic-user:synthetic-pass@example.com/connect/agent/"
+        f"{capability}?token=SYNTHETIC_QUERY_SECRET&recipient=team"
+        "#section=overview&access_token=SYNTHETIC_FRAGMENT_SECRET "
+        "then open https://example.com/docs/very-long-document-name?recipient=team"
+    )
+    Approval.objects.filter(pk=approval.pk).update(action_preview=raw_preview)
+    approval.refresh_from_db()
+    calls = []
+
+    def provider(source):
+        calls.append(source)
+        return _model_result(source)
+
+    monkeypatch.setattr(explanations, "generate_explanation", provider)
+    monkeypatch.setattr(explanations, "_provider_allowed", lambda **_kwargs: None)
+
+    result = ensure_approval_explanation(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        approval_id=approval.id,
+    )
+    detail = approval_detail(result)
+    safe_preview = (
+        "connect https://example.com/connect/agent/***?token=***&recipient=team"
+        "#section=overview&access_token=*** "
+        "then open https://example.com/docs/very-long-document-name?recipient=team"
+    )
+
+    assert len(calls) == 1
+    assert calls[0]["action_preview"] == safe_preview
+    assert calls[0]["preview_digest"] == preview_digest(safe_preview)
+    assert calls[0]["input_fingerprint"] == input_fingerprint(
+        str(approval.approval_request_id),
+        preview_digest(safe_preview),
+        approval.action_kind,
+    )
+    assert detail["action_preview"] == safe_preview
+    assert detail["technical_details"]["action_preview"] == safe_preview
+    assert detail["explanation"]["preview_digest"] == preview_digest(safe_preview)
+    assert capability not in str(detail)
+    approval.refresh_from_db()
+    assert approval.action_preview == raw_preview
+
+
+@pytest.mark.django_db
+def test_legacy_unsafe_summary_is_replaced_without_regenerating(
+    conversation_records, monkeypatch
+):
+    user, workspace, conversation, _message, approval = _approval(conversation_records)
+    capability = "SYNTHETIC_CAPABILITY_0123456789"
+    raw_preview = f"connect https://example.com/invite/{capability}"
+    Approval.objects.filter(pk=approval.pk).update(action_preview=raw_preview)
+    approval.refresh_from_db()
+    raw_digest = preview_digest(raw_preview)
+    approval.explanation = _model_result(
+        {
+            "approval_request_id": str(approval.approval_request_id),
+            "preview_digest": raw_digest,
+            "action_kind": approval.action_kind,
+            "action_preview": raw_preview,
+            "input_fingerprint": input_fingerprint(
+                str(approval.approval_request_id), raw_digest, approval.action_kind
+            ),
+        }
+    )
+    approval.save(update_fields=("explanation", "updated_at"))
+    monkeypatch.setattr(
+        explanations,
+        "generate_explanation",
+        lambda _source: pytest.fail("legacy summaries must not regenerate"),
+    )
+
+    result = ensure_approval_explanation(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        approval_id=approval.id,
+    )
+
+    safe_preview = "connect https://example.com/invite/***"
+    assert result.explanation["source"] == "fallback"
+    assert result.explanation["preview_digest"] == preview_digest(safe_preview)
+    assert result.explanation["preview_digest"] != raw_digest
+    result.refresh_from_db()
+    assert result.action_preview == raw_preview
