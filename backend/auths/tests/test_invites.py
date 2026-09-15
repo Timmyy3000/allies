@@ -16,6 +16,7 @@ from auths.exceptions import (
     InviteConsumed,
     InviteRequired,
     InviteUnavailable,
+    InviteValidation,
 )
 from auths.models import (
     BetaInvite,
@@ -205,14 +206,14 @@ def test_claim_api_rejects_extra_fields_and_unavailable_codes():
     }
     extra = client.post(
         "/api/v1/auths/invites/claim",
-        {"code": "missing", "email": "person@example.com", "status": "claimed"},
+        {"code": "MISSINGX", "email": "person@example.com", "status": "claimed"},
         content_type="application/json",
         **headers,
     )
     assert extra.status_code == 422
     unavailable = client.post(
         "/api/v1/auths/invites/claim",
-        {"code": "missing", "email": "person@example.com"},
+        {"code": "MISSINGX", "email": "person@example.com"},
         content_type="application/json",
         **headers,
     )
@@ -233,7 +234,7 @@ def test_claim_api_checks_identity_before_global_limit(monkeypatch):
     monkeypatch.setattr("auths.api.invites.check_rate_limit", reject_identity)
     response = client.post(
         "/api/v1/auths/invites/claim",
-        {"code": "code", "email": "person@example.com"},
+        {"code": "ABCDEFGH", "email": "person@example.com"},
         content_type="application/json",
         HTTP_X_CSRFTOKEN=csrf,
         HTTP_ORIGIN="http://localhost:3000",
@@ -255,7 +256,7 @@ def test_claim_api_fails_closed_when_throttle_cache_is_unavailable(monkeypatch):
     )
     response = client.post(
         "/api/v1/auths/invites/claim",
-        {"code": "code", "email": "person@example.com"},
+        {"code": "ABCDEFGH", "email": "person@example.com"},
         content_type="application/json",
         HTTP_X_CSRFTOKEN=csrf,
         HTTP_ORIGIN="http://localhost:3000",
@@ -569,3 +570,29 @@ def test_operator_change_and_signup_serialize_on_the_same_grant(operation):
     else:
         assert operator_result == "changed"
         assert invite.revoked_at is not None
+
+
+@pytest.mark.django_db
+def test_fixed_length_invite_codes_allow_lowercase():
+    invite, code = issue_invite()
+    assert len(code) == 8
+    assert set(code) <= set("ABCDEFGHIJKLMNOPQRSTUVWXYZ234567")
+    claim_invite(code=code.lower(), email="short@example.com")
+    invite.refresh_from_db()
+    assert invite.claimed_email == "short@example.com"
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "code",
+    [
+        "",
+        "ABCDEFG",
+        "ABCDEFGHI",
+        "ABCD1234",
+        "old-token-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789",
+    ],
+)
+def test_rejects_invalid_invite_code_format(code):
+    with pytest.raises(InviteValidation):
+        claim_invite(code=code, email="person@example.com")
