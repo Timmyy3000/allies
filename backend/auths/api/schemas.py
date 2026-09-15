@@ -51,6 +51,17 @@ class RedirectRequest(Schema):
     redirect_to: str = "/"
 
 
+class ClaimInviteRequest(Schema):
+    code: str = Field(min_length=1, max_length=128)
+    email: str = Field(min_length=1, max_length=254)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ClaimInviteResponse(Schema):
+    claimed: Literal[True] = True
+
+
 class AuthorizationStartResponse(Schema):
     redirect_url: str
 

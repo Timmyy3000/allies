@@ -90,6 +90,15 @@ def test_activity_sse_is_disabled_by_default():
     assert result.stdout.strip() == "False"
 
 
+def test_beta_invite_gate_is_enabled_by_default():
+    result = _settings_subprocess(
+        {"DJANGO_DEBUG": "true"},
+        "import config.settings as s; assert s.ALLIES_BETA_INVITES_REQUIRED is True",
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 @pytest.mark.parametrize("disabled", [False, True])
 def test_attachment_defaults_and_explicit_shutdown(disabled):
     names = (
