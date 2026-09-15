@@ -1,5 +1,44 @@
 # Updating existing workspace images
 
+## Build once, promote later
+
+The runtime pair has three separate GitHub Actions entry points:
+
+| Action | When | Result |
+| --- | --- | --- |
+| Validate Allies Runtime Images | Pull request changing image/runtime inputs | Local builds and the shared smoke suite; no publication or deployment credentials |
+| Publish Runtime Release to Staging | Manually run from `dev` | Build and publish both images, test their exact digests, save a `runtime-<run_id>` release, and verify staging's desired pair |
+| Promote Runtime Release to Production | Manually run from `dev`, supplying `release_id` | Validate the saved release and apply its exact pair; no image build |
+
+Publishing to staging never promotes production. If staging moves from release A
+to B, production can still select A. Application branch promotions remain
+separate; check control-plane/runtime compatibility when choosing a release.
+
+Open the publishing run's summary to find its release ID. GitHub Releases retain
+the source SHA, both digest references, validation result and historical staging
+readback. Drafts are incomplete and cannot be promoted. `candidate.json` is the
+recovery checkpoint after successful image smokes; `release.json` records the
+verified staging pair. Workflow writes are create-only. Repository maintainers
+can still edit release assets outside the workflow because repository release
+immutability is not enabled. Keep referenced registry digests and release assets
+for as long as promotion or rollback may need them.
+
+If publication fails, rerun the original run. A saved candidate reuses the same
+images; before that checkpoint a retry may rebuild. A completed release rerun
+does not reset staging. If a tag or draft exists without `candidate.json`, keep
+it for inspection and start a new publishing run; it cannot be promoted.
+Do not delete or replace release assets to repair a
+failure. GitHub may supersede queued runs in a concurrency group; explicitly
+redispatch a request that was skipped. Roll back production by selecting a prior
+compatible release through the same promotion action.
+
+The release records `desired_config_verified` and `machine_adoption: not_verified`.
+Use the canary procedure below to prove actual runtime adoption. The optional
+[Railway integration](integrations/railway-runtime-images.md) documents credentials,
+shared-variable references, readback and failure recovery.
+
+## Runtime adoption
+
 Publishing an image does not change an existing machine. Foundry now compares
 the stopped machine's runtime and Hermes images with `RUNTIME_IMAGE` and
 `HERMES_IMAGE` before waking it. Both settings must use immutable
