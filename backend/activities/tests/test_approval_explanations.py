@@ -507,6 +507,19 @@ def test_safe_action_preview_masks_connection_capability_paths_only():
         )
         == "[redacted capability URL]"
     )
+    assert (
+        explanations._safe_action_preview(
+            f"https://example.com/connect/{capability}#section=setup"
+        )
+        == "https://example.com/connect/***#section=setup"
+    )
+    for fragment in ("SYNTHETIC", "section", "section=setup&SYNTHETIC"):
+        assert (
+            explanations._safe_action_preview(
+                f"https://example.com/connect/{capability}#{fragment}"
+            )
+            == "[redacted capability URL]"
+        )
     docs_path = "https://example.com/docs/connect/very-long-document-name"
     assert explanations._safe_action_preview(docs_path) == docs_path
     for malformed in (
@@ -525,8 +538,9 @@ def test_safe_action_preview_masks_connection_capability_paths_only():
     ALLIES_WAITLIST_OPENAI_API_KEY="test-key",
     CACHE_URL="redis://cache.test/0",
 )
+@pytest.mark.parametrize("bare_fragment", [False, True])
 def test_legacy_unsafe_preview_uses_one_safe_model_and_detail_view(
-    conversation_records, monkeypatch
+    conversation_records, monkeypatch, bare_fragment
 ):
     user, workspace, conversation, _message, approval = _approval(conversation_records)
     capability = "SYNTHETIC_CAPABILITY_0123456789"
@@ -536,6 +550,8 @@ def test_legacy_unsafe_preview_uses_one_safe_model_and_detail_view(
         "#section=overview&access_token=SYNTHETIC_FRAGMENT_SECRET "
         "then open https://example.com/docs/very-long-document-name?recipient=team"
     )
+    if bare_fragment:
+        raw_preview = f"https://example.com/connect/{capability}#SYNTHETIC"
     Approval.objects.filter(pk=approval.pk).update(action_preview=raw_preview)
     approval.refresh_from_db()
     calls = []
@@ -560,6 +576,9 @@ def test_legacy_unsafe_preview_uses_one_safe_model_and_detail_view(
         "then open https://example.com/docs/very-long-document-name?recipient=team"
     )
 
+    if bare_fragment:
+        safe_preview = "[redacted capability URL]"
+
     assert len(calls) == 1
     assert calls[0]["action_preview"] == safe_preview
     assert calls[0]["preview_digest"] == preview_digest(safe_preview)
@@ -571,7 +590,7 @@ def test_legacy_unsafe_preview_uses_one_safe_model_and_detail_view(
     assert detail["action_preview"] == safe_preview
     assert detail["technical_details"]["action_preview"] == safe_preview
     assert detail["explanation"]["preview_digest"] == preview_digest(safe_preview)
-    assert capability not in str(detail)
+    assert "SYNTHETIC" not in str(detail)
     approval.refresh_from_db()
     assert approval.action_preview == raw_preview
 
