@@ -77,4 +77,21 @@ describe("AuthReturnClient", () => {
     expect(screen.getByRole("alert").textContent).toBe("Google sign-in was cancelled.");
     expect(screen.queryByText("access_denied")).toBeNull();
   });
+
+  it("offers invite recovery without retrying the terminal callback", async () => {
+    const restore = vi.fn(async () => undefined);
+    window.sessionStorage.setItem("allies.onboarding.resume.v1", "draft");
+    sessionMock.useSession.mockReturnValue({ state: { status: "signed-out" }, restore });
+
+    render(<AuthReturnClient returnTo="/home?from=onboarding" errorCode="invite_required" />);
+
+    await waitFor(() => expect(restore).toHaveBeenCalledOnce());
+    expect(screen.getByRole("alert").textContent).toContain("beta invite");
+    expect(screen.getByRole("link", { name: "Claim an invite" }).getAttribute("href"))
+      .toBe("/claim-invite?returnTo=%2Fhome%3Ffrom%3Donboarding");
+    expect(screen.getByRole("link", { name: "Sign in again" }).getAttribute("href"))
+      .toBe("/sign-in?returnTo=%2Fhome%3Ffrom%3Donboarding");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(window.sessionStorage.getItem("allies.onboarding.resume.v1")).toBe("draft");
+  });
 });
