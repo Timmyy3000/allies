@@ -64,8 +64,8 @@ function fallbackExplanation(pending: boolean) {
   } : {
     action: "This action required your permission.",
     target: "Review the technical details below for the exact request.",
-    consequence: "The recorded decision determines whether the request can proceed.",
-    reason: "A decision has already been recorded for this request.",
+    consequence: "Check the status below for this request's outcome.",
+    reason: "This request is no longer awaiting your decision.",
   } as const;
 }
 
