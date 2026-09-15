@@ -490,7 +490,7 @@ index f5e7f0b..9843a92 100644
  def set_current_observability_context(
      *,
      turn_id: str = "",
-@@ -2208,6 +2259,386 @@ _session_approved: dict[str, set] = {}
+@@ -2208,6 +2259,478 @@ _session_approved: dict[str, set] = {}
  _session_yolo: set[str] = set()
  _permanent_approved: set = set()
  
@@ -748,6 +748,98 @@ index f5e7f0b..9843a92 100644
 +        return None
 +
 +
++_HERMES_APPROVAL_URL_RE = re.compile(
++    r"(?P<url>(?:https?|wss?)://[^\s\"'<>]+)", re.IGNORECASE
++)
++_HERMES_URL_TRAILING_PUNCTUATION = ",.;:!?)]}"
++_HERMES_CAPABILITY_ROUTES = frozenset({"connect", "connection", "invite"})
++
++
++def _redact_hermes_capability_paths(text: str) -> str | None:
++    """Mask only root capability routes and fail closed on malformed matches."""
++
++    from urllib.parse import unquote, urlsplit, urlunsplit
++
++    def _replace(match: re.Match) -> str | None:
++        raw_url = match.group("url")
++        candidate = raw_url.rstrip(_HERMES_URL_TRAILING_PUNCTUATION)
++        punctuation = raw_url[len(candidate) :]
++        try:
++            parsed = urlsplit(candidate)
++            segments = parsed.path.split("/")
++            decoded = [unquote(segment) for segment in segments]
++            route = decoded[1].lower() if len(decoded) > 1 else ""
++            if route not in _HERMES_CAPABILITY_ROUTES:
++                return raw_url
++            if any("\x00" in segment for segment in decoded):
++                return None
++            try:
++                hostname = parsed.hostname
++                _ = parsed.port
++            except ValueError:
++                return None
++            if (
++                parsed.scheme.lower() not in {"http", "https", "ws", "wss"}
++                or not parsed.netloc
++                or not hostname
++            ):
++                return None
++            trailing_slash = parsed.path.endswith("/")
++            remainder = decoded[2:]
++            if trailing_slash:
++                remainder = remainder[:-1]
++            if not remainder or any(not segment for segment in remainder):
++                return None
++            if route == "connect":
++                if len(remainder) == 1:
++                    prefix = [route]
++                elif len(remainder) == 2 and remainder[0].lower() == "agent":
++                    prefix = [route, "agent"]
++                else:
++                    return None
++            else:
++                prefix = [route]
++            safe_path = "/".join(["", *prefix, "***", *([""] if trailing_slash else [])])
++            return (
++                urlunsplit(
++                    (parsed.scheme, parsed.netloc, safe_path, parsed.query, parsed.fragment)
++                )
++                + punctuation
++            )
++        except Exception:
++            return None
++
++    output = []
++    cursor = 0
++    for match in _HERMES_APPROVAL_URL_RE.finditer(text):
++        replacement = _replace(match)
++        if replacement is None:
++            return None
++        output.extend((text[cursor : match.start()], replacement))
++        cursor = match.end()
++    output.append(text[cursor:])
++    return "".join(output)
++
++
++def _redact_hermes_approval_preview(command: str, action_kind: str) -> str | None:
++    """Build the same secret-safe preview for every rich action kind."""
++
++    try:
++        from agent.redact import redact_sensitive_text
++
++        preview = redact_sensitive_text(
++            str(command), force=True, redact_url_credentials=True
++        )
++        preview = _redact_hermes_capability_paths(preview)
++        if action_kind == "plugin_tool":
++            preview = _safe_hermes_plugin_preview(preview)
++        if not preview or "\x00" in preview:
++            return None
++        return _redact_hermes_capability_paths(preview)
++    except Exception:
++        return None
++
++
 +def _hermes_deadline_epoch(value: str | None) -> float | None:
 +    """Parse a timezone-aware RFC3339 approval acknowledgement deadline."""
 +
@@ -877,7 +969,7 @@ index f5e7f0b..9843a92 100644
  # =========================================================================
  # Consecutive-denial circuit breaker for smart approvals
  # =========================================================================
-@@ -2331,6 +2762,8 @@ def unregister_gateway_notify(session_key: str) -> None:
+@@ -2331,6 +2854,8 @@ def unregister_gateway_notify(session_key: str) -> None:
      with _lock:
          _gateway_notify_cbs.pop(session_key, None)
          entries = _gateway_queues.pop(session_key, [])
@@ -886,7 +978,7 @@ index f5e7f0b..9843a92 100644
      for entry in entries:
          entry.event.set()
  
-@@ -2986,6 +3419,8 @@ def _run_approval_gate(
+@@ -2986,6 +3511,8 @@ def _run_approval_gate(
      autoapprove_log_prefix: str,
      fail_closed_when_no_human: bool = False,
      no_human_block_message: str = "",
@@ -895,7 +987,7 @@ index f5e7f0b..9843a92 100644
  ) -> dict:
      """Shared human-approval gate for a flagged action (command or tool).
  
-@@ -3103,6 +3538,8 @@ def _run_approval_gate(
+@@ -3103,6 +3630,8 @@ def _run_approval_gate(
                  "pattern_key": pattern_key,
                  "pattern_keys": [pattern_key],
                  "description": redact_sensitive_text(description),
@@ -904,7 +996,7 @@ index f5e7f0b..9843a92 100644
                  "allow_permanent": True,
                  "allow_session": True,
              }
-@@ -3321,6 +3758,7 @@ def request_tool_approval(
+@@ -3321,6 +3850,7 @@ def request_tool_approval(
      *,
      rule_key: str = "",
      approval_callback=None,
@@ -912,7 +1004,7 @@ index f5e7f0b..9843a92 100644
  ) -> dict:
      """Escalate an arbitrary tool call to the human-approval gate.
  
-@@ -3375,8 +3813,32 @@ def request_tool_approval(
+@@ -3375,8 +3905,32 @@ def request_tool_approval(
      # to avoid ever colliding with a real command pattern key.
      pattern_key = f"plugin_rule:{key_suffix}"
      # A synthetic "command" string for the display/allowlist layer. It never
@@ -947,7 +1039,7 @@ index f5e7f0b..9843a92 100644
  
      return _run_approval_gate(
          pattern_key=pattern_key,
-@@ -3399,6 +3861,8 @@ def request_tool_approval(
+@@ -3399,6 +3953,8 @@ def request_tool_approval(
              "but no interactive user or gateway is present to approve it. "
              "A plugin flagged this action for human confirmation."
          ),
@@ -956,7 +1048,7 @@ index f5e7f0b..9843a92 100644
      )
  
  
-@@ -3435,6 +3899,22 @@ def _format_tirith_description(tirith_result: dict) -> str:
+@@ -3435,6 +3991,22 @@ def _format_tirith_description(tirith_result: dict) -> str:
  
  def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
                              *, surface: str = "gateway") -> dict:
@@ -979,7 +1071,7 @@ index f5e7f0b..9843a92 100644
      """Enqueue *approval_data*, notify the user, and block the calling agent
      thread until the request is resolved or the gateway approval timeout
      elapses — firing pre/post approval hooks and cleaning up the queue entry.
-@@ -3452,9 +3932,144 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
+@@ -3452,9 +4024,123 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
      description = approval_data.get("description", "")
      primary_key = approval_data.get("pattern_key", "")
      all_keys = approval_data.get("pattern_keys", [primary_key])
@@ -1022,13 +1114,8 @@ index f5e7f0b..9843a92 100644
 +                "plugin_tool": "Use plugin tool",
 +            }[action_kind]
 +        action_label = action_label[:120]
-+        try:
-+            from agent.redact import redact_sensitive_text
-+
-+            action_preview = redact_sensitive_text(
-+                str(command), force=True, redact_url_credentials=True
-+            )
-+        except Exception:
++        action_preview = _redact_hermes_approval_preview(command, action_kind)
++        if not action_preview:
 +            # Approval previews are a secret-egress boundary.  A redaction
 +            # failure must block the action instead of returning the source.
 +            return {
@@ -1037,22 +1124,6 @@ index f5e7f0b..9843a92 100644
 +                "reason": "approval preview redaction failed",
 +                "notify_failed": True,
 +            }
-+        if "\x00" in action_preview:
-+            return {
-+                "resolved": True,
-+                "choice": "deny",
-+                "reason": "approval preview contained NUL",
-+                "notify_failed": True,
-+            }
-+        if action_kind == "plugin_tool":
-+            action_preview = _safe_hermes_plugin_preview(action_preview)
-+            if not action_preview:
-+                return {
-+                    "resolved": True,
-+                    "choice": "deny",
-+                    "reason": "plugin approval preview was not safely representable",
-+                    "notify_failed": True,
-+                }
 +        try:
 +            preview_bytes = action_preview.encode("utf-8")
 +        except UnicodeEncodeError:
@@ -1125,7 +1196,7 @@ index f5e7f0b..9843a92 100644
          _gateway_queues.setdefault(session_key, []).append(entry)
  
      def _drop_entry() -> None:
-@@ -3479,7 +4094,7 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
+@@ -3479,7 +4165,7 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
  
      # Notify the user (bridges sync agent thread → async gateway)
      try:
@@ -1134,7 +1205,7 @@ index f5e7f0b..9843a92 100644
      except Exception as exc:
          logger.warning("Gateway approval notify failed: %s", exc)
          _drop_entry()
-@@ -3493,6 +4108,11 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
+@@ -3493,6 +4179,11 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
              surface=surface,
              choice="notify_failed",
          )
@@ -1146,7 +1217,7 @@ index f5e7f0b..9843a92 100644
          return {"resolved": False, "choice": None, "notify_failed": True}
  
      # Block until the user responds or the canonical approval timeout elapses
-@@ -3541,6 +4161,38 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
+@@ -3541,6 +4232,38 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
      _drop_entry()
  
      choice = entry.result
@@ -1185,7 +1256,7 @@ index f5e7f0b..9843a92 100644
      # Normalize outcome for the post hook. Unresolved (timeout) and None both
      # mean the user never responded; report that explicitly so plugins can
      # distinguish timeout from explicit deny.
-@@ -3849,6 +4501,8 @@ def check_all_command_guards(command: str, env_type: str,
+@@ -3849,6 +4572,8 @@ def check_all_command_guards(command: str, env_type: str,
                  "pattern_key": primary_key,
                  "pattern_keys": all_keys,
                  "description": redact_sensitive_text(combined_desc),
@@ -1194,7 +1265,7 @@ index f5e7f0b..9843a92 100644
                  # Smart DENY overrides are one-operation decisions, so the UI
                  # must not offer a permanent scope.  Otherwise offer Always
                  # whenever any dangerous-pattern warning can actually be
-@@ -4222,6 +4876,8 @@ def check_execute_code_guard(code: str, env_type: str,
+@@ -4222,6 +4947,8 @@ def check_execute_code_guard(code: str, env_type: str,
          "pattern_key": pattern_key,
          "pattern_keys": [pattern_key],
          "description": display_description,
