@@ -31,6 +31,12 @@ const authorizationStartResponse = defineApiFixture("/api/v1/auths/sign-in/{prov
   data: { redirect_url: "https://accounts.google.com/o/oauth2/v2/auth" },
 }).body;
 
+const claimInviteResponse = {
+  status: "success",
+  message: "Invite claimed",
+  data: { claimed: true },
+} as const;
+
 const preparedAvatarResponse = defineApiFixture("/api/v1/auths/me/avatar/uploads", "post", 201, {
   status: "success",
   message: "Avatar upload prepared",
@@ -167,6 +173,58 @@ describe("createCloudClient", () => {
     await expect(client.getAvatarRead()).resolves.toMatchObject({ assetId: "avt_example" });
     await expect(client.deleteAvatar()).resolves.toBeUndefined();
     await expect(client.getWorkspace("wsp_example")).resolves.toEqual(workspaceResponse.data);
+  });
+
+  it("claims an invite through the typed public endpoint and trims local input", async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      expect(new URL(request.url).pathname).toBe("/api/v1/auths/invites/claim");
+      expect(request.method).toBe("POST");
+      expect(await request.clone().json()).toEqual({
+        code: "invite-code",
+        email: "person@example.com",
+      });
+      return Response.json(claimInviteResponse);
+    });
+    const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch });
+
+    await expect(client.claimInvite(
+      { code: " invite-code ", email: " person@example.com " },
+      { signal: undefined },
+    )).resolves.toBeUndefined();
+    expect(fetch).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    { code: "", email: "person@example.com" },
+    { code: " invite-code ", email: "not-an-email" },
+    { code: " invite-code ", email: "person@example.com", extra: "reject" },
+  ])("rejects malformed claim input before sending it: %o", async (input) => {
+    const fetch = vi.fn(async () => Response.json(claimInviteResponse));
+    const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch });
+
+    await expect(client.claimInvite(input)).rejects.toMatchObject({ kind: "bad-request" });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed claim success envelope", async () => {
+    const client = createCloudClient({
+      baseUrl: "https://cloud.example.com",
+      fetch: async () => Response.json({ ...claimInviteResponse, data: { claimed: false } }),
+    });
+
+    await expect(client.claimInvite({ code: "invite-code", email: "person@example.com" }))
+      .rejects.toMatchObject({ kind: "contract" });
+  });
+
+  it("requires the claim endpoint's declared 200 success status", async () => {
+    const client = createCloudClient({
+      baseUrl: "https://cloud.example.com",
+      fetch: async () => Response.json(claimInviteResponse, { status: 201 }),
+    });
+
+    await expect(client.claimInvite({ code: "invite-code", email: "person@example.com" }))
+      .rejects.toMatchObject({ kind: "contract" });
   });
 
   it("sends a strict content-free runtime intent and maps its bounded result", async () => {

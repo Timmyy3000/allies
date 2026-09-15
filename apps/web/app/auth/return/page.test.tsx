@@ -10,6 +10,7 @@ describe("auth return query selection", () => {
 
   it("allowlists callback categories without exposing raw query values", () => {
     expect(selectAuthError("access_denied")).toBe("access_denied");
+    expect(selectAuthError("invite_required")).toBe("invite_required");
     expect(selectAuthError("unexpected_provider_payload")).toBeUndefined();
     expect(selectAuthError(undefined)).toBeUndefined();
   });

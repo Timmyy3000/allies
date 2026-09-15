@@ -9,6 +9,8 @@ export {
 } from "./activity-projection";
 export type {
   AvatarViewModel,
+  ClaimInviteRequest,
+  ClaimInviteResponse,
   CloudClient,
   CloudClientOptions,
   ConversationOptions,
@@ -49,6 +51,7 @@ export type {
   RoutineChatReferenceViewModel,
 } from "./mappers/allies";
 export { createCloudClient } from "./client";
+export { claimInviteRequestSchema, claimInviteResponseSchema } from "./client";
 export type { ApprovalSummary, ApprovalDetail, ApprovalDecision } from "./mappers/approvals";
 export { activityApprovalSchema, toActivityApproval } from "./mappers/approvals";
 export { parseSafeReturnPath } from "./client";
