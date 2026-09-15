@@ -48,6 +48,74 @@ def test_finite_run_executes_each_fixed_loop_once(quiet_worker, monkeypatch):
     assert sorted(calls) == ["event", "hints", "pool", "power-publication"]
 
 
+def test_response_events_drain_without_waiting_between_successes(quiet_worker):
+    from runtime.services.event_delivery import DeliveryReport
+
+    stop = threading.Event()
+    waits = []
+    delivered = []
+
+    def wait(interval):
+        waits.append(interval)
+        stop.set()
+        return True
+
+    stop.wait = wait
+
+    def publish():
+        if len(delivered) == 16:
+            return DeliveryReport()
+        delivered.append(len(delivered) + 1)
+        return DeliveryReport(claimed=1, delivered=1)
+
+    quiet_worker._run_loop("event", 1, publish, stop, None)
+
+    assert delivered == list(range(1, 17))
+    assert waits == [1]
+
+
+@pytest.mark.parametrize("outcome", ["empty", "deferred", "exhausted", "error"])
+def test_unsuccessful_delivery_waits_before_next_pass(quiet_worker, outcome):
+    from runtime.services.event_delivery import DeliveryReport
+
+    stop = threading.Event()
+    waits = []
+
+    def wait(interval):
+        waits.append(interval)
+        stop.set()
+        return True
+
+    stop.wait = wait
+
+    def publish():
+        if outcome == "error":
+            raise RuntimeError("temporary")
+        return DeliveryReport(**({outcome: 1} if outcome != "empty" else {}))
+
+    quiet_worker._run_loop("event", 1, publish, stop, None)
+
+    assert waits == [1]
+
+
+def test_busy_delivery_loop_honors_shutdown_and_run_limit(quiet_worker):
+    from runtime.services.event_delivery import DeliveryReport
+
+    stop = threading.Event()
+    calls = []
+
+    def publish():
+        calls.append(1)
+        if len(calls) == 3:
+            stop.set()
+        return DeliveryReport(claimed=1, delivered=1)
+
+    quiet_worker._run_loop("event", 1, publish, stop, 2)
+    assert len(calls) == 2
+    quiet_worker._run_loop("event", 1, publish, stop, None)
+    assert len(calls) == 3
+
+
 @pytest.mark.django_db(transaction=True, databases="__all__")
 def test_next_pass_reopens_closed_django_connection(
     monkeypatch, tmp_path, django_db_blocker
