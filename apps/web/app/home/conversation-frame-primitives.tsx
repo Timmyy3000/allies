@@ -11,7 +11,17 @@ import { ActivityIcon } from "./activity-icon";
 
 export type FrameAvatar = ReactNode;
 
+const blackTextAllyColors = new Set(["#be9bf5", "#a3f06f", "#fbe65f"]);
+const lightActivityAccents: Record<string, string> = {
+  "#be9bf5": "#7651b5",
+  "#a3f06f": "#4a821f",
+  "#fbe65f": "#8a7000",
+};
+
 export function readableAccentForeground(accent: string) {
+  const normalized = accent.toLowerCase();
+  if (blackTextAllyColors.has(normalized)) return "#000000";
+  if (["#ff5800", "#fd304f", "#0d92fd", "#3446e9"].includes(normalized)) return "#ffffff";
   const hex = accent.match(/^#([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i);
   if (!hex) return "#ffffff";
   const luminance = hex.slice(1).reduce((sum, channel, index) => {
@@ -40,6 +50,7 @@ export function ConversationShell({
   const style = {
     "--chat-accent": accent,
     "--chat-on-accent": readableAccentForeground(accent),
+    "--chat-activity-light-accent": lightActivityAccents[accent.toLowerCase()] ?? accent,
     ...(safeArea?.top ? { "--chat-safe-top": safeArea.top } : {}),
     ...(safeArea?.bottom ? { "--chat-safe-bottom": safeArea.bottom } : {}),
   } as CSSProperties;

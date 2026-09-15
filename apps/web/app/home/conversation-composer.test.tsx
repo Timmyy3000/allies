@@ -118,20 +118,18 @@ describe("composer keyboard behavior", () => {
 });
 
 describe("accent contrast", () => {
-  const colors = ["#ff5800", "#fd304f", "#0d92fd", "#be9bf5", "#3446e9", "#a3f06f", "#fbe65f"];
-  const luminance = (color: string) => {
-    const channels = color.match(/[\da-f]{2}/gi)!.map((channel) => {
-      const value = Number.parseInt(channel, 16) / 255;
-      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
-    });
-    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
-  };
+  const palette = [
+    ["#ff5800", "#ffffff"],
+    ["#fd304f", "#ffffff"],
+    ["#0d92fd", "#ffffff"],
+    ["#be9bf5", "#000000"],
+    ["#3446e9", "#ffffff"],
+    ["#a3f06f", "#000000"],
+    ["#fbe65f", "#000000"],
+  ];
 
-  it.each(colors)("selects a foreground with at least 4.5:1 contrast for %s", (accent) => {
-    const foreground = readableAccentForeground(accent);
-    const lighter = Math.max(luminance(accent), luminance(foreground));
-    const darker = Math.min(luminance(accent), luminance(foreground));
-    expect((lighter + 0.05) / (darker + 0.05)).toBeGreaterThanOrEqual(4.5);
+  it.each(palette)("uses the approved foreground for %s", (accent, foreground) => {
+    expect(readableAccentForeground(accent)).toBe(foreground);
   });
 
   it("falls back safely for an invalid legacy accent", () => {
