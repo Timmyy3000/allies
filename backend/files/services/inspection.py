@@ -132,14 +132,14 @@ def _retry(*, file: FileVersion, code: str) -> None:
         if current is None:
             return
         attempts = current.inspection_attempts + 1
+        retry_delay = None
         if attempts >= 3:
             current.state = FileState.REJECTED
             current.cleanup_after = timezone.now() + timedelta(hours=24)
             current.inspection_due_at = None
         else:
-            current.inspection_due_at = timezone.now() + timedelta(
-                seconds=_RETRY_DELAYS[attempts - 1]
-            )
+            retry_delay = _RETRY_DELAYS[attempts - 1]
+            current.inspection_due_at = timezone.now() + timedelta(seconds=retry_delay)
         current.inspection_attempts = attempts
         current.inspection_lease_until = None
         current.inspection_lease_token = None
@@ -165,6 +165,60 @@ def _retry(*, file: FileVersion, code: str) -> None:
                 transaction.on_commit(
                     lambda: reconcile_file_message(message_id=current.source_message_id)
                 )
+        elif retry_delay is not None:
+            from files.tasks import enqueue_file_inspection
+
+            transaction.on_commit(
+                lambda file_id=current.id, countdown=retry_delay: (
+                    enqueue_file_inspection(file_id, countdown=countdown)
+                )
+            )
+
+
+def inspect_file(*, file_id, inspector: InspectionRunner = inspect_isolated) -> int:
+    """Inspect one eligible file; duplicate or early deliveries safely no-op."""
+    file = _claim(file_id=file_id, now=timezone.now())
+    if file is None:
+        return 0
+    try:
+        with get_file_store().open_stream(key=file.object_key) as stream:
+            result = inspector(
+                name=file.original_name,
+                source=stream,
+                size=file.expected_size,
+                scanner_config=_scanner_config(),
+            )
+    except Exception:  # noqa: BLE001 - private storage and parser fail closed
+        _retry(file=file, code="inspection_unavailable")
+        return 1
+    if not result.accepted:
+        if result.safe_error_code in {
+            "scanner_unavailable",
+            "scanner_timeout",
+            "scanner_definitions_stale",
+            "inspection_unavailable",
+            "inspection_timeout",
+            "inspection_isolation_unavailable",
+        }:
+            _retry(file=file, code=result.safe_error_code)
+        else:
+            _reject(file=file, code=result.safe_error_code or "inspection_rejected")
+        return 1
+    try:
+        promote_inspected_file(
+            file_id=file.id,
+            generation=file.generation,
+            inspection_lease_token=file.inspection_lease_token,
+            result=InspectionResult(
+                size=result.actual_size or 0,
+                sha256=result.sha256 or "",
+                media_type=result.media_type or "",
+                clean=True,
+            ),
+        )
+    except Exception:  # noqa: BLE001 - promotion failures are retryable
+        _retry(file=file, code="inspection_unavailable")
+    return 1
 
 
 def inspect_due_files(
@@ -188,51 +242,8 @@ def inspect_due_files(
     )
     completed = 0
     for file_id in ids:
-        file = _claim(file_id=file_id, now=timezone.now())
-        if file is None:
-            continue
-        try:
-            with get_file_store().open_stream(key=file.object_key) as stream:
-                result = inspector(
-                    name=file.original_name,
-                    source=stream,
-                    size=file.expected_size,
-                    scanner_config=_scanner_config(),
-                )
-        except Exception:  # noqa: BLE001 - private storage and parser fail closed
-            _retry(file=file, code="inspection_unavailable")
-            completed += 1
-            continue
-        if not result.accepted:
-            if result.safe_error_code in {
-                "scanner_unavailable",
-                "scanner_timeout",
-                "scanner_definitions_stale",
-                "inspection_unavailable",
-                "inspection_timeout",
-                "inspection_isolation_unavailable",
-            }:
-                _retry(file=file, code=result.safe_error_code)
-            else:
-                _reject(file=file, code=result.safe_error_code or "inspection_rejected")
-            completed += 1
-            continue
-        try:
-            promote_inspected_file(
-                file_id=file.id,
-                generation=file.generation,
-                inspection_lease_token=file.inspection_lease_token,
-                result=InspectionResult(
-                    size=result.actual_size or 0,
-                    sha256=result.sha256 or "",
-                    media_type=result.media_type or "",
-                    clean=True,
-                ),
-            )
-        except Exception:  # noqa: BLE001 - promotion failures are retryable
-            _retry(file=file, code="inspection_unavailable")
-        completed += 1
+        completed += inspect_file(file_id=file_id, inspector=inspector)
     return completed
 
 
-__all__ = ["inspect_due_files"]
+__all__ = ["inspect_due_files", "inspect_file"]

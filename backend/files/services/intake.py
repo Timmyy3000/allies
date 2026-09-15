@@ -605,7 +605,16 @@ def receive_file(
         current.state = FileState.VALIDATING
         current.lease_until = None
         current.save(update_fields=("state", "lease_until", "updated_at"))
+        transaction.on_commit(
+            lambda file_id=current.id: _enqueue_file_inspection(file_id)
+        )
         return current
+
+
+def _enqueue_file_inspection(file_id) -> None:
+    from files.tasks import enqueue_file_inspection
+
+    enqueue_file_inspection(file_id)
 
 
 def promote_inspected_file(
