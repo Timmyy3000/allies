@@ -54,14 +54,15 @@ def approval_activity_summary(approval) -> dict:
 def approval_detail(approval) -> dict:
     result = approval_summary(approval)
     explanation = public_explanation(approval)
+    details = technical_details(approval)
     result.update(
         {
             "action_label": approval.action_label,
-            "action_preview": approval.action_preview,
+            "action_preview": details["action_preview"],
             "approval_request_id": approval.approval_request_id,
             "preview_digest": explanation["preview_digest"],
             "explanation": explanation,
-            "technical_details": technical_details(approval),
+            "technical_details": details,
         }
     )
     return result
