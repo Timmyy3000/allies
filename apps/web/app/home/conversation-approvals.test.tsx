@@ -40,9 +40,16 @@ describe("conversation approvals", () => {
     expect(pruned["59"]).toBeUndefined();
     expect(Object.keys(pruned)).toHaveLength(59);
   });
-  it("loads the full action, dismisses with Escape and allows reopening without deciding", async () => {
+  it("shows fixed summary copy and keeps technical details closed until opened", async () => {
     const client = setup();
     await screen.findByText(approval.actionPreview);
+    expect(screen.getByText("Your Ally is requesting permission to perform an action.")).toBeTruthy();
+    const technical = screen.getByText("View technical details", { exact: true }).closest("details");
+    expect(technical?.open).toBe(false);
+    fireEvent.click(screen.getByText("View technical details", { exact: true }));
+    expect(technical?.open).toBe(true);
+    fireEvent.click(screen.getByText("View technical details", { exact: true }));
+    expect(technical?.open).toBe(false);
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }));
     fireEvent(screen.getByRole("dialog"), new Event("cancel", { bubbles: false, cancelable: true }));
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -67,15 +74,13 @@ describe("conversation approvals", () => {
     await screen.findByRole("dialog");
   });
 
-  it("restores focus to a terminal approval inside the expanded previous list", async () => {
+  it("restores focus to a terminal approval history row", async () => {
     const approved = { ...approval, status: "approved" as const, decidedAt: new Date().toISOString() };
     setup({ decideApproval: vi.fn().mockResolvedValue(approved) });
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     await waitFor(() => {
-      const details = screen.getByText("Previous approvals").closest("details");
-      expect(details?.open).toBe(true);
       expect(document.activeElement).toBe(screen.getByRole("button", { name: "Approved" }));
     });
   });
@@ -176,8 +181,7 @@ describe("conversation approvals", () => {
       getApprovals: vi.fn().mockResolvedValue([{ ...approval, status: "decision_recorded", acknowledgementDeadlineAt: new Date(0).toISOString() }]),
       getApproval: vi.fn().mockResolvedValue({ ...approval, status: "approved" }),
     });
-    fireEvent.click(await screen.findByText("Previous approvals"));
-    fireEvent.click(screen.getByRole("button", { name: "Decision recorded; Ally outcome could not be confirmed" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Decision recorded; Ally outcome could not be confirmed" }));
     await screen.findByText(approval.actionPreview);
     expect(screen.getByRole("dialog").textContent).toContain("Approved");
     expect(screen.getByRole("dialog").textContent).not.toContain("could not be confirmed");
