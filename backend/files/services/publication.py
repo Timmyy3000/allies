@@ -669,7 +669,16 @@ def receive_publication_file(
         if states <= {FileState.VALIDATING, FileState.READY}:
             publication.state = PublicationState.VALIDATING
             publication.save(update_fields=("state", "updated_at"))
+        transaction.on_commit(
+            lambda file_id=current.id: _enqueue_file_inspection(file_id)
+        )
     return current
+
+
+def _enqueue_file_inspection(file_id) -> None:
+    from files.tasks import enqueue_file_inspection
+
+    enqueue_file_inspection(file_id)
 
 
 def reconcile_publication(*, publication_id) -> FilePublication:

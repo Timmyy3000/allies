@@ -168,6 +168,39 @@ def test_publication_upload_keeps_fixed_source_and_only_links_when_ready(
     assert FilePublication.objects.get(pk=publication_id).files.get().source_version_id
 
 
+@pytest.mark.django_db(transaction=True)
+def test_publication_upload_enqueues_inspection_after_commit(
+    publication_source, monkeypatch
+):
+    _owner, _workspace, _ally, binding, message = publication_source
+    queued = []
+    monkeypatch.setattr(
+        "files.services.publication._enqueue_file_inspection", queued.append
+    )
+    data = b"fixed return bytes"
+    publication_id = uuid4()
+    reserved = reserve_publication(
+        binding_id=binding.id,
+        message_id=message.id,
+        publication_id=publication_id,
+        files=_manifest(data),
+    )
+
+    received = receive_publication_file(
+        binding_id=binding.id,
+        message_id=message.id,
+        publication_id=publication_id,
+        file_id=reserved["files"][0]["id"],
+        generation=1,
+        revision=1,
+        lease_token=None,
+        content_length=str(len(data)),
+        stream=BytesIO(data),
+    )
+
+    assert queued == [received.id]
+
+
 @pytest.mark.django_db
 def test_publication_view_maps_files_by_fixed_source_version(publication_source):
     _owner, _workspace, _ally, binding, message = publication_source
