@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { InviteRequiredNotice } from "./invite-required-notice";
+
 import Onboarding from "./(onboarding)/_components";
 import {
   hasOnboardingResume,
@@ -70,6 +72,8 @@ export function HomePageClient() {
   if (resumeSignedIn) return <OnboardingHandoffScreen />;
 
   return (
+    <>
+    <InviteRequiredNotice visible={searchParams.get("auth_error") === "invite_required"} />
     <OnboardingStateProvider initialStep="welcome">
       <WaitlistFlowProvider
         onboarding
@@ -82,6 +86,7 @@ export function HomePageClient() {
         />
       </WaitlistFlowProvider>
     </OnboardingStateProvider>
+    </>
   );
 }
 
