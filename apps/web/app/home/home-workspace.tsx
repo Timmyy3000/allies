@@ -312,7 +312,8 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   useEffect(() => {
     if (session.state.status !== "signed-out" || redirectStarted.current) return;
     redirectStarted.current = true;
-    router.replace("/sign-in?returnTo=%2Fhome");
+    const inviteRequired = new URLSearchParams(window.location.search).get("auth_error") === "invite_required";
+    router.replace(inviteRequired ? "/?auth_error=invite_required" : "/");
   }, [router, session.state.status]);
 
   const accountQuery = useQuery({
