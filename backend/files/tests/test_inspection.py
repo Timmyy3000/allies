@@ -138,7 +138,7 @@ def test_legacy_office_requires_an_approved_parser():
     assert result.safe_error_code == "office_legacy_unsupported"
 
 
-def test_inspection_fails_closed_for_malware_and_stale_definitions():
+def test_inspection_fails_closed_for_malware_and_definitions_older_than_a_week():
     data = b"safe text"
     malware = inspect_file(
         name="notes.txt",
@@ -147,15 +147,23 @@ def test_inspection_fails_closed_for_malware_and_stale_definitions():
         scanner=scanner(FakeTransport(scan_response="stream: EICAR FOUND")),
         now=NOW,
     )
+    one_week_old = inspect_file(
+        name="notes.txt",
+        source=BytesIO(data),
+        size=len(data),
+        scanner=scanner(FakeTransport(updated_at=NOW - timedelta(days=7))),
+        now=NOW,
+    )
     stale = inspect_file(
         name="notes.txt",
         source=BytesIO(data),
         size=len(data),
-        scanner=scanner(FakeTransport(updated_at=NOW - timedelta(hours=25))),
+        scanner=scanner(FakeTransport(updated_at=NOW - timedelta(days=7, seconds=1))),
         now=NOW,
     )
     assert malware.accepted is False
     assert malware.safe_error_code == "malware_detected"
+    assert one_week_old.accepted is True
     assert stale.accepted is False
     assert stale.safe_error_code == "scanner_definitions_stale"
 

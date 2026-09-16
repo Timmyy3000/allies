@@ -56,14 +56,14 @@ class ScannerConfig:
     host: str
     port: int = 3310
     deadline_seconds: float = 60.0
-    max_definition_age: timedelta = timedelta(hours=24)
+    max_definition_age: timedelta = timedelta(days=7)
 
     def __post_init__(self) -> None:
         if not self.host or not 1 <= self.port <= 65535:
             raise ValueError("invalid ClamAV address")
         if not 0 < self.deadline_seconds <= 60:
             raise ValueError("invalid ClamAV deadline")
-        if not timedelta() < self.max_definition_age <= timedelta(hours=24):
+        if not timedelta() < self.max_definition_age <= timedelta(days=7):
             raise ValueError("invalid ClamAV bounds")
 
 
