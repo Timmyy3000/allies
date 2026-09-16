@@ -52,12 +52,13 @@ export interface ConversationFrameProps {
   attachments?: ReactNode;
   fileRecovery?: ReactNode;
   onAttach?: (anchor: HTMLElement) => void;
+  onFilesDrop?: (files: File[], origin: DOMRect) => boolean | void;
   messageAttachments?: (id: string) => ReactNode;
   publications?: (messageId: string) => ReactNode;
   onFileOpen?: (fileId: string) => void;
 }
 
-export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, settingsHref = "/account", sleeping = false, stateReady = true, runtimeIntentStatus = null, attachments, fileRecovery, onAttach, messageAttachments, publications, onFileOpen }: ConversationFrameProps) {
+export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, settingsHref = "/account", sleeping = false, stateReady = true, runtimeIntentStatus = null, attachments, fileRecovery, onAttach, onFilesDrop, messageAttachments, publications, onFileOpen }: ConversationFrameProps) {
   useEffect(() => {
     // Markdown dialogs portal outside the conversation's accent scope.
     const previous = document.body.style.getPropertyValue("--active-chat-accent");
@@ -86,7 +87,8 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
   const threadAnchorRef = useRef<HTMLSpanElement>(null);
   const latestUser = model.messages.findLast((message) => message.sender === "user" && !message.queued);
   const currentTurn = model.turns.findLast((turn) => turn.messageId === latestUser?.id);
-  const confirmedWork = model.showThinkingState && (model.activityState === "running" || currentTurn?.state === "running" || model.responseStarted);
+  const claimedWork = model.showThinkingState && latestUser?.queueState === "claimed";
+  const confirmedWork = model.showThinkingState && (claimedWork || model.activityState === "running" || currentTurn?.state === "running" || model.responseStarted);
   const latestReply = model.messages.findLast((message) => message.sender === "assistant" && latestUser && message.sequence > latestUser.sequence);
   const completedReplyKey = currentTurn?.state === "completed"
     ? `${currentTurn.messageId}:${currentTurn.turnOrdinal}`
@@ -416,6 +418,8 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
         <ConversationComposer
           attachments={attachments}
           onAttach={onAttach}
+          onFilesDrop={onFilesDrop}
+          dropScope={model.ally.name}
           allyName={model.ally.name}
           value={model.composer.draft}
           placeholder={model.composer.placeholder}
