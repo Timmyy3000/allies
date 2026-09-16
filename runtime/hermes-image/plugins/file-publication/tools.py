@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import socket
 from typing import Any
 
@@ -17,12 +18,30 @@ _FAILURE = {
     "retryable": True,
     "error_code": "publication_unavailable",
 }
+_INVALID_PATHS = {
+    "state": "failed",
+    "retryable": True,
+    "error_code": "invalid_paths",
+    "message": (
+        "Use workspace-relative file paths only, such as report.md. "
+        "Create or move the file into the current workspace, then try again."
+    ),
+}
+_OPEN_PATH = re.compile(
+    r"^/files/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
 
 PUBLISH_FILES_SCHEMA = {
     "type": "function",
     "function": {
         "name": "publish_files",
-        "description": "Publish one to ten files from the current workspace.",
+        "description": (
+            "Publish one to ten files from the current workspace. Use only "
+            "workspace-relative paths, never absolute paths. After a successful "
+            "call, include every returned [shared-file](...) reference exactly "
+            "once in the final response and do not expose local or raw file paths."
+        ),
         "parameters": {
             "type": "object",
             "additionalProperties": False,
@@ -31,7 +50,15 @@ PUBLISH_FILES_SCHEMA = {
                     "type": "array",
                     "minItems": 1,
                     "maxItems": 10,
-                    "items": {"type": "string", "minLength": 1, "maxLength": 1024},
+                    "items": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 1024,
+                        "description": (
+                            "Path relative to the current workspace, for example "
+                            "report.md or exports/report.csv."
+                        ),
+                    },
                 }
             },
             "required": ["paths"],
@@ -42,6 +69,10 @@ PUBLISH_FILES_SCHEMA = {
 
 def _failure() -> str:
     return json.dumps(_FAILURE, separators=(",", ":"))
+
+
+def _invalid_paths() -> str:
+    return json.dumps(_INVALID_PATHS, separators=(",", ":"))
 
 
 def _valid_paths(args: Any) -> list[str] | None:
@@ -119,14 +150,19 @@ def _ready(value: dict[str, Any], context: str) -> str | None:
             or "\\" in name
             or "\x00" in name
             or not isinstance(open_path, str)
-            or not open_path.startswith("/files/")
+            or _OPEN_PATH.fullmatch(open_path) is None
             or len(open_path_bytes) > 2048
             or "\x00" in open_path
             or context in name
             or context in open_path
         ):
             return None
-        safe_files.append({"name": name, "open_path": open_path})
+        safe_files.append(
+            {
+                "name": name,
+                "chat_reference": f"[shared-file]({open_path.lower()})",
+            }
+        )
     return json.dumps(
         {"state": "ready", "files": safe_files},
         ensure_ascii=False,
@@ -141,9 +177,10 @@ def handle_publish_files(
 
     context = get_current_allies_file_publication_context()
     paths = _valid_paths(args)
+    if paths is None:
+        return _invalid_paths()
     if (
         context is None
-        or paths is None
         or not isinstance(tool_call_id, str)
         or not tool_call_id
     ):
