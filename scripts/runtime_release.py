@@ -263,6 +263,7 @@ def inspect_image(reference, source, repository):
     layers = get("manifests", attestation).get("layers", [])
     require(isinstance(layers, list) and len(layers) <= 8, "Invalid attestation layers")
     predicates = set()
+    provenance = False
     for layer in layers:
         require(isinstance(layer, dict), "Invalid attestation layer")
         statement = get("blobs", layer.get("digest"))
@@ -297,11 +298,37 @@ def inspect_image(reference, source, repository):
                 ),
                 "Provenance source mismatch",
             )
+            provenance = True
+        elif kind == "https://slsa.dev/provenance/v1":
+            definition = predicate.get("buildDefinition", {})
+            require(
+                definition.get("buildType")
+                == "https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md",
+                "Unexpected provenance builder",
+            )
+            vcs = (
+                definition.get("externalParameters", {})
+                .get("request", {})
+                .get("root", {})
+                .get("request", {})
+                .get("args", {})
+            )
+            require(
+                vcs.get("vcs:revision") == source
+                and vcs.get("vcs:source")
+                in (
+                    f"https://github.com/{repository}",
+                    f"https://github.com/{repository}.git",
+                    f"git@github.com:{repository}.git",
+                ),
+                "Provenance source mismatch",
+            )
+            provenance = True
         elif kind == "https://spdx.dev/Document":
             require(isinstance(predicate.get("spdxVersion"), str), "Invalid SBOM")
         predicates.add(kind)
     require(
-        {"https://slsa.dev/provenance/v0.2", "https://spdx.dev/Document"} <= predicates,
+        provenance and "https://spdx.dev/Document" in predicates,
         "Provenance or SBOM missing",
     )
     return {"image_manifest": platform, "attestation_manifest": attestation}

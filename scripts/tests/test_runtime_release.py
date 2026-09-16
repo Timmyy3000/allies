@@ -180,7 +180,7 @@ def test_duplicate_oversized_json_and_untrusted_refs_fail(publishing, monkeypatc
             release.record_pair(pair, REPO)
 
 
-def oci(source=SOURCE, subject=True, sbom=True):
+def oci(source=SOURCE, subject=True, sbom=True, provenance="v1"):
     blobs = {}
 
     def put(value):
@@ -190,8 +190,29 @@ def oci(source=SOURCE, subject=True, sbom=True):
         return digest
 
     platform = put({"config": {}, "layers": []})
-    statements = [
-        {
+    if provenance == "v1":
+        statement = {
+            "predicateType": "https://slsa.dev/provenance/v1",
+            "predicate": {
+                "buildDefinition": {
+                    "buildType": "https://github.com/moby/buildkit/blob/master/docs/attestations/slsa-definitions.md",
+                    "externalParameters": {
+                        "request": {
+                            "root": {
+                                "request": {
+                                    "args": {
+                                        "vcs:revision": source,
+                                        "vcs:source": f"https://github.com/{REPO}",
+                                    }
+                                }
+                            }
+                        }
+                    },
+                }
+            },
+        }
+    else:
+        statement = {
             "predicateType": "https://slsa.dev/provenance/v0.2",
             "predicate": {
                 "buildType": "https://mobyproject.org/buildkit@v1",
@@ -205,7 +226,7 @@ def oci(source=SOURCE, subject=True, sbom=True):
                 },
             },
         }
-    ]
+    statements = [statement]
     if sbom:
         statements.append(
             {
@@ -258,6 +279,21 @@ def test_oci_subject_source_and_required_predicates(monkeypatch, changes):
             release.inspect_image(reference, SOURCE, REPO)
     else:
         assert set(release.inspect_image(reference, SOURCE, REPO)) == set(EVIDENCE)
+
+
+def test_oci_accepts_legacy_v02_provenance(monkeypatch):
+    index, blobs = oci(provenance="v0.2")
+
+    def get(path, *_args, **_kwargs):
+        return (
+            (b"", {"token": "synthetic"})
+            if path.startswith("/token?")
+            else blobs[path.rsplit("/", 1)[1]]
+        )
+
+    monkeypatch.setattr(release, "registry_json", get)
+    reference = "ghcr.io/example/allies-runtime@" + index
+    assert set(release.inspect_image(reference, SOURCE, REPO)) == set(EVIDENCE)
 
 
 def test_blob_redirect_does_not_forward_registry_credentials(monkeypatch):
