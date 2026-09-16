@@ -307,7 +307,7 @@ export function useConversationFiles(
                 workspaceId={workspaceId}
                 allyId={allyId}
               />
-              <span>
+              <span className={styles.transferFileDetails}>
                 <span className={styles.transferFileName} title={file.name}>{middleEllipsis(file.name)}</span>
                 <AnimatePresence initial={false} mode="wait"><motion.small
                   key={local && pending ? local.state === "pending" && transfer.phase === "uploading" ? "uploading" : local.state === "validating" || local.state === "receiving" ? "checking" : local.state : "ready"}
@@ -461,7 +461,7 @@ function FileBundle({ count, size, children }: { count: number; size: number; ch
       <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <span className={styles.transferBundleIcon}><FileIcon name="attachments" /></span>
         <span className={styles.transferBundleLabel}>
-          <strong>Work attachments</strong>
+          <strong>Attachments</strong>
           <small>{count} files · {(size / 1_000_000).toFixed(1)} MB</small>
         </span>
         <motion.span
@@ -868,7 +868,7 @@ function FileThumbnail({
     session.runCloudOperation,
   ]);
   return (
-    <span ref={element}>
+    <span ref={element} className={styles.transferFileThumbnail}>
       {src || url ? <img src={src || url} alt="" /> : <FileIcon />}
     </span>
   );

@@ -462,10 +462,15 @@
 .transferFile > button:disabled {
   cursor: default;
 }
-.transferFile > button:first-child > span {
+.transferFileDetails {
   flex: 1;
   min-width: 0;
   max-width: 100%;
+}
+.transferFileThumbnail {
+  display: grid;
+  flex: none;
+  place-items: center;
 }
 .transferFileName {
   display: block;
@@ -525,6 +530,11 @@
 .transferBundleIcon svg {
   width: 18px;
   height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .transferBundleChevron {
   display: grid;
@@ -556,6 +566,25 @@
   overflow-x: hidden;
   overscroll-behavior: contain;
   scrollbar-width: thin;
+  scrollbar-color: #fff transparent;
+}
+.transferBundleFiles::-webkit-scrollbar {
+  width: 8px;
+}
+.transferBundleFiles::-webkit-scrollbar-track,
+.transferBundleFiles::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.transferBundleFiles::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #fff;
+  background-clip: padding-box;
+}
+.transferBundleFiles::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
 }
 .transferBundleFiles .transferFile {
   min-width: 0;
