@@ -17,6 +17,7 @@ const paths = {
   camera: "M8 5l1-2h6l1 2h4v15H4V5h4M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0",
   photos: "M4 4h16v16H4zM4 16l5-5 4 4 3-3 4 4M8 8h.01",
   files: "M6 3h8l4 4v14H6zM14 3v5h4M9 13h6M9 16h4",
+  attachments: "M9.5 12.5 15 7a3 3 0 0 1 4.25 4.25l-7.5 7.5a5 5 0 0 1-7.07-7.07l7-7a2 2 0 0 1 2.83 2.83l-7 7",
   back: "m14 6-6 6 6 6",
   close: "m6 6 12 12M18 6 6 18",
 };
@@ -26,6 +27,14 @@ export function FileIcon({ name = "files" }: { name?: keyof typeof paths }) {
       <path d={paths[name]} />
     </svg>
   );
+}
+
+export function middleEllipsis(value: string, maximum = 36) {
+  const characters = Array.from(value);
+  if (characters.length <= maximum) return value;
+  const retained = maximum - 1;
+  const start = Math.ceil(retained * .6);
+  return `${characters.slice(0, start).join("")}…${characters.slice(-(retained - start)).join("")}`;
 }
 
 export function AttachmentTray({
@@ -66,7 +75,7 @@ export function AttachmentTray({
             ) : (
               <span className={styles.documentThumb}>
                 <FileIcon />
-                <small>{file.name}</small>
+                <small title={file.name}>{middleEllipsis(file.name, 24)}</small>
               </span>
             )}
             <button

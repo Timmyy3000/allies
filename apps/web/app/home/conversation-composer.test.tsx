@@ -19,9 +19,16 @@ function setMobileHome(matches: boolean) {
 
 beforeEach(() => setMobileHome(false));
 
-function Composer({ initial = "", submit = (_value: string) => {} }) {
+function Composer({ initial = "", submit = () => {}, onFilesDrop, disabled = false, dropScope = "sage", onAttach }: {
+  initial?: string;
+  submit?: (value: string) => void;
+  onFilesDrop?: (files: File[], origin: DOMRect) => boolean;
+  disabled?: boolean;
+  dropScope?: string;
+  onAttach?: (anchor: HTMLElement) => void;
+}) {
   const [value, setValue] = useState(initial);
-  return <ConversationComposer allyName="Sage" value={value} placeholder="Reply Sage" disabled={false} sending={false} onChange={setValue} onSubmit={() => submit(value)} />;
+  return <div data-testid="conversation-frame-shell"><div data-testid="conversation-transcript" /><ConversationComposer allyName="Sage" value={value} placeholder="Reply Sage" disabled={disabled} sending={false} onChange={setValue} onSubmit={() => submit(value)} onFilesDrop={onFilesDrop} dropScope={dropScope} onAttach={onAttach} /></div>;
 }
 
 describe("large composer drafts", () => {
@@ -92,7 +99,7 @@ describe("composer keyboard behavior", () => {
     expect(submit).toHaveBeenCalledTimes(1);
   });
 
-  it("lets mobile Enter insert a newline and submits only from the send control", () => {
+  it("lets mobile Enter insert a newline while Ctrl+Enter still submits", () => {
     setMobileHome(true);
     const submit = vi.fn();
     render(<Composer initial="Hello" submit={submit} />);
@@ -100,7 +107,7 @@ describe("composer keyboard behavior", () => {
 
     expect(fireEvent.keyDown(field, { key: "Enter" })).toBe(true);
     expect(submit).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(fireEvent.keyDown(field, { key: "Enter", ctrlKey: true })).toBe(false);
     expect(submit).toHaveBeenCalledWith("Hello");
   });
 
@@ -114,6 +121,148 @@ describe("composer keyboard behavior", () => {
       isComposing: true,
     });
     expect(submit).not.toHaveBeenCalled();
+  });
+});
+
+describe("composer file drops", () => {
+  it("filters mixed drops and reports accepted files", () => {
+    const onFilesDrop = vi.fn(() => true);
+    const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+    render(<Composer onFilesDrop={onFilesDrop} />);
+    const composer = screen.getByTestId("conversation-composer");
+    const dataTransfer = {
+      types: ["Files", "text/plain"],
+      items: [
+        { kind: "string", getAsFile: () => null },
+        { kind: "file", getAsFile: () => file },
+      ],
+      files: [file],
+      dropEffect: "none",
+    };
+    fireEvent.dragEnter(composer, { dataTransfer });
+    expect(screen.getByText("Drop files to attach")).toBeTruthy();
+    fireEvent.drop(composer, { dataTransfer });
+    expect(onFilesDrop).toHaveBeenCalledWith([file], expect.objectContaining({ width: 0, height: 0 }));
+    expect(screen.getByText("Files added to your draft.")).toBeTruthy();
+  });
+
+  it("rejects directories without invoking the attachment callback", () => {
+    const onFilesDrop = vi.fn(() => true);
+    const file = new File(["hello"], "notes.txt", { type: "text/plain" });
+    render(<Composer onFilesDrop={onFilesDrop} />);
+    const dataTransfer = {
+      types: ["Files"],
+      items: [{
+        kind: "file",
+        getAsFile: () => file,
+        webkitGetAsEntry: () => ({ isDirectory: true }),
+      }],
+      files: [file],
+      dropEffect: "none",
+    };
+    fireEvent.drop(screen.getByTestId("conversation-composer"), { dataTransfer });
+    expect(onFilesDrop).not.toHaveBeenCalled();
+    expect(screen.getByText("These files could not be added. Your draft has not changed.")).toBeTruthy();
+  });
+
+  it("prevents file navigation outside the composer without accepting the drop", () => {
+    const onFilesDrop = vi.fn(() => true);
+    render(<Composer onFilesDrop={onFilesDrop} initial="keep this draft" />);
+    const file = new File(["hello"], "notes.txt");
+    const dataTransfer = { types: ["Files"], items: [], files: [file], dropEffect: "none" };
+
+    expect(fireEvent.dragOver(document.body, { dataTransfer })).toBe(false);
+    expect(fireEvent.drop(document.body, { dataTransfer })).toBe(false);
+    expect(onFilesDrop).not.toHaveBeenCalled();
+    expect(screen.getByText("Drop files in the composer to attach them.")).toBeTruthy();
+    expect((screen.getByLabelText("Message Sage") as HTMLTextAreaElement).value).toBe("keep this draft");
+  });
+
+  it("accepts a file dropped anywhere in the active chat viewport", () => {
+    const onFilesDrop = vi.fn(() => true);
+    render(<Composer onFilesDrop={onFilesDrop} />);
+    const viewport = screen.getByTestId("conversation-frame-shell");
+    const file = new File(["hello"], "notes.txt");
+    const dataTransfer = { types: ["Files"], items: [], files: [file], dropEffect: "none" };
+
+    fireEvent.dragEnter(viewport, { dataTransfer });
+    expect(viewport.getAttribute("data-file-drop-active")).toBe("true");
+    fireEvent.drop(viewport, { dataTransfer });
+
+    expect(onFilesDrop).toHaveBeenCalledWith([file], expect.objectContaining({ width: 0, height: 0 }));
+    expect(screen.getByText("Files added to your draft.")).toBeTruthy();
+    expect(viewport.getAttribute("data-file-drop-active")).toBeNull();
+  });
+
+  it("keeps the drop state active while moving between chat viewport children", () => {
+    render(<Composer onFilesDrop={() => true} />);
+    const viewport = screen.getByTestId("conversation-frame-shell");
+    const composer = screen.getByTestId("conversation-composer");
+    const transcript = screen.getByTestId("conversation-transcript");
+    const file = new File(["hello"], "notes.txt");
+    const dataTransfer = { types: ["Files"], items: [], files: [file], dropEffect: "none" };
+    const leave = (target: HTMLElement, relatedTarget: EventTarget) => {
+      const event = new Event("dragleave", { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        dataTransfer: { value: dataTransfer },
+        relatedTarget: { value: relatedTarget },
+      });
+      fireEvent(target, event);
+    };
+
+    fireEvent.dragEnter(composer, { dataTransfer });
+    leave(composer, transcript);
+
+    expect(viewport.getAttribute("data-file-drop-active")).toBe("true");
+    expect(screen.getByText("Drop files to attach")).toBeTruthy();
+
+    leave(transcript, document.body);
+    expect(viewport.getAttribute("data-file-drop-active")).toBeNull();
+  });
+
+  it("does not intercept text-only drags and rejects file drops while disabled", () => {
+    const onFilesDrop = vi.fn(() => true);
+    const { rerender } = render(<Composer onFilesDrop={onFilesDrop} />);
+    expect(fireEvent.dragOver(document.body, {
+      dataTransfer: { types: ["text/plain"], items: [], files: [], dropEffect: "none" },
+    })).toBe(true);
+
+    rerender(<Composer onFilesDrop={onFilesDrop} disabled />);
+    const file = new File(["hello"], "notes.txt");
+    fireEvent.drop(screen.getByTestId("conversation-composer"), {
+      dataTransfer: { types: ["Files"], items: [], files: [file], dropEffect: "none" },
+    });
+    expect(onFilesDrop).not.toHaveBeenCalled();
+    expect(screen.getByText("Attachments are unavailable right now.")).toBeTruthy();
+  });
+
+  it("clears drag state on Escape, scope changes, and unmount", () => {
+    const onFilesDrop = vi.fn(() => true);
+    const file = new File(["hello"], "notes.txt");
+    const dataTransfer = { types: ["Files"], items: [], files: [file], dropEffect: "none" };
+    const view = render(<Composer onFilesDrop={onFilesDrop} dropScope="one" />);
+    let composer = screen.getByTestId("conversation-composer");
+    fireEvent.dragEnter(composer, { dataTransfer });
+    expect(composer.getAttribute("data-drop-active")).toBe("true");
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(composer.getAttribute("data-drop-active")).toBeNull();
+    expect(screen.queryByText("Drop files to attach")).toBeNull();
+    fireEvent.dragEnter(composer, { dataTransfer });
+    view.rerender(<Composer onFilesDrop={onFilesDrop} dropScope="two" />);
+    composer = screen.getByTestId("conversation-composer");
+    expect(composer.getAttribute("data-drop-active")).toBeNull();
+    expect(screen.queryByText("Drop files to attach")).toBeNull();
+    view.unmount();
+    expect(fireEvent.drop(document.body, { dataTransfer })).toBe(true);
+  });
+
+  it("keeps the keyboard-accessible picker path available", () => {
+    const onAttach = vi.fn();
+    render(<Composer onFilesDrop={() => true} onAttach={onAttach} />);
+    const button = screen.getByRole("button", { name: "Add attachment" });
+    button.focus();
+    fireEvent.click(button);
+    expect(onAttach).toHaveBeenCalledWith(button);
   });
 });
 

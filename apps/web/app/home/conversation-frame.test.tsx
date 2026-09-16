@@ -481,7 +481,7 @@ describe("ConversationFrame", () => {
     expect(disclosure?.textContent).toContain("Searching for citysubs");
   });
 
-  it("shimmers only the active header and collapses its history when the turn finishes", () => {
+  it("opens and locks active history, then collapses it only when the response finishes", () => {
     const entry = { ...model.activityGroups[0].entries[0], activityId: "call-a", activityAttemptId: "attempt-a", activityKind: "web_search" };
     const active: ProductionConversationFrameModel = {
       ...model, messages: [model.messages[0]], showThinkingState: true, activityState: "running",
@@ -489,11 +489,14 @@ describe("ConversationFrame", () => {
     };
     const view = render(<ConversationFrame model={active} actions={actions} />);
     const details = view.container.querySelector("details")!;
+    expect(details.open).toBe(true);
     expect(details.querySelectorAll(".shiny-text")).toHaveLength(1);
     expect(details.querySelector("summary .shiny-text")?.textContent).toBe(entry.text);
     expect(details.querySelector('[class*="frameActivityEntries"] .shiny-text')).toBeNull();
-    act(() => { details.open = true; fireEvent(details, new Event("toggle")); });
+    fireEvent.click(details.querySelector("summary")!);
     expect(details.open).toBe(true);
+    view.rerender(<ConversationFrame model={{ ...active, activityState: "awaiting_action" }} actions={actions} />);
+    expect(view.container.querySelector("details")?.open).toBe(true);
     view.rerender(<ConversationFrame model={{ ...active, showThinkingState: false, activityState: "completed" }} actions={actions} />);
     const history = view.container.querySelector("details")!;
     expect(history.open).toBe(false);
@@ -502,7 +505,7 @@ describe("ConversationFrame", () => {
     expect(history.open).toBe(true);
   });
 
-  it("resets the presence disclosure when the current activity group changes", () => {
+  it("keeps a replacement current activity group open", () => {
     const entry = { ...model.activityGroups[0].entries[0], activityId: "call-a", activityAttemptId: "attempt-a", activityKind: "web_search" };
     const active: ProductionConversationFrameModel = {
       ...model,
@@ -514,7 +517,6 @@ describe("ConversationFrame", () => {
     const view = render(<ConversationFrame model={active} actions={actions} />);
     const details = view.container.querySelector("details")!;
 
-    fireEvent.click(details.querySelector("summary")!);
     expect(details.open).toBe(true);
 
     view.rerender(<ConversationFrame model={{
@@ -527,7 +529,7 @@ describe("ConversationFrame", () => {
       }],
     }} actions={actions} />);
 
-    expect(view.container.querySelector("details")?.open).toBe(false);
+    expect(view.container.querySelector("details")?.open).toBe(true);
   });
 
   it("uses the readable activity accent for active icons and muted color for terminal rows", () => {
