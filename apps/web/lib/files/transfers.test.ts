@@ -267,6 +267,7 @@ describe("file send recovery", () => {
     const f = fixture(),
       record = await f.prepare();
     await f.manager.upload(record.id, false);
+    f.manager.drafts.set(scope, record.files);
     const message = {
       id,
       status: "queued",
@@ -276,6 +277,20 @@ describe("file send recovery", () => {
     expect(f.storage.erase).not.toHaveBeenCalled();
     f.manager.observe([{ ...message, queueState: "claimed" }]);
     await vi.waitFor(() => expect(f.manager.find(record.id)).toBeUndefined());
+    expect(f.manager.drafts.has(scope)).toBe(false);
+  });
+  it("keeps unrelated selections when a recovered sent draft is reclaimed", async () => {
+    const f = fixture();
+    const record = await f.prepare();
+    await f.manager.upload(record.id, false);
+    const unrelatedFile = new File(["new"], "new.txt", { type: "text/plain" });
+    const unrelated = { id: "new-selection", name: unrelatedFile.name, size: unrelatedFile.size, file: unrelatedFile };
+    f.manager.drafts.set(scope, [...record.files, unrelated]);
+
+    f.manager.observe([{ id, status: "completed", queueState: undefined } as MessageViewModel]);
+    await vi.waitFor(() => expect(f.manager.find(record.id)).toBeUndefined());
+
+    expect(f.manager.drafts.get(scope)).toEqual([unrelated]);
   });
   it.each(["failed", "stopped"] as const)(
     "preserves recoverable local bytes when the Cloud message is %s",

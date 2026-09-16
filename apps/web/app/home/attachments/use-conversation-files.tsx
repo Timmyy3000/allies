@@ -33,6 +33,7 @@ import {
 import styles from "./attachments.module.css";
 
 const EMPTY: FileTransfer[] = [];
+const EMPTY_SELECTED_FILES: SelectedFile[] = [];
 export function useConversationFiles(
   userId: string,
   workspaceId: string,
@@ -51,9 +52,8 @@ export function useConversationFiles(
     manager.snapshot,
     () => EMPTY,
   );
-  const [files, setFiles] = useState<SelectedFile[]>(
-    () => manager.drafts.get(scope) ?? [],
-  );
+  const draftFiles = manager.drafts.get(scope);
+  const files = useMemo(() => draftFiles ?? EMPTY_SELECTED_FILES, [draftFiles]);
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [arriving, setArriving] = useState(new Set<string>());
@@ -74,9 +74,8 @@ export function useConversationFiles(
   const change = useCallback(
     (next: SelectedFile[]) => {
       const previous = manager.drafts.get(scope) ?? [];
-      manager.drafts.set(scope, next);
+      manager.setDraft(scope, next);
       previous.forEach((file) => manager.releasePreview(file));
-      setFiles(next);
     },
     [manager, scope],
   );
