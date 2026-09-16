@@ -25,6 +25,7 @@ from gateway.platforms.api_server import (
 from hermes_cli.plugins import discover_plugins
 from model_tools import get_tool_definitions, handle_function_call
 from run_agent import AIAgent
+from tools.registry import registry
 from tools.thread_context import propagate_context_to_thread
 from toolsets import TOOLSETS, create_custom_toolset
 
@@ -223,6 +224,10 @@ def _test_private_capability_boundary() -> None:
 
 def main() -> None:
     discover_plugins(force=True)
+    publication_definition = registry.get_definitions({"publish_files"})[0]
+    assert publication_definition["function"]["parameters"]["required"] == [
+        "paths"
+    ]
     ordinary = _allies_routine_enabled_toolsets(
         ["all"], routine_result=False, file_publication=False
     )
