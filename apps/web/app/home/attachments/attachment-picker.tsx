@@ -28,6 +28,14 @@ export function FileIcon({ name = "files" }: { name?: keyof typeof paths }) {
   );
 }
 
+export function middleEllipsis(value: string, maximum = 36) {
+  const characters = Array.from(value);
+  if (characters.length <= maximum) return value;
+  const retained = maximum - 1;
+  const start = Math.ceil(retained * .6);
+  return `${characters.slice(0, start).join("")}…${characters.slice(-(retained - start)).join("")}`;
+}
+
 export function AttachmentTray({
   files,
   arriving,
@@ -66,7 +74,7 @@ export function AttachmentTray({
             ) : (
               <span className={styles.documentThumb}>
                 <FileIcon />
-                <small>{file.name}</small>
+                <small title={file.name}>{middleEllipsis(file.name, 24)}</small>
               </span>
             )}
             <button

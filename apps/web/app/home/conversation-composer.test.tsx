@@ -99,7 +99,7 @@ describe("composer keyboard behavior", () => {
     expect(submit).toHaveBeenCalledTimes(1);
   });
 
-  it("lets mobile Enter insert a newline and submits only from the send control", () => {
+  it("lets mobile Enter insert a newline while Ctrl+Enter still submits", () => {
     setMobileHome(true);
     const submit = vi.fn();
     render(<Composer initial="Hello" submit={submit} />);
@@ -107,7 +107,7 @@ describe("composer keyboard behavior", () => {
 
     expect(fireEvent.keyDown(field, { key: "Enter" })).toBe(true);
     expect(submit).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(fireEvent.keyDown(field, { key: "Enter", ctrlKey: true })).toBe(false);
     expect(submit).toHaveBeenCalledWith("Hello");
   });
 
