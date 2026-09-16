@@ -462,6 +462,56 @@
 .transferFile > button:disabled {
   cursor: default;
 }
+.transferFileName {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transferBundle {
+  display: block;
+  overflow: hidden;
+  border-radius: 14px;
+  background: #ffffff24;
+}
+.transferBundle > button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 52px;
+  padding: 8px 12px;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.transferBundle > button > span {
+  min-width: 0;
+}
+.transferBundle > button strong,
+.transferBundle > button small {
+  display: block;
+}
+.transferBundle > button small {
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: .7;
+}
+.transferBundleFiles {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: min(320px, 38dvh);
+  padding: 0 6px 6px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.transferBundleFiles .transferFile {
+  background: #ffffff14;
+}
 .transferActions {
   display: flex;
   gap: 8px;

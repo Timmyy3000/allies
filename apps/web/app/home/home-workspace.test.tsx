@@ -397,6 +397,40 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
 });
 
 describe("HomeWorkspace", () => {
+  it("collapses a completed multi-file message into one expandable bundle", async () => {
+    const files = [
+      { id: "10000000-0000-4000-8000-000000000001", name: "one.pdf", size: 300_000, state: "retained" as const },
+      { id: "10000000-0000-4000-8000-000000000002", name: "two.pdf", size: 400_000, state: "retained" as const },
+      { id: "10000000-0000-4000-8000-000000000003", name: "three.pdf", size: 500_000, state: "retained" as const },
+    ];
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: "00000000-0000-4000-8000-000000000005",
+        allyId: ally.id,
+        messages: [{
+          id: "00000000-0000-4000-8000-000000000006",
+          sender: "user" as const,
+          content: "Review these",
+          sequence: 1,
+          status: "completed" as const,
+          createdAt: "2026-08-20T16:00:00Z",
+          preparation: "ready" as const,
+          revision: 1,
+          files,
+        }],
+        nextCursor: null,
+      })),
+    });
+
+    const label = await screen.findByText("3 files");
+    const toggle = label.closest("button") as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("1.2 MB · View files");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.textContent).toContain("Hide files");
+  });
+
   it("requires the exact onboarding greeting and reply before releasing the handoff", () => {
     const messages = [
       { id: "greeting", sender: "assistant", sequence: 1, content: "Hello Nova" },
