@@ -455,13 +455,37 @@ export function useConversationFiles(
 
 function FileBundle({ count, size, children }: { count: number; size: number; children: ReactNode }) {
   const [open, setOpen] = useState(false);
+  const reducedMotion = useReducedMotion();
   return (
     <span className={styles.transferBundle}>
       <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
-        <FileIcon />
-        <span><strong>{count} files</strong><small>{(size / 1_000_000).toFixed(1)} MB · {open ? "Hide files" : "View files"}</small></span>
+        <span className={styles.transferBundleIcon}><FileIcon name="attachments" /></span>
+        <span className={styles.transferBundleLabel}>
+          <strong>Work attachments</strong>
+          <small>{count} files · {(size / 1_000_000).toFixed(1)} MB</small>
+        </span>
+        <motion.span
+          className={styles.transferBundleChevron}
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={{ duration: reducedMotion ? 0 : .2, ease: [.22, 1, .36, 1] }}
+          aria-hidden="true"
+        >
+          <svg viewBox="0 0 12 12"><path d="m3 4.5 3 3 3-3" /></svg>
+        </motion.span>
       </button>
-      {open ? <span className={styles.transferBundleFiles}>{children}</span> : null}
+      <AnimatePresence initial={false}>
+        {open ? (
+          <motion.span
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: reducedMotion ? 0 : .22, ease: [.22, 1, .36, 1] }}
+            className={styles.transferBundleReveal}
+          >
+            <span className={styles.transferBundleFiles}>{children}</span>
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
     </span>
   );
 }
@@ -505,17 +529,37 @@ function PrivateFilePreview({
         if (controller.signal.aborted) return;
         setMetadata(info);
         if (info.preview_kind !== "none") {
-          const blob = await session.runCloudOperation(
-            (signal) =>
-              session.client.files.content(
-                workspaceId,
-                allyId,
-                file.id,
-                true,
-                signal,
-              ),
-            { signal: controller.signal },
-          );
+          let blob: Blob;
+          try {
+            blob = await session.runCloudOperation(
+              (signal) =>
+                session.client.files.content(
+                  workspaceId,
+                  allyId,
+                  file.id,
+                  true,
+                  signal,
+                ),
+              { signal: controller.signal },
+            );
+          } catch (previewError) {
+            if (controller.signal.aborted) return;
+            try {
+              blob = await session.runCloudOperation(
+                (signal) =>
+                  session.client.files.content(
+                    workspaceId,
+                    allyId,
+                    file.id,
+                    false,
+                    signal,
+                  ),
+                { signal: controller.signal },
+              );
+            } catch {
+              throw previewError;
+            }
+          }
           if (controller.signal.aborted) return;
           if (info.preview_kind === "text") {
             const body = await blob.text();
@@ -630,9 +674,9 @@ function PrivateFilePreview({
         </p>
         <div className={styles.previewBody}><AnimatePresence initial={false} mode="wait"><motion.div key={previewState} className={styles.previewContent} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .16 }}>
           {error ? (
-            <p role="alert">
-              {error}
-              <button onClick={() => setAttempt((a) => a + 1)}>Retry</button>
+            <p role="alert" className={styles.previewError}>
+              <span>{error}</span>
+              <button type="button" onClick={() => setAttempt((a) => a + 1)}>Retry</button>
             </p>
           ) : previewState === "loading" ? <p role="status">Loading preview…</p> : metadata?.preview_kind === "none" ? (
             <p>Preview isn’t available for this file. You can download it.</p>
