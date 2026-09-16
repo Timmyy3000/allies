@@ -125,6 +125,94 @@ describe("composer keyboard behavior", () => {
 });
 
 describe("composer file drops", () => {
+  it("adds pasted clipboard images through the attachment pipeline", () => {
+    const onFilesDrop = vi.fn(() => true);
+    const image = new File(["pixels"], "screenshot.png", { type: "image/png" });
+    render(<Composer onFilesDrop={onFilesDrop} initial="Keep this draft" />);
+    const field = screen.getByLabelText("Message Sage");
+
+    expect(fireEvent.paste(field, {
+      clipboardData: {
+        items: [{ kind: "file", type: "image/png", getAsFile: () => image }],
+        files: [image],
+        getData: () => "",
+      },
+    })).toBe(false);
+
+    expect(onFilesDrop).toHaveBeenCalledWith([image], expect.objectContaining({ width: 0, height: 0 }));
+    expect(screen.getByText("Images added to your draft.")).toBeTruthy();
+    expect((field as HTMLTextAreaElement).value).toBe("Keep this draft");
+  });
+
+  it("keeps accompanying clipboard text when adding an image", () => {
+    const onFilesDrop = vi.fn(() => true);
+    const image = new File(["pixels"], "screenshot.png", { type: "image/png" });
+    render(<Composer onFilesDrop={onFilesDrop} initial="Keep " />);
+    const field = screen.getByLabelText("Message Sage") as HTMLTextAreaElement;
+    field.setSelectionRange(5, 5);
+
+    fireEvent.paste(field, {
+      clipboardData: {
+        items: [
+          { kind: "file", type: "image/png", getAsFile: () => image },
+          { kind: "string", type: "text/plain", getAsFile: () => null },
+        ],
+        files: [image],
+        getData: (type: string) => type === "text/plain" ? "this caption" : "",
+      },
+    });
+
+    expect(onFilesDrop).toHaveBeenCalledWith([image], expect.anything());
+    expect(field.value).toBe("Keep this caption");
+    expect(screen.getByText("Images and text added to your draft.")).toBeTruthy();
+  });
+
+  it("leaves the draft unchanged when pasted clipboard images are rejected", () => {
+    const onFilesDrop = vi.fn(() => false);
+    const image = new File(["pixels"], "screenshot.png", { type: "image/png" });
+    render(<Composer onFilesDrop={onFilesDrop} initial="Keep this draft" />);
+    const field = screen.getByLabelText("Message Sage");
+
+    fireEvent.paste(field, {
+      clipboardData: {
+        items: [{ kind: "file", type: "image/png", getAsFile: () => image }],
+        files: [image],
+        getData: () => "",
+      },
+    });
+
+    expect(screen.getByText("These images could not be added. Your draft has not changed.")).toBeTruthy();
+    expect((field as HTMLTextAreaElement).value).toBe("Keep this draft");
+  });
+
+  it("reports unavailable attachments without replacing the draft with a pasted image", () => {
+    const image = new File(["pixels"], "screenshot.png", { type: "image/png" });
+    render(<Composer initial="Keep this draft" />);
+    const field = screen.getByLabelText("Message Sage");
+
+    fireEvent.paste(field, {
+      clipboardData: {
+        items: [{ kind: "file", type: "image/png", getAsFile: () => image }],
+        files: [image],
+        getData: () => "",
+      },
+    });
+
+    expect(screen.getByText("Attachments are unavailable right now.")).toBeTruthy();
+    expect((field as HTMLTextAreaElement).value).toBe("Keep this draft");
+  });
+
+  it("keeps ordinary clipboard text on the existing paste path", () => {
+    const onFilesDrop = vi.fn(() => true);
+    render(<Composer onFilesDrop={onFilesDrop} />);
+    const field = screen.getByLabelText("Message Sage");
+
+    expect(fireEvent.paste(field, {
+      clipboardData: { items: [], files: [], getData: () => "ordinary text" },
+    })).toBe(true);
+    expect(onFilesDrop).not.toHaveBeenCalled();
+  });
+
   it("filters mixed drops and reports accepted files", () => {
     const onFilesDrop = vi.fn(() => true);
     const file = new File(["hello"], "notes.txt", { type: "text/plain" });

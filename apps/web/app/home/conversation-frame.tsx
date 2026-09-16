@@ -293,6 +293,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
             const intervalDate = index > 0
               ? conversationDateDividerAt(message.createdAt, visibleMessages[index - 1]?.createdAt)
               : "";
+            const messagePublications = publications?.(message.id);
 
             return (
               <div className={styles.frameMessageRow} key={message.id}>
@@ -319,7 +320,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
                 )}
 
                 {turn ? <TurnMessage model={model} turn={turn} onOpenRoutine={actions.onOpenRoutine} onOpenFile={onFileOpen} /> : null}
-                {publications?.(message.id)}
+                {messagePublications ? <div className={styles.frameMessagePublications}>{messagePublications}</div> : null}
                 {activityGroups.filter((group) => docked || group.key !== currentGroup?.key).map((group) => (
                   <ActivityGroup key={group.key} group={group} />
                 ))}
