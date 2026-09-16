@@ -39,8 +39,10 @@ PUBLISH_FILES_SCHEMA = {
         "description": (
             "Publish one to ten files from the current workspace. Use only "
             "workspace-relative paths, never absolute paths. After a successful "
-            "call, include every returned [shared-file](...) reference exactly "
-            "once in the final response and do not expose local or raw file paths."
+            "call, include every returned chat_reference exactly once in the final "
+            "response. You may replace only its visible Markdown label with short, "
+            "natural wording for the user; keep the /files/... destination exact. "
+            "Do not expose local or raw file paths."
         ),
         "parameters": {
             "type": "object",
@@ -73,6 +75,11 @@ def _failure() -> str:
 
 def _invalid_paths() -> str:
     return json.dumps(_INVALID_PATHS, separators=(",", ":"))
+
+
+def _markdown_label(name: str) -> str:
+    label = " ".join(name.split()) or "Open file"
+    return label.replace("\\", "\\\\").replace("[", "\\[").replace("]", "\\]")
 
 
 def _valid_paths(args: Any) -> list[str] | None:
@@ -160,7 +167,7 @@ def _ready(value: dict[str, Any], context: str) -> str | None:
         safe_files.append(
             {
                 "name": name,
-                "chat_reference": f"[shared-file]({open_path.lower()})",
+                "chat_reference": f"[{_markdown_label(name)}]({open_path.lower()})",
             }
         )
     return json.dumps(
@@ -179,11 +186,7 @@ def handle_publish_files(
     paths = _valid_paths(args)
     if paths is None:
         return _invalid_paths()
-    if (
-        context is None
-        or not isinstance(tool_call_id, str)
-        or not tool_call_id
-    ):
+    if context is None or not isinstance(tool_call_id, str) or not tool_call_id:
         return _failure()
     try:
         request = json.dumps(
