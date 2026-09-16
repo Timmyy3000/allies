@@ -377,6 +377,25 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     expect(screen.getByText("Shape your Ally")).toBeTruthy();
   });
 
+  it.each([false, true])("allows a tenth Ally (desktop: %s)", async (desktop) => {
+    stubViewport(desktop);
+    renderHome(Array.from({ length: 9 }, (_, index) => ({ ...ally, id: `ally-${index}` })));
+    const button = await screen.findByRole("button", { name: "Make an Ally" });
+    expect((button as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByText("9 / 10 Allies")).toBeTruthy();
+    fireEvent.click(button);
+    expect(screen.getByText("Shape your Ally")).toBeTruthy();
+  });
+
+  it.each([10, 11])("blocks creation at %s Allies, including the direct route", async (count) => {
+    renderHome(Array.from({ length: count }, (_, index) => ({ ...ally, id: `ally-${index}` })), "new");
+    expect(await screen.findByRole("heading", { name: "Ally limit reached" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Make an Ally" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("Shape your Ally")).toBeNull();
+    expect(screen.queryByText("Finish create")).toBeNull();
+    expect(screen.getAllByRole("link", { name: /Mira/ })).toHaveLength(count);
+  });
+
   it.each(["home", "ally", "new"])("redirects signed-out visitors from %s without demo content", async (route) => {
     useSessionMock.mockReturnValue({
       state: { status: "signed-out" },
