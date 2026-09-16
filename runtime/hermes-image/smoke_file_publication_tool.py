@@ -241,9 +241,7 @@ def _test_private_capability_boundary() -> None:
 def main() -> None:
     discover_plugins(force=True)
     publication_definition = registry.get_definitions({"publish_files"})[0]
-    assert publication_definition["function"]["parameters"]["required"] == [
-        "paths"
-    ]
+    assert publication_definition["function"]["parameters"]["required"] == ["paths"]
     ordinary = _allies_routine_enabled_toolsets(
         ["all"], routine_result=False, file_publication=False
     )
@@ -357,7 +355,10 @@ def main() -> None:
         assert NONCE_A not in result and NONCE_B not in result
         assert '"paths"' not in result
         assert '"open_path"' not in result
-        assert f"[shared-file](/files/{FILE_ID})" in result
+        assert (
+            f"[a.csv](/files/{FILE_ID})" in result
+            or f"[b.csv](/files/{FILE_ID})" in result
+        )
 
     unicode_name = "名" * 255
     requests = []
@@ -378,16 +379,35 @@ def main() -> None:
         "files": [
             {
                 "name": unicode_name,
-                "chat_reference": f"[shared-file](/files/{FILE_ID})",
+                "chat_reference": f"[{unicode_name}](/files/{FILE_ID})",
             }
         ],
     }
 
     requests = []
+    server, errors = _serve([_published_file("German [verbs]\nnotes.md")], requests)
+    token = set_current_allies_file_publication_context(NONCE_A)
+    try:
+        escaped_label = json.loads(
+            handle_function_call(
+                "publish_files", {"paths": ["out.md"]}, tool_call_id="call-label"
+            )
+        )
+    finally:
+        reset_current_allies_file_publication_context(token)
+    server.join(timeout=5)
+    assert not server.is_alive() and not errors
+    assert escaped_label["files"][0]["chat_reference"] == (
+        f"[German \\[verbs\\] notes.md](/files/{FILE_ID})"
+    )
+
+    requests = []
     server, errors = _serve(
         [
-            b'{"state":"ready","files":[{"name":"out.csv",'
-            b'"open_path":"/files/not-a-uuid"}]}\n'
+            (
+                b'{"state":"ready","files":[{"name":"out.csv",'
+                b'"open_path":"/files/not-a-uuid"}]}\n'
+            )
         ],
         requests,
     )
