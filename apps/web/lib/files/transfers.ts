@@ -328,10 +328,13 @@ async function persist(value: FileTransfer) {
             return;
           }
           try {
-            store.put({
+            const write = store.put({
               ...value,
               files: value.files.map((file) => ({ ...file, src: undefined })),
             });
+            write.onerror = () => {
+              failure = classifyStorageError(write.error, "save");
+            };
           } catch (error) {
             failure = classifyStorageError(error, "save");
             finish(failure);
@@ -529,8 +532,9 @@ export class FileTransfers {
     try {
       await this.storage.persist(record);
     } catch (error) {
-      if (fileStorageFailureKind(error) !== "capacity") throw error;
-      await this.reconcile(record.scope);
+      const failure = fileStorageFailureKind(error);
+      if (!failure || !["capacity", "quota", "transaction"].includes(failure)) throw error;
+      if (failure === "capacity" || failure === "quota") await this.reconcile(record.scope);
       await this.storage.persist(record);
     }
     const index = this.records.findIndex((r) => r.id === record.id);
