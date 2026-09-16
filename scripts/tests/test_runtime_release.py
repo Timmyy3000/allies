@@ -55,8 +55,15 @@ class GitHub:
             return self.tag
         if "/assets/" in endpoint:
             return list(self.records.values())[int(endpoint.rsplit("/", 1)[1]) - 1]
+        if endpoint.endswith("/releases?per_page=100"):
+            return [] if self.release is None else [self._release()]
+        if "/releases/tags/" in endpoint and self.release and self.release["draft"]:
+            return None
         if self.release is None:
             return None
+        return self._release()
+
+    def _release(self):
         return {
             **self.release,
             "assets": [
