@@ -581,6 +581,24 @@ describe("ConversationFrame", () => {
     expect([...icons[1].querySelectorAll("path")].every((path) => path.getAttribute("fill") === "var(--text-secondary)")).toBe(true);
   });
 
+  it.each([
+    [undefined, "Publishing file"],
+    ["completed", "Published file"],
+    ["failed", "Couldn't publish file"],
+  ] as const)("preserves publication activity copy for %s", (outcome, text) => {
+    const entry = { ...model.activityGroups[0].entries[0], activityId: "publish-call", activityAttemptId: "attempt-a", activityKind: "publish_files", text, outcome };
+    const view = render(<ConversationFrame model={{
+      ...model,
+      messages: [model.messages[0]],
+      showThinkingState: !outcome,
+      activityState: outcome ? "completed" : "running",
+      activityGroups: [{ ...model.activityGroups[0], entries: [{ ...entry, kind: outcome ? "activity_completed" : "activity_started" }] }],
+    }} actions={actions} />);
+    expect(view.getAllByText(text).length).toBeGreaterThan(0);
+    expect(view.queryByText("Finished an activity")).toBeNull();
+    expect(view.container.querySelector('[class*="frameActivityEntries"] svg')).not.toBeNull();
+  });
+
   it("uses command copy only for terminal activity", () => {
     const entry = { ...model.activityGroups[0].entries[0], activityId: "call-a", activityAttemptId: "attempt-a" };
     const view = render(<ConversationFrame model={{
