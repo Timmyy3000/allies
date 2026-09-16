@@ -71,6 +71,7 @@ ACTIVITY_KINDS = frozenset(
         "search_files",
         "read_file",
         "write_file",
+        "publish_files",
         "patch",
         "terminal",
         "execute_code",

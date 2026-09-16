@@ -13,10 +13,10 @@ import unicodedata
 from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from uuid import UUID, uuid4
 
-from .errors import IncomingFileError
+from .errors import IncomingFileError, PublicationInputError
 
 try:  # pragma: no cover - runtime images use Linux advisory locks
     import fcntl
@@ -132,25 +132,41 @@ def prepare_publication_files(
     """Read bounded descriptors before the publication intent is persisted."""
 
     workspace = _workspace(workspace)
-    source_paths = _publication_paths(paths)
+    source_paths = _publication_paths(workspace, paths)
     prepared: list[dict[str, object]] = []
     total = 0
     for relative in source_paths:
         try:
             _source, metadata = _publication_source(workspace, relative)
+        except FileNotFoundError:
+            raise PublicationInputError(
+                "file_not_found", "publication source was unavailable"
+            ) from None
+        except PermissionError:
+            raise PublicationInputError(
+                "file_unreadable", "publication source was unavailable"
+            ) from None
         except IncomingFileError:
             raise
         except OSError:
             raise IncomingFileError("publication source was unavailable") from None
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-            or not 1 <= metadata.st_size <= MAX_PUBLICATION_FILE_BYTES
-        ):
-            raise IncomingFileError("publication source was unsafe")
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise PublicationInputError(
+                "file_unreadable", "publication source was unsafe"
+            )
+        if metadata.st_size < 1:
+            raise PublicationInputError(
+                "file_unreadable", "publication source was unsafe"
+            )
+        if metadata.st_size > MAX_PUBLICATION_FILE_BYTES:
+            raise PublicationInputError(
+                "file_too_large", "publication source exceeds 25 MB"
+            )
         total += metadata.st_size
         if total > MAX_PUBLICATION_BYTES:
-            raise IncomingFileError("publication file set exceeds 50 MB")
+            raise PublicationInputError(
+                "file_too_large", "publication file set exceeds 50 MB"
+            )
         prepared.append({"name": relative.name, "size": metadata.st_size})
     return prepared
 
@@ -164,8 +180,10 @@ def freeze_publication(
 
     workspace = _workspace(workspace)
     publication_id = _command_id(publication_id)
-    source_paths = _publication_paths(paths)
-    prepared = prepare_publication_files(workspace, paths)
+    source_paths = _publication_paths(workspace, paths)
+    prepared = prepare_publication_files(
+        workspace, [item.as_posix() for item in source_paths]
+    )
     profile = workspace.parent
     volume_root = profile.parent.parent
     spool_root = _publication_spool_root(volume_root, profile.name)
@@ -1000,28 +1018,55 @@ def _remove_tree(path: Path) -> None:
         shutil.rmtree(path, ignore_errors=True)
 
 
-def _publication_paths(value: Sequence[str]) -> tuple[Path, ...]:
+def _publication_paths(workspace: Path, value: Sequence[str]) -> tuple[Path, ...]:
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
-        raise IncomingFileError("publication paths were invalid")
+        raise PublicationInputError("invalid_paths", "publication paths were invalid")
     if not 1 <= len(value) <= MAX_FILES:
-        raise IncomingFileError("publication must contain from 1 to 10 files")
+        raise PublicationInputError(
+            "invalid_paths", "publication must contain from 1 to 10 files"
+        )
     result: list[Path] = []
-    for relative in value:
-        if not isinstance(relative, str):
-            raise IncomingFileError("publication paths were invalid")
-        candidate = Path(relative)
+    for raw in value:
+        if not isinstance(raw, str):
+            raise PublicationInputError("invalid_paths", "publication paths were invalid")
         if (
-            not relative
+            not raw
+            or "\x00" in raw
+            or any(ord(character) < 0x20 or ord(character) == 0x7F for character in raw)
+        ):
+            raise PublicationInputError("invalid_paths", "publication path was unsafe")
+        if ".." in PurePosixPath(raw).parts or ".." in Path(raw).parts:
+            raise PublicationInputError("invalid_paths", "publication path was unsafe")
+        try:
+            candidate = _publication_relative_path(workspace, raw)
+        except (OSError, ValueError):
+            raise PublicationInputError("invalid_paths", "publication path was unsafe") from None
+        if (
+            not candidate.parts
             or candidate.is_absolute()
-            or not candidate.parts
             or ".." in candidate.parts
             or any(part.startswith(".") for part in candidate.parts)
         ):
-            raise IncomingFileError("publication path was unsafe")
+            raise PublicationInputError("invalid_paths", "publication path was unsafe")
         result.append(candidate)
     if len(set(result)) != len(result):
-        raise IncomingFileError("publication paths were duplicated")
+        raise PublicationInputError("invalid_paths", "publication paths were duplicated")
     return tuple(result)
+
+
+def _publication_relative_path(workspace: Path, value: str) -> Path:
+    native = Path(value)
+    if native.is_absolute():
+        return Path(native.relative_to(workspace).as_posix())
+    posix = PurePosixPath(value)
+    if posix.is_absolute():
+        workspace_posix = PurePosixPath(workspace.as_posix())
+        if not workspace_posix.is_absolute():
+            raise ValueError
+        return Path(*posix.relative_to(workspace_posix).parts)
+    if "\\" in value:
+        raise ValueError
+    return Path(*posix.parts)
 
 
 def _copy_publication_file(
@@ -1029,17 +1074,35 @@ def _copy_publication_file(
 ) -> PublicationFile:
     try:
         source, before = _publication_source(workspace, relative)
+    except FileNotFoundError:
+        raise PublicationInputError(
+            "file_not_found", "publication source was unavailable"
+        ) from None
+    except PermissionError:
+        raise PublicationInputError(
+            "file_unreadable", "publication source was unavailable"
+        ) from None
     except OSError:
         raise IncomingFileError("publication source was unavailable") from None
-    if (
-        not stat.S_ISREG(before.st_mode)
-        or before.st_nlink != 1
-        or before.st_size > MAX_PUBLICATION_FILE_BYTES
-    ):
-        raise IncomingFileError("publication source was unsafe")
+    if not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+        raise PublicationInputError("file_unreadable", "publication source was unsafe")
+    if before.st_size < 1:
+        raise PublicationInputError("file_unreadable", "publication source was unsafe")
+    if before.st_size > MAX_PUBLICATION_FILE_BYTES:
+        raise PublicationInputError(
+            "file_too_large", "publication source exceeds 25 MB"
+        )
     flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
     try:
         descriptor = _open_publication_source(source, flags)
+    except FileNotFoundError:
+        raise PublicationInputError(
+            "file_not_found", "publication source was unavailable"
+        ) from None
+    except PermissionError:
+        raise PublicationInputError(
+            "file_unreadable", "publication source was unavailable"
+        ) from None
     except OSError:
         raise IncomingFileError("publication source was unavailable") from None
     output_name = f"{ordinal:02d}-{uuid4().hex}.bin"
@@ -1053,7 +1116,9 @@ def _copy_publication_file(
             or opened.st_nlink != 1
             or not os.path.samestat(before, opened)
         ):
-            raise IncomingFileError("publication source was unsafe")
+            raise PublicationInputError(
+                "file_unreadable", "publication source was unsafe"
+            )
         with output.open("xb") as handle:
             while True:
                 chunk = os.read(descriptor, MAX_CHUNK_BYTES)
@@ -1061,7 +1126,9 @@ def _copy_publication_file(
                     break
                 copied += len(chunk)
                 if copied > MAX_PUBLICATION_FILE_BYTES:
-                    raise IncomingFileError("publication source exceeds 25 MB")
+                    raise PublicationInputError(
+                        "file_too_large", "publication source exceeds 25 MB"
+                    )
                 digest.update(chunk)
                 handle.write(chunk)
                 if shutil.disk_usage(destination).free < MIN_VOLUME_FREE_BYTES:
@@ -1073,7 +1140,9 @@ def _copy_publication_file(
             before.st_size,
             before.st_mtime_ns,
         ) != (after.st_size, after.st_mtime_ns):
-            raise IncomingFileError("publication source changed during copy")
+            raise PublicationInputError(
+                "file_unreadable", "publication source changed during copy"
+            )
     except IncomingFileError:
         output.unlink(missing_ok=True)
         raise
@@ -1114,7 +1183,9 @@ def _publication_source(workspace: Path, relative: Path) -> tuple[Path, os.stat_
         if current.is_symlink() or (
             index < len(relative.parts) - 1 and not stat.S_ISDIR(metadata.st_mode)
         ):
-            raise IncomingFileError("publication source was unsafe")
+            raise PublicationInputError(
+                "file_unreadable", "publication source was unsafe"
+            )
     return current, metadata
 
 

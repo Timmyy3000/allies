@@ -644,6 +644,20 @@ def test_publication_copy_checks_paths_and_detects_source_changes(
     with pytest.raises(IncomingFileError, match="source was unavailable"):
         files._copy_publication_file(workspace, Path("result.csv"), destination, 1)
 
+    for failure, code in (
+        (FileNotFoundError, "file_not_found"),
+        (PermissionError, "file_unreadable"),
+    ):
+
+        def fail_open(*_args, _failure=failure, **_kwargs):
+            raise _failure("source unavailable")
+
+        monkeypatch.setattr(files, "_open_publication_source", fail_open)
+        with pytest.raises(IncomingFileError) as error:
+            files._copy_publication_file(workspace, Path("result.csv"), destination, 1)
+        assert error.value.code == code
+        monkeypatch.undo()
+
     monkeypatch.undo()
     checks = iter((True, False))
     monkeypatch.setattr(files.os.path, "samestat", lambda *_args: next(checks))

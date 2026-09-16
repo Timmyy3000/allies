@@ -54,7 +54,7 @@ diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
 index a756134..0a651c0 100644
 --- a/gateway/platforms/api_server.py
 +++ b/gateway/platforms/api_server.py
-@@ -3732,10 +3732,50 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -3732,10 +3732,75 @@ class APIServerAdapter(BasePlatformAdapter):
  
 +        routine_activity_names = {}
 +
@@ -81,6 +81,8 @@ index a756134..0a651c0 100644
 +                    target, arguments = args.get("name"), args.get("arguments")
 +                if target == "allies_routine_result":
 +                    routine_activity_names[tool_call_id] = "routine_result"
++                elif target == "publish_files":
++                    routine_activity_names[tool_call_id] = "publish_files"
 +                elif target == "allies_routines" and isinstance(arguments, dict):
 +                    action = arguments.get("action")
 +                    if action in {"create", "list", "inspect", "update", "pause", "resume", "request_delete", "delete"}:
@@ -97,6 +99,29 @@ index a756134..0a651c0 100644
 +                is_error = kwargs.get("is_error")
 +                if type(is_error) is not bool:
 +                    return
++                if tool_name == "publish_files":
++                    result = kwargs.get("result")
++                    if isinstance(result, str) and len(result) <= 65536:
++                        try:
++                            result = json.loads(result)
++                        except (ValueError, TypeError):
++                            result = None
++                    if isinstance(result, dict) and "state" not in result:
++                        result = result.get("structuredContent") or result.get("content")
++                    if isinstance(result, list):
++                        for block in result[:10]:
++                            if not isinstance(block, dict) or block.get("type") not in {"text", "inputText"}:
++                                continue
++                            try:
++                                parsed = json.loads(block.get("text", ""))
++                            except (ValueError, TypeError):
++                                continue
++                            if isinstance(parsed, dict) and parsed.get("state") == "failed":
++                                is_error = True
++                                break
++
++                    if isinstance(result, dict) and result.get("state") == "failed":
++                        is_error = True
 +                payload["is_error"] = is_error
 +                duration = kwargs.get("duration")
 +                if (

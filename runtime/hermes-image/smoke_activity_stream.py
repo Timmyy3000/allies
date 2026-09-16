@@ -26,9 +26,7 @@ PRIVATE_MARKER = "activity-private-should-not-cross-sse"
 def _seed_profile(root: Path) -> Path:
     profile = root / "profiles" / PROFILE
     profile.mkdir(parents=True)
-    (profile / ".env").write_text(
-        f"API_SERVER_KEY={PROFILE_KEY}\n", encoding="utf-8"
-    )
+    (profile / ".env").write_text(f"API_SERVER_KEY={PROFILE_KEY}\n", encoding="utf-8")
     database = SessionDB(profile / "state.db")
     try:
         database.create_session(SESSION_ID, "api_server")
@@ -250,11 +248,93 @@ async def _run() -> None:
             )
             _run_sequential_smoke(callback)
             _run_codex_bridge_smoke(callback)
-            callback("tool.started", "tool_call", None,
-                     {"name": "allies_routines", "arguments": {"action": "create", "title": PRIVATE_MARKER}},
-                     tool_call_id="routine-create")
-            callback("tool.completed", "allies_routines", None, None,
-                     tool_call_id="routine-create", is_error=False, duration=0.1)
+            callback(
+                "tool.started",
+                "tool_call",
+                None,
+                {
+                    "name": "allies_routines",
+                    "arguments": {"action": "create", "title": PRIVATE_MARKER},
+                },
+                tool_call_id="routine-create",
+            )
+            callback(
+                "tool.completed",
+                "allies_routines",
+                None,
+                None,
+                tool_call_id="routine-create",
+                is_error=False,
+                duration=0.1,
+            )
+            for wrapped in (False, True):
+                for failed in (False, True):
+                    call_id = f"publication-{wrapped}-{failed}"
+                    name = "tool_call" if wrapped else "publish_files"
+                    arguments = {"paths": [PRIVATE_MARKER]}
+                    if wrapped:
+                        arguments = {"name": "publish_files", "arguments": arguments}
+                    callback(
+                        "tool.started", name, None, arguments, tool_call_id=call_id
+                    )
+                    callback(
+                        "tool.completed",
+                        name,
+                        None,
+                        None,
+                        tool_call_id=call_id,
+                        is_error=False,
+                        duration=0.1,
+                        result=json.dumps(
+                            {
+                                "state": "failed" if failed else "ready",
+                                "private": PRIVATE_MARKER,
+                            }
+                        ),
+                    )
+            from agent.codex_runtime import make_codex_app_server_event_bridge
+
+            bridge = make_codex_app_server_event_bridge(
+                SimpleNamespace(
+                    tool_progress_callback=callback,
+                    tool_start_callback=None,
+                    tool_complete_callback=None,
+                    show_commentary=False,
+                )
+            )
+            for envelope in ("mcp", "structured", "dynamic"):
+                for failed in (False, True):
+                    result = {
+                        "state": "failed" if failed else "ready",
+                        "private": PRIVATE_MARKER,
+                    }
+                    item = {
+                        "id": f"codex-publication-{envelope}-{failed}",
+                        "type": "dynamicToolCall"
+                        if envelope == "dynamic"
+                        else "mcpToolCall",
+                        "server": "hermes-tools",
+                        "tool": "tool_call",
+                        "arguments": {
+                            "name": "publish_files",
+                            "arguments": {"paths": [PRIVATE_MARKER]},
+                        },
+                    }
+                    bridge({"method": "item/started", "params": {"item": item}})
+                    if envelope == "dynamic":
+                        item.update(
+                            success=True,
+                            contentItems=[
+                                {"type": "inputText", "text": json.dumps(result)}
+                            ],
+                        )
+                    elif envelope == "structured":
+                        item["result"] = {"structuredContent": result, "content": []}
+                    else:
+                        item["result"] = {
+                            "content": [{"type": "text", "text": json.dumps(result)}]
+                        }
+                    bridge({"method": "item/completed", "params": {"item": item}})
             return {
                 "session_id": SESSION_ID,
                 "final_response": "safe completion",
@@ -295,7 +375,7 @@ async def _run() -> None:
                     )
                     if event_name in {"tool.started", "tool.completed"}:
                         lifecycle.append((event_name, json.loads(data)))
-                assert [name for name, _payload in lifecycle] == [
+                assert [name for name, _payload in lifecycle[:10]] == [
                     "tool.started",
                     "tool.started",
                     "tool.completed",
@@ -307,7 +387,9 @@ async def _run() -> None:
                     "tool.started",
                     "tool.completed",
                 ]
-                starts = [payload for name, payload in lifecycle if name == "tool.started"]
+                starts = [
+                    payload for name, payload in lifecycle if name == "tool.started"
+                ]
                 completions = [
                     payload for name, payload in lifecycle if name == "tool.completed"
                 ]
@@ -328,11 +410,26 @@ async def _run() -> None:
                 assert lifecycle[5][1]["is_error"] is False
                 assert isinstance(lifecycle[5][1]["duration_ms"], int)
                 assert lifecycle[6][1]["tool_name"] == "exec_command"
-                assert lifecycle[6][1]["tool_call_id"] == lifecycle[7][1]["tool_call_id"]
+                assert (
+                    lifecycle[6][1]["tool_call_id"] == lifecycle[7][1]["tool_call_id"]
+                )
                 assert lifecycle[7][1]["duration_ms"] == 25
                 assert lifecycle[7][1]["is_error"] is False
                 assert lifecycle[8][1]["tool_name"] == "routine_create"
                 assert lifecycle[9][1]["tool_name"] == "routine_create"
+                publications = lifecycle[10:]
+                assert len(publications) == 20
+                for index in range(0, 20, 2):
+                    start, completion = publications[index : index + 2]
+                    assert start[0] == "tool.started"
+                    assert completion[0] == "tool.completed"
+                    assert (
+                        start[1]["tool_name"]
+                        == completion[1]["tool_name"]
+                        == "publish_files"
+                    )
+                    assert start[1]["tool_call_id"] == completion[1]["tool_call_id"]
+                    assert completion[1]["is_error"] == (index % 4 == 2)
         finally:
             for database in getattr(adapter, "_session_dbs", {}).values():
                 database.close()
