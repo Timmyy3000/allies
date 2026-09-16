@@ -86,6 +86,9 @@ import { fileTransfers } from "../../lib/files/transfers";
 import styles from "./home.module.css";
 import attachmentStyles from "./attachments/attachments.module.css";
 
+const MAX_ALLIES = 10;
+const ALLY_LIMIT_MESSAGE = "You can have up to 10 Allies for now.";
+
 const ACTIVITY_INTERVAL_MS = 500;
 const DURABLE_REPLY_SNAPSHOT_INTERVAL_MS = 3_000;
 const QUEUE_SNAPSHOT_INTERVAL_MS = 3_000;
@@ -357,6 +360,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     enabled: Boolean(workspaceId),
   });
   const allies = useMemo(() => alliesQuery.data ?? [], [alliesQuery.data]);
+  const allyLimitReached = allies.length >= MAX_ALLIES;
   const allyPreviewQueries = useQueries({
     queries: allies.slice(0, ALLY_PREVIEW_LIMIT).map((ally) => ({
       queryKey: [...conversationQueryKey(workspaceId, ally.id), "preview"] as const,
@@ -638,10 +642,11 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   }
 
   const openCreateOverlay = useCallback(() => {
+    if (allyLimitReached) return;
     pendingCreatedAllyId.current = null;
     setDismissedCreateRoute(false);
     setCreateOverlayOpen(true);
-  }, []);
+  }, [allyLimitReached]);
 
   const closeCreateOverlay = useCallback(() => {
     if (acceptedHandoffRef.current && !handoffReleased) return;
@@ -813,7 +818,13 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
             {handoffRetryAvailable ? <button type="button" onClick={retryHandoff}>Try again</button> : null}
           </main>
         ) : (
-          <OnboardingStateProvider initialStep="job">
+          allyLimitReached ? (
+            <main className="onboarding-handoff">
+              <h1>Ally limit reached</h1>
+              <p role="status">{ALLY_LIMIT_MESSAGE}</p>
+              <button type="button" onClick={closeCreateOverlay}>Back to Allies</button>
+            </main>
+          ) : <OnboardingStateProvider initialStep="job">
             <AuthenticatedAllyFlowProvider
               workspaceId={workspaceId}
               onCreated={handleCreated}
@@ -914,7 +925,10 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
         ) : null}
       </div>
       <footer className={styles.sidebarFooter}>
-        <button type="button" className={styles.exactMobileCreate} aria-label="Make an Ally" onClick={openCreateOverlay}>Make an ally</button>
+        <p id="ally-creation-limit" className={styles.allyCreationLimit} role="status">
+          {allies.length} / {MAX_ALLIES} Allies{allyLimitReached ? ` · ${ALLY_LIMIT_MESSAGE}` : ""}
+        </p>
+        <button type="button" className={styles.exactMobileCreate} aria-label="Make an Ally" aria-describedby="ally-creation-limit" disabled={allyLimitReached} onClick={openCreateOverlay}>Make an ally</button>
       </footer>
     </aside>
   );
