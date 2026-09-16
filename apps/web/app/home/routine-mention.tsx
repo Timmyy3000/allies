@@ -3,6 +3,7 @@ import styles from "./conversation-frame.module.css";
 
 const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const routineLink = new RegExp(`^#routine/(${uuid})$`, "i");
+const sharedFileLink = new RegExp(`^/files/${uuid}$`, "i");
 
 export function RoutineMention({ id, children, onOpen }: { id: string; children: ReactNode; onOpen?: (id: string) => void }) {
   return <button type="button" className={styles.frameRoutineMention} onClick={() => onOpen?.(id)} disabled={!onOpen}>
@@ -13,6 +14,7 @@ export function RoutineMention({ id, children, onOpen }: { id: string; children:
 
 export function routineLinkComponents(onOpen?: (id: string) => void) {
   return { a: ({ href, children, ...props }: ComponentProps<"a">) => {
+    if (children === "shared-file" && href?.match(sharedFileLink)) return null;
     const match = href?.match(routineLink);
     return match ? <RoutineMention id={match[1]} onOpen={onOpen}>{children}</RoutineMention>
       : <a {...props} href={href}>{children}</a>;
