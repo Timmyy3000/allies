@@ -540,8 +540,8 @@ export function ConversationComposer({
     const onDragLeave = (event: globalThis.DragEvent) => {
       if (!hasFiles(event)) return;
       const related = event.relatedTarget;
-      if (related instanceof Node && root.contains(related)) return;
-      if (inside(event) || !(related instanceof Node && root.contains(related))) reset();
+      if (related instanceof Node && dropZone.contains(related)) return;
+      if (inside(event) || !(related instanceof Node && dropZone.contains(related))) reset();
     };
     const onDrop = (event: globalThis.DragEvent) => {
       if (!hasFiles(event)) return;
