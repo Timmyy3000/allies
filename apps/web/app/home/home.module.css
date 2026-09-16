@@ -129,12 +129,31 @@
 }
 
 .sidebarFooter {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  max-width: calc(100% - 40px);
   position: absolute;
   z-index: 2;
   bottom: calc(20px + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%);
   width: max-content;
+}
+
+.allyCreationLimit {
+  max-width: 240px;
+  margin: 0 0 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+.exactMobileCreate:disabled {
+  background: var(--surface);
+  color: var(--text-secondary);
+  cursor: not-allowed;
 }
 
 .sidebarNoResults {
