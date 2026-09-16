@@ -34,3 +34,26 @@ it("uses the same reference button for assistant markdown links", () => {
   fireEvent.click(screen.getByRole("button", { name: "Morning brief" }));
   expect(open).toHaveBeenCalledWith(id);
 });
+
+it("consumes shared-file tokens so publication metadata renders the card", () => {
+  const fileId = "11111111-2222-4333-8444-555555555555";
+  render(
+    <Streamdown mode="static" components={routineLinkComponents()}>
+      {`Published\n\n[shared-file](/files/${fileId})`}
+    </Streamdown>,
+  );
+  expect(screen.getByText("Published")).toBeTruthy();
+  expect(screen.queryByText("shared-file")).toBeNull();
+  expect(screen.queryByRole("link")).toBeNull();
+});
+
+it("keeps named file links and unrelated shared-file labels visible", () => {
+  const fileId = "11111111-2222-4333-8444-555555555555";
+  render(
+    <Streamdown mode="static" components={routineLinkComponents()}>
+      {`[Report](/files/${fileId}) [shared-file](https://example.com)`}
+    </Streamdown>,
+  );
+  expect(screen.getByRole("link", { name: "Report" })).toBeTruthy();
+  expect(screen.getByRole("link", { name: "shared-file" })).toBeTruthy();
+});
