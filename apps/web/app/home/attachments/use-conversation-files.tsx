@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,6 +30,7 @@ import {
   AttachmentTray,
   animateAttachments,
   FileIcon,
+  middleEllipsis,
 } from "./attachment-picker";
 import styles from "./attachments.module.css";
 
@@ -277,90 +279,95 @@ export function useConversationFiles(
         transfer && !["ready", "cancelled"].includes(transfer.phase);
       const canChange =
         message.status === "queued" && message.queueState !== "claimed";
-      return (
-        <span className={styles.transfer}>
-          {(transfer?.files ?? remote).map((file) => {
-            const local = transfer?.files.find((f) => f.id === file.id);
-            const id = local?.remoteId ?? file.id;
-            const ready = file.state === "ready" || file.state === "retained";
-            return (
-              <span className={styles.transferFile} key={id}>
+      const displayedFiles = transfer?.files ?? remote;
+      const compactSentFiles = displayedFiles.length > 1 && !pending && !canChange;
+      const fileRows = displayedFiles.map((file) => {
+        const local = transfer?.files.find((f) => f.id === file.id);
+        const id = local?.remoteId ?? file.id;
+        const ready = file.state === "ready" || file.state === "retained";
+        return (
+          <span className={styles.transferFile} key={id}>
+            <button
+              type="button"
+              onClick={() =>
+                setPreview({
+                  id,
+                  name: file.name,
+                  size: file.size,
+                  state: file.state as MessageFile["state"],
+                })
+              }
+              disabled={!ready}
+            >
+              <FileThumbnail
+                id={id}
+                name={file.name}
+                src={local?.src}
+                ready={ready}
+                workspaceId={workspaceId}
+                allyId={allyId}
+              />
+              <span>
+                <span className={styles.transferFileName} title={file.name}>{middleEllipsis(file.name)}</span>
+                <AnimatePresence initial={false} mode="wait"><motion.small
+                  key={local && pending ? local.state === "pending" && transfer.phase === "uploading" ? "uploading" : local.state === "validating" || local.state === "receiving" ? "checking" : local.state : "ready"}
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .14 }}
+                >
+                  {local && pending
+                    ? local.state === "pending" && transfer.phase === "uploading"
+                      ? `Uploading ${local.progress}%`
+                      : local.state === "validating" || local.state === "receiving"
+                        ? "Checking file…"
+                        : local.state === "ready"
+                          ? "Ready"
+                          : "Needs attention"
+                    : `${local ? "✓ Ready · " : ""}${(file.size / 1_000_000).toFixed(1)} MB`}
+                </motion.small></AnimatePresence>
+              </span>
+            </button>
+            {local &&
+              transfer &&
+              transfer.phase === "failed" &&
+              canChange && (
                 <button
                   type="button"
+                  aria-label={`Remove ${file.name}`}
                   onClick={() =>
-                    setPreview({
-                      id,
-                      name: file.name,
-                      size: file.size,
-                      state: file.state as MessageFile["state"],
-                    })
+                    void perform(() =>
+                      manager.remove(transfer.id, local.id),
+                    )
                   }
-                  disabled={!ready}
                 >
-                  <FileThumbnail
-                    id={id}
-                    name={file.name}
-                    src={local?.src}
-                    ready={ready}
-                    workspaceId={workspaceId}
-                    allyId={allyId}
-                  />
-                  <span>
-                    {file.name}
-                    <AnimatePresence initial={false} mode="wait"><motion.small
-                      key={local && pending ? local.state === "pending" && transfer.phase === "uploading" ? "uploading" : local.state === "validating" || local.state === "receiving" ? "checking" : local.state : "ready"}
-                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .14 }}
-                    >
-                      {local && pending
-                        ? local.state === "pending" && transfer.phase === "uploading"
-                          ? `Uploading ${local.progress}%`
-                          : local.state === "validating" || local.state === "receiving"
-                            ? "Checking file…"
-                            : local.state === "ready"
-                              ? "Ready"
-                              : "Needs attention"
-                        : `${local ? "✓ Ready · " : ""}${(file.size / 1_000_000).toFixed(1)} MB`}
-                    </motion.small></AnimatePresence>
-                  </span>
+                  ×
                 </button>
-                {local &&
-                  transfer &&
-                  transfer.phase === "failed" &&
-                  canChange && (
-                    <button
-                      type="button"
-                      aria-label={`Remove ${file.name}`}
-                      onClick={() =>
+              )}
+            {local &&
+              !local.file &&
+              transfer &&
+              transfer.phase === "failed" && (
+                <label className={styles.reselect}>
+                  Choose original
+                  <input
+                    type="file"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f)
                         void perform(() =>
-                          manager.remove(transfer.id, local.id),
-                        )
-                      }
-                    >
-                      ×
-                    </button>
-                  )}
-                {local &&
-                  !local.file &&
-                  transfer &&
-                  transfer.phase === "failed" && (
-                    <label className={styles.reselect}>
-                      Choose original
-                      <input
-                        type="file"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f)
-                            void perform(() =>
-                              manager.reselect(transfer.id, local.id, f),
-                            );
-                          e.target.value = "";
-                        }}
-                      />
-                    </label>
-                  )}
-              </span>
-            );
-          })}
+                          manager.reselect(transfer.id, local.id, f),
+                        );
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
+          </span>
+        );
+      });
+      return (
+        <span className={styles.transfer}>
+          {compactSentFiles ? (
+            <FileBundle count={displayedFiles.length} size={displayedFiles.reduce((total, file) => total + file.size, 0)}>{fileRows}</FileBundle>
+          ) : fileRows}
           {transfer?.error && (
             <span className={styles.transferError} role="status">
               {transfer.error}
@@ -444,6 +451,19 @@ export function useConversationFiles(
       );
     },
   };
+}
+
+function FileBundle({ count, size, children }: { count: number; size: number; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <span className={styles.transferBundle}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <FileIcon />
+        <span><strong>{count} files</strong><small>{(size / 1_000_000).toFixed(1)} MB · {open ? "Hide files" : "View files"}</small></span>
+      </button>
+      {open ? <span className={styles.transferBundleFiles}>{children}</span> : null}
+    </span>
+  );
 }
 
 function PrivateFilePreview({

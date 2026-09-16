@@ -655,7 +655,7 @@ export function ConversationComposer({
         onCompositionEnd={(event) => onCompositionEnd?.(event.currentTarget.value)}
         onKeyDown={(event) => {
           if (event.nativeEvent.isComposing) return;
-          if (!isMobileHome && event.key === "Enter" && !event.shiftKey) {
+          if (event.key === "Enter" && !event.shiftKey && (!isMobileHome || event.ctrlKey || event.metaKey)) {
             event.preventDefault();
             onSubmit();
           }
