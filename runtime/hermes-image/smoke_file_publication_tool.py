@@ -32,6 +32,7 @@ from toolsets import TOOLSETS, create_custom_toolset
 SOCKET_PATH = Path("/opt/data/.allies-publication-bridge/socket")
 NONCE_A = "a" * 64
 NONCE_B = "b" * 64
+FILE_ID = "11111111-2222-4333-8444-555555555555"
 
 
 def _failure() -> dict[str, object]:
@@ -39,6 +40,18 @@ def _failure() -> dict[str, object]:
         "state": "failed",
         "retryable": True,
         "error_code": "publication_unavailable",
+    }
+
+
+def _invalid_paths() -> dict[str, object]:
+    return {
+        "state": "failed",
+        "retryable": True,
+        "error_code": "invalid_paths",
+        "message": (
+            "Use workspace-relative file paths only, such as report.md. "
+            "Create or move the file into the current workspace, then try again."
+        ),
     }
 
 
@@ -90,7 +103,10 @@ def _serve(
 def _published_file(name: str) -> bytes:
     return (
         json.dumps(
-            {"state": "ready", "files": [{"name": name, "open_path": "/files/id"}]},
+            {
+                "state": "ready",
+                "files": [{"name": name, "open_path": f"/files/{FILE_ID}"}],
+            },
             separators=(",", ":"),
         ).encode("utf-8")
         + b"\n"
@@ -305,12 +321,20 @@ def main() -> None:
                 tool_call_id="call-path",
             )
         )
+        absolute_path = json.loads(
+            handle_function_call(
+                "publish_files",
+                {"paths": ["/opt/data/german_greeting.html"]},
+                tool_call_id="call-absolute-path",
+            )
+        )
     finally:
         reset_current_allies_file_publication_context(token)
     assert unavailable == _failure()
     assert oversized == _failure()
-    assert malformed == _failure()
-    assert invalid_path == _failure()
+    assert malformed == _invalid_paths()
+    assert invalid_path == _invalid_paths()
+    assert absolute_path == _invalid_paths()
 
     requests: list[dict[str, object]] = []
     server, errors = _serve(
@@ -332,6 +356,8 @@ def main() -> None:
     for result in results:
         assert NONCE_A not in result and NONCE_B not in result
         assert '"paths"' not in result
+        assert '"open_path"' not in result
+        assert f"[shared-file](/files/{FILE_ID})" in result
 
     unicode_name = "名" * 255
     requests = []
@@ -349,8 +375,36 @@ def main() -> None:
     assert not server.is_alive() and not errors
     assert unicode_ready == {
         "state": "ready",
-        "files": [{"name": unicode_name, "open_path": "/files/id"}],
+        "files": [
+            {
+                "name": unicode_name,
+                "chat_reference": f"[shared-file](/files/{FILE_ID})",
+            }
+        ],
     }
+
+    requests = []
+    server, errors = _serve(
+        [
+            b'{"state":"ready","files":[{"name":"out.csv",'
+            b'"open_path":"/files/not-a-uuid"}]}\n'
+        ],
+        requests,
+    )
+    token = set_current_allies_file_publication_context(NONCE_A)
+    try:
+        malformed_reference = json.loads(
+            handle_function_call(
+                "publish_files",
+                {"paths": ["out.csv"]},
+                tool_call_id="call-malformed-reference",
+            )
+        )
+    finally:
+        reset_current_allies_file_publication_context(token)
+    server.join(timeout=5)
+    assert not server.is_alive() and not errors
+    assert malformed_reference == _failure()
 
     requests = []
     server, errors = _serve([b"x" * (64 * 1024 + 1) + b"\n"], requests)
