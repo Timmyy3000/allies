@@ -422,7 +422,7 @@ describe("HomeWorkspace", () => {
       })),
     });
 
-    const label = await screen.findByText("Work attachments");
+    const label = await screen.findByText("Attachments");
     const toggle = label.closest("button") as HTMLButtonElement;
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(toggle.textContent).toContain("3 files · 1.2 MB");
