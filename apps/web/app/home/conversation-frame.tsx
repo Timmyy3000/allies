@@ -346,7 +346,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
           <div className={styles.framePresenceRow} data-docked={docked}>
             <span ref={threadAnchorRef} className={styles.framePresenceThreadSlot} aria-hidden="true" />
             <div className={styles.framePresenceActivity}>
-              {waking ? <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Waking up"><ShinyText color="var(--chat-accent)">Waking up</ShinyText></span> : !docked && currentGroup ? <ActivityGroup key={currentGroup.key} group={currentGroup} ongoing={activityIsCurrent && model.activityState !== "awaiting_action"} /> : !docked && model.showThinkingState ? (
+              {waking ? <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Waking up"><ShinyText color="var(--chat-accent)">Waking up</ShinyText></span> : !docked && currentGroup ? <ActivityGroup key={currentGroup.key} group={currentGroup} ongoing={activityIsCurrent && model.activityState !== "awaiting_action"} responseInProgress={activityIsCurrent} /> : !docked && model.showThinkingState ? (
                 <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Thinking"><ShinyText color="var(--chat-accent)">Thinking..</ShinyText></span>
               ) : null}
               {!docked && currentGroup ? <ConversationApprovalSlot messageId={currentGroup.messageId} /> : null}
@@ -701,17 +701,20 @@ function TurnMessage({
   );
 }
 
-function ActivityGroup({ group, ongoing = false }: { group: ProductionConversationActivityGroupModel; ongoing?: boolean }) {
+function ActivityGroup({ group, ongoing = false, responseInProgress = false }: { group: ProductionConversationActivityGroupModel; ongoing?: boolean; responseInProgress?: boolean }) {
   const active = group.entries.findLast((entry) => entry.activityId && !entry.outcome && entry.kind === "activity_started");
-  const [disclosure, setDisclosure] = useState({ ongoing, open: false });
-  if (disclosure.ongoing !== ongoing) setDisclosure({ ongoing, open: false });
+  const [disclosure, setDisclosure] = useState({ responseInProgress, open: responseInProgress });
+  if (disclosure.responseInProgress !== responseInProgress) {
+    setDisclosure({ responseInProgress, open: responseInProgress });
+  }
   if (!group.entries.length) return null;
   return (
     <ActivityDisclosure
       label={ongoing ? active ? activityText(active) : "Thinking…" : `${group.entries.length} ${group.entries.length === 1 ? "activity" : "activities"}`}
       ongoing={ongoing}
       open={disclosure.open}
-      onToggle={(open) => setDisclosure((current) => current.open === open ? current : { ...current, open })}
+      lockOpen={responseInProgress}
+      onToggle={(open) => setDisclosure((current) => current.open === open || current.responseInProgress && !open ? current : { ...current, open })}
       entries={group.entries.map((entry) => ({
         id: entry.id,
         text: activityText(entry),
