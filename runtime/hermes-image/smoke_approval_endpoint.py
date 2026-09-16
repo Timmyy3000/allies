@@ -22,11 +22,11 @@ from unittest.mock import patch
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 from gateway.config import GatewayConfig, PlatformConfig
-from gateway.platforms.api_server import APIServerAdapter
+from gateway.platforms.api_server import APIServerAdapter, _api_request_profile
 from hermes_state import SessionDB
 from tools import approval
 
-PROFILE = "ally-approval-smoke"
+PROFILE = "ally-v1-00000000000000000000000000000002"
 SESSION_ID = "approval-endpoint-smoke"
 PROFILE_KEY = "allies-approval-profile-key-0001"
 MEMORY_KEY = "allies-approval-memory-key-0001"
@@ -60,34 +60,14 @@ def _app(adapter: APIServerAdapter) -> web.Application:
     app = web.Application(middlewares=[adapter._make_profile_prefix_middleware()])
     for method, path, handler in adapter._http_route_table():
         if path not in {
+            "/api/sessions/{session_id}/bootstrap",
             "/api/sessions/{session_id}/chat/stream",
             "/api/sessions/{session_id}/approval",
             "/api/sessions/{session_id}/approval/{hermes_approval_id}",
         }:
             continue
         app.router.add_route(method, path, handler)
-        app.router.add_route(method, f"/p/{{profile}}{path}", handler)
     return app
-
-
-def _install_unit_sandbox_dispatch(adapter: APIServerAdapter) -> None:
-    """Keep approval handlers in-process while retaining route/auth checks."""
-
-    sandbox = getattr(adapter, "_allies_profile_sandbox", None)
-    if sandbox is None:
-        return
-    from allies_profile_sandbox import route_owner
-
-    async def dispatch(profile, request, handler):
-        owner, _, prefixed = route_owner(request.method, request.path)
-        if owner != "child" or not profile or not prefixed:
-            return sandbox._deny()
-        auth_error = adapter._check_auth(request)
-        if auth_error is not None:
-            return auth_error
-        return await handler(request)
-
-    sandbox.dispatch = dispatch
 
 
 def _start_waiter(
@@ -101,7 +81,10 @@ def _start_waiter(
     request_events: list[dict] = []
     response_events: list[dict] = []
     result_box: list[dict] = []
-    notify = lambda payload: request_events.append(dict(payload))
+
+    def notify(payload):
+        request_events.append(dict(payload))
+
     context = {
         "profile_id": PROFILE,
         "session_id": SESSION_ID,
@@ -154,16 +137,37 @@ def _deadline(seconds: float) -> str:
 
 
 async def _run() -> None:
-    previous_home = os.environ.get("HERMES_HOME")
+    previous_environment = {
+        name: os.environ.get(name)
+        for name in (
+            "HERMES_HOME",
+            "ALLIES_PROFILE_SANDBOX_CHILD",
+            "ALLIES_PROFILE_SANDBOX_PROFILE",
+            "ALLIES_PROFILE_SANDBOX_MARKER",
+        )
+    }
     with tempfile.TemporaryDirectory() as temporary:
         root = Path(temporary)
-        os.environ["HERMES_HOME"] = str(root)
         _seed_profile(root)
+        marker = "approval-smoke-forwarded"
+        os.environ.update(
+            {
+                "HERMES_HOME": str(root / "profiles" / PROFILE),
+                "ALLIES_PROFILE_SANDBOX_CHILD": "1",
+                "ALLIES_PROFILE_SANDBOX_PROFILE": PROFILE,
+                "ALLIES_PROFILE_SANDBOX_MARKER": marker,
+            }
+        )
+        from allies_profile_sandbox import profile_scope_matches
+
+        assert profile_scope_matches(None, PROFILE)
+        assert not profile_scope_matches(PROFILE, PROFILE)
+        assert not profile_scope_matches(None, "default")
+        assert not profile_scope_matches(None, "ally-other-profile")
         adapter = APIServerAdapter(PlatformConfig(extra={"key": PROFILE_KEY}))
         adapter.gateway_runner = SimpleNamespace(
             config=GatewayConfig(multiplex_profiles=True)
         )
-        _install_unit_sandbox_dispatch(adapter)
         if os.name == "nt":
             # The production image runs Linux with the full profile runtime.
             # Keep the smoke executable from a Windows checkout whose local
@@ -175,7 +179,99 @@ async def _run() -> None:
                 headers = {
                     "Authorization": f"Bearer {PROFILE_KEY}",
                     "X-Hermes-Session-Key": MEMORY_KEY,
+                    "X-Allies-Profile-Forwarded": marker,
                 }
+
+                middleware = adapter._make_profile_prefix_middleware()
+                deletion_handle = adapter._allies_deletion.handle
+                child_handle = adapter._allies_profile_sandbox.handle_child_request
+
+                async def passthrough(_profile, request, handler):
+                    return await handler(request)
+
+                async def child_passthrough(request, handler):
+                    return await handler(request)
+
+                adapter._allies_deletion.handle = passthrough
+                adapter._allies_profile_sandbox.handle_child_request = child_passthrough
+                sentinel = _api_request_profile.set("before-smoke")
+                try:
+                    request = SimpleNamespace()
+
+                    async def assert_profile(_request):
+                        assert _api_request_profile.get() == PROFILE
+                        return "ok"
+
+                    assert await middleware(request, assert_profile) == "ok"
+                    assert _api_request_profile.get() == "before-smoke"
+
+                    async def fail(_request):
+                        assert _api_request_profile.get() == PROFILE
+                        raise RuntimeError("synthetic handler failure")
+
+                    try:
+                        await middleware(request, fail)
+                    except RuntimeError:
+                        pass
+                    else:
+                        raise AssertionError("synthetic handler failure was swallowed")
+                    assert _api_request_profile.get() == "before-smoke"
+
+                    async def cancel(_request):
+                        assert _api_request_profile.get() == PROFILE
+                        raise asyncio.CancelledError
+
+                    try:
+                        await middleware(request, cancel)
+                    except asyncio.CancelledError:
+                        pass
+                    else:
+                        raise AssertionError("synthetic cancellation was swallowed")
+                    assert _api_request_profile.get() == "before-smoke"
+                    assert await middleware(request, assert_profile) == "ok"
+                    assert _api_request_profile.get() == "before-smoke"
+                finally:
+                    _api_request_profile.reset(sentinel)
+                    adapter._allies_deletion.handle = deletion_handle
+                    adapter._allies_profile_sandbox.handle_child_request = child_handle
+
+                missing_marker = await client.post(
+                    f"/api/sessions/{SESSION_ID}/chat/stream",
+                    headers={
+                        "Authorization": f"Bearer {PROFILE_KEY}",
+                        "X-Hermes-Session-Key": MEMORY_KEY,
+                        "X-Allies-Rich-Approvals": "1",
+                    },
+                    json={"message": "must not run"},
+                )
+                assert missing_marker.status == 404
+                forged_marker = await client.post(
+                    f"/api/sessions/{SESSION_ID}/chat/stream",
+                    headers={
+                        "Authorization": f"Bearer {PROFILE_KEY}",
+                        "X-Hermes-Session-Key": MEMORY_KEY,
+                        "X-Allies-Rich-Approvals": "1",
+                        "X-Allies-Profile-Forwarded": "forged",
+                    },
+                    json={"message": "must not run"},
+                )
+                assert forged_marker.status == 404
+
+                with patch(
+                    "gateway.platforms.api_server.ipaddress.ip_address",
+                    side_effect=ValueError,
+                ):
+                    bootstrap = await client.put(
+                        f"/api/sessions/{SESSION_ID}/bootstrap",
+                        headers=headers,
+                        json={
+                            "schema_version": "v1",
+                            "kind": "assistant_transcript_bootstrap",
+                            "message_id": "00000000-0000-4000-8000-000000000001",
+                            "text": "Synthetic greeting",
+                        },
+                    )
+                assert bootstrap.status == 201, await bootstrap.text()
 
                 class _SmokeAgent:
                     """Tiny agent double used behind the real _run_agent setup."""
@@ -222,7 +318,7 @@ async def _run() -> None:
 
                 adapter._create_agent = lambda **_kwargs: _SmokeAgent()
                 async with client.post(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/chat/stream",
+                    f"/api/sessions/{SESSION_ID}/chat/stream",
                     headers={**headers, "X-Allies-Rich-Approvals": "1"},
                     json={"message": "run synthetic approval stream"},
                 ) as stream:
@@ -255,7 +351,7 @@ async def _run() -> None:
                                 assert required <= set(payload)
                                 assert "synthetic-pass" not in payload["action_preview"]
                                 stream_resolved = await client.post(
-                                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
+                                    f"/api/sessions/{SESSION_ID}/approval",
                                     headers=headers,
                                     json={
                                         "run_id": payload["run_id"],
@@ -429,9 +525,10 @@ async def _run() -> None:
                 preview_cancel_session_token = approval.set_current_session_key(
                     preview_cancel_run
                 )
-                preview_cancel_notify = lambda payload: preview_cancel_events.append(
-                    dict(payload)
-                )
+
+                def preview_cancel_notify(payload):
+                    preview_cancel_events.append(dict(payload))
+
                 before_preview_records = set(approval._hermes_approval_records)
                 original_plugin_preview = approval._safe_hermes_plugin_preview
 
@@ -484,7 +581,10 @@ async def _run() -> None:
                     """Assert a preview rejection never creates a live receipt."""
 
                     events: list[dict] = []
-                    notify = lambda payload: events.append(dict(payload))
+
+                    def notify(payload):
+                        events.append(dict(payload))
+
                     context_token = approval.set_current_hermes_approval_context(
                         profile_id=PROFILE,
                         session_id=SESSION_ID,
@@ -613,40 +713,40 @@ async def _run() -> None:
                     "deadline_at": terminal_request["expires_at"],
                 }
                 resolved = await client.post(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
+                    f"/api/sessions/{SESSION_ID}/approval",
                     headers=headers,
                     json=resolve_body,
                 )
                 assert resolved.status == 202
                 assert (await resolved.json())["outcome"] == "approved"
                 replay = await client.post(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
+                    f"/api/sessions/{SESSION_ID}/approval",
                     headers=headers,
                     json=resolve_body,
                 )
                 assert replay.status == 200
                 assert (await replay.json())["status"] == "resolved"
                 conflict = await client.post(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
+                    f"/api/sessions/{SESSION_ID}/approval",
                     headers=headers,
                     json={**resolve_body, "decision": "reject"},
                 )
                 assert conflict.status == 409
                 status = await client.get(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval/{approval_id}",
+                    f"/api/sessions/{SESSION_ID}/approval/{approval_id}",
                     headers=headers,
                     params={"run_id": "approval-terminal-run"},
                 )
                 assert status.status == 200
                 assert (await status.json())["outcome"] == "approved"
                 wrong_run = await client.get(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval/{approval_id}",
+                    f"/api/sessions/{SESSION_ID}/approval/{approval_id}",
                     headers=headers,
                     params={"run_id": "another-run"},
                 )
                 assert wrong_run.status == 404
                 wrong_key = await client.post(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
+                    f"/api/sessions/{SESSION_ID}/approval",
                     headers={**headers, "Authorization": "Bearer wrong-key"},
                     json=resolve_body,
                 )
@@ -672,7 +772,7 @@ async def _run() -> None:
                     "?workspace=allies&token=***" in execute_preview
                 )
                 execute_response = await client.post(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
+                    f"/api/sessions/{SESSION_ID}/approval",
                     headers=headers,
                     json={
                         "run_id": "approval-code-run",
@@ -713,7 +813,7 @@ async def _run() -> None:
                 assert "workspace=allies" in plugin_preview
                 assert "recipient=team" in plugin_preview
                 plugin_response = await client.post(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
+                    f"/api/sessions/{SESSION_ID}/approval",
                     headers=headers,
                     json={
                         "run_id": "approval-plugin-run",
@@ -734,7 +834,7 @@ async def _run() -> None:
                 )
                 late_request = late[1][0]
                 late_response = await client.post(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
+                    f"/api/sessions/{SESSION_ID}/approval",
                     headers=headers,
                     json={
                         "run_id": "approval-late-run",
@@ -746,7 +846,7 @@ async def _run() -> None:
                 assert late_response.status == 200
                 assert (await late_response.json())["status"] == "expired"
                 late_status = await client.get(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval/"
+                    f"/api/sessions/{SESSION_ID}/approval/"
                     f"{late_request['hermes_approval_id']}",
                     headers=headers,
                     params={"run_id": "approval-late-run"},
@@ -772,7 +872,7 @@ async def _run() -> None:
                     }
                 ]
                 cancelled_status = await client.get(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval/"
+                    f"/api/sessions/{SESSION_ID}/approval/"
                     f"{cancelled[1][0]['hermes_approval_id']}",
                     headers=headers,
                     params={"run_id": "approval-cancelled-run"},
@@ -780,7 +880,7 @@ async def _run() -> None:
                 assert cancelled_status.status == 200
                 assert (await cancelled_status.json())["status"] == "cancelled"
                 cancelled_response = await client.post(
-                    f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
+                    f"/api/sessions/{SESSION_ID}/approval",
                     headers=headers,
                     json={
                         "run_id": "approval-cancelled-run",
@@ -797,10 +897,11 @@ async def _run() -> None:
             for database in getattr(adapter, "_session_dbs", {}).values():
                 database.close()
             await adapter.disconnect()
-            if previous_home is None:
-                os.environ.pop("HERMES_HOME", None)
-            else:
-                os.environ["HERMES_HOME"] = previous_home
+            for name, value in previous_environment.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
 
 
 def _unit_profile_scope(self, profile):
