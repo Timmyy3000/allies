@@ -1,5 +1,5 @@
 import {
-  Book, Calendar, Code, Cpu, DocumentText, Eye, Gallery, GlobalSearch,
+  Book, Calendar, Code, Cpu, DocumentText, DocumentUpload, Eye, Gallery, GlobalSearch,
   MagicStar, More, People, SearchNormal, TaskSquare, Verify, Video, VolumeHigh,
   type Icon,
 } from "iconsax-reactjs";
@@ -13,6 +13,7 @@ const icons: Record<string, Icon> = {
   search_files: SearchNormal,
   read_file: DocumentText,
   write_file: DocumentText,
+  publish_files: DocumentUpload,
   patch: DocumentText,
   terminal: Code,
   execute_code: Code,
