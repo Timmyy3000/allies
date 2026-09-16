@@ -38,17 +38,20 @@ def unique_object(pairs):
     return result
 
 
-def decode(raw, limit=65_536):
+def decode(raw, limit=65_536, *, collection=False):
     require(len(raw) <= limit, "Release evidence exceeds size limit")
     try:
         value = json.loads(raw, object_pairs_hook=unique_object)
     except (ValueError, UnicodeError) as exc:
         raise ReleaseError("Invalid JSON evidence") from exc
-    require(isinstance(value, dict), "Expected JSON object")
+    require(
+        isinstance(value, list if collection else dict),
+        "Expected JSON collection" if collection else "Expected JSON object",
+    )
     return value
 
 
-def gh(*args, body=None, missing=False, binary=False):
+def gh(*args, body=None, missing=False, binary=False, collection=False, limit=65_536):
     command = ["gh", *args]
     if body is not None:
         command += ["--input", "-"]
@@ -65,7 +68,9 @@ def gh(*args, body=None, missing=False, binary=False):
         raise ReleaseError(
             "GitHub operation failed; inspect release state before retrying"
         )
-    return result.stdout if binary else decode(result.stdout)
+    if binary:
+        return result.stdout
+    return decode(result.stdout, limit, collection=collection)
 
 
 def record_pair(record, repository):
@@ -346,6 +351,18 @@ class Releases:
 
     def load(self):
         release = gh("api", f"{self.api}/releases/tags/{self.release_id}", missing=True)
+        if release is None:
+            releases = gh(
+                "api",
+                f"{self.api}/releases?per_page=100",
+                collection=True,
+                limit=1_048_576,
+            )
+            matches = [
+                item for item in releases if item.get("tag_name") == self.release_id
+            ]
+            require(len(matches) <= 1, "Duplicate release tag")
+            release = matches[0] if matches else None
         if release is None:
             return None, None, None
         require(release.get("tag_name") == self.release_id, "Release tag mismatch")
