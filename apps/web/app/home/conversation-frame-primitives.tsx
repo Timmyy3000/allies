@@ -487,15 +487,17 @@ export function ConversationComposer({
   useEffect(() => {
     const root = composerRef.current;
     if (!root) return;
+    const dropZone = root.closest<HTMLElement>('[data-testid="conversation-frame-shell"]') ?? root;
     const hasFiles = (event: globalThis.DragEvent) =>
       Array.from(event.dataTransfer?.types ?? []).includes("Files");
     const inside = (event: globalThis.DragEvent) => {
       const target = event.target;
-      return target instanceof Node && root.contains(target);
+      return target instanceof Node && dropZone.contains(target);
     };
     const reset = () => {
       setDropActive(false);
       setDropMessage("");
+      dropZone.removeAttribute("data-file-drop-active");
     };
     const filesFrom = (transfer: DataTransfer): File[] | null => {
       const items = transfer.items ? Array.from(transfer.items) : [];
@@ -521,6 +523,7 @@ export function ConversationComposer({
       event.preventDefault();
       if (!inside(event)) return;
       setDropActive(true);
+      dropZone.setAttribute("data-file-drop-active", "true");
       setDropMessage(disabled ? "Attachments are unavailable right now." : "Drop files to attach");
     };
     const onDragOver = (event: globalThis.DragEvent) => {
@@ -529,6 +532,7 @@ export function ConversationComposer({
       if (inside(event)) {
         event.dataTransfer!.dropEffect = disabled || !onFilesDrop ? "none" : "copy";
         setDropActive(true);
+        dropZone.setAttribute("data-file-drop-active", "true");
       }
     };
     const onDragLeave = (event: globalThis.DragEvent) => {

@@ -1139,7 +1139,23 @@ function ConversationPane({
     getApproval: (workspace, conversation, approval, signal) => session.runCloudOperation((operationSignal) => session.client.getApproval(workspace, conversation, approval, operationSignal), { signal, retryTransient: "approval-read" }),
     decideApproval: (workspace, conversation, approval, decision, key, signal) => session.runCloudOperation((operationSignal) => session.client.decideApproval(workspace, conversation, approval, decision, key, operationSignal), { signal, csrf: true, retryTransient: false }),
   }), [session]);
-  const attachments = useConversationFiles(userId, workspaceId, ally.id);
+  const requestRuntimeIntent = useCallback(
+    (targetAllyId: string, occurredAt: string, idempotencyKey: string, signal?: AbortSignal) =>
+      session.runCloudOperation(
+        (operationSignal) => session.client.requestRuntimeIntent(targetAllyId, occurredAt, idempotencyKey, operationSignal),
+        { csrf: true, retryTransient: true, signal },
+      ),
+    [session],
+  );
+  const { observeEdit, observeAttachment, compositionStart, compositionEnd, status: runtimeIntentStatus } = useComposingRuntimeIntent(
+    ally.id,
+    requestRuntimeIntent,
+  );
+  const attachmentAccepted = useCallback(() => {
+    onActivity();
+    observeAttachment();
+  }, [observeAttachment, onActivity]);
+  const attachments = useConversationFiles(userId, workspaceId, ally.id, attachmentAccepted);
   const fileManager = attachments.manager;
   const fileScope = attachments.scope;
   const preparingFilesRef = useRef(false);
@@ -1220,18 +1236,6 @@ function ConversationPane({
   const queuedMessagesStorageKey = `allies:${QUEUED_MESSAGES_STORAGE_VERSION}:queued-messages:${encodeURIComponent(userId)}:${encodeURIComponent(workspaceId)}:${encodeURIComponent(ally.id)}`;
   const legacyQueuedMessagesStorageKey = `allies:v1:queued-messages:${workspaceId}:${ally.id}`;
   const queuedMessagesReady = queuedMessagesLoadedFor === queuedMessagesStorageKey;
-  const requestRuntimeIntent = useCallback(
-    (targetAllyId: string, occurredAt: string, idempotencyKey: string, signal?: AbortSignal) =>
-      session.runCloudOperation(
-        (operationSignal) => session.client.requestRuntimeIntent(targetAllyId, occurredAt, idempotencyKey, operationSignal),
-        { csrf: true, retryTransient: true, signal },
-      ),
-    [session],
-  );
-  const { observeEdit, compositionStart, compositionEnd, status: runtimeIntentStatus } = useComposingRuntimeIntent(
-    ally.id,
-    requestRuntimeIntent,
-  );
 
   const presentAssistantReply = useCallback((conversationId: string, reply: AssistantReplyViewModel) => {
     setAssistantReplyState((current) => mergeAssistantReplyState(current, conversationId, [reply]));

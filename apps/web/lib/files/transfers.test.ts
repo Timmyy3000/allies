@@ -225,6 +225,15 @@ describe("file send recovery", () => {
     await expect(f.prepare()).rejects.toThrow("disk full");
     expect(f.api.reserve).not.toHaveBeenCalled();
   });
+  it("retries one transient storage transaction before surfacing failure", async () => {
+    const f = fixture();
+    f.storage.persist.mockRejectedValueOnce({ kind: "transaction" });
+
+    await expect(f.prepare()).resolves.toBeDefined();
+
+    expect(f.storage.persist).toHaveBeenCalledTimes(2);
+    expect(f.api.reserve).not.toHaveBeenCalled();
+  });
   it("uses the file's actual bytes when creating a manifest", async () => {
     const f = fixture();
     const record = await f.manager.prepare(scope, w, a, a, "", [
@@ -350,7 +359,7 @@ function fakeRequest<T>(result: T): FakeRequest<T> {
 
 function fakeDatabase(
   records: FileTransfer[] = [],
-  options: { transactionError?: DOMException; abortAfterRead?: boolean; deleteError?: DOMException } = {},
+  options: { transactionError?: DOMException; abortAfterRead?: boolean; deleteError?: DOMException; putError?: DOMException } = {},
 ) {
   const db = {
     objectStoreNames: { contains: () => true },
@@ -371,8 +380,13 @@ function fakeDatabase(
             queueMicrotask(() => {
               request.result = result;
               request.error = failure ?? null;
-              if (failure) request.onerror?.();
-              else request.onsuccess?.();
+              if (failure) {
+                request.onerror?.();
+                transaction.error = failure;
+                transaction.onabort?.();
+                return;
+              }
+              request.onsuccess?.();
               queueMicrotask(() => {
                 if (options.abortAfterRead) {
                   transaction.error = new DOMException("aborted", "AbortError");
@@ -394,10 +408,12 @@ function fakeDatabase(
             },
             put: (record: FileTransfer) => {
               const request = fakeRequest<unknown>(undefined);
-              const index = records.findIndex((current) => current.id === record.id);
-              if (index < 0) records.push(record);
-              else records[index] = record;
-              settle(request, record.id);
+              if (!options.putError) {
+                const index = records.findIndex((current) => current.id === record.id);
+                if (index < 0) records.push(record);
+                else records[index] = record;
+              }
+              settle(request, record.id, options.putError);
               return request;
             },
             delete: (key: string) => {
@@ -472,6 +488,18 @@ describe("IndexedDB file transfer storage", () => {
       transactionError: new DOMException("full", "QuotaExceededError"),
     }) as unknown as IDBDatabase;
     harness.requests[0].onsuccess?.();
+    await expect(pending).rejects.toMatchObject({ kind: "quota" });
+  });
+
+  it("preserves the asynchronous write request's quota classification", async () => {
+    const record = await fixture().prepare();
+    const harness = installOpenHarness();
+    const pending = fileTransferStorage.persist(record);
+    harness.requests[0].result = fakeDatabase([], {
+      putError: new DOMException("full", "QuotaExceededError"),
+    }) as unknown as IDBDatabase;
+    harness.requests[0].onsuccess?.();
+
     await expect(pending).rejects.toMatchObject({ kind: "quota" });
   });
 

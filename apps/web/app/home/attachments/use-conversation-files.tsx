@@ -37,6 +37,7 @@ export function useConversationFiles(
   userId: string,
   workspaceId: string,
   allyId: string,
+  onAccepted?: () => void,
 ) {
   const session = useSession();
   const queryClient = useQueryClient();
@@ -97,6 +98,7 @@ export function useConversationFiles(
         validateSelectedFiles([...files, ...items]);
         setArriving(new Set(items.map((file) => file.id)));
         change([...files, ...items]);
+        onAccepted?.();
         setOpen(false);
         void animateAttachments(items, origin, Boolean(reduced), (id) =>
           setArriving((current) => {
@@ -118,7 +120,7 @@ export function useConversationFiles(
         return false;
       }
     },
-    [change, files, reduced],
+    [change, files, onAccepted, reduced],
   );
   const addFiles = useCallback(
     (incoming: File[], origin?: DOMRect) =>
