@@ -1,0 +1,299 @@
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index e36f398..65f12aa 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -36,16 +36,22 @@ as the webhook adapter:
+     ...
+ 
+ Requires:
+ - aiohttp (already available in the gateway)
+ """
+ 
+ import asyncio
+ from allies_profile_deletion import ProfileDeletionManager
++from allies_profile_sandbox import (
++    ProfileSandboxManager,
++    child_workspace_path,
++    child_workspace_context,
++    is_profile_sandbox_child,
++)
+ import errno
+ import hashlib
+ import hmac
+ import ipaddress
+ import itertools
+ import json
+ from contextlib import contextmanager, nullcontext
+ from contextvars import ContextVar
+@@ -1542,16 +1548,17 @@ class APIServerAdapter(BasePlatformAdapter):
+         self._direct_model_requests: bool = _coerce_request_bool(
+             extra.get("direct_model_requests"), default=False
+         )
+         self._app: Optional["web.Application"] = None
+         self._runner: Optional["web.AppRunner"] = None
+         self._site: Optional["web.TCPSite"] = None
+         self._response_store = ResponseStore()
+         self._allies_deletion = ProfileDeletionManager(self)
++        self._allies_profile_sandbox = ProfileSandboxManager(self)
+         # Active run streams: run_id -> asyncio.Queue of SSE event dicts
+         self._run_streams: Dict[str, "asyncio.Queue[Optional[Dict]]"] = {}
+         # Creation timestamps for orphaned-run TTL sweep
+         self._run_streams_created: Dict[str, float] = {}
+         # Runs with a connected SSE consumer; their queue is actively draining.
+         self._run_stream_subscribers: set[str] = set()
+         # Active run agent/task references for stop support
+         self._active_run_agents: Dict[str, Any] = {}
+@@ -2070,16 +2077,21 @@ class APIServerAdapter(BasePlatformAdapter):
+         When no ``/p/<profile>/`` prefix was given AND multiplexing is active,
+         enter the DEFAULT profile's scope instead of a no-op: api_server is a
+         port-binding platform that lives on the default profile, and with
+         multiplex fail-closed ``get_secret`` active, an unscoped agent run
+         raises ``UnscopedSecretError`` on its first credential read (#61276).
+         Single-profile gateways keep the no-op — ``get_secret`` falls through
+         to ``os.environ`` there, unchanged.
+         """
++        if is_profile_sandbox_child():
++            from gateway.run import _profile_runtime_scope
++            from hermes_constants import get_hermes_home
++
++            return _profile_runtime_scope(get_hermes_home())
+         if not profile:
+             try:
+                 from agent.secret_scope import is_multiplex_active
+ 
+                 if is_multiplex_active():
+                     from gateway.run import _profile_runtime_scope
+                     from hermes_constants import get_hermes_home
+ 
+@@ -2092,26 +2104,41 @@ class APIServerAdapter(BasePlatformAdapter):
+ 
+         return _profile_runtime_scope(get_profile_dir(profile))
+ 
+     def _make_profile_prefix_middleware(self):
+         """Reject unknown /p/<profile>/ prefixes and scope the request home."""
+ 
+         @web.middleware
+         async def profile_prefix_middleware(request: "web.Request", handler):
++            if self._allies_profile_sandbox.child_mode:
++                with self._profile_scope(None):
++                    return await self._allies_deletion.handle(
++                        None,
++                        request,
++                        lambda forwarded: self._allies_profile_sandbox.handle_child_request(
++                            forwarded, handler
++                        ),
++                    )
+             profile = self._resolve_request_profile(request)
+             if profile is _PROFILE_REJECTED:
+                 return web.json_response(
+                     {"error": "Unknown or unconfigured profile"},
+                     status=404,
+                 )
+             token = _api_request_profile.set(profile)
+             try:
+                 with self._profile_scope(profile):
+-                    return await self._allies_deletion.handle(profile, request, handler)
++                    return await self._allies_deletion.handle(
++                        profile,
++                        request,
++                        lambda forwarded: self._allies_profile_sandbox.dispatch(
++                            profile, forwarded, handler
++                        ),
++                    )
+             finally:
+                 _api_request_profile.reset(token)
+ 
+         return profile_prefix_middleware
+ 
+     def _http_route_table(self) -> List[tuple]:
+         """Return (method, path, handler) rows registered by ``connect()``.
+ 
+@@ -2658,17 +2685,25 @@ class APIServerAdapter(BasePlatformAdapter):
+         if not route_provider and (route_api_key or route_base_url):
+             return (
+                 f"Model route '{route_alias}' pins route credentials/base_url. "
+                 "Do not combine it with an explicit 'provider'."
+             )
+         return None
+ 
+     def _create_agent(self, *args, **kwargs):
++        if not is_profile_sandbox_child():
++            raise RuntimeError("profile_sandbox_required")
+         self._allies_deletion.check_current_home()
++        if args:
++            args = (child_workspace_context(args[0]), *args[1:])
++        else:
++            kwargs["ephemeral_system_prompt"] = child_workspace_context(
++                kwargs.get("ephemeral_system_prompt")
++            )
+         agent = self._create_agent_untracked(*args, **kwargs)
+         self._allies_deletion.track_agent(agent)
+         return agent
+ 
+     def _create_agent_untracked(
+         self,
+         ephemeral_system_prompt: Optional[str] = None,
+         session_id: Optional[str] = None,
+@@ -3067,16 +3102,17 @@ class APIServerAdapter(BasePlatformAdapter):
+ 
+         readiness = collect_runtime_readiness(
+             configured_model=_resolve_gateway_model(),
+             runtime_status=runtime,
+             active_api_runs=active_api_runs,
+             process_completion_queue_depth=process_depth,
+             active_delegations=active_delegations,
+         )
++        readiness["profile_sandbox"] = self._allies_profile_sandbox.readiness()
+         return web.json_response({
+             "status": readiness["status"],
+             "readiness": readiness,
+             "platform": "hermes-agent",
+             "version": _hermes_version(),
+             "gateway_state": gw_state,
+             "platforms": runtime.get("platforms", {}),
+             "active_agents": gw_active,
+@@ -6635,16 +6671,17 @@ class APIServerAdapter(BasePlatformAdapter):
+         """
+         from gateway.session_context import set_session_vars
+ 
+         return set_session_vars(
+             platform="api_server",
+             chat_id=chat_id,
+             session_key=session_key,
+             session_id=session_id,
++            cwd=child_workspace_path() if is_profile_sandbox_child() else "",
+             async_delivery=False,
+             cron_session="",
+         )
+ 
+     async def _run_agent(
+         self,
+         user_message: str,
+         conversation_history: List[Dict[str, str]],
+@@ -6689,16 +6726,18 @@ class APIServerAdapter(BasePlatformAdapter):
+         locked selection or the turn fails, and the response carries
+         sanitized ``runtime`` metadata reporting actual vs requested.
+ 
+         If *agent_ref* is a one-element list, the AIAgent instance is stored
+         at ``agent_ref[0]`` before ``run_conversation`` begins.  This allows
+         callers (e.g. the SSE writer) to call ``agent.interrupt()`` from
+         another thread to stop in-progress LLM calls.
+         """
++        if not is_profile_sandbox_child():
++            raise RuntimeError("profile_sandbox_required")
+         loop = asyncio.get_running_loop()
+         # Capture before hopping to the executor — ContextVars do not follow
+         # run_in_executor threads, so the profile scope must be re-entered
+         # inside _run() from this explicit value.
+         request_profile = _api_request_profile.get()
+ 
+         def _run():
+             from gateway.session_context import clear_session_vars
+@@ -7736,16 +7775,32 @@ class APIServerAdapter(BasePlatformAdapter):
+         return True
+ 
+     async def connect(self, *, is_reconnect: bool = False) -> bool:
+         """Start the aiohttp web server."""
+         if not AIOHTTP_AVAILABLE:
+             logger.warning("[%s] aiohttp not installed", self.name)
+             return False
+ 
++        route_error = self._allies_profile_sandbox.validate_routes(self._http_route_table())
++        if route_error:
++            self._set_fatal_error(
++                "profile_route_ownership_invalid",
++                "The API route table has no explicit profile ownership decision.",
++                retryable=False,
++            )
++            return False
++        if not self._allies_profile_sandbox.child_mode and not self._allies_profile_sandbox.preflight():
++            self._set_fatal_error(
++                "profile_sandbox_unavailable",
++                "The profile process sandbox is unavailable; execution is disabled.",
++                retryable=False,
++            )
++            return False
++
+         if not self._api_key_passes_startup_guard():
+             # A rejected API_SERVER_KEY is a configuration error, not a
+             # transient blip — the key will not become valid on its own. A
+             # bare ``return False`` makes the reconnect watcher in
+             # gateway.run treat it as retryable and loop forever at the
+             # backoff cap, re-instantiating the adapter (and its
+             # ResponseStore sqlite connection) every retry (#38803: ~501
+             # leaked connections / 1002 fds over 2.5 days until EMFILE took
+@@ -7837,22 +7892,28 @@ class APIServerAdapter(BasePlatformAdapter):
+             #
+             # SO_REUSEADDR is platform-dependent (same rationale as the
+             # webhook adapter, #65482):
+             #   - macOS (BSD semantics): two sockets with SO_REUSEADDR can
+             #     silently split traffic while both report success — disable.
+             #   - Linux: SO_REUSEADDR only permits rebinding past TIME_WAIT
+             #     (a second live listener needs SO_REUSEPORT, never set), so
+             #     keep the default (enabled) for instant restart rebinds.
+-            self._site = web.TCPSite(
+-                self._runner,
+-                self._host,
+-                self._port,
+-                reuse_address=False if sys.platform == "darwin" else None,
+-            )
++            if self._allies_profile_sandbox.child_mode:
++                self._site = web.SockSite(
++                    self._runner,
++                    self._allies_profile_sandbox.child_listener_socket(),
++                )
++            else:
++                self._site = web.TCPSite(
++                    self._runner,
++                    self._host,
++                    self._port,
++                    reuse_address=False if sys.platform == "darwin" else None,
++                )
+             try:
+                 await self._site.start()
+             except OSError as exc:
+                 await self._runner.cleanup()
+                 self._runner = None
+                 self._site = None
+                 if getattr(exc, "errno", None) == errno.EADDRINUSE:
+                     # A port conflict is a configuration error, not a
+@@ -7876,16 +7937,18 @@ class APIServerAdapter(BasePlatformAdapter):
+                 logger.error(
+                     "[%s] Could not bind %s:%d: %s. Set a different port in "
+                     "config.yaml: platforms.api_server.port",
+                     self.name, self._host, self._port, exc,
+                 )
+                 return False
+ 
+             self._mark_connected()
++            if self._allies_profile_sandbox.child_mode:
++                self._allies_profile_sandbox.notify_child_ready(True)
+             logger.info(
+                 "[%s] API server listening on http://%s:%d (model: %s)",
+                 self.name, self._host, self._port, self._model_name,
+             )
+             return True
+ 
+         except Exception as e:
+             logger.error("[%s] Failed to start API server: %s", self.name, e)
+@@ -7898,16 +7961,19 @@ class APIServerAdapter(BasePlatformAdapter):
+         the aiohttp web server. Without this, every adapter instance leaks
+         2 file descriptors (the database file and its WAL sidecar) — the
+         reconnect loop in ``gateway.run`` constructs a fresh adapter on
+         every retry, so 2 fds/retry × 300s backoff cap ≈ 12 fds/hour, which
+         exhausts the default 2560 fd limit after ~12h of failed reconnects
+         and turns the whole gateway into a zombie
+         (OSError: [Errno 24] Too many open files, #37011).
+         """
++        sandbox_closed = await self._allies_profile_sandbox.close_all()
++        if not sandbox_closed:
++            logger.error("[%s] Profile sandbox workers did not all stop", self.name)
+         self._mark_disconnected()
+         if self._response_store is not None:
+             try:
+                 self._response_store.close()
+             except Exception:
+                 logger.debug(
+                     "Failed to close response store for %s", self.name, exc_info=True,
+                 )
+

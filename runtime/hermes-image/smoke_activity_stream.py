@@ -47,6 +47,26 @@ def _app(adapter: APIServerAdapter) -> web.Application:
     return app
 
 
+def _install_unit_sandbox_dispatch(adapter: APIServerAdapter) -> None:
+    """Keep this callback smoke in-process while preserving parent admission."""
+
+    sandbox = getattr(adapter, "_allies_profile_sandbox", None)
+    if sandbox is None:
+        return
+    from allies_profile_sandbox import route_owner
+
+    async def dispatch(profile, request, handler):
+        owner, _, prefixed = route_owner(request.method, request.path)
+        if owner != "child" or not profile or not prefixed:
+            return sandbox._deny()
+        auth_error = adapter._check_auth(request)
+        if auth_error is not None:
+            return auth_error
+        return await handler(request)
+
+    sandbox.dispatch = dispatch
+
+
 def _run_sequential_smoke(callback) -> None:
     """Run the patched sequential executor with only dispatch stubbed."""
     from agent import tool_executor
@@ -209,6 +229,7 @@ async def _run() -> None:
         adapter.gateway_runner = SimpleNamespace(
             config=GatewayConfig(multiplex_profiles=True)
         )
+        _install_unit_sandbox_dispatch(adapter)
 
         async def fake_run_agent(**kwargs):
             callback = kwargs["tool_progress_callback"]

@@ -16,6 +16,19 @@ for smoke in memory_routing reasoning_override bootstrap_endpoint activity_strea
         --volume "$PWD/runtime/hermes-image/smoke_${smoke}.py:/tmp/smoke.py:ro" \
         "$hermes" /tmp/smoke.py
 done
+# Permit nested namespaces in this disposable fixture; bwrap enforces the tested boundary.
+docker run --rm --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
+    --user 0:0 --group-add 10001 --entrypoint /opt/hermes/.venv/bin/python \
+    --env PYTHONPATH=/opt/hermes \
+    --volume "$PWD/runtime/hermes-image/smoke_workspace_boundary.py:/tmp/smoke.py:ro" \
+    "$hermes" /tmp/smoke.py
+
+for smoke in sandbox_cancellation proxy_failures; do
+    docker run --rm --user 10000:10000 --group-add 10001 --entrypoint /opt/hermes/.venv/bin/python \
+        --env PYTHONPATH=/opt/hermes \
+        --volume "$PWD/runtime/hermes-image/smoke_${smoke}.py:/tmp/smoke.py:ro" \
+        "$hermes" /tmp/smoke.py
+done
 
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$runtime")" = '["python","-m","allies_runtime"]'
 docker run --rm --entrypoint python "$runtime" -c 'import allies_runtime'

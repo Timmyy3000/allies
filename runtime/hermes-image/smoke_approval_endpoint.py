@@ -17,6 +17,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
+from unittest.mock import patch
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
@@ -67,6 +68,26 @@ def _app(adapter: APIServerAdapter) -> web.Application:
         app.router.add_route(method, path, handler)
         app.router.add_route(method, f"/p/{{profile}}{path}", handler)
     return app
+
+
+def _install_unit_sandbox_dispatch(adapter: APIServerAdapter) -> None:
+    """Keep approval handlers in-process while retaining route/auth checks."""
+
+    sandbox = getattr(adapter, "_allies_profile_sandbox", None)
+    if sandbox is None:
+        return
+    from allies_profile_sandbox import route_owner
+
+    async def dispatch(profile, request, handler):
+        owner, _, prefixed = route_owner(request.method, request.path)
+        if owner != "child" or not profile or not prefixed:
+            return sandbox._deny()
+        auth_error = adapter._check_auth(request)
+        if auth_error is not None:
+            return auth_error
+        return await handler(request)
+
+    sandbox.dispatch = dispatch
 
 
 def _start_waiter(
@@ -142,6 +163,7 @@ async def _run() -> None:
         adapter.gateway_runner = SimpleNamespace(
             config=GatewayConfig(multiplex_profiles=True)
         )
+        _install_unit_sandbox_dispatch(adapter)
         if os.name == "nt":
             # The production image runs Linux with the full profile runtime.
             # Keep the smoke executable from a Windows checkout whose local
@@ -370,10 +392,7 @@ async def _run() -> None:
                     assert "recipient=team" in preview
 
                 malformed_cases = {
-                    "terminal": (
-                        "https:///connect/"
-                        f"{SYNTHETIC_CAPABILITY}"
-                    ),
+                    "terminal": (f"https:///connect/{SYNTHETIC_CAPABILITY}"),
                     "execute_code": "print('https://example.com/%63onnect/')",
                     "plugin_tool": json.dumps(
                         {
@@ -650,8 +669,7 @@ async def _run() -> None:
                 assert SYNTHETIC_QUERY_SECRET not in execute_preview
                 assert (
                     "https://example.com/connect/agent/***"
-                    "?workspace=allies&token=***"
-                    in execute_preview
+                    "?workspace=allies&token=***" in execute_preview
                 )
                 execute_response = await client.post(
                     f"/p/{PROFILE}/api/sessions/{SESSION_ID}/approval",
@@ -785,4 +803,28 @@ async def _run() -> None:
                 os.environ["HERMES_HOME"] = previous_home
 
 
-asyncio.run(_run())
+def _unit_profile_scope(self, profile):
+    from gateway.run import _profile_runtime_scope
+    from hermes_cli.profiles import get_profile_dir
+    from hermes_constants import get_hermes_home
+
+    return _profile_runtime_scope(
+        get_profile_dir(profile) if profile else get_hermes_home()
+    )
+
+
+# Namespace enforcement has its own smoke; this fixture isolates approval handlers.
+with (
+    patch(
+        "gateway.platforms.api_server.is_profile_sandbox_child",
+        return_value=True,
+        create=True,
+    ),
+    patch(
+        "gateway.platforms.api_server.child_workspace_path",
+        return_value="/tmp",
+        create=True,
+    ),
+    patch.object(APIServerAdapter, "_profile_scope", _unit_profile_scope),
+):
+    asyncio.run(_run())

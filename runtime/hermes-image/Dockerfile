@@ -186,6 +186,20 @@ COPY smoke_profile_quiescence.py /tmp/allies-smoke-profile-quiescence.py
 RUN PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-profile-quiescence.py \
     && rm -f /tmp/allies-smoke-profile-quiescence.py
 
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends bubblewrap=0.12.0-1~deb13u1 \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY allies_profile_sandbox.py allies_profile_sandbox_launcher.py /opt/hermes/
+COPY patches/profile-sandbox.patch /tmp/allies-profile-sandbox.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-profile-sandbox.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-profile-sandbox.patch \
+    && git apply --whitespace=nowarn /tmp/allies-profile-sandbox.patch \
+    && rm -f /tmp/allies-profile-sandbox.patch \
+    && /opt/hermes/.venv/bin/python -m py_compile \
+      gateway/platforms/api_server.py allies_profile_sandbox.py allies_profile_sandbox_launcher.py
+
 LABEL org.opencontainers.image.title="Allies Hermes with Mnemosyne" \
       org.opencontainers.image.description="Policy-fenced profile-local Mnemosyne provider" \
       org.opencontainers.image.version="${ALLIES_WRAPPER_VERSION}" \
