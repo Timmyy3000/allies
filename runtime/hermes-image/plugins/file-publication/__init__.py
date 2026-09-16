@@ -10,7 +10,7 @@ def register(ctx) -> None:
     ctx.register_tool(
         name="publish_files",
         toolset="allies-file-publication",
-        schema=PUBLISH_FILES_SCHEMA,
+        schema=PUBLISH_FILES_SCHEMA["function"],
         handler=handle_publish_files,
         description=PUBLISH_FILES_SCHEMA["function"]["description"],
     )
