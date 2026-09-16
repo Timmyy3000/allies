@@ -64,11 +64,11 @@ export function useConversationFiles(
     if (typeof indexedDB !== "undefined")
       void manager
         .restore(scope)
-        .catch(() =>
-          setError(
-            "Saved file drafts could not be read. Allow browser storage and try again.",
-          ),
-        );
+        .catch((error) => setError(
+          error instanceof Error
+            ? error.message
+            : "Saved file drafts could not be read. Retry to continue.",
+        ));
   }, [manager, scope]);
   const change = useCallback(
     (next: SelectedFile[]) => {
@@ -91,6 +91,40 @@ export function useConversationFiles(
       );
     }
   };
+  const accept = useCallback(
+    (items: SelectedFile[], origin?: DOMRect) => {
+      try {
+        validateSelectedFiles([...files, ...items]);
+        setArriving(new Set(items.map((file) => file.id)));
+        change([...files, ...items]);
+        setOpen(false);
+        void animateAttachments(items, origin, Boolean(reduced), (id) =>
+          setArriving((current) => {
+            const next = new Set(current);
+            next.delete(id);
+            return next;
+          }),
+        );
+        return true;
+      } catch (error) {
+        items
+          .filter((file) => !files.includes(file))
+          .forEach((file) => {
+            if (file.src) URL.revokeObjectURL(file.src);
+          });
+        setError(
+          error instanceof Error ? error.message : "These files could not be added.",
+        );
+        return false;
+      }
+    },
+    [change, files, reduced],
+  );
+  const addFiles = useCallback(
+    (incoming: File[], origin?: DOMRect) =>
+      accept(incoming.map((file) => selectedFile(file)), origin),
+    [accept],
+  );
   const active = records.filter(
     (record) => record.scope === scope && record.phase !== "cancelled",
   );
@@ -135,7 +169,6 @@ export function useConversationFiles(
               <span>{file.name}</span>
             </span>
           ))}
-          <small role="status">Reserving your file message…</small>
         </span>
       ) : null;
     },
@@ -168,6 +201,7 @@ export function useConversationFiles(
       setAnchor(element);
       setOpen(true);
     },
+    addFiles,
     tray: files.length ? (
       <AttachmentTray
         files={files}
@@ -195,23 +229,17 @@ export function useConversationFiles(
               accent={accent}
               existing={files}
               onClose={() => setOpen(false)}
-              onAdd={(items, origin) => {
-                setArriving(new Set(items.map((f) => f.id)));
-                change([...files, ...items]);
-                setOpen(false);
-                void animateAttachments(items, origin, Boolean(reduced), (id) =>
-                  setArriving((current) => {
-                    const next = new Set(current);
-                    next.delete(id);
-                    return next;
-                  }),
-                );
-              }}
+              onAdd={(items, origin) => void accept(items, origin)}
             />
           )}
         </AnimatePresence>
         {error && (
-          <div className={styles.notice} role="alert">
+          <div
+            className={styles.notice}
+            role="alert"
+            aria-live="assertive"
+            aria-atomic="true"
+          >
             {error}
             <button
               type="button"

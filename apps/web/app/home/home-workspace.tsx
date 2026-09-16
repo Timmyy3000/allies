@@ -1135,8 +1135,8 @@ function ConversationPane({
 }) {
   const session = useSession();
   const approvalClient = useMemo<ApprovalClient>(() => ({
-    getApprovals: (workspace, conversation, signal) => session.runCloudOperation((operationSignal) => session.client.getApprovals(workspace, conversation, operationSignal), { signal }),
-    getApproval: (workspace, conversation, approval, signal) => session.runCloudOperation((operationSignal) => session.client.getApproval(workspace, conversation, approval, operationSignal), { signal }),
+    getApprovals: (workspace, conversation, signal) => session.runCloudOperation((operationSignal) => session.client.getApprovals(workspace, conversation, operationSignal), { signal, retryTransient: "approval-read" }),
+    getApproval: (workspace, conversation, approval, signal) => session.runCloudOperation((operationSignal) => session.client.getApproval(workspace, conversation, approval, operationSignal), { signal, retryTransient: "approval-read" }),
     decideApproval: (workspace, conversation, approval, decision, key, signal) => session.runCloudOperation((operationSignal) => session.client.decideApproval(workspace, conversation, approval, decision, key, operationSignal), { signal, csrf: true, retryTransient: false }),
   }), [session]);
   const attachments = useConversationFiles(userId, workspaceId, ally.id);
@@ -1634,6 +1634,30 @@ function ConversationPane({
     || waitingForVisibleResponse
     || messages.some((message) => immediateMessageIds.has(message.id) && isLiveQueuedMessage(message));
   const gettingReady = isGettingReady(ally);
+
+  useEffect(() => {
+    if (!activeUserMessage || !turnInProgress) return;
+    const durableSuccess = activeAssistantReply?.status === "completed"
+      || messages.some((message) => (
+        message.sender === "assistant"
+        && message.status === "completed"
+        && message.sequence > activeUserMessage.sequence
+        && !messages.some((candidate) => (
+          candidate.sender === "user"
+          && candidate.sequence > activeUserMessage.sequence
+          && candidate.sequence < message.sequence
+        ))
+      ));
+    if (!durableSuccess) return;
+    let current = true;
+    queueMicrotask(() => {
+      if (!current) return;
+      setActiveTurn(false);
+      setAwaitingVisibleResponse(false);
+      setPollingSettled(true);
+    });
+    return () => { current = false; };
+  }, [activeAssistantReply?.status, activeUserMessage, messages, turnInProgress]);
 
   useEffect(() => {
     const previousState = previousProvisioningStateRef.current;
@@ -2768,6 +2792,7 @@ function ConversationPane({
   const frame = <><ConversationFrame settingsHref={`/allies/${encodeURIComponent(ally.id)}/settings`} stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} onOpenSettings={onOpenSettings} canvasRef={messageCanvasRef}
     fileRecovery={attachments.cancelled.map(record => <div className={attachmentStyles.savedDraft} key={record.id} role="group" aria-label="Saved cancelled file message"><span>Saved cancelled message · {record.files.length} files</span><button type="button" onClick={() => { attachments.restoreDraft(record); restoreFileText(record.content); }}>Restore draft</button><button type="button" onClick={() => attachments.discard(record.id)}>Discard saved copy</button></div>)}
     attachments={attachments.tray} onAttach={preparingFiles ? undefined : attachments.open}
+    onFilesDrop={preparingFiles ? undefined : attachments.addFiles}
     onFileOpen={attachments.openFile}
     publications={id => attachments.publications(id, assistantReplies.filter(reply => reply.sourceMessageId === id).flatMap(reply => reply.publications ?? []))}
     messageAttachments={id => {

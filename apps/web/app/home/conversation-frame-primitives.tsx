@@ -422,6 +422,8 @@ export function ConversationComposer({
   onCompositionEnd,
   attachments,
   onAttach,
+  onFilesDrop,
+  dropScope,
 }: {
   allyName: string;
   value: string;
@@ -434,11 +436,16 @@ export function ConversationComposer({
   onCompositionEnd?: (value: string) => void;
   attachments?: ReactNode;
   onAttach?: (anchor: HTMLElement) => void;
+  onFilesDrop?: (files: File[], origin: DOMRect) => boolean | void;
+  dropScope?: string;
 }) {
   const isMobileHome = useIsMobileHome();
   const reduceAttachmentMotion = useReducedMotion();
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const previewRef = useRef<HTMLDialogElement>(null);
+  const [dropActive, setDropActive] = useState(false);
+  const [dropMessage, setDropMessage] = useState("");
   const [pasteError, setPasteError] = useState("");
   const isLarge = (text: string) => text.length >= 2_000 || text.split("\n").length >= 20;
   const splitDraft = (text: string) => ({ source: text, prompt: isLarge(text) ? "" : text, paste: isLarge(text) ? text : "" });
@@ -477,6 +484,112 @@ export function ConversationComposer({
   const hasText = Boolean(value.trim()) || Boolean(attachments);
   const [expanded, setExpanded] = useState(value.includes("\n") || value.length > 48);
 
+  useEffect(() => {
+    const root = composerRef.current;
+    if (!root) return;
+    const hasFiles = (event: globalThis.DragEvent) =>
+      Array.from(event.dataTransfer?.types ?? []).includes("Files");
+    const inside = (event: globalThis.DragEvent) => {
+      const target = event.target;
+      return target instanceof Node && root.contains(target);
+    };
+    const reset = () => {
+      setDropActive(false);
+      setDropMessage("");
+    };
+    const filesFrom = (transfer: DataTransfer): File[] | null => {
+      const items = transfer.items ? Array.from(transfer.items) : [];
+      if (items.length) {
+        const fileItems = items.filter((item) => item.kind === "file");
+        if (!fileItems.length) return [];
+        const files: File[] = [];
+        for (const item of fileItems) {
+          const entry = (item as DataTransferItem & {
+            webkitGetAsEntry?: () => { isDirectory?: boolean } | null;
+          }).webkitGetAsEntry?.();
+          if (entry?.isDirectory) return null;
+          const file = item.getAsFile();
+          if (!file) return null;
+          files.push(file);
+        }
+        return files;
+      }
+      return Array.from(transfer.files ?? []);
+    };
+    const onDragEnter = (event: globalThis.DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      if (!inside(event)) return;
+      setDropActive(true);
+      setDropMessage(disabled ? "Attachments are unavailable right now." : "Drop files to attach");
+    };
+    const onDragOver = (event: globalThis.DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      if (inside(event)) {
+        event.dataTransfer!.dropEffect = disabled || !onFilesDrop ? "none" : "copy";
+        setDropActive(true);
+      }
+    };
+    const onDragLeave = (event: globalThis.DragEvent) => {
+      if (!hasFiles(event)) return;
+      const related = event.relatedTarget;
+      if (related instanceof Node && root.contains(related)) return;
+      if (inside(event) || !(related instanceof Node && root.contains(related))) reset();
+    };
+    const onDrop = (event: globalThis.DragEvent) => {
+      if (!hasFiles(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const acceptedTarget = inside(event);
+      reset();
+      if (!acceptedTarget) {
+        setDropMessage("Drop files in the composer to attach them.");
+        return;
+      }
+      if (disabled || !onFilesDrop) {
+        setDropMessage("Attachments are unavailable right now.");
+        return;
+      }
+      const files = filesFrom(event.dataTransfer!);
+      if (!files?.length) {
+        setDropMessage("These files could not be added. Your draft has not changed.");
+        return;
+      }
+      try {
+        const accepted = onFilesDrop(files, root.getBoundingClientRect());
+        setDropMessage(
+          accepted === false
+            ? "These files could not be added. Your draft has not changed."
+            : "Files added to your draft.",
+        );
+      } catch {
+        setDropMessage("These files could not be added. Your draft has not changed.");
+      }
+    };
+    const onDragEnd = (event: globalThis.DragEvent) => {
+      if (hasFiles(event)) reset();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") reset();
+    };
+    document.addEventListener("dragenter", onDragEnter, true);
+    document.addEventListener("dragover", onDragOver, true);
+    document.addEventListener("dragleave", onDragLeave, true);
+    document.addEventListener("drop", onDrop, true);
+    document.addEventListener("dragend", onDragEnd, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("dragenter", onDragEnter, true);
+      document.removeEventListener("dragover", onDragOver, true);
+      document.removeEventListener("dragleave", onDragLeave, true);
+      document.removeEventListener("drop", onDrop, true);
+      document.removeEventListener("dragend", onDragEnd, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+      reset();
+    };
+  }, [disabled, dropScope, onFilesDrop]);
+
   useLayoutEffect(() => {
     const field = fieldRef.current;
     if (!field) return;
@@ -489,13 +602,16 @@ export function ConversationComposer({
 
   return (
     <>
+    {dropMessage ? <p className={styles.frameComposerNotice} role="status" aria-live="polite" aria-atomic="true">{dropMessage}</p> : null}
     <div
+      ref={composerRef}
       className={styles.frameComposer}
       data-testid="conversation-composer"
       data-expanded={compact || expanded || attachments ? "true" : "false"}
       data-has-attachments={attachments ? "true" : undefined}
       data-attachment-enabled={onAttach ? "true" : undefined}
       data-has-paste={compact ? "true" : undefined}
+      data-drop-active={dropActive ? "true" : undefined}
     >
       <label className={styles.frameSrOnly} htmlFor="ally-message">Message {allyName}</label>
       {onAttach ? <button type="button" className={styles.frameAttachButton} onClick={event => onAttach(event.currentTarget)} disabled={disabled} aria-label="Add attachment"><img src="/home/chat/plus.svg" alt="" width={13} height={13} /></button> : <span className={styles.frameComposerPlus} aria-hidden="true">

@@ -27,7 +27,7 @@ export interface LogoutResult {
 export interface RunCloudOperationOptions {
   signal?: AbortSignal;
   csrf?: boolean;
-  retryTransient?: boolean;
+  retryTransient?: boolean | "approval-read";
 }
 
 export type RunCloudOperation = <T>(
@@ -99,6 +99,33 @@ function isCsrfRejected(error: unknown): boolean {
 
 function isTransient(error: unknown): boolean {
   return isCloudError(error) && (error.kind === "network" || error.kind === "timeout");
+}
+
+function isApprovalReadTransient(error: unknown): boolean {
+  if (!isCloudError(error)) return false;
+  return isTransient(error)
+    || error.kind === "throttled"
+    || error.kind === "server"
+    || error.status === 408
+    || error.status === 429
+    || (error.status !== undefined && error.status >= 500);
+}
+
+function waitForRetryDelay(milliseconds: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(abortedError());
+  return new Promise<void>((resolve, reject) => {
+    const timer = globalThis.setTimeout(() => {
+      cleanup();
+      resolve();
+    }, milliseconds);
+    const onAbort = () => {
+      globalThis.clearTimeout(timer);
+      cleanup();
+      reject(abortedError());
+    };
+    const cleanup = () => signal?.removeEventListener("abort", onAbort);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export function createWebSessionAdapter(client: WebSessionClient, csrf: CloudCsrfTokenOwner) {
@@ -189,12 +216,22 @@ export function createWebSessionAdapter(client: WebSessionClient, csrf: CloudCsr
       return result;
     } catch (error) {
       if (operationGeneration !== generation) throw abortedError();
+      let delayBeforeReplay = false;
       if (isUnauthorized(error)) {
         await awaitWithSignal(refreshOnce(), options.signal);
       } else if (isCsrfRejected(error)) {
         await refreshCsrf(options.signal);
-      } else if (!options.retryTransient || !isTransient(error)) {
+      } else if (
+        options.retryTransient !== "approval-read"
+          ? !options.retryTransient || !isTransient(error)
+          : !isApprovalReadTransient(error)
+      ) {
         throw error;
+      } else {
+        delayBeforeReplay = options.retryTransient === "approval-read";
+      }
+      if (delayBeforeReplay) {
+        await waitForRetryDelay(1_000, options.signal);
       }
       if (operationGeneration !== generation) throw abortedError();
       const result = await invoke();
