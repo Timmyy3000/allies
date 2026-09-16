@@ -19,7 +19,7 @@ index 0aa8b7d..2735b64 100644
              ("POST", "/api/sessions/{session_id}/model", self._handle_session_model_lock),
              ("POST", "/v1/chat/completions", self._handle_chat_completions),
              ("POST", "/v1/responses", self._handle_responses),
-@@ -3831,6 +3834,22 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -3831,6 +3834,29 @@ class APIServerAdapter(BasePlatformAdapter):
          message_id = f"msg_{uuid.uuid4().hex}"
          run_id = f"run_{uuid.uuid4().hex}"
          seq = 0
@@ -30,6 +30,13 @@ index 0aa8b7d..2735b64 100644
 +            or profile_id == "default"
 +            or not gateway_session_key
 +        ):
++            logger.warning(
++                "[api_server] event=rich_approval_scope_rejected has_profile=%s "
++                "default_profile=%s has_session_key=%s",
++                bool(profile_id),
++                profile_id == "default",
++                bool(gateway_session_key),
++            )
 +            return web.json_response(
 +                _openai_error(
 +                    "Rich approvals require a profile-scoped session and X-Hermes-Session-Key",
