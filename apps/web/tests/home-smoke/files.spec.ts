@@ -258,9 +258,11 @@ test("requires retry after upload failure and retains the draft across refresh",
   ).toBeVisible();
   expect(fixture.uploads()).toBe(1);
   await page.getByRole("button", { name: "Retry files & send" }).click();
+  await expect.poll(fixture.uploads).toBe(2);
+  await expect
+    .poll(() => fixture.requests.some((r) => r.endsWith("/send-files")))
+    .toBe(true);
   await expect(
     page.getByRole("button", { name: /notes.txt.*MB/ }),
   ).toBeEnabled();
-  expect(fixture.uploads()).toBe(2);
-  expect(fixture.requests.some((r) => r.endsWith("/send-files"))).toBe(true);
 });
