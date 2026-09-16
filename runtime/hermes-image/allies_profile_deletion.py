@@ -64,6 +64,7 @@ class ProfileDeletionManager:
         self.task_ids = defaultdict(set)
         self.run_owners = {}
         self.jobs = {}
+        self.pending_sandbox_stops = set()
 
     def marker(self, key):
         if not KEY.fullmatch(key):
@@ -335,6 +336,10 @@ class ProfileDeletionManager:
         with self.lock:
             runs = self.runs[key]
             agents = len(self.agents[key])
+        sandbox = getattr(self.adapter, "_allies_profile_sandbox", None)
+        children = 0 if sandbox is None else sandbox.profile_process_count(key)
+        if key in self.pending_sandbox_stops:
+            children = max(children, 1)
         return {
             **body,
             "profile_key": key,
@@ -343,10 +348,13 @@ class ProfileDeletionManager:
             "active_runs": runs,
             "active_profile_io": len(self.requests[key]),
             "open_profile_stores": 0 if state == "quiesced" else agents,
-            "owned_children": 0 if state == "quiesced" else agents,
+            "owned_children": 0 if state == "quiesced" else agents + children,
         }
 
     async def _close(self, key):
+        deadline = time.monotonic() + DRAIN_SECONDS
+        if not await self._stop_sandbox(key, deadline):
+            return "quiescing", "profile_worker_pending"
         with self.lock:
             agents = list(self.agents[key].values())
         for agent in agents:
@@ -354,11 +362,13 @@ class ProfileDeletionManager:
                 agent.interrupt("profile deletion")
             except Exception:  # noqa: BLE001 -- failed interruption cannot prove closure.
                 return "repair_required", "agent_interrupt_failed"
-        deadline = time.monotonic() + DRAIN_SECONDS
         while self.runs[key] or self.requests[key]:
             if time.monotonic() >= deadline:
                 return "quiescing", "profile_work_pending"
             await asyncio.sleep(0.05)
+        # A request admitted before the fence may have been waiting to launch.
+        if not await self._stop_sandbox(key, deadline):
+            return "quiescing", "profile_worker_pending"
         while self.agents[key]:
             for agent in list(self.agents[key].values()):
                 await asyncio.to_thread(self.retire_agent, agent)
@@ -394,6 +404,25 @@ class ProfileDeletionManager:
             return "quiesced", ""
         except Exception:  # noqa: BLE001 -- unknown resource errors fail closed.
             return "repair_required", "profile_resources_unclosed"
+
+    async def _stop_sandbox(self, key, deadline):
+        sandbox = getattr(self.adapter, "_allies_profile_sandbox", None)
+        if sandbox is None:
+            return True
+        self.pending_sandbox_stops.add(key)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return False
+        try:
+            stopped = await asyncio.wait_for(
+                sandbox.stop_profile(key, timeout=min(5.0, remaining)), remaining
+            )
+            if stopped is True:
+                self.pending_sandbox_stops.discard(key)
+                return True
+            return False
+        except Exception:  # noqa: BLE001 -- closure cannot outlive its proof budget.
+            return False
 
     def _owned_task_ids(self, key):
         with self.lock:

@@ -10,6 +10,7 @@ import shutil
 import sqlite3
 import tempfile
 import threading
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -161,6 +162,7 @@ async def check_real_mnemosyne(target, sibling):
 
 
 async def run():
+    await check_sandbox_stop()
     previous = os.environ.get("HERMES_HOME")
     deletion.DRAIN_SECONDS = 0.15
     with tempfile.TemporaryDirectory() as temporary:
@@ -378,6 +380,49 @@ async def run():
     print(
         "Profile quiescence: real worker cancellation, stores, fences, sibling and restart passed"
     )
+
+
+async def check_sandbox_stop():
+    for outcomes in ((False,), (True, False), (RuntimeError("private failure"),)):
+        calls = []
+
+        async def stop_profile(key, *, timeout, outcomes=outcomes, calls=calls):
+            assert key == TARGET and timeout > 0
+            outcome = outcomes[len(calls)]
+            calls.append(key)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        adapter = SimpleNamespace(
+            _allies_profile_sandbox=SimpleNamespace(
+                stop_profile=stop_profile, profile_process_count=lambda key: 0
+            )
+        )
+        manager = deletion.ProfileDeletionManager(adapter)
+        assert await manager._close(TARGET) == ("quiescing", "profile_worker_pending")
+        assert len(calls) == len(outcomes)
+        proof = manager._proof(TARGET, {}, "quiescing", "profile_worker_pending")
+        assert proof["owned_children"] >= 1
+
+    async def slow_stop(key, *, timeout):
+        await asyncio.sleep(1)
+        return True
+
+    adapter._allies_profile_sandbox.stop_profile = slow_stop
+    assert not await manager._stop_sandbox(TARGET, time.monotonic() + 0.01)
+    assert manager._proof(TARGET, {}, "quiescing", "profile_worker_pending")[
+        "owned_children"
+    ] >= 1
+
+    async def stopped(key, *, timeout):
+        return True
+
+    adapter._allies_profile_sandbox.stop_profile = stopped
+    assert await manager._stop_sandbox(TARGET, time.monotonic() + 1)
+    assert manager._proof(TARGET, {}, "quiescing", "")["owned_children"] == 0
+    adapter._allies_profile_sandbox.profile_process_count = lambda key: 1
+    assert manager._proof(TARGET, {}, "quiescing", "")["owned_children"] == 1
 
 
 if __name__ == "__main__":

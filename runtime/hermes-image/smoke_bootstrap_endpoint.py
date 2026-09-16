@@ -70,6 +70,26 @@ def _app(adapter: APIServerAdapter) -> web.Application:
     return app
 
 
+def _install_unit_sandbox_dispatch(adapter: APIServerAdapter) -> None:
+    """Keep this handler smoke in-process while preserving parent admission."""
+
+    sandbox = getattr(adapter, "_allies_profile_sandbox", None)
+    if sandbox is None:
+        return
+    from allies_profile_sandbox import route_owner
+
+    async def dispatch(profile, request, handler):
+        owner, _, prefixed = route_owner(request.method, request.path)
+        if owner != "child" or not profile or not prefixed:
+            return sandbox._deny()
+        auth_error = adapter._check_auth(request)
+        if auth_error is not None:
+            return auth_error
+        return await handler(request)
+
+    sandbox.dispatch = dispatch
+
+
 async def _request(
     client: TestClient,
     path: str,
@@ -96,6 +116,7 @@ async def _run() -> None:
         adapter.gateway_runner = SimpleNamespace(
             config=GatewayConfig(multiplex_profiles=True)
         )
+        _install_unit_sandbox_dispatch(adapter)
         try:
             async with TestClient(TestServer(_app(adapter))) as client:
                 path = f"/p/{PROFILE}/api/sessions/{SESSION_ID}/bootstrap"
@@ -125,7 +146,9 @@ async def _run() -> None:
                 assert (await duplicate.json())["status"] == "duplicate"
                 assert conflict.status == 409
                 assert wrong_key.status == 401
-                assert default.status == 403
+                assert default.status == (
+                    404 if hasattr(adapter, "_allies_profile_sandbox") else 403
+                )
                 assert unknown.status == 404
                 assert other.status == 409
 
