@@ -36,6 +36,7 @@ export interface ProductionConversationMessageModel {
   statusLabel: string | null;
   retryable: boolean;
   queued?: boolean;
+  queueState?: MessageViewModel["queueState"];
 }
 
 export interface ProductionConversationTurnModel {
@@ -329,10 +330,11 @@ export function buildProductionConversationFrameModel(
     input.projection.turns.map((turn) => [`${turn.messageId}:${turn.turnOrdinal}`, turn]),
   );
   const assistantReplies = input.assistantReplies ?? [];
-  // Acceptance wakes the runtime; only actual turn progress releases its queue item.
+  // Acceptance wakes the runtime; claim or actual turn progress releases its queue item.
   // Keep the durable message in the model so lifecycle/activity identity is preserved.
   const queuedIds = new Set(input.messages.filter((message) => {
     if (message.sender !== "user" || message.status !== "queued" || message.retryable) return false;
+    if (message.queueState === "claimed") return false;
     const turn = turnsByMessage.get(`${message.id}:${message.sequence}`);
     if (turn?.messageId === message.id && turn.state !== "queued") return false;
     if (assistantReplies.some((reply) => reply.sourceMessageId === message.id)) return false;
@@ -351,10 +353,12 @@ export function buildProductionConversationFrameModel(
       ? messageStatusLabel(
         message.status,
         turnsByMessage.get(`${message.id}:${message.sequence}`),
+        hasDurableSuccess(input.messages, assistantReplies, message),
       )
       : null,
     retryable: Boolean(message.retryable),
     queued: queuedIds.has(message.id),
+    queueState: message.queueState,
   }));
   const activityGroups = (accessBlocked ? [] : input.activityPresentation.orderedKeys)
     .map((key) => input.activityPresentation.groupsByKey[key])
@@ -467,7 +471,9 @@ function mergeTurnModels(
         ? ""
         : reply?.content ?? (turn.state === "failed" || turn.state === "stopped" ? "" : turn.assistantText),
       createdAt: reply?.createdAt,
-      state: reply ? messageStatusToActivityState(reply.status) : turn.state,
+      state: reply?.status === "completed" || hasLegacyReply
+        ? "completed"
+        : reply ? messageStatusToActivityState(reply.status) : turn.state,
       isTruncated: !hasLegacyReply && reply?.isTruncated === true,
     };
   });
@@ -509,6 +515,7 @@ function hasLegacyAssistantReply(
 
   return messages.some((message) => (
     message.sender === "assistant"
+    && message.status === "completed"
     && message.sequence > userMessage.sequence
     && (nextUserSequence === null || message.sequence < nextUserSequence)
   ));
@@ -525,7 +532,9 @@ function conversationCanChat(ally: AllyViewModel): boolean {
 function messageStatusLabel(
   status: MessageViewModel["status"],
   turn?: AssistantTurnProjection,
+  durableSuccess = false,
 ): string | null {
+  if (durableSuccess) return null;
   if (turn) {
     return {
       queued: null,
@@ -545,4 +554,18 @@ function messageStatusLabel(
     failed: "Failed",
     stopped: "Stopped",
   }[status];
+}
+
+function hasDurableSuccess(
+  messages: readonly MessageViewModel[],
+  assistantReplies: readonly AssistantReplyViewModel[],
+  message: MessageViewModel,
+): boolean {
+  return hasLegacyAssistantReply(messages, { messageId: message.id, turnOrdinal: message.sequence })
+    || assistantReplies.some((reply) => (
+      reply.sourceMessageId === message.id
+      && reply.conversationTurnOrdinal === message.sequence
+      && reply.hasFullPrefix
+      && reply.status === "completed"
+    ));
 }
