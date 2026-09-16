@@ -71,6 +71,7 @@ def update_pair(project, environment, desired, *, request=graphql, sleep=time.sl
     desired = validate_pair(desired)
     if environment not in ("staging", "production") or desired is None:
         raise PairUpdateError("Invalid target or image pair")
+    environment_name = "prod" if environment == "production" else environment
     data = request(
         "query($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }",
         {"id": project},
@@ -79,7 +80,7 @@ def update_pair(project, environment, desired, *, request=graphql, sleep=time.sl
         matches = [
             edge["node"]["id"]
             for edge in data["project"]["environments"]["edges"]
-            if edge["node"]["name"] == environment
+            if edge["node"]["name"] == environment_name
         ]
         if len(matches) != 1:
             raise ValueError

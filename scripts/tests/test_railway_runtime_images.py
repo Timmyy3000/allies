@@ -17,18 +17,28 @@ ENVIRONMENT = "00000000-0000-0000-0000-000000000002"
 
 
 class API:
-    def __init__(self, current=None, *, lose_response=False, ignore_write=False):
+    def __init__(
+        self,
+        current=None,
+        *,
+        lose_response=False,
+        ignore_write=False,
+        environment="staging",
+    ):
         self.current = current if current is not None else {}
         self.lose_response = lose_response
         self.ignore_write = ignore_write
         self.writes = []
+        self.environment = environment
 
     def __call__(self, query, variables):
         if "project(id:" in query:
             return {
                 "project": {
                     "environments": {
-                        "edges": [{"node": {"id": ENVIRONMENT, "name": "staging"}}]
+                        "edges": [
+                            {"node": {"id": ENVIRONMENT, "name": self.environment}}
+                        ]
                     }
                 }
             }
@@ -43,9 +53,13 @@ class API:
 
 
 @pytest.mark.parametrize("initial", [{}, OLD, PAIR])
-def test_pair_update_initialization_and_idempotent_readback(initial):
-    api = API(initial)
-    receipt = images.update_pair(PROJECT, "staging", PAIR, request=api)
+@pytest.mark.parametrize(
+    "target,name", [("staging", "staging"), ("production", "prod")]
+)
+def test_pair_update_initialization_and_idempotent_readback(initial, target, name):
+    api = API(initial, environment=name)
+    receipt = images.update_pair(PROJECT, target, PAIR, request=api)
+    assert receipt["environment"] == target
     assert receipt["previous"] == (initial or None)
     assert receipt["readback"] == PAIR
     assert receipt["machine_adoption"] == "not_verified"
