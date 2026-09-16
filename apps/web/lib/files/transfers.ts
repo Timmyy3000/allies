@@ -44,6 +44,35 @@ export type FileTransfer = {
   createdAt: number;
 };
 
+export type FileStorageFailureKind =
+  | "capacity"
+  | "quota"
+  | "unavailable"
+  | "blocked"
+  | "transaction";
+
+export class FileStorageError extends Error {
+  readonly name = "FileStorageError";
+  constructor(
+    readonly kind: FileStorageFailureKind,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+export function fileStorageFailureKind(
+  error: unknown,
+): FileStorageFailureKind | undefined {
+  return error instanceof FileStorageError
+    ? error.kind
+    : typeof error === "object" && error !== null && "kind" in error
+      ? (["capacity", "quota", "unavailable", "blocked", "transaction"] as const).find(
+          (kind) => (error as { kind?: unknown }).kind === kind,
+        )
+      : undefined;
+}
+
 const manifestSchema = z.object({
   client_id: z.uuid(),
   name: z.string().min(1).max(255),
@@ -154,78 +183,286 @@ export function readSavedTransfers(
   });
 }
 
+const DATABASE_NAME = "allies-file-transfers";
+const MAX_DATABASE_RECORDS = 64;
+const MAX_DATABASE_BYTES = 250_000_000;
+const OPEN_TIMEOUT_MS = 5_000;
 let database: Promise<IDBDatabase> | undefined;
-function db() {
-  return (database ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("allies-file-transfers", 1);
-    request.onupgradeneeded = () =>
-      request.result.createObjectStore("transfers", { keyPath: "id" });
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => {
-      database = undefined;
-      reject(new Error("Allow browser storage before sending files."));
-    };
-  }));
+let connection: IDBDatabase | undefined;
+
+function failureMessage(
+  kind: FileStorageFailureKind,
+  operation: "save" | "read" | "remove" | "open",
+) {
+  if (kind === "capacity")
+    return "Finish or discard a saved file draft before adding another.";
+  if (kind === "quota")
+    return "Your file draft could not be saved. Free browser storage and retry.";
+  if (kind === "unavailable")
+    return "Browser storage is unavailable. Allow storage and retry before sending files.";
+  if (kind === "blocked")
+    return "Browser storage is busy in another tab. Close other tabs and retry.";
+  if (operation === "read") return "Your saved file drafts could not be read. Retry to continue.";
+  if (operation === "remove") return "The saved draft could not be removed. Retry to continue.";
+  return "Your file draft could not be saved. Retry to continue; your files remain in the composer.";
 }
-async function persist(value: FileTransfer) {
-  const connection = await db();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = connection.transaction("transfers", "readwrite");
-    const store = transaction.objectStore("transfers");
-    const request = store.getAll();
+
+function isNamedError(error: unknown, names: readonly string[]) {
+  return typeof error === "object" && error !== null &&
+    names.includes((error as { name?: string }).name ?? "");
+}
+
+function classifyStorageError(
+  error: unknown,
+  operation: "save" | "read" | "remove" | "open",
+  fallback: FileStorageFailureKind = "transaction",
+) {
+  const existing = fileStorageFailureKind(error);
+  const kind = existing ??
+    (isNamedError(error, ["QuotaExceededError"])
+      ? "quota"
+      : isNamedError(error, ["SecurityError", "NotSupportedError", "InvalidStateError"])
+        ? "unavailable"
+        : fallback);
+  return error instanceof FileStorageError && error.kind === kind
+    ? error
+    : new FileStorageError(kind, failureMessage(kind, operation));
+}
+
+function resetDatabase(target?: IDBDatabase) {
+  if (target && connection !== target) return;
+  const current = connection;
+  connection = undefined;
+  database = undefined;
+  if (current) {
+    current.onversionchange = null;
+    current.close();
+  }
+}
+
+function db() {
+  if (database) return database;
+  const pending = new Promise<IDBDatabase>((resolve, reject) => {
+    let request: IDBOpenDBRequest;
+    let settled = false;
+    const finish = (error: unknown, fallback: FileStorageFailureKind = "transaction") => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      database = undefined;
+      reject(classifyStorageError(error, "open", fallback));
+    };
+    const timer = setTimeout(() => finish(null, "blocked"), OPEN_TIMEOUT_MS);
+    try {
+      if (typeof indexedDB === "undefined") throw new Error("IndexedDB is unavailable");
+      request = indexedDB.open(DATABASE_NAME, 1);
+    } catch (error) {
+      finish(error, "unavailable");
+      return;
+    }
+    request.onupgradeneeded = () => {
+      try {
+        if (!request.result.objectStoreNames.contains("transfers"))
+          request.result.createObjectStore("transfers", { keyPath: "id" });
+      } catch (error) {
+        finish(error);
+      }
+    };
+    request.onblocked = () => finish(null, "blocked");
+    request.onerror = () => finish(request.error);
     request.onsuccess = () => {
-      const others = request.result.filter(
-        (record: FileTransfer) => record.id !== value.id,
-      );
-      const bytes = [...others, value].reduce(
-        (total: number, record: FileTransfer) =>
-          total +
-          (record.files ?? []).reduce(
-            (sum, file) => sum + (file.file?.size ?? 0),
-            0,
-          ),
-        0,
-      );
-      if (others.length >= 64 || bytes > 250_000_000) {
-        transaction.abort();
+      const opened = request.result;
+      if (settled) {
+        opened.close();
         return;
       }
-      store.put({
-        ...value,
-        files: value.files.map((file) => ({ ...file, src: undefined })),
-      });
+      settled = true;
+      clearTimeout(timer);
+      connection = opened;
+      opened.onversionchange = () => resetDatabase(opened);
+      (opened as IDBDatabase & { onclose?: (() => void) | null }).onclose = () =>
+        resetDatabase(opened);
+      resolve(opened);
     };
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = transaction.onabort = () =>
-      reject(
-        new Error(
-          "Your file draft could not be saved. Finish or discard saved drafts, or free up browser storage and retry.",
-        ),
-      );
   });
+  database = pending;
+  void pending.catch(() => {
+    if (database === pending) database = undefined;
+  });
+  return pending;
 }
+
+async function persist(value: FileTransfer) {
+  let active: IDBDatabase | undefined;
+  try {
+    active = await db();
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      let failure: FileStorageError | undefined;
+      const finish = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        if (error) reject(error);
+        else resolve();
+      };
+      let transaction: IDBTransaction;
+      try {
+        transaction = active!.transaction("transfers", "readwrite");
+        const store = transaction.objectStore("transfers");
+        const request = store.getAll();
+        request.onsuccess = () => {
+          const others = request.result.filter(
+            (record: FileTransfer) => record.id !== value.id,
+          );
+          const bytes = [...others, value].reduce(
+            (total: number, record: FileTransfer) =>
+              total + (record.files ?? []).reduce(
+                (sum, file) => sum + (file.file?.size ?? 0),
+                0,
+              ),
+            0,
+          );
+          if (others.length >= MAX_DATABASE_RECORDS || bytes > MAX_DATABASE_BYTES) {
+            failure = new FileStorageError("capacity", failureMessage("capacity", "save"));
+            try { transaction.abort(); } catch { finish(failure); }
+            return;
+          }
+          try {
+            store.put({
+              ...value,
+              files: value.files.map((file) => ({ ...file, src: undefined })),
+            });
+          } catch (error) {
+            failure = classifyStorageError(error, "save");
+            finish(failure);
+          }
+        };
+        request.onerror = () => {
+          failure = classifyStorageError(request.error, "save");
+          finish(failure);
+        };
+        transaction.oncomplete = () => finish();
+        transaction.onerror = () => finish(failure ?? classifyStorageError(transaction.error, "save"));
+        transaction.onabort = () => finish(failure ?? classifyStorageError(transaction.error, "save"));
+      } catch (error) {
+        finish(classifyStorageError(error, "save"));
+      }
+    });
+  } catch (error) {
+    resetDatabase(active);
+    throw classifyStorageError(error, "save");
+  }
+}
+
 async function load(scope: string): Promise<FileTransfer[]> {
-  const connection = await db();
-  return new Promise((resolve, reject) => {
-    const request = connection
-      .transaction("transfers")
-      .objectStore("transfers")
-      .getAll();
-    request.onsuccess = () =>
-      resolve(readSavedTransfers(request.result, scope));
-    request.onerror = () =>
-      reject(new Error("Your saved file drafts could not be read."));
-  });
+  let active: IDBDatabase | undefined;
+  try {
+    active = await db();
+    return await new Promise((resolve, reject) => {
+      let settled = false;
+      let result: FileTransfer[] | undefined;
+      const finish = (error?: unknown, value?: FileTransfer[]) => {
+        if (settled) return;
+        settled = true;
+        if (error) reject(error);
+        else resolve(value ?? []);
+      };
+      try {
+        const transaction = active!.transaction("transfers");
+        const request = transaction.objectStore("transfers").getAll();
+        request.onsuccess = () => {
+          result = readSavedTransfers(request.result, scope);
+        };
+        request.onerror = () => finish(classifyStorageError(request.error, "read"));
+        transaction.oncomplete = () => finish(undefined, result ?? []);
+        transaction.onerror = () => finish(classifyStorageError(transaction.error, "read"));
+        transaction.onabort = () => finish(classifyStorageError(transaction.error, "read"));
+      } catch (error) {
+        finish(classifyStorageError(error, "read"));
+      }
+    });
+  } catch (error) {
+    resetDatabase(active);
+    throw classifyStorageError(error, "read");
+  }
 }
+
 async function erase(id: string) {
-  const connection = await db();
-  await new Promise<void>((resolve, reject) => {
-    const transaction = connection.transaction("transfers", "readwrite");
-    transaction.objectStore("transfers").delete(id);
-    transaction.oncomplete = () => resolve();
-    transaction.onerror = transaction.onabort = () =>
-      reject(new Error("The saved draft could not be removed."));
-  });
+  let active: IDBDatabase | undefined;
+  try {
+    active = await db();
+    await new Promise<void>((resolve, reject) => {
+      let settled = false;
+      const finish = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        if (error) reject(error);
+        else resolve();
+      };
+      try {
+        const transaction = active!.transaction("transfers", "readwrite");
+        const request = transaction.objectStore("transfers").delete(id);
+        request.onerror = () => finish(classifyStorageError(request.error, "remove"));
+        transaction.oncomplete = () => finish();
+        transaction.onerror = () => finish(classifyStorageError(transaction.error, "remove"));
+        transaction.onabort = () => finish(classifyStorageError(transaction.error, "remove"));
+      } catch (error) {
+        finish(classifyStorageError(error, "remove"));
+      }
+    });
+  } catch (error) {
+    resetDatabase(active);
+    throw classifyStorageError(error, "remove");
+  }
+}
+
+async function reclaim(expected: FileTransfer): Promise<boolean> {
+  let active: IDBDatabase | undefined;
+  try {
+    active = await db();
+    return await new Promise<boolean>((resolve, reject) => {
+      let settled = false;
+      let removed = false;
+      const finish = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        if (error) reject(error);
+        else resolve(removed);
+      };
+      try {
+        const transaction = active!.transaction("transfers", "readwrite");
+        const store = transaction.objectStore("transfers");
+        const request = store.get(expected.id);
+        request.onsuccess = () => {
+          const current = request.result as FileTransfer | undefined;
+          if (
+            current?.phase !== "ready" ||
+            current.scope !== expected.scope ||
+            current.key !== expected.key ||
+            current.createdAt !== expected.createdAt ||
+            current.reservation?.message.id !== expected.reservation?.message.id
+          ) return;
+          const deletion = store.delete(expected.id);
+          deletion.onsuccess = () => { removed = true; };
+          deletion.onerror = () => finish(classifyStorageError(deletion.error, "remove"));
+        };
+        request.onerror = () => finish(classifyStorageError(request.error, "remove"));
+        transaction.oncomplete = () => finish();
+        transaction.onerror = () => finish(classifyStorageError(transaction.error, "remove"));
+        transaction.onabort = () => finish(classifyStorageError(transaction.error, "remove"));
+      } catch (error) {
+        finish(classifyStorageError(error, "remove"));
+      }
+    });
+  } catch (error) {
+    resetDatabase(active);
+    throw classifyStorageError(error, "remove");
+  }
+}
+
+export const fileTransferStorage = { persist, load, erase, reclaim };
+export function resetFileTransferStorageForTests() {
+  resetDatabase();
 }
 export function selectedFile(file: File): SelectedFile {
   return {
@@ -258,13 +495,19 @@ export class FileTransfers {
   private operations = new Map<string, AbortController>();
   private running = new Map<string, Promise<void>>();
   private loaded = new Map<string, Promise<void>>();
+  private reconciling = new Map<string, Promise<void>>();
   private clearing = new Set<string>();
   private clearedScopes = new Set<string>();
   readonly drafts = new Map<string, SelectedFile[]>();
   constructor(
     private client: CloudClient,
     private run: RunCloudOperation,
-    private storage = { persist, load, erase },
+    private storage: {
+      persist: typeof persist;
+      load: typeof load;
+      erase: typeof erase;
+      reclaim?: typeof reclaim;
+    } = fileTransferStorage,
   ) {}
   subscribe = (listener: () => void) => {
     this.listeners.add(listener);
@@ -283,7 +526,13 @@ export class FileTransfers {
       this.emit();
       return;
     }
-    await this.storage.persist(record);
+    try {
+      await this.storage.persist(record);
+    } catch (error) {
+      if (fileStorageFailureKind(error) !== "capacity") throw error;
+      await this.reconcile(record.scope);
+      await this.storage.persist(record);
+    }
     const index = this.records.findIndex((r) => r.id === record.id);
     if (index < 0) this.records.push(record);
     else this.records[index] = record;
@@ -331,13 +580,13 @@ export class FileTransfers {
   }
   async clearScope(scope: string) {
     const alreadyCleared = this.clearedScopes.has(scope);
-    let loadFailed = false;
+    let loadError: unknown;
     let persistedRecords: FileTransfer[] = [];
     try {
       if (alreadyCleared) persistedRecords = await this.storage.load(scope);
       else await this.restore(scope);
-    } catch {
-      loadFailed = true;
+    } catch (error) {
+      loadError = error;
     }
     this.clearedScopes.add(scope);
     this.drafts.delete(scope);
@@ -354,9 +603,74 @@ export class FileTransfers {
     this.records = this.records.filter((record) => record.scope !== scope);
     const eraseResults = await Promise.allSettled(targetRecords.map((record) => this.storage.erase(record.id)));
     this.emit();
-    if (loadFailed || eraseResults.some((result) => result.status === "rejected")) {
-      throw new Error("Some saved Ally file drafts could not be erased from this browser.");
+    const eraseFailure = eraseResults.find(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    )?.reason;
+    if (loadError || eraseFailure) {
+      const kind = fileStorageFailureKind(loadError ?? eraseFailure);
+      throw kind
+        ? new FileStorageError(
+            kind,
+            "Some saved Ally file drafts could not be erased from this browser. Retry to continue.",
+          )
+        : new Error("Some saved Ally file drafts could not be erased from this browser.");
     }
+  }
+
+  private async reconcile(scope: string) {
+    const existing = this.reconciling.get(scope);
+    if (existing) return existing;
+    const task = this.reconcileScope(scope).finally(() => {
+      if (this.reconciling.get(scope) === task) this.reconciling.delete(scope);
+    });
+    this.reconciling.set(scope, task);
+    return task;
+  }
+
+  private async reconcileScope(scope: string) {
+    const scopeParts = scope.split(":");
+    const workspaceId = scopeParts.at(-2);
+    const allyId = scopeParts.at(-1);
+    if (!workspaceId || !allyId) return;
+    const candidates = this.records.filter(
+      (record) =>
+        record.scope === scope &&
+        record.workspaceId === workspaceId &&
+        record.allyId === allyId &&
+        record.phase === "ready" &&
+        Boolean(record.reservation?.message.id),
+    );
+    const conversations = new Map<string, Promise<readonly MessageViewModel[]>>();
+    const messagesFor = (record: FileTransfer) => {
+      const key = `${record.workspaceId}:${record.conversationId}`;
+      let result = conversations.get(key);
+      if (!result) {
+        result = this.run<readonly MessageViewModel[]>(
+          (signal) =>
+            this.client.getConversation(record.workspaceId, record.conversationId, {
+              limit: 100,
+              signal,
+            }).then((conversation) => [
+              ...conversation.messages,
+              ...(conversation.queue ?? []),
+            ]),
+          { retryTransient: false },
+        ).catch(() => []);
+        conversations.set(key, result);
+      }
+      return result;
+    };
+    for (const record of candidates) {
+      const messages = await messagesFor(record);
+      const message = messages.find((item) => item.id === record.reservation?.message.id);
+      if (message && this.isDisposableReadyMessage(message))
+        await this.reclaimReady(record).catch(() => undefined);
+    }
+  }
+
+  private isDisposableReadyMessage(message: MessageViewModel) {
+    return message.queueState === "claimed" ||
+      ["in_progress", "awaiting_action", "completed"].includes(message.status);
   }
   async prepare(
     scope: string,
@@ -366,19 +680,23 @@ export class FileTransfers {
     content: string,
     files: SelectedFile[],
   ): Promise<FileTransfer> {
+    if (!files.length || files.some((f) => !f.file))
+      throw new Error("Choose the files again before sending.");
+    const actualFiles = files.map((item) => ({ ...item, size: item.file!.size }));
+    validateSelectedFiles(actualFiles);
     await this.restore(scope);
     if (this.clearedScopes.has(scope)) {
       throw new Error("File drafts are unavailable for this Ally.");
     }
-    validateSelectedFiles(files);
+    if (this.records.filter((r) => r.scope === scope).length >= 10) {
+      await this.reconcile(scope);
+    }
     if (this.records.filter((r) => r.scope === scope).length >= 10)
       throw new Error(
         "Finish or discard a saved file draft before adding another.",
       );
-    if (!files.length || files.some((f) => !f.file))
-      throw new Error("Choose the files again before sending.");
     const entries: TransferFile[] = [];
-    for (const item of files)
+    for (const item of actualFiles)
       entries.push({
         ...item,
         state: "pending",
@@ -417,15 +735,22 @@ export class FileTransfers {
       if (
         record.phase !== "ready" ||
         !message ||
-        (message.status === "queued" && message.queueState !== "claimed") ||
+        !this.isDisposableReadyMessage(message) ||
         this.clearing.has(record.id)
       )
         continue;
       this.clearing.add(record.id);
-      void this.discard(record.id)
+      void this.reclaimReady(record)
         .catch(() => undefined)
         .finally(() => this.clearing.delete(record.id));
     }
+  }
+  private async reclaimReady(record: FileTransfer) {
+    if (!this.storage.reclaim || !await this.storage.reclaim(record)) return;
+    if (this.find(record.id) !== record || record.phase !== "ready") return;
+    this.records = this.records.filter((current) => current !== record);
+    record.files.forEach((file) => this.releasePreview(file));
+    this.emit();
   }
   async discard(id: string) {
     const record = this.find(id);
