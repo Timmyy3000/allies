@@ -76,6 +76,7 @@ ACTIVITY_LABELS = {
     "search_files": ("Searching files", "Searched files"),
     "read_file": ("Reading a file", "Read a file"),
     "write_file": ("Writing a file", "Wrote a file"),
+    "publish_files": ("Publishing file", "Published file"),
     "patch": ("Editing a file", "Edited a file"),
     "terminal": ("Working", "Finished an activity"),
     "execute_code": ("Working", "Finished an activity"),
@@ -117,6 +118,8 @@ def activity_text(kind: str, outcome: str | None) -> str:
     if outcome == "completed":
         return completed
     if outcome == "failed":
+        if kind == "publish_files":
+            return "Couldn't publish file"
         return f"Could not finish {active.lower()}"
     if outcome == "stopped":
         return f"Stopped while {active.lower()}"

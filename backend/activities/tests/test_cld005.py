@@ -60,6 +60,33 @@ DEFAULT_ATTEMPT_ID = UUID("f50e8400-e29b-41d4-a716-446655440000")
 DEFAULT_EXECUTION_ID = UUID("e50e8400-e29b-41d4-a716-446655440000")
 
 
+@pytest.mark.parametrize(
+    ("outcome", "label"),
+    [("completed", "Published file"), ("failed", "Couldn't publish file")],
+)
+def test_publication_activity_projects_truthful_labels(
+    conversation_records, outcome, label
+):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    identity = {"activity_id": "activity-" + "e" * 32, "activity_kind": "publish_files"}
+    started = project_foundry_event(
+        event_for(message, binding, event_type="activity.started", payload=identity)
+    ).activity
+    assert started.text == "Publishing file"
+    completed = project_foundry_event(
+        event_for(
+            message,
+            binding,
+            event_type="activity.completed",
+            attempt_sequence=2,
+            payload={**identity, "status": outcome, "duration_ms": 12},
+        )
+    ).activity
+    assert completed.text == label
+    assert completed.outcome == outcome
+    assert completed.activity_id == started.activity_id
+
+
 @pytest.mark.parametrize("outcome", ["completed", "failed", "stopped"])
 def test_rich_activity_identity_outcomes_and_conflicts(conversation_records, outcome):
     user, workspace, _ally, binding, conversation, message = conversation_records
