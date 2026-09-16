@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import ClassVar
+
 
 class HermesError(RuntimeError):
     """Base class whose message must never include a bearer value."""
@@ -55,6 +57,37 @@ class IncomingFileError(HermesError):
     code = "incoming_file_invalid"
 
 
+class PublicationInputError(IncomingFileError):
+    """Classified local publication input failures safe to show to the user."""
+
+    messages: ClassVar[dict[str, str]] = {
+        "invalid_paths": (
+            "Use a workspace-relative or contained absolute file path. "
+            "Create or copy the file into the current workspace, then try again."
+        ),
+        "file_not_found": (
+            "The file was not found. Create or copy the file into the current "
+            "workspace, then try again."
+        ),
+        "file_unreadable": (
+            "The file could not be read. Create or copy the file into the current "
+            "workspace, then try again."
+        ),
+        "file_too_large": (
+            "The file is too large to publish. Create or copy a smaller file into "
+            "the current workspace, then try again."
+        ),
+    }
+
+    def __init__(self, code: str, detail: str) -> None:
+        if code not in self.messages:
+            raise ValueError("publication input code was invalid")
+        self.code = code
+        self.publication_code = code
+        self.publication_message = self.messages[code]
+        super().__init__(detail)
+
+
 __all__ = [
     "HermesAuthenticationError",
     "HermesDisconnected",
@@ -67,4 +100,5 @@ __all__ = [
     "HermesUnavailable",
     "IdentityIsolationError",
     "IncomingFileError",
+    "PublicationInputError",
 ]

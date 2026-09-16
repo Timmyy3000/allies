@@ -23,8 +23,23 @@ _INVALID_PATHS = {
     "retryable": True,
     "error_code": "invalid_paths",
     "message": (
-        "Use workspace-relative file paths only, such as report.md. "
-        "Create or move the file into the current workspace, then try again."
+        "Use a workspace-relative or contained absolute file path. "
+        "Create or copy the file into the current workspace, then try again."
+    ),
+}
+_LOCAL_FAILURE_MESSAGES = {
+    "invalid_paths": _INVALID_PATHS["message"],
+    "file_not_found": (
+        "The file was not found. Create or copy the file into the current "
+        "workspace, then try again."
+    ),
+    "file_unreadable": (
+        "The file could not be read. Create or copy the file into the current "
+        "workspace, then try again."
+    ),
+    "file_too_large": (
+        "The file is too large to publish. Create or copy a smaller file into "
+        "the current workspace, then try again."
     ),
 }
 _OPEN_PATH = re.compile(
@@ -37,8 +52,9 @@ PUBLISH_FILES_SCHEMA = {
     "function": {
         "name": "publish_files",
         "description": (
-            "Publish one to ten files from the current workspace. Use only "
-            "workspace-relative paths, never absolute paths. After a successful "
+            "Publish one to ten files from the current workspace. Use "
+            "workspace-relative paths or absolute paths inside the current "
+            "workspace. After a successful "
             "call, include every returned chat_reference exactly once in the final "
             "response. You may replace only its visible Markdown label with short, "
             "natural wording for the user; keep the /files/... destination exact. "
@@ -57,8 +73,9 @@ PUBLISH_FILES_SCHEMA = {
                         "minLength": 1,
                         "maxLength": 1024,
                         "description": (
-                            "Path relative to the current workspace, for example "
-                            "report.md or exports/report.csv."
+                            "Path relative to the current workspace or an absolute "
+                            "path inside it, for example report.md or an absolute "
+                            "path to a file in the current workspace."
                         ),
                     },
                 }
@@ -75,6 +92,29 @@ def _failure() -> str:
 
 def _invalid_paths() -> str:
     return json.dumps(_INVALID_PATHS, separators=(",", ":"))
+
+
+def _local_failure(value: dict[str, Any] | None) -> str | None:
+    if not isinstance(value, dict) or value.get("state") != "failed":
+        return None
+    if value.get("retryable") is not True:
+        return None
+    code = value.get("error_code")
+    if not isinstance(code, str):
+        return None
+    message = _LOCAL_FAILURE_MESSAGES.get(code)
+    if message is None:
+        return None
+    return json.dumps(
+        {
+            "state": "failed",
+            "retryable": True,
+            "error_code": code,
+            "message": message,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
 
 
 def _markdown_label(name: str) -> str:
@@ -97,7 +137,7 @@ def _valid_paths(args: Any) -> list[str] | None:
         if (
             not isinstance(path, str)
             or not 1 <= len(path_bytes) <= 1024
-            or path.startswith(("/", "~"))
+            or path.startswith("~")
             or "\\" in path
             or ":" in path
             or "://" in path
@@ -105,6 +145,8 @@ def _valid_paths(args: Any) -> list[str] | None:
         ):
             return None
         parts = path.split("/")
+        if path.startswith("/"):
+            parts = parts[1:]
         if any(part in {"", ".", ".."} for part in parts):
             return None
         valid.append(path)
@@ -207,4 +249,4 @@ def handle_publish_files(
     except OSError:
         return _failure()
     ready = _ready(response, context) if response is not None else None
-    return ready or _failure()
+    return ready or _local_failure(response) or _failure()

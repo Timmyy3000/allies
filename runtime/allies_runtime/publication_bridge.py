@@ -19,7 +19,7 @@ try:  # pragma: no cover - Windows has no Unix group database
 except ImportError:  # pragma: no cover - exercised by Windows test imports
     grp = None
 
-from .errors import IncomingFileError
+from .errors import IncomingFileError, PublicationInputError
 from .files import (
     _validate_publication_volume_root,
     cleanup_stale_publication_copies,
@@ -222,6 +222,12 @@ class PublicationBridge:
                 )
             result = await self._wait_for_ready(
                 context, session, publication_id, deadline
+            )
+        except PublicationInputError as error:
+            return _failed(
+                error.publication_code,
+                publication_id,
+                error.publication_message,
             )
         except (
             FoundryError,
@@ -461,7 +467,9 @@ def _uuid(value: object) -> str:
         raise ValueError("publication identity was invalid") from exc
 
 
-def _failed(code: str, publication_id: str | None = None) -> dict[str, object]:
+def _failed(
+    code: str, publication_id: str | None = None, message: str | None = None
+) -> dict[str, object]:
     result: dict[str, object] = {
         "state": "failed",
         "retryable": True,
@@ -469,6 +477,8 @@ def _failed(code: str, publication_id: str | None = None) -> dict[str, object]:
     }
     if publication_id is not None:
         result["publication_id"] = publication_id
+    if message is not None:
+        result["message"] = message
     return result
 
 

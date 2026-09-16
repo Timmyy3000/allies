@@ -49,8 +49,8 @@ def _invalid_paths() -> dict[str, object]:
         "retryable": True,
         "error_code": "invalid_paths",
         "message": (
-            "Use workspace-relative file paths only, such as report.md. "
-            "Create or move the file into the current workspace, then try again."
+            "Use a workspace-relative or contained absolute file path. "
+            "Create or copy the file into the current workspace, then try again."
         ),
     }
 
@@ -332,14 +332,14 @@ def main() -> None:
     assert oversized == _failure()
     assert malformed == _invalid_paths()
     assert invalid_path == _invalid_paths()
-    assert absolute_path == _invalid_paths()
+    assert absolute_path == _failure()
 
     requests: list[dict[str, object]] = []
     server, errors = _serve(
         [_published_file("a.csv"), _published_file("b.csv")], requests
     )
     call_a = _call(NONCE_A, "call-a", "a.csv")
-    call_b = _call(NONCE_B, "call-b", "b.csv")
+    call_b = _call(NONCE_B, "call-b", "/opt/data/b.csv")
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = [
             future.result()
@@ -350,7 +350,10 @@ def main() -> None:
     assert {json.loads(result)["state"] for result in results} == {"ready"}
     assert {request["context"] for request in requests} == {NONCE_A, NONCE_B}
     assert {request["tool_call_id"] for request in requests} == {"call-a", "call-b"}
-    assert {tuple(request["paths"]) for request in requests} == {("a.csv",), ("b.csv",)}
+    assert {tuple(request["paths"]) for request in requests} == {
+        ("a.csv",),
+        ("/opt/data/b.csv",),
+    }
     for result in results:
         assert NONCE_A not in result and NONCE_B not in result
         assert '"paths"' not in result
@@ -456,6 +459,38 @@ def main() -> None:
     server.join(timeout=5)
     assert not server.is_alive() and not errors and bridge_failed == _failure()
     assert "sensitive/path.csv" not in json.dumps(bridge_failed)
+
+    for code in ("invalid_paths", "file_not_found", "file_unreadable", "file_too_large"):
+        requests = []
+        server, errors = _serve(
+            [
+                json.dumps(
+                    {
+                        "state": "failed",
+                        "retryable": True,
+                        "error_code": code,
+                        "message": "private/path.csv",
+                    },
+                    separators=(",", ":"),
+                ).encode()
+                + b"\n"
+            ],
+            requests,
+        )
+        token = set_current_allies_file_publication_context(NONCE_A)
+        try:
+            local_failure = json.loads(
+                handle_function_call(
+                    "publish_files", {"paths": ["out.csv"]}, tool_call_id="call-local"
+                )
+            )
+        finally:
+            reset_current_allies_file_publication_context(token)
+        server.join(timeout=5)
+        assert not server.is_alive() and not errors
+        assert local_failure["error_code"] == code
+        assert "private/path.csv" not in json.dumps(local_failure)
+        assert "current workspace" in local_failure["message"]
 
     requests = []
     server, errors = _serve([_published_file(NONCE_A)], requests)

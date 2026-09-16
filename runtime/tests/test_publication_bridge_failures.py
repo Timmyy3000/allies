@@ -106,6 +106,35 @@ async def test_bridge_rejects_invalid_tool_values_without_using_a_session(tmp_pa
 
 
 @pytest.mark.asyncio
+async def test_bridge_preserves_safe_local_publication_errors(tmp_path, monkeypatch):
+    workspace = tmp_path / "profiles" / "ally" / "workspace"
+    workspace.mkdir(parents=True)
+    (workspace / "empty.txt").write_bytes(b"")
+    (workspace / "large.txt").write_bytes(b"large")
+    bridge = PublicationBridge(object(), _Store(workspace), tmp_path)
+    context = bridge.activate(_claim())
+
+    expected_messages = {
+        "invalid_paths": "Use a workspace-relative or contained absolute file path.",
+        "file_not_found": "The file was not found.",
+        "file_unreadable": "The file could not be read.",
+        "file_too_large": "The file is too large to publish.",
+    }
+    cases = [
+        (["../outside.txt"], "invalid_paths"),
+        (["missing.txt"], "file_not_found"),
+        (["empty.txt"], "file_unreadable"),
+    ]
+    monkeypatch.setattr(files, "MAX_PUBLICATION_FILE_BYTES", 1)
+    cases.append((["large.txt"], "file_too_large"))
+    for paths, code in cases:
+        result = await bridge.publish(context, "call", paths)
+        assert result["error_code"] == code
+        assert result["message"].startswith(expected_messages[code])
+        assert str(tmp_path) not in str(result)
+
+
+@pytest.mark.asyncio
 async def test_bridge_rejects_invalid_call_id_from_an_active_session(tmp_path):
     bridge = PublicationBridge(object(), object(), tmp_path)
     context = bridge.activate(_claim())

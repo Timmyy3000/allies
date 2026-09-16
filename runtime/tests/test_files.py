@@ -16,6 +16,7 @@ from allies_runtime.files import (
     cleanup_stale_publication_copies,
     freeze_publication,
     parse_incoming_files,
+    prepare_publication_files,
     publication_spool_path,
     reconcile_publication_spools,
     recover_publication_manifests,
@@ -247,6 +248,27 @@ def test_publication_freezes_once_outside_the_model_workspace(tmp_path):
     assert not spool.exists()
     ledger = json.loads(files._ledger_path(tmp_path).read_text())
     assert ledger["records"] == {}
+
+
+@pytest.mark.usefixtures("root_owned_publication_spool")
+def test_publication_normalizes_contained_absolute_paths_and_rejects_aliases(tmp_path):
+    workspace = tmp_path / "profiles" / "ally" / "workspace"
+    workspace.mkdir(parents=True)
+    source = workspace / "result.csv"
+    source.write_bytes(b"stable result")
+    absolute = str(source)
+
+    assert prepare_publication_files(workspace, [absolute]) == [
+        {"name": "result.csv", "size": len(b"stable result")}
+    ]
+    publication_id = str(uuid4())
+    first = freeze_publication(workspace, publication_id, [absolute])
+    replay = freeze_publication(workspace, publication_id, ["result.csv"])
+    assert replay == first
+
+    for value in (["result.csv", absolute], [str(tmp_path / "outside.csv")]):
+        with pytest.raises(IncomingFileError, match="path"):
+            prepare_publication_files(workspace, value)
 
 
 @pytest.mark.usefixtures("root_owned_publication_spool")

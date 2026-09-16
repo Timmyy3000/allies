@@ -1439,6 +1439,25 @@ def test_correlated_activity_completion_is_id_based_and_preserves_out_of_order_r
     assert stream._active_activity_calls == {}
 
 
+@pytest.mark.parametrize("failed", [False, True])
+def test_publication_activity_preserves_kind_identity_and_outcome(failed):
+    stream = _running_activity_stream()
+    payload = {
+        "session_id": "s1",
+        "run_id": "r1",
+        "tool_name": "publish_files",
+        "tool_call_id": "publish-call",
+    }
+    start = stream._normalize_event("tool.started", payload)
+    completion = stream._normalize_event(
+        "tool.completed", {**payload, "is_error": failed, "duration_ms": 15}
+    )
+    assert start.payload["activity_kind"] == "publish_files"
+    assert completion.payload["activity_kind"] == "publish_files"
+    assert completion.payload["activity_id"] == start.payload["activity_id"]
+    assert completion.payload["status"] == ("failed" if failed else "completed")
+
+
 def test_producer_activity_kinds_and_aliases_match_contract_fixture():
     activity_contract_path = (
         Path(__file__).resolve().parents[2]
