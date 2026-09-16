@@ -1935,6 +1935,44 @@
 .frameRoutineMention:hover { text-decoration: underline; }
 .frameRoutineMention:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 
+.frameFileMention {
+  display: inline-flex;
+  min-height: 40px;
+  box-sizing: border-box;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 2px;
+  border-radius: 4px;
+  color: var(--chat-accent);
+  font: inherit;
+  font-weight: 600;
+  line-height: 22px;
+  text-decoration-line: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 58%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  vertical-align: middle;
+  transition-property: color, opacity, scale, text-decoration-color;
+  transition-duration: 160ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.frameFileMention svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.8;
+}
+
+.frameFileMention span { overflow-wrap: anywhere; }
+.frameFileMention:hover { text-decoration-color: currentColor; }
+.frameFileMention:active { scale: 0.96; }
+.frameFileMention:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+
 .frameRoutineProjection {
   display: flex;
   width: 100%;

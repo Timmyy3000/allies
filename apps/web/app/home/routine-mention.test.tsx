@@ -35,7 +35,7 @@ it("uses the same reference button for assistant markdown links", () => {
   expect(open).toHaveBeenCalledWith(id);
 });
 
-it("consumes shared-file tokens so publication metadata renders the card", () => {
+it("renders legacy shared-file tokens as inline file links", () => {
   const fileId = "11111111-2222-4333-8444-555555555555";
   render(
     <Streamdown mode="static" components={routineLinkComponents()}>
@@ -43,17 +43,49 @@ it("consumes shared-file tokens so publication metadata renders the card", () =>
     </Streamdown>,
   );
   expect(screen.getByText("Published")).toBeTruthy();
-  expect(screen.queryByText("shared-file")).toBeNull();
-  expect(screen.queryByRole("link")).toBeNull();
+  const link = screen.getByRole("link", { name: "Open file" });
+  expect(link.getAttribute("href")).toBe(`/files/${fileId}`);
+  expect(link.querySelector("svg")?.getAttribute("aria-hidden")).toBe("true");
 });
 
-it("keeps named file links and unrelated shared-file labels visible", () => {
+it("opens named file links in the private preview and preserves unrelated links", () => {
   const fileId = "11111111-2222-4333-8444-555555555555";
+  const openFile = vi.fn();
   render(
-    <Streamdown mode="static" components={routineLinkComponents()}>
-      {`[Report](/files/${fileId}) [shared-file](https://example.com)`}
+    <Streamdown mode="static" components={routineLinkComponents(undefined, openFile)}>
+      {`[German verbs](/files/${fileId}) [shared-file](https://example.com)`}
     </Streamdown>,
   );
-  expect(screen.getByRole("link", { name: "Report" })).toBeTruthy();
+  const fileLink = screen.getByRole("link", { name: "German verbs" });
+  fireEvent.click(fileLink);
+  expect(openFile).toHaveBeenCalledWith(fileId);
+  expect(fileLink.hasAttribute("data-file-reference")).toBe(true);
   expect(screen.getByRole("link", { name: "shared-file" })).toBeTruthy();
+});
+
+it("opens same-origin absolute and parameterized file links in the preview", () => {
+  const fileId = "11111111-2222-4333-8444-555555555555";
+  const openFile = vi.fn();
+  render(
+    <Streamdown mode="static" components={routineLinkComponents(undefined, openFile)}>
+      {`[Absolute](${window.location.origin}/files/${fileId}) [Parameterized](/files/${fileId}?download=1#preview)`}
+    </Streamdown>,
+  );
+  fireEvent.click(screen.getByRole("link", { name: "Absolute" }));
+  fireEvent.click(screen.getByRole("link", { name: "Parameterized" }));
+  expect(openFile).toHaveBeenNthCalledWith(1, fileId);
+  expect(openFile).toHaveBeenNthCalledWith(2, fileId);
+});
+
+it("does not intercept cross-origin file-shaped links", () => {
+  const fileId = "11111111-2222-4333-8444-555555555555";
+  const openFile = vi.fn();
+  render(
+    <Streamdown mode="static" components={routineLinkComponents(undefined, openFile)}>
+      {`[External](https://example.com/files/${fileId})`}
+    </Streamdown>,
+  );
+  const link = screen.getByRole("link", { name: "External" });
+  expect(link.hasAttribute("data-file-reference")).toBe(false);
+  expect(openFile).not.toHaveBeenCalled();
 });
