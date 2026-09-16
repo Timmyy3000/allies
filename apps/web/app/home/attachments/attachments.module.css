@@ -462,6 +462,139 @@
 .transferFile > button:disabled {
   cursor: default;
 }
+.transferFileDetails {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+.transferFileThumbnail {
+  display: grid;
+  flex: none;
+  place-items: center;
+}
+.transferFileName {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transferBundle {
+  display: block;
+  overflow: hidden;
+  width: min(100%, 360px);
+  border-radius: 16px;
+  background: #ffffff1a;
+  box-shadow: inset 0 0 0 1px #ffffff12;
+}
+.transferBundle > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 54px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.transferBundleLabel {
+  flex: 1;
+  min-width: 0;
+}
+.transferBundleLabel strong,
+.transferBundleLabel small {
+  display: block;
+}
+.transferBundleLabel strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.transferBundleLabel small {
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: .7;
+}
+.transferBundleIcon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  border-radius: 10px;
+  background: #ffffff1c;
+}
+.transferBundleIcon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.transferBundleChevron {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+}
+.transferBundleChevron svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.transferBundleReveal {
+  display: block;
+  overflow: hidden;
+}
+.transferBundleFiles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(280px, 38dvh);
+  padding: 2px 6px 7px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #fff transparent;
+}
+.transferBundleFiles::-webkit-scrollbar {
+  width: 8px;
+}
+.transferBundleFiles::-webkit-scrollbar-track,
+.transferBundleFiles::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.transferBundleFiles::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #fff;
+  background-clip: padding-box;
+}
+.transferBundleFiles::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.transferBundleFiles .transferFile {
+  min-width: 0;
+  padding: 3px 5px;
+  border-radius: 11px;
+  background: transparent;
+}
+.transferBundleFiles .transferFile:hover {
+  background: #ffffff12;
+}
 .transferActions {
   display: flex;
   gap: 8px;
@@ -556,6 +689,30 @@
   background: var(--surface);
   border-radius: 14px;
   font-size: 12px;
+}
+.previewError {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.previewError span {
+  flex: 1;
+}
+.previewError button {
+  flex: none;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .transferBundleChevron,
+  .transferBundleReveal {
+    transition: none;
+  }
 }
 .filePreview footer {
   margin-top: auto;

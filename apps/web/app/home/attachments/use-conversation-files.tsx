@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ReactNode,
 } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -29,14 +30,17 @@ import {
   AttachmentTray,
   animateAttachments,
   FileIcon,
+  middleEllipsis,
 } from "./attachment-picker";
 import styles from "./attachments.module.css";
 
 const EMPTY: FileTransfer[] = [];
+const EMPTY_SELECTED_FILES: SelectedFile[] = [];
 export function useConversationFiles(
   userId: string,
   workspaceId: string,
   allyId: string,
+  onAccepted?: () => void,
 ) {
   const session = useSession();
   const queryClient = useQueryClient();
@@ -50,9 +54,8 @@ export function useConversationFiles(
     manager.snapshot,
     () => EMPTY,
   );
-  const [files, setFiles] = useState<SelectedFile[]>(
-    () => manager.drafts.get(scope) ?? [],
-  );
+  const draftFiles = manager.drafts.get(scope);
+  const files = useMemo(() => draftFiles ?? EMPTY_SELECTED_FILES, [draftFiles]);
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   const [arriving, setArriving] = useState(new Set<string>());
@@ -64,18 +67,17 @@ export function useConversationFiles(
     if (typeof indexedDB !== "undefined")
       void manager
         .restore(scope)
-        .catch(() =>
-          setError(
-            "Saved file drafts could not be read. Allow browser storage and try again.",
-          ),
-        );
+        .catch((error) => setError(
+          error instanceof Error
+            ? error.message
+            : "Saved file drafts could not be read. Retry to continue.",
+        ));
   }, [manager, scope]);
   const change = useCallback(
     (next: SelectedFile[]) => {
       const previous = manager.drafts.get(scope) ?? [];
-      manager.drafts.set(scope, next);
+      manager.setDraft(scope, next);
       previous.forEach((file) => manager.releasePreview(file));
-      setFiles(next);
     },
     [manager, scope],
   );
@@ -91,6 +93,41 @@ export function useConversationFiles(
       );
     }
   };
+  const accept = useCallback(
+    (items: SelectedFile[], origin?: DOMRect) => {
+      try {
+        validateSelectedFiles([...files, ...items]);
+        setArriving(new Set(items.map((file) => file.id)));
+        change([...files, ...items]);
+        onAccepted?.();
+        setOpen(false);
+        void animateAttachments(items, origin, Boolean(reduced), (id) =>
+          setArriving((current) => {
+            const next = new Set(current);
+            next.delete(id);
+            return next;
+          }),
+        );
+        return true;
+      } catch (error) {
+        items
+          .filter((file) => !files.includes(file))
+          .forEach((file) => {
+            if (file.src) URL.revokeObjectURL(file.src);
+          });
+        setError(
+          error instanceof Error ? error.message : "These files could not be added.",
+        );
+        return false;
+      }
+    },
+    [change, files, onAccepted, reduced],
+  );
+  const addFiles = useCallback(
+    (incoming: File[], origin?: DOMRect) =>
+      accept(incoming.map((file) => selectedFile(file)), origin),
+    [accept],
+  );
   const active = records.filter(
     (record) => record.scope === scope && record.phase !== "cancelled",
   );
@@ -135,7 +172,6 @@ export function useConversationFiles(
               <span>{file.name}</span>
             </span>
           ))}
-          <small role="status">Reserving your file message…</small>
         </span>
       ) : null;
     },
@@ -168,6 +204,7 @@ export function useConversationFiles(
       setAnchor(element);
       setOpen(true);
     },
+    addFiles,
     tray: files.length ? (
       <AttachmentTray
         files={files}
@@ -195,23 +232,17 @@ export function useConversationFiles(
               accent={accent}
               existing={files}
               onClose={() => setOpen(false)}
-              onAdd={(items, origin) => {
-                setArriving(new Set(items.map((f) => f.id)));
-                change([...files, ...items]);
-                setOpen(false);
-                void animateAttachments(items, origin, Boolean(reduced), (id) =>
-                  setArriving((current) => {
-                    const next = new Set(current);
-                    next.delete(id);
-                    return next;
-                  }),
-                );
-              }}
+              onAdd={(items, origin) => void accept(items, origin)}
             />
           )}
         </AnimatePresence>
         {error && (
-          <div className={styles.notice} role="alert">
+          <div
+            className={styles.notice}
+            role="alert"
+            aria-live="assertive"
+            aria-atomic="true"
+          >
             {error}
             <button
               type="button"
@@ -248,90 +279,95 @@ export function useConversationFiles(
         transfer && !["ready", "cancelled"].includes(transfer.phase);
       const canChange =
         message.status === "queued" && message.queueState !== "claimed";
-      return (
-        <span className={styles.transfer}>
-          {(transfer?.files ?? remote).map((file) => {
-            const local = transfer?.files.find((f) => f.id === file.id);
-            const id = local?.remoteId ?? file.id;
-            const ready = file.state === "ready" || file.state === "retained";
-            return (
-              <span className={styles.transferFile} key={id}>
+      const displayedFiles = transfer?.files ?? remote;
+      const compactSentFiles = displayedFiles.length > 1 && !pending && !canChange;
+      const fileRows = displayedFiles.map((file) => {
+        const local = transfer?.files.find((f) => f.id === file.id);
+        const id = local?.remoteId ?? file.id;
+        const ready = file.state === "ready" || file.state === "retained";
+        return (
+          <span className={styles.transferFile} key={id}>
+            <button
+              type="button"
+              onClick={() =>
+                setPreview({
+                  id,
+                  name: file.name,
+                  size: file.size,
+                  state: file.state as MessageFile["state"],
+                })
+              }
+              disabled={!ready}
+            >
+              <FileThumbnail
+                id={id}
+                name={file.name}
+                src={local?.src}
+                ready={ready}
+                workspaceId={workspaceId}
+                allyId={allyId}
+              />
+              <span className={styles.transferFileDetails}>
+                <span className={styles.transferFileName} title={file.name}>{middleEllipsis(file.name)}</span>
+                <AnimatePresence initial={false} mode="wait"><motion.small
+                  key={local && pending ? local.state === "pending" && transfer.phase === "uploading" ? "uploading" : local.state === "validating" || local.state === "receiving" ? "checking" : local.state : "ready"}
+                  initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .14 }}
+                >
+                  {local && pending
+                    ? local.state === "pending" && transfer.phase === "uploading"
+                      ? `Uploading ${local.progress}%`
+                      : local.state === "validating" || local.state === "receiving"
+                        ? "Checking file…"
+                        : local.state === "ready"
+                          ? "Ready"
+                          : "Needs attention"
+                    : `${local ? "✓ Ready · " : ""}${(file.size / 1_000_000).toFixed(1)} MB`}
+                </motion.small></AnimatePresence>
+              </span>
+            </button>
+            {local &&
+              transfer &&
+              transfer.phase === "failed" &&
+              canChange && (
                 <button
                   type="button"
+                  aria-label={`Remove ${file.name}`}
                   onClick={() =>
-                    setPreview({
-                      id,
-                      name: file.name,
-                      size: file.size,
-                      state: file.state as MessageFile["state"],
-                    })
+                    void perform(() =>
+                      manager.remove(transfer.id, local.id),
+                    )
                   }
-                  disabled={!ready}
                 >
-                  <FileThumbnail
-                    id={id}
-                    name={file.name}
-                    src={local?.src}
-                    ready={ready}
-                    workspaceId={workspaceId}
-                    allyId={allyId}
-                  />
-                  <span>
-                    {file.name}
-                    <AnimatePresence initial={false} mode="wait"><motion.small
-                      key={local && pending ? local.state === "pending" && transfer.phase === "uploading" ? "uploading" : local.state === "validating" || local.state === "receiving" ? "checking" : local.state : "ready"}
-                      initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reduced ? 0 : .14 }}
-                    >
-                      {local && pending
-                        ? local.state === "pending" && transfer.phase === "uploading"
-                          ? `Uploading ${local.progress}%`
-                          : local.state === "validating" || local.state === "receiving"
-                            ? "Checking file…"
-                            : local.state === "ready"
-                              ? "Ready"
-                              : "Needs attention"
-                        : `${local ? "✓ Ready · " : ""}${(file.size / 1_000_000).toFixed(1)} MB`}
-                    </motion.small></AnimatePresence>
-                  </span>
+                  ×
                 </button>
-                {local &&
-                  transfer &&
-                  transfer.phase === "failed" &&
-                  canChange && (
-                    <button
-                      type="button"
-                      aria-label={`Remove ${file.name}`}
-                      onClick={() =>
+              )}
+            {local &&
+              !local.file &&
+              transfer &&
+              transfer.phase === "failed" && (
+                <label className={styles.reselect}>
+                  Choose original
+                  <input
+                    type="file"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f)
                         void perform(() =>
-                          manager.remove(transfer.id, local.id),
-                        )
-                      }
-                    >
-                      ×
-                    </button>
-                  )}
-                {local &&
-                  !local.file &&
-                  transfer &&
-                  transfer.phase === "failed" && (
-                    <label className={styles.reselect}>
-                      Choose original
-                      <input
-                        type="file"
-                        onChange={(e) => {
-                          const f = e.target.files?.[0];
-                          if (f)
-                            void perform(() =>
-                              manager.reselect(transfer.id, local.id, f),
-                            );
-                          e.target.value = "";
-                        }}
-                      />
-                    </label>
-                  )}
-              </span>
-            );
-          })}
+                          manager.reselect(transfer.id, local.id, f),
+                        );
+                      e.target.value = "";
+                    }}
+                  />
+                </label>
+              )}
+          </span>
+        );
+      });
+      return (
+        <span className={styles.transfer}>
+          {compactSentFiles ? (
+            <FileBundle count={displayedFiles.length} size={displayedFiles.reduce((total, file) => total + file.size, 0)}>{fileRows}</FileBundle>
+          ) : fileRows}
           {transfer?.error && (
             <span className={styles.transferError} role="status">
               {transfer.error}
@@ -417,6 +453,43 @@ export function useConversationFiles(
   };
 }
 
+function FileBundle({ count, size, children }: { count: number; size: number; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const reducedMotion = useReducedMotion();
+  return (
+    <span className={styles.transferBundle}>
+      <button type="button" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <span className={styles.transferBundleIcon}><FileIcon name="attachments" /></span>
+        <span className={styles.transferBundleLabel}>
+          <strong>Attachments</strong>
+          <small>{count} files · {(size / 1_000_000).toFixed(1)} MB</small>
+        </span>
+        <motion.span
+          className={styles.transferBundleChevron}
+          animate={{ rotate: open ? 180 : 0 }}
+          transition={{ duration: reducedMotion ? 0 : .2, ease: [.22, 1, .36, 1] }}
+          aria-hidden="true"
+        >
+          <svg viewBox="0 0 12 12"><path d="m3 4.5 3 3 3-3" /></svg>
+        </motion.span>
+      </button>
+      <AnimatePresence initial={false}>
+        {open ? (
+          <motion.span
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: reducedMotion ? 0 : .22, ease: [.22, 1, .36, 1] }}
+            className={styles.transferBundleReveal}
+          >
+            <span className={styles.transferBundleFiles}>{children}</span>
+          </motion.span>
+        ) : null}
+      </AnimatePresence>
+    </span>
+  );
+}
+
 function PrivateFilePreview({
   file,
   workspaceId,
@@ -456,17 +529,37 @@ function PrivateFilePreview({
         if (controller.signal.aborted) return;
         setMetadata(info);
         if (info.preview_kind !== "none") {
-          const blob = await session.runCloudOperation(
-            (signal) =>
-              session.client.files.content(
-                workspaceId,
-                allyId,
-                file.id,
-                true,
-                signal,
-              ),
-            { signal: controller.signal },
-          );
+          let blob: Blob;
+          try {
+            blob = await session.runCloudOperation(
+              (signal) =>
+                session.client.files.content(
+                  workspaceId,
+                  allyId,
+                  file.id,
+                  true,
+                  signal,
+                ),
+              { signal: controller.signal },
+            );
+          } catch (previewError) {
+            if (controller.signal.aborted) return;
+            try {
+              blob = await session.runCloudOperation(
+                (signal) =>
+                  session.client.files.content(
+                    workspaceId,
+                    allyId,
+                    file.id,
+                    false,
+                    signal,
+                  ),
+                { signal: controller.signal },
+              );
+            } catch {
+              throw previewError;
+            }
+          }
           if (controller.signal.aborted) return;
           if (info.preview_kind === "text") {
             const body = await blob.text();
@@ -581,9 +674,9 @@ function PrivateFilePreview({
         </p>
         <div className={styles.previewBody}><AnimatePresence initial={false} mode="wait"><motion.div key={previewState} className={styles.previewContent} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .16 }}>
           {error ? (
-            <p role="alert">
-              {error}
-              <button onClick={() => setAttempt((a) => a + 1)}>Retry</button>
+            <p role="alert" className={styles.previewError}>
+              <span>{error}</span>
+              <button type="button" onClick={() => setAttempt((a) => a + 1)}>Retry</button>
             </p>
           ) : previewState === "loading" ? <p role="status">Loading preview…</p> : metadata?.preview_kind === "none" ? (
             <p>Preview isn’t available for this file. You can download it.</p>
@@ -775,7 +868,7 @@ function FileThumbnail({
     session.runCloudOperation,
   ]);
   return (
-    <span ref={element}>
+    <span ref={element} className={styles.transferFileThumbnail}>
       {src || url ? <img src={src || url} alt="" /> : <FileIcon />}
     </span>
   );

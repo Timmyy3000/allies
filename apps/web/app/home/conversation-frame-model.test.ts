@@ -125,6 +125,18 @@ describe("buildProductionConversationFrameModel", () => {
     expect(running.queuedMessages).toEqual([{ id: "local-next", content: "And a drink" }]);
   });
 
+  it("treats a matching claimed message as active work instead of queued copy", () => {
+    const model = buildProductionConversationFrameModel(makeInput({
+      messages: [{ ...userMessage, status: "queued", queueState: "claimed" }],
+      projection: EMPTY_ACTIVITY_PROJECTION,
+      activeMessageId: userMessage.id,
+    }));
+
+    expect(model.messages[0]?.queued).toBe(false);
+    expect(model.messages[0]?.queueState).toBe("claimed");
+    expect(model.queuedMessages).toEqual([]);
+  });
+
   it("does not release a queued message for another message's activity", () => {
     const model = buildProductionConversationFrameModel(makeInput({
       messages: [{ ...userMessage, status: "queued" }],
@@ -206,6 +218,49 @@ describe("buildProductionConversationFrameModel", () => {
 
     expect(model.turns).toHaveLength(1);
     expect(model.turns[0]).toMatchObject({ assistantText: reply.content, createdAt: reply.createdAt, state: "completed", isTruncated: true });
+  });
+
+  it("lets a matching durable success clear a stale failed message and turn", () => {
+    const reply: AssistantReplyViewModel = {
+      id: "reply-success",
+      sourceMessageId: userMessage.id,
+      conversationTurnOrdinal: userMessage.sequence,
+      content: "Recovered after reconnect.",
+      status: "completed",
+      hasFullPrefix: true,
+      createdAt: "2026-09-03T09:40:01Z",
+      updatedAt: "2026-09-03T09:40:02Z",
+    };
+    const model = buildProductionConversationFrameModel(makeInput({
+      messages: [{ ...userMessage, status: "failed" }],
+      assistantReplies: [reply],
+      projection: {
+        ...EMPTY_ACTIVITY_PROJECTION,
+        state: "failed",
+        turns: [{ messageId: userMessage.id, turnOrdinal: userMessage.sequence, state: "failed", assistantText: "stale" }],
+      },
+    }));
+
+    expect(model.messages[0]?.statusLabel).toBeNull();
+    expect(model.turns[0]).toMatchObject({ state: "completed", assistantText: reply.content });
+  });
+
+  it("does not show a stale failure when a completed legacy reply is present", () => {
+    const model = buildProductionConversationFrameModel(makeInput({
+      messages: [
+        { ...userMessage, status: "failed" },
+        { ...assistantMessage, sequence: 2 },
+      ],
+      projection: {
+        ...EMPTY_ACTIVITY_PROJECTION,
+        state: "failed",
+        turns: [{ messageId: userMessage.id, turnOrdinal: userMessage.sequence, state: "failed", assistantText: "stale" }],
+      },
+    }));
+
+    expect(model.messages[0]?.statusLabel).toBeNull();
+    expect(model.turns[0]?.state).toBe("completed");
+    expect(model.turns[0]?.assistantText).toBe("");
   });
 
   it("keeps the activity fallback for a rollout suffix", () => {

@@ -217,6 +217,91 @@ describe("createWebSessionAdapter", () => {
   });
 
   it.each([
+    ["network", { kind: "network" }],
+    ["timeout", { kind: "timeout" }],
+    ["408", { kind: "client", status: 408 }],
+    ["429", { kind: "throttled", status: 429 }],
+    ["server", { kind: "server", status: 503 }],
+  ] as const)("delays one approval-read retry for %s", async (_name, failure) => {
+    vi.useFakeTimers();
+    try {
+      const owner = createCloudCsrfTokenOwner();
+      owner.replace(token);
+      const adapter = createWebSessionAdapter(client(), owner);
+      let attempts = 0;
+      const operation = vi.fn(async () => {
+        attempts += 1;
+        if (attempts === 1) throw failure;
+        return "ok";
+      });
+      const result = adapter.runCloudOperation(operation, { retryTransient: "approval-read" });
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(operation).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(999);
+      expect(operation).toHaveBeenCalledOnce();
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(result).resolves.toBe("ok");
+      expect(operation).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
+    { kind: "throttled", status: 429 },
+    { kind: "server", status: 503 },
+  ] as const)("keeps legacy boolean retry from retrying approval failure %j", async (failure) => {
+    const owner = createCloudCsrfTokenOwner();
+    owner.replace(token);
+    const adapter = createWebSessionAdapter(client(), owner);
+    const operation = vi.fn(async () => { throw failure; });
+
+    await expect(adapter.runCloudOperation(operation, { retryTransient: true })).rejects.toMatchObject(failure);
+    expect(operation).toHaveBeenCalledOnce();
+  });
+
+  it("aborts an approval-read delay without invoking a second request", async () => {
+    vi.useFakeTimers();
+    try {
+      const owner = createCloudCsrfTokenOwner();
+      owner.replace(token);
+      const adapter = createWebSessionAdapter(client(), owner);
+      const controller = new AbortController();
+      const operation = vi.fn(async () => { throw { kind: "network" } as const; });
+      const result = adapter.runCloudOperation(operation, { retryTransient: "approval-read", signal: controller.signal });
+      await Promise.resolve();
+      await Promise.resolve();
+      controller.abort();
+      await expect(result).rejects.toMatchObject({ kind: "aborted" });
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(operation).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fences an approval-read replay when logout wins during its delay", async () => {
+    vi.useFakeTimers();
+    try {
+      const owner = createCloudCsrfTokenOwner();
+      owner.replace(token);
+      const adapter = createWebSessionAdapter(client(), owner);
+      const operation = vi.fn(async () => { throw { kind: "network" } as const; });
+      const result = adapter.runCloudOperation(operation, { retryTransient: "approval-read" });
+      const resultExpectation = expect(result).rejects.toMatchObject({ kind: "aborted" });
+      await Promise.resolve();
+      await Promise.resolve();
+      await adapter.logout();
+      await vi.advanceTimersByTimeAsync(1_000);
+      await resultExpectation;
+      expect(operation).toHaveBeenCalledOnce();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each([
     ["401 -> refresh -> network", unauthorized(), { kind: "network" }],
     ["csrf_rejected -> refresh -> timeout", csrfRejected(), { kind: "timeout" }],
   ] as const)("never spends a third operation slot after %s", async (_name, firstFailure, secondFailure) => {

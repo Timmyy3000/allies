@@ -1,11 +1,12 @@
 "use client";
 
-import { createContext, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import type { ApprovalDecision, ApprovalDetail, ApprovalSummary } from "@allies/cloud-client";
+import { isCloudError, type ApprovalDecision, type ApprovalDetail, type ApprovalSummary } from "@allies/cloud-client";
 import { BottomSheet } from "./conversation-frame-primitives";
 import { ActivityIcon } from "./activity-icon";
 import styles from "./conversation-frame.module.css";
+import toastStyles from "./recipes-button.module.css";
 
 export interface ApprovalClient {
   getApprovals: (workspace: string, conversation: string, signal?: AbortSignal) => Promise<ApprovalSummary[]>;
@@ -15,9 +16,33 @@ export interface ApprovalClient {
 
 type DecisionIntent = { decision: ApprovalDecision; key: string };
 
+export type ApprovalReadFailure = "aborted" | "transient" | "access" | "not-found" | "actionable";
+
+export function classifyApprovalReadError(error: unknown): ApprovalReadFailure {
+  if (isCloudError(error)) {
+    if (error.kind === "aborted") return "aborted";
+    if (error.kind === "unauthorized" || error.status === 401 || error.kind === "forbidden" || error.status === 403) return "access";
+    if (error.kind === "not-found" || error.status === 404) return "not-found";
+    if (error.kind === "network" || error.kind === "timeout" || error.kind === "throttled" || error.kind === "server"
+      || error.status === 408 || error.status === 429 || (error.status !== undefined && error.status >= 500)) return "transient";
+  }
+  return "actionable";
+}
+
 interface ConversationApprovalSlots {
   forMessage: (messageId: string) => ReactNode;
   unmatched: (visibleMessageIds: ReadonlySet<string>) => ReactNode;
+}
+
+interface ApprovalReadState {
+  lastErrorAt: number;
+  transientFailures: number;
+  toasted: boolean;
+}
+
+interface ApprovalNotice {
+  resource: string;
+  message: string;
 }
 
 const ApprovalSlotsContext = createContext<ConversationApprovalSlots | null>(null);
@@ -98,25 +123,106 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
   const [recorded, setRecorded] = useState<Record<string, ApprovalSummary>>({});
   const [now, setNow] = useState(() => Date.now());
   const restoreFocusId = useRef<string | null>(null);
+  const scopeKey = `${workspaceId}:${conversationId}`;
+  const [accessDisabled, setAccessDisabled] = useState(false);
+  const [summaryPaused, setSummaryPaused] = useState(false);
+  const [notice, setNotice] = useState<ApprovalNotice | null>(null);
+  const readStates = useRef<Record<string, ApprovalReadState>>({});
+  useEffect(() => {
+    let current = true;
+    queueMicrotask(() => {
+      if (!current) return;
+      readStates.current = {};
+      setAccessDisabled(false);
+      setSummaryPaused(false);
+      setNotice(null);
+      setOpenedId(null);
+    });
+    return () => { current = false; };
+  }, [scopeKey]);
+  useEffect(() => {
+    if (enabled) return;
+    let current = true;
+    queueMicrotask(() => { if (current) setNotice(null); });
+    return () => { current = false; };
+  }, [enabled]);
+  const reportReadSuccess = useCallback((resource: string) => {
+    const key = `${scopeKey}:${resource}`;
+    readStates.current = Object.fromEntries(
+      Object.entries(readStates.current).filter(([entry]) => entry !== key),
+    );
+    setNotice((current) => current?.resource === key ? null : current);
+  }, [scopeKey]);
+  const reportReadFailure = useCallback((resource: string, error: unknown, errorAt: number) => {
+    if (classifyApprovalReadError(error) === "aborted") return;
+    const key = `${scopeKey}:${resource}`;
+    const previous = readStates.current[key] ?? { lastErrorAt: 0, transientFailures: 0, toasted: false };
+    if (errorAt <= previous.lastErrorAt) return;
+    const failure = classifyApprovalReadError(error);
+    const current = {
+      lastErrorAt: errorAt,
+      transientFailures: failure === "transient" ? previous.transientFailures + 1 : 0,
+      toasted: previous.toasted,
+    };
+    readStates.current = { ...readStates.current, [key]: current };
+    if (failure === "access") {
+      setAccessDisabled(true);
+      setOpenedId(null);
+    } else if (resource === "summary" && failure !== "transient") {
+      setSummaryPaused(true);
+    }
+    const shouldToast = failure !== "transient" || current.transientFailures >= 3;
+    if (shouldToast && !current.toasted) {
+      current.toasted = true;
+      setNotice({
+        resource: key,
+        message: failure === "transient"
+          ? "Could not check approvals after several attempts. Try again."
+          : failure === "not-found"
+            ? "This approval is no longer available. Try again."
+            : failure === "access"
+              ? "Approval access is no longer available."
+              : "Could not check this approval. Try again.",
+      });
+    }
+  }, [scopeKey]);
+  const dismissNotice = useCallback(() => {
+    setNotice(null);
+  }, []);
+  useEffect(() => {
+    if (!notice) return;
+    const timer = window.setTimeout(dismissNotice, 4_000);
+    return () => window.clearTimeout(timer);
+  }, [dismissNotice, notice]);
+  const summaryEnabled = enabled && !accessDisabled && !summaryPaused;
   const summaries = useQuery({
     queryKey: ["workspaces", workspaceId, "approvals", conversationId],
     queryFn: ({ signal }) => client.getApprovals(workspaceId, conversationId, signal),
-    enabled,
-    refetchInterval: 3_000,
+    enabled: summaryEnabled,
+    refetchInterval: (query) => query.state.error && classifyApprovalReadError(query.state.error) !== "transient" ? false : 3_000,
     retry: false,
   });
+  useEffect(() => {
+    let current = true;
+    queueMicrotask(() => {
+      if (!current) return;
+      if (summaries.isSuccess) reportReadSuccess("summary");
+      else if (summaries.isError) reportReadFailure("summary", summaries.error, summaries.errorUpdatedAt);
+    });
+    return () => { current = false; };
+  }, [reportReadFailure, reportReadSuccess, summaries.error, summaries.errorUpdatedAt, summaries.isError, summaries.isSuccess]);
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, []);
-  const approvals = useMemo(() => enabled ? summaries.data?.map((approval) => confirmedStatus(recorded[approval.id], approval) ?? approval) ?? [] : [], [enabled, recorded, summaries.data]);
+  const approvals = useMemo(() => summaryEnabled ? summaries.data?.map((approval) => confirmedStatus(recorded[approval.id], approval) ?? approval) ?? [] : [], [recorded, summaries.data, summaryEnabled]);
   const pending = approvals.find((approval) => approvalStatusAt(approval, now) === "pending" && !dismissed.has(approval.id));
   useEffect(() => {
     if (openedId !== null || !pending) return;
     const timer = window.setTimeout(() => setOpenedId(pending.id), 0);
     return () => window.clearTimeout(timer);
   }, [openedId, pending]);
-  const activeId = enabled ? openedId ?? pending?.id ?? null : null;
+  const activeId = summaryEnabled ? openedId ?? pending?.id ?? null : null;
   const selected = approvals.find((approval) => approval.id === activeId);
   const close = (dismiss = true) => {
     if (dismiss && activeId) setDismissed((prior) => new Set(prior).add(activeId));
@@ -130,13 +236,16 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
       <span className={styles.approvalHistoryStatus}>{statusText[status]}</span>
     </button>;
   };
-  const list = (items: ApprovalSummary[], error = false) => items.length || error ? <div className={styles.approvalRegion} style={{ "--chat-accent": accent } as CSSProperties}>
-    {error ? <button type="button" onClick={() => void summaries.refetch()}>Could not check approvals. Try again</button> : null}
+  const retrySummaries = () => {
+    setSummaryPaused(false);
+    void summaries.refetch();
+  };
+  const list = (items: ApprovalSummary[]) => items.length ? <div className={styles.approvalRegion} style={{ "--chat-accent": accent } as CSSProperties}>
     {items.map(approvalButton)}
   </div> : null;
   const slots: ConversationApprovalSlots = {
     forMessage: (messageId) => list(approvals.filter((approval) => approval.messageId === messageId)),
-    unmatched: (visibleMessageIds) => list(approvals.filter((approval) => !visibleMessageIds.has(approval.messageId)), enabled && summaries.isError),
+    unmatched: (visibleMessageIds) => list(approvals.filter((approval) => !visibleMessageIds.has(approval.messageId))),
   };
   useEffect(() => {
     if (activeId !== null || !restoreFocusId.current) return;
@@ -152,7 +261,14 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
   }, [activeId, approvals]);
   return <>
     <ApprovalSlotsContext value={slots}>{children ?? <ConversationApprovalSlot />}</ApprovalSlotsContext>
-    {activeId ? <ApprovalDialog key={activeId} client={client} workspaceId={workspaceId} conversationId={conversationId} approvalId={activeId} summary={selected} intent={intents[activeId]} rememberIntent={(intent) => setIntents((prior) => ({ ...pruneDecisionIntents(prior, approvals), [activeId]: intent }))} now={now} allyName={allyName} accent={accent} canApprove={canApprove} onClose={() => close()} onRecorded={(approval) => {
+    {enabled && notice ? <div className={toastStyles.announcement} role="status" aria-live="polite" aria-atomic="true">
+      <div className={toastStyles.toast}>
+        <span>{notice.message}</span>
+        {notice.resource.endsWith(":summary") && !accessDisabled ? <button type="button" onClick={retrySummaries}>Try again</button> : null}
+        <button type="button" aria-label="Dismiss notification" onClick={dismissNotice}>×</button>
+      </div>
+    </div> : null}
+    {activeId ? <ApprovalDialog key={activeId} client={client} workspaceId={workspaceId} conversationId={conversationId} approvalId={activeId} summary={selected} intent={intents[activeId]} rememberIntent={(intent) => setIntents((prior) => ({ ...pruneDecisionIntents(prior, approvals), [activeId]: intent }))} now={now} allyName={allyName} accent={accent} canApprove={canApprove} onReadSuccess={() => reportReadSuccess(`approval:${activeId}`)} onReadFailure={(error, errorAt) => reportReadFailure(`approval:${activeId}`, error, errorAt)} onClose={() => close()} onRecorded={(approval) => {
       setRecorded((prior) => ({ ...prior, [approval.id]: confirmedStatus(prior[approval.id], approval) ?? approval }));
       close(false);
       void summaries.refetch();
@@ -160,25 +276,46 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
   </>;
 }
 
-function ApprovalDialog({ client, workspaceId, conversationId, approvalId, summary, intent, rememberIntent, now, allyName, accent, canApprove, onClose, onRecorded }: {
+function ApprovalDialog({ client, workspaceId, conversationId, approvalId, summary, intent, rememberIntent, now, allyName, accent, canApprove, onReadSuccess, onReadFailure, onClose, onRecorded }: {
   client: ApprovalClient; workspaceId: string; conversationId: string; approvalId: string;
   summary?: ApprovalSummary; now: number; allyName: string; accent: string; canApprove: boolean; onClose: () => void; onRecorded: (approval: ApprovalSummary) => void;
+  onReadSuccess: () => void; onReadFailure: (error: unknown, errorAt: number) => void;
   intent?: DecisionIntent; rememberIntent: (intent: DecisionIntent) => void;
 }) {
   const detail = useQuery({
     queryKey: ["workspaces", workspaceId, "approval", conversationId, approvalId],
     queryFn: ({ signal }) => client.getApproval(workspaceId, conversationId, approvalId, signal),
-    refetchInterval: 3_000,
+    refetchInterval: (query) => query.state.error && classifyApprovalReadError(query.state.error) !== "transient" ? false : 3_000,
     retry: false,
   });
   const [recorded, setRecorded] = useState<ApprovalDetail | null>(null);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
+  const [readBlocked, setReadBlocked] = useState(false);
+  const handledErrorAt = useRef(0);
+  const handledSuccessAt = useRef(0);
   const [choice, setChoice] = useState<ApprovalDecision | null>(intent?.decision ?? null);
   const request = useRef<DecisionIntent | null>(intent ?? null);
   const inFlight = useRef(false);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
+  useEffect(() => {
+    if (!detail.isError || detail.errorUpdatedAt <= handledErrorAt.current) return;
+    handledErrorAt.current = detail.errorUpdatedAt;
+    let current = true;
+    queueMicrotask(() => {
+      if (!current) return;
+      if (classifyApprovalReadError(detail.error) !== "aborted") setReadBlocked(true);
+      onReadFailure(detail.error, detail.errorUpdatedAt);
+    });
+    return () => { current = false; };
+  }, [detail.error, detail.errorUpdatedAt, detail.isError, onReadFailure]);
+  useEffect(() => {
+    if (!detail.isSuccess || detail.dataUpdatedAt <= handledSuccessAt.current) return;
+    handledSuccessAt.current = detail.dataUpdatedAt;
+    setReadBlocked(false);
+    onReadSuccess();
+  }, [detail.dataUpdatedAt, detail.isSuccess, onReadSuccess]);
   const data = detail.data;
   const authoritative = confirmedStatus(summary, data, recorded);
   const status = authoritative ? approvalStatusAt(authoritative, now) : null;
@@ -231,14 +368,19 @@ function ApprovalDialog({ client, workspaceId, conversationId, approvalId, summa
         </div>
       </details>
     </>}
-    {!data && detail.isError ? <button type="button" onClick={() => void detail.refetch()}>Try again</button> : null}
+    {detail.isError ? <>
+      <p role="status">{data
+        ? "Could not refresh this approval. Your last confirmed details remain visible; retry to enable decisions."
+        : "Could not load this approval. Try again."}</p>
+      <button type="button" onClick={() => void detail.refetch()}>Try again</button>
+    </> : null}
     {status && status !== "pending" ? <p role="status">{statusText[status]}</p> : null}
     {failed && status === "pending" ? <p role="alert">The decision could not be confirmed. Retry the same choice to check safely.</p> : null}
     {data && status === "pending" ? <>
       {!canApprove ? <p>You need permission to respond to this approval.</p> : null}
       <div className={styles.frameSheetActions}>
-        <button type="button" className={styles.frameNeutralAction} disabled={!canApprove || busy || detail.isError || choice === "approve"} onClick={() => void submit("reject")}>Reject</button>
-        <button type="button" className={styles.frameAccentAction} disabled={!canApprove || busy || detail.isError || choice === "reject"} onClick={() => void submit("approve")}>Approve</button>
+        <button type="button" className={styles.frameNeutralAction} disabled={!canApprove || busy || detail.isError || readBlocked || choice === "approve"} onClick={() => void submit("reject")}>Reject</button>
+        <button type="button" className={styles.frameAccentAction} disabled={!canApprove || busy || detail.isError || readBlocked || choice === "reject"} onClick={() => void submit("approve")}>Approve</button>
       </div>
       {busy ? <p role="status">Recording decision…</p> : null}
     </> : null}

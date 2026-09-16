@@ -57,9 +57,8 @@ export function useComposingRuntimeIntent(
     };
   }, [allyId]);
 
-  const observeEdit = useCallback((value: string) => {
-    if (composingRef.current || sentRef.current || !value.trim()) return;
-
+  const observeInteraction = useCallback(() => {
+    if (sentRef.current) return;
     sentRef.current = true;
     const request = requestRef.current ?? {
       occurredAt: new Date().toISOString(),
@@ -87,6 +86,11 @@ export function useComposingRuntimeIntent(
     }
   }, [allyId, requestIntent]);
 
+  const observeEdit = useCallback((value: string) => {
+    if (composingRef.current || !value.trim()) return;
+    observeInteraction();
+  }, [observeInteraction]);
+
   const compositionStart = useCallback(() => {
     composingRef.current = true;
   }, []);
@@ -96,5 +100,5 @@ export function useComposingRuntimeIntent(
     observeEdit(value);
   }, [observeEdit]);
 
-  return { observeEdit, compositionStart, compositionEnd, status };
+  return { observeEdit, observeAttachment: observeInteraction, compositionStart, compositionEnd, status };
 }

@@ -137,9 +137,32 @@ describe("conversation approvals", () => {
     const client: ApprovalClient = { getApprovals: vi.fn().mockRejectedValue(new Error("denied")), getApproval: vi.fn(), decideApproval: vi.fn() };
     const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const view = render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove /></QueryClientProvider>);
-    await screen.findByRole("button", { name: "Could not check approvals. Try again" });
+    await screen.findByText("Could not check this approval. Try again.");
     view.rerender(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove enabled={false} /></QueryClientProvider>);
-    expect(screen.queryByRole("button", { name: "Could not check approvals. Try again" })).toBeNull();
+    expect(screen.queryByText("Could not check this approval. Try again.")).toBeNull();
+  });
+
+  it("keeps cached approvals through transient poll failures and waits before toasting", async () => {
+    const getApprovals = vi.fn()
+      .mockResolvedValueOnce([approval])
+      .mockRejectedValue({ kind: "network" });
+    const client: ApprovalClient = {
+      getApprovals,
+      getApproval: vi.fn().mockResolvedValue(approval),
+      decideApproval: vi.fn(),
+    };
+    const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove><ConversationApprovalSlot messageId={approval.messageId} /></ConversationApprovals></QueryClientProvider>);
+    await screen.findByRole("dialog");
+
+    for (let attempt = 1; attempt <= 3; attempt += 1) {
+      await query.refetchQueries({ queryKey: ["workspaces", "workspace", "approvals", "conversation"] });
+      expect(screen.getByRole("button", { name: "Approval needed" })).toBeTruthy();
+      if (attempt < 3) expect(screen.queryByText("Could not check approvals after several attempts. Try again.")).toBeNull();
+      await new Promise((resolve) => setTimeout(resolve, 2));
+    }
+
+    expect(await screen.findByText("Could not check approvals after several attempts. Try again.")).toBeTruthy();
   });
 
   it("retries an uncertain response with the same choice and idempotency key", async () => {

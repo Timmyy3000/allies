@@ -397,6 +397,99 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
 });
 
 describe("HomeWorkspace", () => {
+  it("collapses a completed multi-file message into one expandable bundle", async () => {
+    const files = [
+      { id: "10000000-0000-4000-8000-000000000001", name: "one.pdf", size: 300_000, state: "retained" as const },
+      { id: "10000000-0000-4000-8000-000000000002", name: "two.pdf", size: 400_000, state: "retained" as const },
+      { id: "10000000-0000-4000-8000-000000000003", name: "three.pdf", size: 500_000, state: "retained" as const },
+    ];
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: "00000000-0000-4000-8000-000000000005",
+        allyId: ally.id,
+        messages: [{
+          id: "00000000-0000-4000-8000-000000000006",
+          sender: "user" as const,
+          content: "Review these",
+          sequence: 1,
+          status: "completed" as const,
+          createdAt: "2026-08-20T16:00:00Z",
+          preparation: "ready" as const,
+          revision: 1,
+          files,
+        }],
+        nextCursor: null,
+      })),
+    });
+
+    const label = await screen.findByText("Attachments");
+    const toggle = label.closest("button") as HTMLButtonElement;
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("3 files · 1.2 MB");
+    expect(screen.queryByText("one.pdf")).toBeNull();
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByText("one.pdf")).toBeTruthy();
+  });
+
+  it("falls back to the original file when the optimized preview is unavailable", async () => {
+    const file = {
+      id: "10000000-0000-4000-8000-000000000001",
+      name: "Deutsch_üben_Wortschatz_und_Grammatik_A2_Verben_mit_Präpositionen_OCR.pdf",
+      size: 300_000,
+      state: "retained" as const,
+    };
+    const metadata = vi.fn(async () => ({
+      ...file,
+      type: "application/pdf",
+      preview_kind: "pdf" as const,
+      open_path: `/files/${file.id}`,
+    }));
+    const content = vi.fn(async (_workspace: string, _ally: string, _file: string, preview: boolean) => {
+      if (preview) throw new Error("optimized preview unavailable");
+      return new Blob(["pdf"], { type: "application/pdf" });
+    });
+    const createObjectUrlDescriptor = Object.getOwnPropertyDescriptor(URL, "createObjectURL");
+    const revokeObjectUrlDescriptor = Object.getOwnPropertyDescriptor(URL, "revokeObjectURL");
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:original-file") });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: vi.fn() });
+    try {
+      renderHome([ally], ally.id, {
+        files: { metadata, content },
+        getAllyConversation: vi.fn(async () => ({
+          id: "00000000-0000-4000-8000-000000000005",
+          allyId: ally.id,
+          messages: [{
+            id: "00000000-0000-4000-8000-000000000006",
+            sender: "user" as const,
+            content: "See this",
+            sequence: 1,
+            status: "completed" as const,
+            createdAt: "2026-08-20T16:00:00Z",
+            preparation: "ready" as const,
+            revision: 1,
+            files: [file],
+          }],
+          nextCursor: null,
+        })),
+      });
+
+      const displayedName = await screen.findByTitle(file.name);
+      fireEvent.click(displayedName.closest("button") as HTMLButtonElement);
+
+      await waitFor(() => expect(content).toHaveBeenCalledTimes(2));
+      expect(content.mock.calls.map((call) => call[3])).toEqual([true, false]);
+      await waitFor(() => expect(document.querySelector(`iframe[title="${file.name}"]`)).toBeTruthy());
+      expect(screen.queryByText(/couldn’t open the preview/i)).toBeNull();
+    } finally {
+      cleanup();
+      if (createObjectUrlDescriptor) Object.defineProperty(URL, "createObjectURL", createObjectUrlDescriptor);
+      else Reflect.deleteProperty(URL, "createObjectURL");
+      if (revokeObjectUrlDescriptor) Object.defineProperty(URL, "revokeObjectURL", revokeObjectUrlDescriptor);
+      else Reflect.deleteProperty(URL, "revokeObjectURL");
+    }
+  });
+
   it("requires the exact onboarding greeting and reply before releasing the handoff", () => {
     const messages = [
       { id: "greeting", sender: "assistant", sequence: 1, content: "Hello Nova" },

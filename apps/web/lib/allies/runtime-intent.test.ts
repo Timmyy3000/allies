@@ -49,6 +49,19 @@ describe("useComposingRuntimeIntent", () => {
     expect(requestIntent.mock.calls[0]?.[3]).toBeInstanceOf(AbortSignal);
   });
 
+  it("emits the same one-shot intent when an attachment is added first", () => {
+    const requestIntent = vi.fn<RuntimeIntentRequester>(async () => ({ status: "waking" as const }));
+    const { result } = renderHook(() => useComposingRuntimeIntent("ally-1", requestIntent));
+
+    act(() => {
+      result.current.observeAttachment();
+      result.current.observeEdit("message after the file");
+    });
+
+    expect(requestIntent).toHaveBeenCalledOnce();
+    expect(requestIntent.mock.calls[0]?.[0]).toBe("ally-1");
+  });
+
   it("waits until IME composition ends before emitting", () => {
     const requestIntent = vi.fn<RuntimeIntentRequester>(async () => ({ status: "waking" as const }));
     const { result } = renderHook(() => useComposingRuntimeIntent("ally-1", requestIntent));
