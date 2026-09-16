@@ -191,15 +191,16 @@ export function useConversationFiles(
     },
     openFile: (id: string) =>
       setPreview({ id, name: "File", size: 1, state: "ready" }),
-    publications: (messageId: string, publications: FilePublication[]) => (
-      <FilePublications
-        messageId={messageId}
-        publications={publications}
-        workspaceId={workspaceId}
-        allyId={allyId}
-        onOpen={setPreview}
-      />
-    ),
+    publications: (messageId: string, publications: FilePublication[]) =>
+      publications.length ? (
+        <FilePublications
+          messageId={messageId}
+          publications={publications}
+          workspaceId={workspaceId}
+          allyId={allyId}
+          onOpen={setPreview}
+        />
+      ) : null,
     open: (element: HTMLElement) => {
       setAnchor(element);
       setOpen(true);

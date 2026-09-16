@@ -471,6 +471,73 @@ export function ConversationComposer({
   const handlePaste = (event: ClipboardEvent<HTMLTextAreaElement>) => {
     const field = event.currentTarget;
     const pasted = event.clipboardData.getData("text/plain");
+    const keepPastedText = () => {
+      if (!pasted) return false;
+      if (value.length - (field.selectionEnd - field.selectionStart) + pasted.length > 16_000) {
+        setPasteError("This paste is too long. Messages can contain up to 16,000 characters; your draft has not changed.");
+        return false;
+      }
+      setPasteError("");
+      if (field.id === "ally-message") {
+        if (isLarge(pasted)) {
+          const prompt = draft.prompt.slice(0, field.selectionStart) + draft.prompt.slice(field.selectionEnd);
+          updateParts(prompt, draft.paste ? `${draft.paste}\n\n${pasted}` : pasted);
+        } else {
+          updateParts(
+            draft.prompt.slice(0, field.selectionStart) + pasted + draft.prompt.slice(field.selectionEnd),
+            draft.paste,
+          );
+        }
+      } else {
+        updateParts(
+          draft.prompt,
+          draft.paste.slice(0, field.selectionStart) + pasted + draft.paste.slice(field.selectionEnd),
+        );
+      }
+      return true;
+    };
+    const clipboardItems = Array.from(event.clipboardData.items ?? []);
+    const itemImages = clipboardItems
+      .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null);
+    const imageFiles = itemImages.length
+      ? itemImages
+      : Array.from(event.clipboardData.files ?? []).filter((file) => file.type.startsWith("image/"));
+    if (imageFiles.length) {
+      event.preventDefault();
+      const keptText = keepPastedText();
+      if (disabled || !onFilesDrop) {
+        setDropMessage(
+          keptText
+            ? "Attachments are unavailable right now. Pasted text was kept."
+            : "Attachments are unavailable right now.",
+        );
+        return;
+      }
+      try {
+        const accepted = onFilesDrop(
+          imageFiles,
+          composerRef.current?.getBoundingClientRect() ?? field.getBoundingClientRect(),
+        );
+        setDropMessage(
+          accepted === false
+            ? keptText
+              ? "These images could not be added. Pasted text was kept."
+              : "These images could not be added. Your draft has not changed."
+            : keptText
+              ? "Images and text added to your draft."
+              : "Images added to your draft.",
+        );
+      } catch {
+        setDropMessage(
+          keptText
+            ? "These images could not be added. Pasted text was kept."
+            : "These images could not be added. Your draft has not changed.",
+        );
+      }
+      return;
+    }
     if (value.length - (field.selectionEnd - field.selectionStart) + pasted.length > 16_000) {
       event.preventDefault();
       setPasteError("This paste is too long. Messages can contain up to 16,000 characters; your draft has not changed.");

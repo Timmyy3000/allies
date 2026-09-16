@@ -601,8 +601,11 @@
 }
 
 .frameMessageTimestamp + :is(.frameActivity, .approvalRegion) {
-  margin-top: 18px;
-  translate: 0 1px;
+  margin-top: 19px;
+}
+
+.frameMessageTimestamp + .frameMessagePublications {
+  margin-top: 19px;
 }
 
 .frameAssistantMessage:focus-visible,
