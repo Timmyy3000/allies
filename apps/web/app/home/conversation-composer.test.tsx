@@ -28,7 +28,7 @@ function Composer({ initial = "", submit = () => {}, onFilesDrop, disabled = fal
   onAttach?: (anchor: HTMLElement) => void;
 }) {
   const [value, setValue] = useState(initial);
-  return <div data-testid="conversation-frame-shell"><ConversationComposer allyName="Sage" value={value} placeholder="Reply Sage" disabled={disabled} sending={false} onChange={setValue} onSubmit={() => submit(value)} onFilesDrop={onFilesDrop} dropScope={dropScope} onAttach={onAttach} /></div>;
+  return <div data-testid="conversation-frame-shell"><div data-testid="conversation-transcript" /><ConversationComposer allyName="Sage" value={value} placeholder="Reply Sage" disabled={disabled} sending={false} onChange={setValue} onSubmit={() => submit(value)} onFilesDrop={onFilesDrop} dropScope={dropScope} onAttach={onAttach} /></div>;
 }
 
 describe("large composer drafts", () => {
@@ -191,6 +191,32 @@ describe("composer file drops", () => {
 
     expect(onFilesDrop).toHaveBeenCalledWith([file], expect.objectContaining({ width: 0, height: 0 }));
     expect(screen.getByText("Files added to your draft.")).toBeTruthy();
+    expect(viewport.getAttribute("data-file-drop-active")).toBeNull();
+  });
+
+  it("keeps the drop state active while moving between chat viewport children", () => {
+    render(<Composer onFilesDrop={() => true} />);
+    const viewport = screen.getByTestId("conversation-frame-shell");
+    const composer = screen.getByTestId("conversation-composer");
+    const transcript = screen.getByTestId("conversation-transcript");
+    const file = new File(["hello"], "notes.txt");
+    const dataTransfer = { types: ["Files"], items: [], files: [file], dropEffect: "none" };
+    const leave = (target: HTMLElement, relatedTarget: EventTarget) => {
+      const event = new Event("dragleave", { bubbles: true, cancelable: true });
+      Object.defineProperties(event, {
+        dataTransfer: { value: dataTransfer },
+        relatedTarget: { value: relatedTarget },
+      });
+      fireEvent(target, event);
+    };
+
+    fireEvent.dragEnter(composer, { dataTransfer });
+    leave(composer, transcript);
+
+    expect(viewport.getAttribute("data-file-drop-active")).toBe("true");
+    expect(screen.getByText("Drop files to attach")).toBeTruthy();
+
+    leave(transcript, document.body);
     expect(viewport.getAttribute("data-file-drop-active")).toBeNull();
   });
 
