@@ -731,6 +731,11 @@ export class FileTransfers {
   find(id: string) {
     return this.records.find((record) => record.id === id);
   }
+  setDraft(scope: string, files: SelectedFile[]) {
+    if (files.length) this.drafts.set(scope, files);
+    else this.drafts.delete(scope);
+    this.emit();
+  }
   observe(messages: readonly MessageViewModel[]) {
     for (const record of this.records) {
       const message = messages.find(
@@ -753,6 +758,13 @@ export class FileTransfers {
     if (!this.storage.reclaim || !await this.storage.reclaim(record)) return;
     if (this.find(record.id) !== record || record.phase !== "ready") return;
     this.records = this.records.filter((current) => current !== record);
+    const draft = this.drafts.get(record.scope);
+    if (draft) {
+      const consumed = new Set(record.files.map((file) => file.id));
+      const remaining = draft.filter((file) => !consumed.has(file.id));
+      if (remaining.length) this.drafts.set(record.scope, remaining);
+      else this.drafts.delete(record.scope);
+    }
     record.files.forEach((file) => this.releasePreview(file));
     this.emit();
   }
