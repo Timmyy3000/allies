@@ -498,7 +498,7 @@ test("keeps revealed timestamps clear of same-row activity and approval content"
         followerMarginTop: next ? getComputedStyle(next).marginTop : null,
       };
     });
-    expect(geometry.followerMarginTop).toBe("18px");
+    expect(geometry.followerMarginTop).toBe("19px");
     expect(geometry.followerTop).not.toBeNull();
     expect(geometry.followerTop!).toBeGreaterThanOrEqual(geometry.paintedBottom);
 

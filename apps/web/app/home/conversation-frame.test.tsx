@@ -426,6 +426,36 @@ describe("ConversationFrame", () => {
       expect(timestampFor(durableAssistant).getAttribute("dateTime")).toBe(messages[2].createdAt);
   });
 
+  it("places returned-file cards in a timestamp-aware wrapper", () => {
+    const view = render(
+      <ConversationFrame
+        model={{ ...model, messages: [model.messages[2]], activityGroups: [] }}
+        actions={actions}
+        publications={() => <button type="button">Returned file</button>}
+      />,
+    );
+    const assistant = screen.getByText("A normal production reply.").closest("article")!;
+    const timestamp = assistant.nextElementSibling;
+    const publicationWrapper = timestamp?.nextElementSibling;
+
+    expect(timestamp?.tagName).toBe("TIME");
+    expect(publicationWrapper?.className).toContain("frameMessagePublications");
+    expect(within(publicationWrapper as HTMLElement).getByRole("button", { name: "Returned file" })).toBeTruthy();
+    expect(view.container.querySelectorAll('[class*="frameMessagePublications"]')).toHaveLength(1);
+  });
+
+  it("does not add a publication wrapper when a message has no returned files", () => {
+    const view = render(
+      <ConversationFrame
+        model={{ ...model, messages: [model.messages[2]], activityGroups: [] }}
+        actions={actions}
+        publications={() => null}
+      />,
+    );
+
+    expect(view.container.querySelector('[class*="frameMessagePublications"]')).toBeNull();
+  });
+
   it("omits the timestamp and reveal tab stop for invalid or missing dates", () => {
     render(
       <>
