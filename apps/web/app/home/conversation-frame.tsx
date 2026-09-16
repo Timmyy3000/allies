@@ -69,20 +69,6 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
     };
   }, [model.ally.accent]);
   const shellRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const shell = shellRef.current;
-    if (!shell || !onFileOpen) return;
-    const openFile = (event: MouseEvent) => {
-      const anchor = (event.target as Element).closest?.("a[href]");
-      if (!anchor) return;
-      let url: URL;
-      try { url = new URL(anchor.getAttribute("href")!, window.location.href); } catch { return; }
-      const match = url.origin === window.location.origin && url.pathname.match(/^\/files\/([0-9a-f-]{36})$/i);
-      if (match) { event.preventDefault(); event.stopPropagation(); onFileOpen(match[1]); }
-    };
-    shell.addEventListener("click", openFile, true);
-    return () => shell.removeEventListener("click", openFile, true);
-  }, [onFileOpen]);
   const headerAnchorRef = useRef<HTMLSpanElement>(null);
   const threadAnchorRef = useRef<HTMLSpanElement>(null);
   const latestUser = model.messages.findLast((message) => message.sender === "user" && !message.queued);
@@ -325,14 +311,14 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
                 ) : (
                   <>
                     <AssistantMessage createdAt={message.createdAt}>
-                      <Streamdown mode="static" parseIncompleteMarkdown tableMaxHeight="none" components={routineLinkComponents(actions.onOpenRoutine)}>
+                      <Streamdown mode="static" parseIncompleteMarkdown tableMaxHeight="none" components={routineLinkComponents(actions.onOpenRoutine, onFileOpen)}>
                         {message.content}
                       </Streamdown>
                     </AssistantMessage>
                   </>
                 )}
 
-                {turn ? <TurnMessage model={model} turn={turn} onOpenRoutine={actions.onOpenRoutine} /> : null}
+                {turn ? <TurnMessage model={model} turn={turn} onOpenRoutine={actions.onOpenRoutine} onOpenFile={onFileOpen} /> : null}
                 {publications?.(message.id)}
                 {activityGroups.filter((group) => docked || group.key !== currentGroup?.key).map((group) => (
                   <ActivityGroup key={group.key} group={group} />
@@ -655,10 +641,12 @@ function TurnMessage({
   model,
   turn,
   onOpenRoutine,
+  onOpenFile,
 }: {
   model: ProductionConversationFrameModel;
   turn: ProductionConversationTurnModel;
   onOpenRoutine?: (id: string) => void;
+  onOpenFile?: (id: string) => void;
 }) {
   const pending = turn.state === "queued" || turn.state === "running" || turn.state === "awaiting_action";
   const [presentation, setPresentation] = useState({ state: turn.state, reveal: false });
@@ -687,7 +675,7 @@ function TurnMessage({
   return (
     <AssistantMessage createdAt={turn.createdAt} testId={`activity-reply-${turn.turnOrdinal}`}>
       {turn.assistantText ? <Streamdown
-        components={routineLinkComponents(onOpenRoutine)}
+        components={routineLinkComponents(onOpenRoutine, onOpenFile)}
         tableMaxHeight="none"
         mode={reveal ? "streaming" : "static"}
         animated={reveal ? { animation: "blurIn", sep: "word", duration: 180, stagger: 24, maxBacklogMs: 2400 } : false}

@@ -3,7 +3,18 @@ import styles from "./conversation-frame.module.css";
 
 const uuid = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
 const routineLink = new RegExp(`^#routine/(${uuid})$`, "i");
-const sharedFileLink = new RegExp(`^/files/${uuid}$`, "i");
+const sharedFileLink = new RegExp(`^/files/(${uuid})$`, "i");
+
+function sharedFileId(href?: string) {
+  if (!href || typeof window === "undefined") return undefined;
+  try {
+    const url = new URL(href, window.location.href);
+    if (url.origin !== window.location.origin) return undefined;
+    return url.pathname.match(sharedFileLink)?.[1];
+  } catch {
+    return undefined;
+  }
+}
 
 export function RoutineMention({ id, children, onOpen }: { id: string; children: ReactNode; onOpen?: (id: string) => void }) {
   return <button type="button" className={styles.frameRoutineMention} onClick={() => onOpen?.(id)} disabled={!onOpen}>
@@ -12,9 +23,30 @@ export function RoutineMention({ id, children, onOpen }: { id: string; children:
   </button>;
 }
 
-export function routineLinkComponents(onOpen?: (id: string) => void) {
+export function FileMention({ id, href, children, onOpen, ...props }: ComponentProps<"a"> & { id: string; onOpen?: (id: string) => void }) {
+  const label = children === "shared-file" ? "Open file" : children;
+  return <a
+    {...props}
+    href={href}
+    className={`${styles.frameFileMention}${props.className ? ` ${props.className}` : ""}`}
+    data-file-reference=""
+    onClick={(event) => {
+      props.onClick?.(event);
+      if (!event.defaultPrevented && onOpen) {
+        event.preventDefault();
+        onOpen(id);
+      }
+    }}
+  >
+    <svg aria-hidden="true" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v5h4M9 13h6M9 16h4" /></svg>
+    <span>{label}</span>
+  </a>;
+}
+
+export function routineLinkComponents(onOpen?: (id: string) => void, onOpenFile?: (id: string) => void) {
   return { a: ({ href, children, ...props }: ComponentProps<"a">) => {
-    if (children === "shared-file" && href?.match(sharedFileLink)) return null;
+    const fileId = sharedFileId(href);
+    if (fileId) return <FileMention {...props} id={fileId} href={href} onOpen={onOpenFile}>{children}</FileMention>;
     const match = href?.match(routineLink);
     return match ? <RoutineMention id={match[1]} onOpen={onOpen}>{children}</RoutineMention>
       : <a {...props} href={href}>{children}</a>;
