@@ -1191,7 +1191,7 @@ def proof_workspace_spec(
                 entrypoint=_runtime_proof_command(handle, dependency_handle),
                 environment={
                     "HERMES_REQUEST_TIMEOUT": "180",
-                    "HERMES_STREAM_TIMEOUT": "180",
+                    "HERMES_STREAM_TIMEOUT": "7200",
                     "ALLIES_RUNTIME_ACTIVITY_WAIT_ENABLED": (
                         "true" if activity_wait_enabled else "false"
                     ),

@@ -1669,7 +1669,242 @@ async def test_incremental_stream_rejects_invalid_or_expired_overall_deadlines()
     assert response.closed is True
 
 
-def test_incremental_stream_rejects_invalid_tool_progress():
+def test_incremental_stream_rejects_invalid_idle_timeouts():
+    with pytest.raises(ValueError, match="stream idle timeout must be positive"):
+        _IncrementalHTTPStream(object(), "ally-a", "s1", stream_idle_timeout=0)
+    with pytest.raises(ValueError, match="stream idle timeout must be positive"):
+        _IncrementalHTTPStream(object(), "ally-a", "s1", stream_idle_timeout=True)
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_refreshes_idle_clock_on_yielded_events():
+    rows = iter(
+        [
+            b"event: run.started\n",
+            b'data: {"session_id":"s1","run_id":"r1"}\n',
+            b"\n",
+            b"event: assistant.delta\n",
+            b'data: {"session_id":"s1","run_id":"r1","delta":"one"}\n',
+            b"\n",
+            b"event: assistant.delta\n",
+            b'data: {"session_id":"s1","run_id":"r1","delta":"two"}\n',
+            b"\n",
+        ]
+    )
+
+    class Response:
+        def __init__(self):
+            self.closed = False
+
+        def readline(self, _limit):
+            try:
+                return next(rows)
+            except StopIteration:
+                time.sleep(0.2)
+                return b": keepalive\n"
+
+        def close(self):
+            self.closed = True
+
+    response = Response()
+    stream = _IncrementalHTTPStream(response, "ally-a", "s1", stream_idle_timeout=0.05)
+
+    assert (await stream.__anext__()).name == "message.delta"
+    assert (await stream.__anext__()).name == "message.delta"
+    with pytest.raises(HermesTimeout, match="stream timed out"):
+        await stream.__anext__()
+
+    assert response.closed is True
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_tool_progress_heartbeats_refresh_idle_clock(
+    monkeypatch,
+):
+    clock = SimpleNamespace(now=1000.0)
+    script = iter(
+        [
+            b"event: run.started\n",
+            b'data: {"session_id":"s1","run_id":"r1"}\n',
+            b"\n",
+            b"event: tool.progress\n",
+            b'data: {"session_id":"s1","run_id":"r1","tool_name":"calendar"}\n',
+            b"\n",
+            ("advance", 0.04),
+            b"event: tool.progress\n",
+            b'data: {"session_id":"s1","run_id":"r1","tool_name":"calendar"}\n',
+            b"\n",
+            ("advance", 0.04),
+            b"event: assistant.delta\n",
+            b'data: {"session_id":"s1","run_id":"r1","delta":"done"}\n',
+            b"\n",
+            ("advance", 0.2),
+        ]
+    )
+
+    class Response:
+        def __init__(self):
+            self.closed = False
+
+        def readline(self, _limit):
+            item = next(script)
+            if isinstance(item, tuple):
+                clock.now += item[1]
+                return b": keepalive\n"
+            return item
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(
+        hermes_module, "time", SimpleNamespace(monotonic=lambda: clock.now)
+    )
+    response = Response()
+    stream = _IncrementalHTTPStream(response, "ally-a", "s1", stream_idle_timeout=0.05)
+
+    # Fake elapsed time since the last refresh exceeds the idle window, but
+    # the tool.progress heartbeats in between keep the stream alive.
+    assert (await stream.__anext__()).name == "message.delta"
+    with pytest.raises(HermesTimeout, match="stream timed out"):
+        await stream.__anext__()
+
+    assert response.closed is True
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_survives_long_pre_token_silence_within_idle(
+    monkeypatch,
+):
+    clock = SimpleNamespace(now=1000.0)
+    script = iter(
+        [
+            b"event: run.started\n",
+            b'data: {"session_id":"s1","run_id":"r1"}\n',
+            b"\n",
+            ("advance", 60.0),
+            ("advance", 60.0),
+            ("advance", 60.0),
+            b"event: assistant.delta\n",
+            b'data: {"session_id":"s1","run_id":"r1","delta":"late"}\n',
+            b"\n",
+            ("advance", 400.0),
+        ]
+    )
+
+    class Response:
+        def __init__(self):
+            self.closed = False
+
+        def readline(self, _limit):
+            item = next(script)
+            if isinstance(item, tuple):
+                clock.now += item[1]
+                return b": keepalive\n"
+            return item
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(
+        hermes_module, "time", SimpleNamespace(monotonic=lambda: clock.now)
+    )
+    response = Response()
+    stream = _IncrementalHTTPStream(response, "ally-a", "s1", stream_idle_timeout=300.0)
+
+    # 180s of pre-token silence stays within the 300s idle window.
+    assert (await stream.__anext__()).name == "message.delta"
+    with pytest.raises(HermesTimeout, match="stream timed out"):
+        await stream.__anext__()
+
+    assert response.closed is True
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_approval_wait_holds_idle_clock():
+    expires_at = (datetime.now(UTC) + timedelta(seconds=240)).isoformat()
+    script = iter(
+        [
+            b"event: run.started\n",
+            b'data: {"session_id":"s1","run_id":"r1"}\n',
+            b"\n",
+            b"event: approval.request\n",
+            (
+                f'data: {{"session_id":"s1","run_id":"r1",'
+                f'"hermes_approval_id":"approval-1",'
+                f'"action_kind":"plugin_tool","action_label":"Connect",'
+                f'"action_preview":"Connect Nabu","expires_at":"{expires_at}"}}\n'
+            ).encode(),
+            b"\n",
+            ("sleep", 0.09),
+            b"event: approval.responded\n",
+            b'data: {"session_id":"s1","run_id":"r1","hermes_approval_id":"approval-1","outcome":"approved"}\n',
+            b"\n",
+            ("sleep", 0.2),
+        ]
+    )
+
+    class Response:
+        def __init__(self):
+            self.closed = False
+
+        def readline(self, _limit):
+            item = next(script)
+            if isinstance(item, tuple):
+                time.sleep(item[1])
+                return b": keepalive\n"
+            return item
+
+        def close(self):
+            self.closed = True
+
+    response = Response()
+    stream = _IncrementalHTTPStream(response, "ally-a", "s1", stream_idle_timeout=0.05)
+
+    # The 90ms deliberation silence exceeds the idle window, but the
+    # pending approval holds the clock until the receipt arrives.
+    assert (await stream.__anext__()).name == "approval.request"
+    assert (await stream.__anext__()).name == "approval.responded"
+    # Once answered, the hold is released and ordinary idle resumes.
+    with pytest.raises(HermesTimeout, match="stream timed out"):
+        await stream.__anext__()
+
+    assert response.closed is True
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_absolute_deadline_ignores_yielded_events():
+    class Response:
+        def __init__(self):
+            self.closed = False
+            self.index = 0
+
+        def readline(self, _limit):
+            self.index += 1
+            if self.index <= 3:
+                return [
+                    b"event: run.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                ][self.index - 1]
+            if self.index % 3 == 0:
+                return b"\n"
+            if self.index % 3 == 1:
+                return b"event: assistant.delta\n"
+            return b'data: {"session_id":"s1","run_id":"r1","delta":"x"}\n'
+
+        def close(self):
+            self.closed = True
+
+    response = Response()
+    stream = _IncrementalHTTPStream(
+        response, "ally-a", "s1", stream_timeout=0.05, stream_idle_timeout=3600
+    )
+
+    with pytest.raises(HermesTimeout, match="stream timed out"):
+        async for _event in stream:
+            pass
+
+    assert response.closed is True
     stream = _IncrementalHTTPStream(object(), "ally-a", "s1")
     stream._normalize_event("run.started", {"session_id": "s1", "run_id": "r1"})
 

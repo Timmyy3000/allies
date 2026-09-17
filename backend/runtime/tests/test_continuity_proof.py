@@ -264,7 +264,7 @@ def test_proof_spec_mounts_each_dependency_only_in_its_consumer():
     assert "setpriv" not in runtime.entrypoint[2]
     assert "chown 0:0 /run/secrets" in runtime.entrypoint[2]
     assert runtime.entrypoint[2].endswith("exec python -m allies_runtime")
-    assert runtime.environment["HERMES_STREAM_TIMEOUT"] == "180"
+    assert runtime.environment["HERMES_STREAM_TIMEOUT"] == "7200"
     assert runtime.environment["HERMES_REQUEST_TIMEOUT"] == "180"
     assert "/run/secrets/foundry-runtime-token" in runtime.entrypoint[2]
     assert '"$ALLIES_FND008_HERMES_KEY" | base64 -d' in runtime.entrypoint[2]
