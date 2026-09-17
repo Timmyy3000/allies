@@ -755,6 +755,7 @@ class _IncrementalHTTPStream:
         session_id: str,
         *,
         stream_timeout: float | None = None,
+        stream_idle_timeout: float | None = None,
         routine_result: bool = False,
     ):
         if stream_timeout is not None and (
@@ -763,6 +764,10 @@ class _IncrementalHTTPStream:
             raise ValueError("Hermes stream timeout must be positive")
         if type(routine_result) is not bool:
             raise ValueError("Hermes routine-result mode must be boolean")
+        if stream_idle_timeout is not None and (
+            isinstance(stream_idle_timeout, bool) or stream_idle_timeout <= 0
+        ):
+            raise ValueError("Hermes stream idle timeout must be positive")
         self.response = response
         self.profile_id = profile_id
         self.session_id = session_id
@@ -770,6 +775,8 @@ class _IncrementalHTTPStream:
         self.deadline = (
             time.monotonic() + stream_timeout if stream_timeout is not None else None
         )
+        self.idle_timeout = stream_idle_timeout
+        self.last_progress = time.monotonic()
         self.current_name = "message"
         self.data_lines: list[str] = []
         self.total_bytes = 0
@@ -782,6 +789,7 @@ class _IncrementalHTTPStream:
         self._legacy_activity_counts: dict[str, int] = {}
         self._seen_activity_calls: set[str] = set()
         self._pending_approval_id: str | None = None
+        self._approval_idle_until: float | None = None
         self._seen_approval_ids: set[str] = set()
         self._stream_timeout = stream_timeout
         self.saw_assistant_delta = False
@@ -805,6 +813,27 @@ class _IncrementalHTTPStream:
                 if remaining <= 0:
                     await self.aclose()
                     raise HermesTimeout("Hermes stream timed out")
+            # Idle fires only when no protocol event was accepted recently.
+            # Keepalives and silence do not refresh it; accepted events do
+            # in _finish_event below. A pending approval holds the clock
+            # across the quiet deliberation window instead.
+            if self.idle_timeout is not None:
+                idle_remaining = (
+                    self.last_progress + self.idle_timeout - time.monotonic()
+                )
+                if self._approval_idle_until is not None:
+                    idle_remaining = max(
+                        idle_remaining,
+                        self._approval_idle_until - time.monotonic(),
+                    )
+                if idle_remaining <= 0:
+                    await self.aclose()
+                    raise HermesTimeout("Hermes stream timed out")
+                remaining = (
+                    idle_remaining
+                    if remaining is None
+                    else min(remaining, idle_remaining)
+                )
             try:
                 if callable(self._readline):
                     read = asyncio.to_thread(self._readline, MAX_EVENT_BYTES + 1)
@@ -893,7 +922,11 @@ class _IncrementalHTTPStream:
         if not isinstance(payload, dict):
             raise HermesMalformedResponse("Hermes stream event was not an object")
         self.event_count += 1
-        return self._normalize_event(name, payload)
+        event = self._normalize_event(name, payload)
+        # Any accepted protocol event proves the run is alive, including
+        # non-yielded ones such as run.started and tool.progress heartbeats.
+        self.last_progress = time.monotonic()
+        return event
 
     def _normalize_event(
         self, name: str, payload: Mapping[str, Any]
@@ -994,15 +1027,22 @@ class _IncrementalHTTPStream:
                 )
                 expires_at = _approval_expiry(payload.get("expires_at"))
                 self._pending_approval_id = approval_id
+                remaining = (
+                    datetime.fromisoformat(expires_at) - datetime.now(UTC)
+                ).total_seconds()
                 if self._stream_timeout is not None:
-                    remaining = (
-                        datetime.fromisoformat(expires_at) - datetime.now(UTC)
-                    ).total_seconds()
                     # Let the worker wait until consent expires, then allow
                     # one ordinary stream-timeout window for Hermes to emit
                     # the terminal ``approval.responded`` receipt.
                     self.deadline = (
                         time.monotonic() + max(remaining, 0.0) + self._stream_timeout
+                    )
+                if self.idle_timeout is not None:
+                    # Deliberation is quiet by nature: hold the idle clock
+                    # across the consent window, plus one idle window for
+                    # the receipt.
+                    self._approval_idle_until = (
+                        time.monotonic() + max(remaining, 0.0) + self.idle_timeout
                     )
                 return self._event(
                     "approval.request",
@@ -1032,6 +1072,7 @@ class _IncrementalHTTPStream:
                     "Hermes approval response outcome was invalid"
                 )
             self._pending_approval_id = None
+            self._approval_idle_until = None
             self._seen_approval_ids.add(approval_id)
             if self._stream_timeout is not None:
                 self.deadline = time.monotonic() + self._stream_timeout
@@ -2326,6 +2367,7 @@ class HermesClient:
                         profile_id,
                         session_id,
                         stream_timeout=self.settings.stream_timeout,
+                        stream_idle_timeout=self.settings.stream_idle_timeout,
                         routine_result=routine_result,
                     )
                 ),

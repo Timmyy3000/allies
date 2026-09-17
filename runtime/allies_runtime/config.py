@@ -25,9 +25,10 @@ DEFAULT_HERMES_IMAGE = (
     "b6f18532e2c082ef6686c659fc222427e41fde3eed08aa058411f0ea5ab705ca"
 )
 PINNED_HERMES_SOURCE_COMMIT = "36cb5ae5530a75def7df3195e49b7a4aa2add482"
-MAX_TIMEOUT_SECONDS = 180.0
+MAX_TIMEOUT_SECONDS = 14400.0
 DEFAULT_HERMES_REQUEST_TIMEOUT = 30.0
 DEFAULT_HERMES_STREAM_TIMEOUT = 30.0
+DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS = 300.0
 MAX_PROOF_SLOTS = 32
 MAX_WIDE_EVENT_BYTES = 16 * 1024
 MAX_WIDE_EVENT_QUEUE_SIZE = 4096
@@ -269,6 +270,7 @@ class RuntimeSettings:
     )
     request_timeout: float = DEFAULT_HERMES_REQUEST_TIMEOUT
     stream_timeout: float = DEFAULT_HERMES_STREAM_TIMEOUT
+    stream_idle_timeout: float = DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS
     proof_slots: int = 2
     volume_root: str = DEFAULT_VOLUME_ROOT
     marker_path: str = DEFAULT_MARKER_PATH
@@ -339,6 +341,11 @@ def load_settings(env: Mapping[str, object] | None = None) -> RuntimeSettings:
         stream_timeout=_float_setting(
             values, "HERMES_STREAM_TIMEOUT", DEFAULT_HERMES_STREAM_TIMEOUT
         ),
+        stream_idle_timeout=_float_setting(
+            values,
+            "HERMES_STREAM_IDLE_TIMEOUT",
+            DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS,
+        ),
         proof_slots=_int_setting(values, "PROOF_SLOTS", 2),
         volume_root=str(root),
         marker_path=marker,
@@ -371,6 +378,7 @@ __all__ = [
     "DEFAULT_FOUNDRY_CREDENTIAL_REF",
     "DEFAULT_FOUNDRY_ORIGIN",
     "DEFAULT_HERMES_ORIGIN",
+    "DEFAULT_STREAM_IDLE_TIMEOUT_SECONDS",
     "CredentialReference",
     "RuntimeSettings",
     "SettingsError",

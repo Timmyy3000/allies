@@ -63,7 +63,8 @@ def test_settings_accept_validated_foundry_runtime_connection():
         {"HERMES_ORIGIN": "https://127.0.0.1:8642"},
         {"HERMES_CREDENTIAL_REF": "Bearer plaintext"},
         {"PROOF_SLOTS": "1"},
-        {"HERMES_REQUEST_TIMEOUT": "181"},
+        {"HERMES_REQUEST_TIMEOUT": "14401"},
+        {"HERMES_STREAM_IDLE_TIMEOUT": "14401"},
         {"VOLUME_MARKER_PATH": "/tmp/not-hermes"},
         {"HERMES_IMAGE": "hermes:latest"},
         {"HERMES_SOURCE_COMMIT": "not-a-commit"},
@@ -79,6 +80,13 @@ def test_settings_accept_validated_foundry_runtime_connection():
 def test_settings_reject_unsafe_values(env):
     with pytest.raises(SettingsError):
         load_settings(env)
+
+
+def test_settings_default_stream_timeouts_support_long_horizon():
+    settings = load_settings({"HERMES_CREDENTIAL_REF": "vault://tenant/hermes"})
+    assert settings.stream_idle_timeout == 300.0
+    custom = load_settings({"HERMES_STREAM_IDLE_TIMEOUT": "60"})
+    assert custom.stream_idle_timeout == 60.0
 
 
 def test_image_reference_is_immutable():
