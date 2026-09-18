@@ -744,6 +744,67 @@ describe("ConversationFrame", () => {
     Object.defineProperty(window, "visualViewport", { configurable: true, value: undefined });
   });
 
+  it("offers a jump-to-latest button when scrolled up and follows it on activation", () => {
+    const view = render(<ConversationFrame model={model} actions={actions} />);
+    const canvas = screen.getByTestId("conversation-frame-canvas");
+    const scrollTo = vi.fn();
+    Object.defineProperties(canvas, {
+      clientHeight: { configurable: true, value: 400 },
+      scrollHeight: { configurable: true, value: 900 },
+      scrollTop: { configurable: true, value: 0, writable: true },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+    expect(screen.queryByRole("button", { name: /jump to latest/i })).toBeNull();
+    fireEvent.scroll(canvas);
+    const jump = screen.getByRole("button", { name: /jump to latest/i });
+    expect(jump.closest('[aria-live="polite"]')).not.toBeNull();
+    fireEvent.click(jump);
+    expect(scrollTo).toHaveBeenCalledWith({ top: 900, behavior: "smooth" });
+    view.unmount();
+  });
+
+  it("tags message rows with stable anchors for scroll restore", () => {
+    const view = render(<ConversationFrame model={model} actions={actions} />);
+    const rows = view.container.querySelectorAll("[data-message-id]");
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of Array.from(rows)) {
+      expect(row.getAttribute("data-message-id")).toBeTruthy();
+      expect(row.hasAttribute("data-sequence")).toBe(true);
+    }
+    view.unmount();
+  });
+
+  it("offers a full-message preview only for long documents", async () => {
+    const longText = `${"# Report\n\n"}${"Long paragraph of findings. ".repeat(80)}`;
+    const longModel: ProductionConversationFrameModel = {
+      ...model,
+      messages: [...model.messages, {
+        id: "message-long",
+        sender: "assistant",
+        content: longText,
+        sequence: 6,
+        createdAt: "2026-09-03T09:42:00Z",
+        statusLabel: null,
+        retryable: false,
+      }],
+    };
+    const view = render(<ConversationFrame model={longModel} actions={actions} />);
+    expect(screen.queryByRole("button", { name: "Expand full message" })).toBeTruthy();
+    expect(screen.queryByRole("dialog")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Expand full message" }));
+    const dialog = await screen.findByRole("dialog");
+    expect(dialog.textContent).toContain("Full message");
+    expect(dialog.textContent).toContain("Long paragraph of findings.");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Close" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    view.unmount();
+  });
+
+  it("keeps short replies inline without an expand action", () => {
+    render(<ConversationFrame model={model} actions={actions} />);
+    expect(screen.queryByRole("button", { name: "Expand full message" })).toBeNull();
+  });
+
   it("does not attach a projected turn when its message identity is stale", () => {
     render(
       <ConversationFrame

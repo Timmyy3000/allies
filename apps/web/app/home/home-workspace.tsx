@@ -1421,6 +1421,39 @@ function ConversationPane({
   const turnInProgress = activeTurn || persistedTurnActive || streamConnected;
   const conversationId = conversation?.id;
 
+  // Single-flag rollback for refresh-scroll restore: set false to keep follow-latest only.
+  const ENABLE_SCROLL_RESTORE = true;
+  const SCROLL_ANCHOR_TTL_MS = 3_600_000;
+  const scrollAnchorKey = workspaceId && conversationId ? `allies:scroll:${workspaceId}:${conversationId}` : null;
+  const restoredScrollRef = useRef<string | null>(null);
+  const lastAnchorWriteRef = useRef(0);
+  const writeScrollAnchor = useCallback((canvas: HTMLElement) => {
+    if (!ENABLE_SCROLL_RESTORE || !scrollAnchorKey) return;
+    const now = Date.now();
+    if (now - lastAnchorWriteRef.current < 500) return;
+    lastAnchorWriteRef.current = now;
+    const rows = canvas.querySelectorAll("[data-message-id]");
+    let anchored: { messageId: string; sequence: number; offsetPx: number } | null = null;
+    for (const row of Array.from(rows)) {
+      const el = row as HTMLElement;
+      const messageId = el.dataset.messageId ?? "";
+      if (el.offsetTop <= canvas.scrollTop + canvas.clientHeight) {
+        anchored = { messageId, sequence: Number(el.dataset.sequence ?? 0), offsetPx: canvas.scrollTop - el.offsetTop };
+      }
+    }
+    try {
+      window.sessionStorage.setItem(scrollAnchorKey, JSON.stringify({
+        atBottom: canvas.scrollHeight - canvas.scrollTop - canvas.clientHeight < 96,
+        messageId: anchored?.messageId ?? "",
+        sequence: anchored?.sequence ?? 0,
+        offsetPx: anchored?.offsetPx ?? 0,
+        updatedAt: now,
+      }));
+    } catch {
+      // Private-mode storage may throw; follow-latest remains the fallback.
+    }
+  }, [scrollAnchorKey]);
+
   const routineDetailQuery = useQuery<RoutineDiscoveryDetail>({
     queryKey: [...conversationQueryKey(workspaceId, ally.id), "routine-detail", conversationId ?? "none", selectedRoutineId ?? "none"],
     enabled: Boolean(selectedRoutineId && conversationId && !conversationAccessFailure),
@@ -2632,11 +2665,64 @@ function ConversationPane({
     const frame = window.requestAnimationFrame(() => {
       const canvas = messageCanvasRef.current;
       if (typeof canvas?.scrollTo === "function") {
-        canvas.scrollTo({ top: canvas.scrollHeight, behavior: "smooth" });
+        // Instant pin: successive smooth scrolls interrupt each other mid-stream and never reach bottom.
+        canvas.scrollTo({ top: canvas.scrollHeight, behavior: "auto" });
       }
     });
     return () => window.cancelAnimationFrame(frame);
   }, [timelineSignature]);
+
+  useEffect(() => {
+    if (!ENABLE_SCROLL_RESTORE || !scrollAnchorKey || !conversationQuery.isSuccess) return;
+    if (restoredScrollRef.current === scrollAnchorKey) return;
+    const frame = window.requestAnimationFrame(() => {
+      const canvas = messageCanvasRef.current;
+      if (!canvas) return;
+      const scrollTo = (top: number) => {
+        if (typeof canvas.scrollTo === "function") canvas.scrollTo({ top });
+        else canvas.scrollTop = top;
+      };
+      const atBottom = () => {
+        scrollTo(canvas.scrollHeight);
+        restoredScrollRef.current = scrollAnchorKey;
+      };
+      let raw: string | null = null;
+      try {
+        raw = window.sessionStorage.getItem(scrollAnchorKey);
+      } catch {
+        raw = null;
+      }
+      if (!raw) {
+        atBottom();
+        return;
+      }
+      let anchor: { atBottom: boolean; messageId: string; sequence: number; offsetPx: number; updatedAt: number } | null = null;
+      try {
+        anchor = JSON.parse(raw);
+      } catch {
+        anchor = null;
+      }
+      if (!anchor || Date.now() - anchor.updatedAt > SCROLL_ANCHOR_TTL_MS || anchor.atBottom) {
+        atBottom();
+        return;
+      }
+      const el = anchor.messageId ? canvas.querySelector(`[data-message-id="${anchor.messageId}"]`) : null;
+      if (el instanceof HTMLElement) {
+        scrollTo(Math.min(Math.max(el.offsetTop + anchor.offsetPx, 0), canvas.scrollHeight));
+        restoredScrollRef.current = scrollAnchorKey;
+      } else if (timelineMessages.length === 0) {
+        return;
+      } else if (anchor.sequence < (timelineMessages[0]?.sequence ?? 0)) {
+        scrollTo(0);
+        restoredScrollRef.current = scrollAnchorKey;
+      } else {
+        atBottom();
+        return;
+      }
+      followLatestRef.current = canvas.scrollHeight - canvas.scrollTop - canvas.clientHeight < 96;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [ENABLE_SCROLL_RESTORE, SCROLL_ANCHOR_TTL_MS, scrollAnchorKey, conversationQuery.isSuccess, timelineMessages]);
 
   const unavailableNotice = provisioningNotice(ally);
   const resolvedAppearanceValue = resolveAllyAppearance(ally);
@@ -2810,6 +2896,7 @@ function ConversationPane({
     onScroll: (event) => {
       const canvas = event.currentTarget;
       followLatestRef.current = canvas.scrollHeight - canvas.scrollTop - canvas.clientHeight < 96;
+      writeScrollAnchor(canvas);
     },
   };
 

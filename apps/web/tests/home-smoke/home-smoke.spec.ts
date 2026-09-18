@@ -393,6 +393,7 @@ test(`shows a real conversation approval and records the choice in ${colorScheme
   await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
   await fixtureCloud(page, "signed-in", true);
   await page.goto(`/home/${allyId}`);
+  await page.getByRole("button", { name: "Approval needed", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
   await expect(dialog.getByText("Connect your knowledge space")).toBeVisible();
@@ -440,6 +441,7 @@ test("real conversation approval scrolls complete technical details on a narrow 
   const safePreview = "print('Synthetic safe preview')\n".repeat(200);
   await fixtureCloud(page, "signed-in", true, false, false, false, false, false, { appearanceKey: "ghosty:ff5800", preview: safePreview });
   await page.goto(`/home/${allyId}`);
+  await page.getByRole("button", { name: "Approval needed", exact: true }).click();
   const dialog = page.getByRole("dialog");
   const approve = dialog.getByRole("button", { name: "Approve", exact: true });
   await expect(approve).toHaveCSS("background-color", "rgb(255, 88, 0)");
@@ -532,6 +534,7 @@ test("keeps revealed timestamps clear of same-row activity and approval content"
     await fixtureCloud(scenario, "signed-in", true, true, withActivity);
     await scenario.goto(`/home/${allyId}`);
 
+    await scenario.getByRole("button", { name: "Approval needed", exact: true }).click();
     const dialog = scenario.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await scenario.keyboard.press("Escape");
