@@ -135,6 +135,24 @@ def test_official_attempt_creates_no_waitlist_or_production_ally(account):
 
 
 @pytest.mark.django_db
+def test_official_attempt_allows_common_word_ally_name(account):
+    greeting = (
+        "Hi, I’m Quiz. I can create a clear, engaging quiz for you. "
+        "What topic and difficulty would you like?"
+    )
+
+    start = begin_onboarding(
+        **{**payload(), "name": "Quiz", "job": "Create a quiz for me"},
+        browser_binding=b"browser",
+        generation_identity="test:onboarding",
+        provider=GreetingProvider(greeting),
+    )
+
+    assert start.greeting == greeting
+    assert OnboardingAttempt.objects.get().greeting == greeting
+
+
+@pytest.mark.django_db
 def test_create_replays_same_intent_and_conflicts_on_changed_content(account):
     user, workspace = account
     start = begin_onboarding(
