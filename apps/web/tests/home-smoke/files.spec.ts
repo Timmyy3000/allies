@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { createHash } from "node:crypto";
 
 const w = "00000000-0000-4000-8000-000000000001",
   a = "00000000-0000-4000-8000-000000000002",
@@ -7,7 +8,30 @@ const w = "00000000-0000-4000-8000-000000000001",
   f = "00000000-0000-4000-8000-000000000005";
 const csrf = "a".repeat(32),
   now = "2099-01-01T12:00:00Z";
-async function cloud(page: Page, fail = false) {
+function makePdfFixture() {
+  const stream = "BT /F1 18 Tf 24 100 Td (PDF preview works) Tj ET";
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 160] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets = objects.map((object, index) => {
+    const offset = Buffer.byteLength(body);
+    body += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    return offset;
+  });
+  const xref = Buffer.byteLength(body);
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  body += offsets.map((offset) => `${String(offset).padStart(10, "0")} 00000 n \n`).join("");
+  body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(body);
+}
+const pdfBytes = makePdfFixture();
+type PreviewKind = "text" | "pdf";
+async function cloud(page: Page, fail = false, previewKind: PreviewKind = "text") {
   let reserved = false,
     state = "pending",
     preparation = "uploading",
@@ -15,7 +39,9 @@ async function cloud(page: Page, fail = false) {
     generation = 1,
     uploads = 0;
   const requests: string[] = [];
-  const file = () => ({ id: f, name: "notes.txt", size: 5, state });
+  const uploadBytes = previewKind === "pdf" ? pdfBytes : Buffer.from("hello");
+  const fileName = previewKind === "pdf" ? "notes.pdf" : "notes.txt";
+  const file = () => ({ id: f, name: fileName, size: uploadBytes.length, state });
   const message = () => ({
     id: m,
     sender: "user",
@@ -104,9 +130,7 @@ async function cloud(page: Page, fail = false) {
       expect(req.headers()["x-csrftoken"]).toBe(csrf);
       expect(req.headers()["idempotency-key"]).toBeTruthy();
       expect(req.postDataJSON().content).toBe("");
-      expect(req.postDataJSON().files[0].sha256).toBe(
-        "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
-      );
+      expect(req.postDataJSON().files[0].sha256).toBe(createHash("sha256").update(uploadBytes).digest("hex"));
       const replayed = reserved;
       reserved = true;
       return ok(
@@ -126,7 +150,7 @@ async function cloud(page: Page, fail = false) {
     }
     if (path.endsWith(`/files/${f}/content`)) {
       expect(req.headers()["x-csrftoken"]).toBe(csrf);
-      expect(req.postData()).toBe("hello");
+      expect(req.postDataBuffer()).toEqual(uploadBytes);
       uploads++;
       state = fail && uploads === 1 ? "failed" : "ready";
       preparation =
@@ -158,15 +182,15 @@ async function cloud(page: Page, fail = false) {
     if (path.endsWith(`/files/${f}`))
       return ok({
         ...file(),
-        type: "text/plain",
-        preview_kind: "text",
+        type: previewKind === "pdf" ? "application/pdf" : "text/plain",
+        preview_kind: previewKind,
         open_path: `/files/${f}`,
       });
     if (path.endsWith(`/files/${f}/preview`))
       return route.fulfill({
         headers,
-        contentType: "text/plain",
-        body: "hello",
+        contentType: previewKind === "pdf" ? "application/octet-stream" : "text/plain",
+        body: uploadBytes,
       });
     return route.fulfill({
       status: 404,
@@ -176,7 +200,7 @@ async function cloud(page: Page, fail = false) {
   });
   return { requests, uploads: () => uploads };
 }
-async function select(page: Page) {
+async function select(page: Page, previewKind: PreviewKind = "text") {
   await page.goto(`/home/${a}`);
   await page.getByRole("button", { name: "Add attachment" }).click();
   await page.getByRole("button", { name: "Files", exact: true }).click();
@@ -185,15 +209,15 @@ async function select(page: Page) {
   await (
     await chooser
   ).setFiles({
-    name: "notes.txt",
-    mimeType: "text/plain",
-    buffer: Buffer.from("hello"),
+    name: previewKind === "pdf" ? "notes.pdf" : "notes.txt",
+    mimeType: previewKind === "pdf" ? "application/pdf" : "text/plain",
+    buffer: previewKind === "pdf" ? pdfBytes : Buffer.from("hello"),
   });
   await page.getByRole("button", { name: "Add 1 attachment" }).click();
   await expect(
     page
       .getByTestId("conversation-composer")
-      .getByRole("button", { name: "Remove notes.txt" }),
+      .getByRole("button", { name: `Remove ${previewKind === "pdf" ? "notes.pdf" : "notes.txt"}` }),
   ).toBeVisible();
 }
 test("anchors the attachment popup above the composer with a dark backdrop", async ({
@@ -234,7 +258,7 @@ test("sends files-only through the real composer and opens a private preview", a
   await select(page);
   expect(fixture.uploads()).toBe(0);
   await page.getByRole("button", { name: "Send message" }).click();
-  const attachment = page.getByRole("button", { name: /notes.txt.*MB/ });
+  const attachment = page.getByRole("button", { name: /notes.txt.*5 B/ });
   await expect(attachment).toBeEnabled();
   await attachment.click();
   await expect(
@@ -242,6 +266,18 @@ test("sends files-only through the real composer and opens a private preview", a
   ).toBeVisible();
   expect(fixture.uploads()).toBe(1);
   expect(fixture.requests.some((r) => r.endsWith(`/messages`))).toBe(false);
+});
+test("renders a PDF preview from normalized private bytes", async ({ page }) => {
+  await cloud(page, false, "pdf");
+  await select(page, "pdf");
+  await page.getByRole("button", { name: "Send message" }).click();
+  await page.getByRole("button", { name: /notes\.pdf/ }).click();
+  const frame = page.getByRole("dialog").locator("iframe");
+  await expect(frame).toBeVisible();
+  await expect(frame).toHaveAttribute("src", /^blob:/);
+  await expect(frame).not.toHaveAttribute("sandbox");
+  const src = await frame.getAttribute("src");
+  expect(await page.evaluate(async (url) => (await (await fetch(url!)).blob()).type, src)).toBe("application/pdf");
 });
 test("requires retry after upload failure and retains the draft across refresh", async ({
   page,
@@ -263,6 +299,6 @@ test("requires retry after upload failure and retains the draft across refresh",
     .poll(() => fixture.requests.some((r) => r.endsWith("/send-files")))
     .toBe(true);
   await expect(
-    page.getByRole("button", { name: /notes.txt.*MB/ }),
+    page.getByRole("button", { name: /notes.txt.*5 B/ }),
   ).toBeEnabled();
 });

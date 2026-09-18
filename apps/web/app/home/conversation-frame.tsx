@@ -106,6 +106,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
   const visibleMessages = model.messages.filter((message) => !message.queued);
   const routineItems = model.routineItems ?? [];
   const [selectedRun, setSelectedRun] = useState<(typeof routineItems)[number] | null>(null);
+  const [expandedDoc, setExpandedDoc] = useState<{ createdAt: string; text: string } | null>(null);
   const runDetail = selectedRun ? routineItems.find((item) => selectedRun.runId && item.kind === "result" && item.runId === selectedRun.runId && item.routineId === selectedRun.routineId && item.conversationId === selectedRun.conversationId)
     ?? routineItems.find((item) => item.id === selectedRun.id && item.kind === selectedRun.kind) : null;
   const triggeredAt = runDetail?.runId ? routineItems.find((item) => item.kind === "running" && item.runId === runDetail.runId && item.routineId === runDetail.routineId && item.conversationId === runDetail.conversationId)?.occurredAt : null;
@@ -128,9 +129,12 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
   const placementKey = `${visibleMessages.at(-1)?.id ?? "empty"}:${currentTurn?.turnOrdinal ?? ""}`;
   const topDate = formatConversationDateDivider(visibleMessages[0]?.createdAt ?? "");
   const [scrolledAway, setScrolledAway] = useState(false);
+  const [showJumpLatest, setShowJumpLatest] = useState(false);
   const followVisualViewportRef = useRef(false);
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
-    setScrolledAway(event.currentTarget.scrollTop > 12);
+    const canvas = event.currentTarget;
+    setScrolledAway(canvas.scrollTop > 12);
+    setShowJumpLatest(canvas.scrollHeight - canvas.scrollTop - canvas.clientHeight > 96);
     if (document.activeElement instanceof HTMLTextAreaElement && shellRef.current?.contains(document.activeElement)) {
       followVisualViewportRef.current = event.currentTarget.scrollHeight
         - event.currentTarget.scrollTop
@@ -202,6 +206,14 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
       shell.style.removeProperty("--chat-viewport-offset");
     };
   }, []);
+
+  const jumpToLatest = () => {
+    const shell = shellRef.current;
+    const canvas = shell?.querySelector<HTMLElement>('[data-testid="conversation-frame-canvas"]');
+    if (!canvas) return;
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    canvas.scrollTo({ top: canvas.scrollHeight, behavior: reducedMotion ? "auto" : "smooth" });
+  };
 
   const hasTerminalTurn = model.turns.some((turn) => (
     turn.state === "failed"
@@ -296,7 +308,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
             const messagePublications = publications?.(message.id);
 
             return (
-              <div className={styles.frameMessageRow} key={message.id}>
+              <div className={styles.frameMessageRow} key={message.id} data-message-id={message.id} data-sequence={message.sequence}>
                 {intervalDate ? <DateDivider>{intervalDate}</DateDivider> : null}
                 {message.sender === "user" ? (
                   <UserBubble
@@ -316,6 +328,16 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
                         {message.content}
                       </Streamdown>
                     </AssistantMessage>
+                    {isLongDocument(message.content) ? (
+                      <button
+                        type="button"
+                        className={styles.frameExpandDoc}
+                        onClick={() => setExpandedDoc({ createdAt: message.createdAt, text: message.content })}
+                        aria-label="Expand full message"
+                      >
+                        Expand
+                      </button>
+                    ) : null}
                   </>
                 )}
 
@@ -392,6 +414,13 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
             </>
           )}
         </ConversationRail>
+        {showJumpLatest ? (
+          <div className={styles.frameJumpLatestWrap} aria-live="polite">
+            <button type="button" className={styles.frameJumpLatest} onClick={jumpToLatest}>
+              Jump to latest ↓
+            </button>
+          </div>
+        ) : null}
       </ConversationCanvas>
 
       {!model.timeline.accessCopy ? <ConversationPresence ally={model.ally} state={actorState} stateReady={stateReady}
@@ -424,6 +453,17 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
           onCompositionEnd={actions.onCompositionEnd}
         />
       </footer>
+
+      {expandedDoc ? (
+        <BottomSheet title="Full message" modal onClose={() => setExpandedDoc(null)} className={styles.frameDocPreviewOverlay}>
+          <p className={styles.frameDocPreviewMeta}>{formatConversationDateDivider(expandedDoc.createdAt)}</p>
+          <div className={styles.frameDocPreviewBody}>
+            <Streamdown mode="static" parseIncompleteMarkdown tableMaxHeight="none">
+              {expandedDoc.text}
+            </Streamdown>
+          </div>
+        </BottomSheet>
+      ) : null}
 
       {runDetail ? (
         <BottomSheet title="Routine run details" modal onClose={() => setSelectedRun(null)} className={styles.frameRoutineDetailOverlay}>
@@ -756,6 +796,10 @@ function ActivityGroup({ group, ongoing = false, responseInProgress = false }: {
       }))}
     />
   );
+}
+
+export function isLongDocument(text: string): boolean {
+  return text.length >= 2000 || text.split("\n").length >= 20;
 }
 
 function activityText(entry: ProductionConversationActivityGroupModel["entries"][number]) {

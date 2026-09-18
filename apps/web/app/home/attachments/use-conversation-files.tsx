@@ -32,6 +32,7 @@ import {
   FileIcon,
   middleEllipsis,
 } from "./attachment-picker";
+import { formatFileSize } from "../file-size";
 import styles from "./attachments.module.css";
 
 const EMPTY: FileTransfer[] = [];
@@ -322,7 +323,7 @@ export function useConversationFiles(
                         : local.state === "ready"
                           ? "Ready"
                           : "Needs attention"
-                    : `${local ? "✓ Ready · " : ""}${(file.size / 1_000_000).toFixed(1)} MB`}
+                    : `${local ? "✓ Ready · " : ""}${formatFileSize(file.size)}`}
                 </motion.small></AnimatePresence>
               </span>
             </button>
@@ -463,7 +464,7 @@ function FileBundle({ count, size, children }: { count: number; size: number; ch
         <span className={styles.transferBundleIcon}><FileIcon name="attachments" /></span>
         <span className={styles.transferBundleLabel}>
           <strong>Attachments</strong>
-          <small>{count} files · {(size / 1_000_000).toFixed(1)} MB</small>
+          <small>{count} files · {formatFileSize(size)}</small>
         </span>
         <motion.span
           className={styles.transferBundleChevron}
@@ -569,7 +570,10 @@ function PrivateFilePreview({
             setPreviewReady(true);
           }
           else {
-            objectUrl = URL.createObjectURL(blob);
+            const previewBlob = info.preview_kind === "pdf"
+              ? new Blob([blob], { type: "application/pdf" })
+              : blob;
+            objectUrl = URL.createObjectURL(previewBlob);
             setUrl(objectUrl);
             setPreviewReady(true);
           }
@@ -670,7 +674,7 @@ function PrivateFilePreview({
         </header>
         <p>
           {metadata
-            ? `${metadata.type} · ${(metadata.size / 1_000_000).toFixed(1)} MB`
+            ? `${metadata.type} · ${formatFileSize(metadata.size)}`
             : "Loading file…"}
         </p>
         <div className={styles.previewBody}><AnimatePresence initial={false} mode="wait"><motion.div key={previewState} className={styles.previewContent} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .16 }}>
@@ -686,7 +690,7 @@ function PrivateFilePreview({
           ) : url && metadata?.preview_kind === "image" ? (
             <img src={url} alt={file.name} />
           ) : url && metadata?.preview_kind === "pdf" ? (
-            <iframe sandbox="" src={url} title={file.name} />
+            <iframe src={url} title={file.name} />
           ) : null}
         </motion.div></AnimatePresence></div>
         <footer>
