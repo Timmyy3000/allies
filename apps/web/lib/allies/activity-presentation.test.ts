@@ -47,6 +47,7 @@ describe("mergeActivityPresentation", () => {
     expect(entries[0].outcome).toBeUndefined();
     expect(entries[1].outcome).toBe("failed");
     expect(entries[1].text).toBe("Could not search");
+    expect(entries[1].ongoingText).toBe("Activity 2");
   });
 
   it("uses terminal execution evidence only for open calls in the same attempt", () => {
@@ -65,6 +66,7 @@ describe("mergeActivityPresentation", () => {
     expect(before[1].outcome).toBeUndefined();
     const after = next.groupsByKey[activityTurnKey("message-1", 1)].entries;
     expect(after[0].outcome).toBe("completed");
+    expect(after[0].ongoingText).toBe("Activity 1");
     expect(after[1].outcome).toBeUndefined();
   });
 

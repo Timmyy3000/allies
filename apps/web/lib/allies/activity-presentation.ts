@@ -15,6 +15,7 @@ export interface ActivityPresentationEntry {
   conversationTurnOrdinal: number;
   kind: DisplayableActivityKind;
   text: string;
+  ongoingText?: string;
   state: ActivityState;
   createdAt: string;
   activityAttemptId?: string | null;
@@ -100,7 +101,12 @@ export function mergeActivityPresentation(
     } else if (entry.activityId && entry.activityAttemptId) {
       const firstSequence = Math.min(existing.firstSequence ?? existing.sequence, entry.sequence);
       if (entry.outcome && (!existing.terminalSequence || entry.sequence < existing.terminalSequence)) {
-        entries.set(key, { ...entry, id: existing.id, firstSequence });
+        entries.set(key, {
+          ...entry,
+          id: existing.id,
+          firstSequence,
+          ongoingText: existing.ongoingText ?? existing.text,
+        });
       } else {
         entries.set(key, { ...existing, firstSequence });
       }
@@ -114,6 +120,7 @@ export function mergeActivityPresentation(
     if (!entry.activityAttemptId || !entry.activityId || !terminal) return entry;
     if (entry.outcome && entry.terminalSequence && entry.terminalSequence <= terminal.sequence) return entry;
     return { ...entry, outcome: terminal.outcome, terminalSequence: terminal.sequence,
+      ongoingText: entry.ongoingText ?? entry.text,
       text: terminal.outcome === "failed" ? "Activity interrupted by a failed response" : terminal.outcome === "stopped" ? "Activity stopped" : "Activity status unavailable" };
   }).sort(compareEntries);
   const retainedEntries = sortedEntries.slice(-limit);
