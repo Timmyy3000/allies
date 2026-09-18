@@ -194,6 +194,7 @@ class TerminalEventRequest(Schema):
 
 class CompleteRequest(TerminalEventRequest):
     receipt: dict[str, Any]
+    session_binding: SessionBindingRequest | None = None
 
 
 class FailRequest(TerminalEventRequest):

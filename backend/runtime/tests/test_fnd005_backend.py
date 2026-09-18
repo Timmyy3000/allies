@@ -22,6 +22,7 @@ from runtime.exceptions import (
 )
 from runtime.models import (
     Attempt,
+    ConversationBinding,
     Execution,
     ExecutionEvent,
     ExecutionStatus,
@@ -587,12 +588,19 @@ def test_internal_api_claim_and_event(runtime_setup):
         },
     )
     assert event.status_code == 202, event.content
-    session = client.put(
-        f"/api/v1/runtime/attempts/{claim['attempt_id']}/session-binding",
+    rejected = client.post(
+        f"/api/v1/runtime/attempts/{claim['attempt_id']}/complete",
         data={
-            "cloud_conversation_ref": "cloud-conversation",
-            "expected_session_id": None,
-            "effective_session_id": "hermes-session",
+            "event_id": str(uuid4()),
+            "stream_id": claim["stream_id"],
+            "sequence": 2,
+            "payload": {"run_id": "run-1", "status": "invalid"},
+            "receipt": {"code": "ok"},
+            "session_binding": {
+                "cloud_conversation_ref": "cloud-conversation",
+                "expected_session_id": None,
+                "effective_session_id": "hermes-session",
+            },
         },
         content_type="application/json",
         headers={
@@ -600,7 +608,10 @@ def test_internal_api_claim_and_event(runtime_setup):
             "X-Foundry-Lease-Token": claim["lease_token"],
         },
     )
-    assert session.status_code == 200, session.content
+    assert rejected.status_code == 422, rejected.content
+    assert not ConversationBinding.objects.filter(
+        profile_id=claim["profile_id"]
+    ).exists()
     complete = client.post(
         f"/api/v1/runtime/attempts/{claim['attempt_id']}/complete",
         data={
@@ -609,6 +620,11 @@ def test_internal_api_claim_and_event(runtime_setup):
             "sequence": 2,
             "payload": {"run_id": "run-1", "status": "completed"},
             "receipt": {"code": "ok"},
+            "session_binding": {
+                "cloud_conversation_ref": "cloud-conversation",
+                "expected_session_id": None,
+                "effective_session_id": "hermes-session",
+            },
         },
         content_type="application/json",
         headers={

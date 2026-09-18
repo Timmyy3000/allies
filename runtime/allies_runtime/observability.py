@@ -99,6 +99,7 @@ _CRITICAL_RUNTIME_OPERATIONS = frozenset(
         "startup.composition",
         "startup.hermes_readiness",
         "worker.initialization",
+        "attempt.finalization",
         "profile_reconciliation",
         "profile.reconciliation_fetch",
         "profile.reconciliation_retry_wait",

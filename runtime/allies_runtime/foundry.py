@@ -1572,20 +1572,24 @@ class FoundryClient:
         sequence: int,
         payload: Mapping[str, Any],
         receipt: Mapping[str, Any],
+        session_binding: Mapping[str, Any] | None = None,
     ) -> TerminalReceipt:
         _validate_sequence(sequence, MAX_TERMINAL_SEQUENCE, "terminal event")
         event_id = deterministic_event_id(attempt_id, stream_id, sequence)
+        body = {
+            "event_id": event_id,
+            "stream_id": stream_id,
+            "sequence": sequence,
+            "payload": dict(payload),
+            "receipt": dict(receipt),
+        }
+        if session_binding is not None:
+            body["session_binding"] = dict(session_binding)
         result = await self._request(
             "POST",
             f"/api/v1/runtime/attempts/{attempt_id}/complete",
             lease_token=lease_token,
-            body={
-                "event_id": event_id,
-                "stream_id": stream_id,
-                "sequence": sequence,
-                "payload": dict(payload),
-                "receipt": dict(receipt),
-            },
+            body=body,
         )
         return self._terminal(result)
 
@@ -2725,8 +2729,8 @@ class FoundryWorker:
                 )
             await _close_stream(stream)
             stream = None
-            try:
-                if claim.routine_id is not None:
+            if claim.routine_id is not None:
+                try:
                     bind_routine = getattr(self.foundry, "bind_routine", None)
                     if not callable(bind_routine):
                         raise HermesError(
@@ -2740,22 +2744,12 @@ class FoundryWorker:
                             effective_session_id=terminal.session_id,
                         )
                     )
-                else:
-                    await _retry_response_loss(
-                        lambda: self.foundry.bind(
-                            claim.attempt_id,
-                            claim.lease_token,
-                            cloud_conversation_ref=conversation_id,
-                            expected_session_id=claim.session_id,
-                            effective_session_id=terminal.session_id,
-                        )
+                except ResponseLossError:
+                    return await self.foundry.stopped(
+                        claim.attempt_id,
+                        claim.lease_token,
+                        reason="session_response_lost",
                     )
-            except ResponseLossError:
-                return await self.foundry.stopped(
-                    claim.attempt_id,
-                    claim.lease_token,
-                    reason="session_response_lost",
-                )
             sequence += 1
             if claim.routine_id is not None:
                 routine_result = getattr(self.foundry, "routine_result", None)
@@ -2801,23 +2795,50 @@ class FoundryWorker:
                     )
                 )
             try:
-                return await _retry_response_loss(
-                    lambda: self.foundry.complete(
-                        claim.attempt_id,
-                        claim.lease_token,
-                        stream_id=claim.stream_id,
-                        sequence=sequence,
-                        payload=terminal.payload,
-                        receipt={
-                            "code": "ok",
-                            **(
-                                {"history_verified": True}
-                                if expected_history_marker is not None
-                                else {}
+                with observe_runtime_operation(
+                    "attempt.finalization",
+                    attempt_id=claim.attempt_id,
+                    execution_id=claim.execution_id,
+                    profile_id=claim.profile_id,
+                    **self._observability_context(),
+                ) as finalization:
+                    try:
+                        return await _retry_response_loss(
+                            lambda: self.foundry.complete(
+                                claim.attempt_id,
+                                claim.lease_token,
+                                stream_id=claim.stream_id,
+                                sequence=sequence,
+                                payload=terminal.payload,
+                                receipt={
+                                    "code": "ok",
+                                    **(
+                                        {"history_verified": True}
+                                        if expected_history_marker is not None
+                                        else {}
+                                    ),
+                                },
+                                session_binding=(
+                                    None
+                                    if claim.routine_id is not None
+                                    else {
+                                        "cloud_conversation_ref": conversation_id,
+                                        "expected_session_id": claim.session_id,
+                                        "effective_session_id": terminal.session_id,
+                                    }
+                                ),
+                            )
+                        )
+                    except FoundryError as exc:
+                        finalization.update(
+                            status_code=exc.status or type(exc).status,
+                            reason_code=(
+                                "complete_response_lost"
+                                if isinstance(exc, ResponseLossError)
+                                else "complete_rejected"
                             ),
-                        },
-                    )
-                )
+                        )
+                        raise
             except ResponseLossError:
                 # Completion may already be durable; only stopped is safe to
                 # attempt after the bounded replay also loses its response.
