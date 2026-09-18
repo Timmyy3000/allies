@@ -899,8 +899,8 @@ describe("ConversationFrame", () => {
       />,
     );
 
-    const status = screen.getByRole("status", { name: "Thinking" });
-    expect(status.textContent).toBe("Thinking..");
+    const status = screen.getByRole("status", { name: "Replying" });
+    expect(status.textContent).toBe("Replying..");
     expect(screen.queryByTestId("activity-reply-4")).toBeNull();
     expect(screen.queryByText("A response is being generated.")).toBeNull();
     expect(screen.getAllByText("Searching for citysubs").length).toBeGreaterThan(0);
@@ -1076,7 +1076,7 @@ describe("ConversationFrame", () => {
     expect(screen.getByRole("status", { name: "Response complete" })).toBeTruthy();
   });
 
-  it("uses the latest safe activity text while the response remains active", () => {
+  it("uses continuous activity copy while the response remains active", () => {
     render(<ConversationFrame model={{
       ...model,
       messages: model.messages.slice(0, 2),
@@ -1092,13 +1092,14 @@ describe("ConversationFrame", () => {
           conversationTurnOrdinal: 4,
           kind: "activity_completed",
           text: "Searched the web",
+          ongoingText: "Searching the web",
           outcome: "completed",
         }],
       }],
       turns: [{ assistantText: "", messageId: "message-2", state: "running", turnOrdinal: 4 }],
     }} actions={actions} />);
 
-    expect(screen.getByRole("status", { name: "Searched the web" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Searching the web" })).toBeTruthy();
     expect(screen.queryByRole("status", { name: "Thinking" })).toBeNull();
   });
 
