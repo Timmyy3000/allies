@@ -158,21 +158,26 @@ def test_duplicate_attempt_generates_only_once_and_excludes_appearance():
 
 @pytest.mark.django_db
 @override_settings(**SETTINGS)
-def test_generated_greeting_cannot_address_visitor_by_ally_name():
+def test_generated_greeting_can_reuse_common_word_ally_name():
     cache.clear()
 
-    class MisaddressingProvider:
+    greeting = (
+        "Hi, I’m Quiz. I can create a clear, engaging quiz for you. "
+        "What topic and difficulty would you like?"
+    )
+
+    class GreetingProvider:
         def generate(self, request):
-            return "Hola, Ari!"
+            return greeting
 
-    with pytest.raises(GenerationUnavailable, match="generation unavailable"):
-        create_entry(
-            **_entry(),
-            generation_identity="test",
-            provider=MisaddressingProvider(),
-        )
+    entry = create_entry(
+        **{**_entry(), "name": "Quiz", "job": "Create a quiz for me"},
+        generation_identity="test",
+        provider=GreetingProvider(),
+    )
 
-    assert not WaitlistEntry.objects.get().greeting_text
+    assert entry.greeting == greeting
+    assert WaitlistEntry.objects.get().greeting_text == greeting
 
 
 @pytest.mark.django_db
