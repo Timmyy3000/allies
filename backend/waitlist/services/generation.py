@@ -44,23 +44,6 @@ def validate_output(value: Any, *, ally_name: str = "") -> str:
         raise WaitlistValidationError("greeting output is invalid", field="greeting")
     if PROHIBITED_PRODUCT_FRAMING.search(text):
         raise WaitlistValidationError("greeting output is invalid", field="greeting")
-    normalized_ally_name = ally_name.strip()
-    if normalized_ally_name:
-        escaped_name = re.escape(normalized_ally_name)
-        self_introduction = re.compile(
-            rf"(?:\b(?:i(?:\s+am|['’]m)|my\s+name\s+is|this\s+is)\s+"
-            rf"{escaped_name}(?!\w)|(?<!\w){escaped_name}(?!\w)\s+here\b)",
-            re.IGNORECASE,
-        )
-        text_without_introduction = self_introduction.sub("", text)
-        if re.search(
-            rf"(?<!\w){escaped_name}(?!\w)",
-            text_without_introduction,
-            re.IGNORECASE,
-        ):
-            raise WaitlistValidationError(
-                "greeting output is invalid", field="greeting"
-            )
     return text
 
 
