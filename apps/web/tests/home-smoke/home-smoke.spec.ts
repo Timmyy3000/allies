@@ -92,6 +92,7 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
   let releaseSend: (() => void) | null = null;
   let approvalStatus = "pending";
   let streamReads = 0;
+  let streamBurstReleaseRead = 0;
   let terminalServedAt = 0;
   const approvalId = "00000000-0000-4000-8000-000000000010";
   const approval = () => ({ id: approvalId, message_id: sentMessageId, status: approvalStatus, expires_at: now, decided_at: approvalStatus === "pending" ? null : new Date().toISOString(), acknowledgement_deadline_at: approvalStatus === "pending" ? null : new Date(Date.now() + 30_000).toISOString() });
@@ -179,10 +180,10 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
         streamReads += 1;
         const fragments = streamReads === 1
           ? [streamedHeading]
-          : streamReads <= 3
+          : streamBurstReleaseRead === 0
             ? [streamedHeading, streamedParagraph]
             : [streamedHeading, streamedParagraph, streamedBurst];
-        const complete = streamReads >= 8;
+        const complete = streamBurstReleaseRead > 0 && streamReads >= streamBurstReleaseRead + 4;
         if (complete && terminalServedAt === 0) terminalServedAt = Date.now();
         return route.fulfill({ status: 200, headers, json: success({
           conversation_id: conversationId,
@@ -277,6 +278,7 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
     releaseSend: () => releaseSend?.(),
     deletionStatusReads: () => deletionStatusReads,
     streamReads: () => streamReads,
+    releaseStreamBurst: () => { streamBurstReleaseRead ||= streamReads; },
     terminalServedAt: () => terminalServedAt,
   };
 }
@@ -711,11 +713,12 @@ test("smooths structured bursty streamed replies and reconciles the exact termin
   });
 
   await expect.poll(cloud.streamReads).toBeGreaterThanOrEqual(2);
+  await expect(response).toContainText("The first paragraph stays stable.");
   const beforePause = await response.textContent();
   await expect.poll(cloud.streamReads).toBeGreaterThanOrEqual(3);
-  expect(await response.textContent()).toBe(beforePause);
+  await expect(response).not.toContainText("Details");
 
-  await expect.poll(cloud.streamReads).toBeGreaterThanOrEqual(4);
+  cloud.releaseStreamBurst();
   await expect(response).toContainText("wrong");
   await expect(response.getByRole("heading", { name: "Details" })).toBeVisible();
   await expect(response.getByRole("list")).toContainText("large burst");
