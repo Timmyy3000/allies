@@ -4,9 +4,19 @@ from waitlist.exceptions import WaitlistValidationError
 from waitlist.services.generation import validate_output
 
 
-def test_validate_output_rejects_ally_name_as_address():
-    with pytest.raises(WaitlistValidationError):
-        validate_output("Hola, Roban!", ally_name="Roban")
+def test_validate_output_leaves_name_style_to_provider_prompt():
+    greeting = "Hola, Roban!"
+
+    assert validate_output(greeting, ally_name="Roban") == greeting
+
+
+def test_validate_output_allows_ally_name_as_job_word():
+    greeting = (
+        "Hi, I’m Quiz. I can create a clear, engaging quiz for you. "
+        "What topic and difficulty would you like?"
+    )
+
+    assert validate_output(greeting, ally_name="Quiz") == greeting
 
 
 @pytest.mark.parametrize(
