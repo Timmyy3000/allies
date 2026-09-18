@@ -220,6 +220,40 @@ describe("buildProductionConversationFrameModel", () => {
     expect(model.turns[0]).toMatchObject({ assistantText: reply.content, createdAt: reply.createdAt, state: "completed", isTruncated: true });
   });
 
+  it("keeps the longest compatible active prefix and uses exact terminal text", () => {
+    const reply: AssistantReplyViewModel = {
+      id: "reply-1",
+      sourceMessageId: userMessage.id,
+      conversationTurnOrdinal: userMessage.sequence,
+      content: "The durable",
+      status: "in_progress",
+      hasFullPrefix: true,
+      createdAt: "2026-09-03T09:40:01Z",
+      updatedAt: "2026-09-03T09:40:02Z",
+    };
+    const input = makeInput({
+      messages: [userMessage],
+      assistantReplies: [reply],
+      projection: {
+        ...EMPTY_ACTIVITY_PROJECTION,
+        state: "running",
+        turns: [{
+          messageId: userMessage.id,
+          turnOrdinal: userMessage.sequence,
+          assistantText: "The durable answer is newer",
+          state: "running",
+        }],
+      },
+    });
+
+    expect(buildProductionConversationFrameModel(input).turns[0]?.assistantText)
+      .toBe("The durable answer is newer");
+    expect(buildProductionConversationFrameModel({
+      ...input,
+      assistantReplies: [{ ...reply, content: "Corrected final", status: "completed" }],
+    }).turns[0]?.assistantText).toBe("Corrected final");
+  });
+
   it("lets a matching durable success clear a stale failed message and turn", () => {
     const reply: AssistantReplyViewModel = {
       id: "reply-success",

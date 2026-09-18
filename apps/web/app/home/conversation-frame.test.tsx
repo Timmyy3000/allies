@@ -870,6 +870,177 @@ describe("ConversationFrame", () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it.each(["aggregate", "stream"] as const)(
+    "announces a directly observed completion once in %s mode but keeps hydrated history quiet",
+    (responsePresentationMode) => {
+      const complete = {
+        ...model,
+        responsePresentationMode,
+        responseStarted: true,
+        messages: model.messages.slice(0, 2),
+        turns: [{
+          assistantText: "The directly observed answer.",
+          messageId: "message-2",
+          state: "completed" as const,
+          turnOrdinal: 4,
+        }],
+      };
+      const view = render(<ConversationFrame model={complete} actions={actions} />);
+      expect(screen.getAllByRole("status", { name: "Response complete" })).toHaveLength(1);
+      view.rerender(<ConversationFrame model={complete} actions={actions} />);
+      expect(screen.getAllByRole("status", { name: "Response complete" })).toHaveLength(1);
+
+      view.unmount();
+      render(<ConversationFrame model={{ ...complete, responseStarted: false }} actions={actions} />);
+      expect(screen.queryByRole("status", { name: "Response complete" })).toBeNull();
+    },
+  );
+
+  it.each([
+    ["failed", "Response failed"],
+    ["stopped", "Response stopped"],
+  ] as const)("announces a directly observed %s outcome once without replay animation", (state, announcement) => {
+    const outcome = {
+      ...model,
+      responseStarted: true,
+      messages: model.messages.slice(0, 2),
+      turns: [{
+        assistantText: "Retained answer text.",
+        messageId: "message-2",
+        state,
+        turnOrdinal: 4,
+      }],
+    };
+    const view = render(<ConversationFrame model={outcome} actions={actions} />);
+    expect(screen.getAllByRole("status", { name: announcement })).toHaveLength(1);
+    expect(screen.getByTestId("activity-reply-4").querySelector('[data-sd-animate]')).toBeNull();
+    view.rerender(<ConversationFrame model={outcome} actions={actions} />);
+    expect(screen.getAllByRole("status", { name: announcement })).toHaveLength(1);
+  });
+
+  it.each([
+    ["failed", "Response failed"],
+    ["stopped", "Response stopped"],
+  ] as const)("announces a running response transitioning to %s", (state, announcement) => {
+    const running = {
+      ...model,
+      responsePresentationMode: "stream" as const,
+      messages: model.messages.slice(0, 2),
+      turns: [{ assistantText: "Partial", messageId: "message-2", state: "running" as const, turnOrdinal: 4 }],
+    };
+    const view = render(<ConversationFrame model={running} actions={actions} />);
+    view.rerender(<ConversationFrame model={{
+      ...running,
+      turns: [{ ...running.turns[0], state }],
+    }} actions={actions} />);
+    expect(screen.getByRole("status", { name: announcement })).toBeTruthy();
+    expect(screen.getByTestId("activity-reply-4").querySelector('[data-sd-animate]')).toBeNull();
+  });
+
+  it.each([
+    ["failed", "Response failed"],
+    ["stopped", "Response stopped"],
+  ] as const)("announces a completed response corrected to %s", (state, announcement) => {
+    const complete = {
+      ...model,
+      responseStarted: true,
+      messages: model.messages.slice(0, 2),
+      turns: [{ assistantText: "Trusted text", messageId: "message-2", state: "completed" as const, turnOrdinal: 4 }],
+    };
+    const view = render(<ConversationFrame model={complete} actions={actions} />);
+    expect(screen.getByRole("status", { name: "Response complete" })).toBeTruthy();
+    view.rerender(<ConversationFrame model={{
+      ...complete,
+      turns: [{ ...complete.turns[0], state }],
+    }} actions={actions} />);
+    expect(screen.queryByRole("status", { name: "Response complete" })).toBeNull();
+    expect(screen.getByRole("status", { name: announcement })).toBeTruthy();
+  });
+
+  it("does not restart the terminal announcement for a duplicate completed outcome", () => {
+    vi.useFakeTimers();
+    try {
+      const complete = {
+        ...model,
+        responseStarted: true,
+        messages: model.messages.slice(0, 2),
+        turns: [{ assistantText: "First terminal text", messageId: "message-2", state: "completed" as const, turnOrdinal: 4 }],
+      };
+      const view = render(<ConversationFrame model={complete} actions={actions} />);
+      act(() => vi.advanceTimersByTime(2000));
+      view.rerender(<ConversationFrame model={{
+        ...complete,
+        turns: [{ ...complete.turns[0], assistantText: "Newer terminal text" }],
+      }} actions={actions} />);
+      act(() => vi.advanceTimersByTime(801));
+      expect(screen.queryByRole("status", { name: "Response complete" })).toBeNull();
+    } finally { vi.useRealTimers(); }
+  });
+
+  it("streams a growing response in one reply and announces progress then completion", () => {
+    const running = {
+      ...model,
+      responsePresentationMode: "stream" as const,
+      messages: model.messages.slice(0, 2),
+      showThinkingState: true,
+      activityState: "running" as const,
+      turns: [{
+        assistantText: "A growing",
+        messageId: "message-2",
+        state: "running" as const,
+        turnOrdinal: 4,
+      }],
+    };
+    const view = render(<ConversationFrame model={running} actions={actions} />);
+    const reply = screen.getByTestId("activity-reply-4");
+    expect(reply.textContent).toContain("A growing");
+    expect(screen.getByRole("status", { name: "Response in progress" })).toBeTruthy();
+
+    view.rerender(<ConversationFrame model={{
+      ...running,
+      turns: [{ ...running.turns[0], assistantText: "A growing response" }],
+    }} actions={actions} />);
+    expect(screen.getByTestId("activity-reply-4")).toBe(reply);
+    expect(reply.textContent).toContain("A growing response");
+
+    view.rerender(<ConversationFrame model={{
+      ...running,
+      showThinkingState: false,
+      activityState: "completed",
+      turns: [{ ...running.turns[0], assistantText: "Corrected final", state: "completed" }],
+    }} actions={actions} />);
+    expect(screen.getByTestId("activity-reply-4")).toBe(reply);
+    expect(reply.textContent).toContain("Corrected final");
+    expect(reply.textContent).not.toContain("A growing response");
+    expect(screen.getByRole("status", { name: "Response complete" })).toBeTruthy();
+  });
+
+  it("uses the latest safe activity text while the response remains active", () => {
+    render(<ConversationFrame model={{
+      ...model,
+      messages: model.messages.slice(0, 2),
+      showThinkingState: true,
+      activityState: "running",
+      activityGroups: [{
+        ...model.activityGroups[0],
+        messageId: "message-2",
+        conversationTurnOrdinal: 4,
+        entries: [{
+          ...model.activityGroups[0].entries[0],
+          messageId: "message-2",
+          conversationTurnOrdinal: 4,
+          kind: "activity_completed",
+          text: "Searched the web",
+          outcome: "completed",
+        }],
+      }],
+      turns: [{ assistantText: "", messageId: "message-2", state: "running", turnOrdinal: 4 }],
+    }} actions={actions} />);
+
+    expect(screen.getByRole("status", { name: "Searched the web" })).toBeTruthy();
+    expect(screen.queryByRole("status", { name: "Thinking" })).toBeNull();
+  });
+
   it.each(["completed", "failed", "stopped"] as const)("retains a truncated %s reply with an explicit notice", (state) => {
     render(<ConversationFrame model={{
       ...model,
