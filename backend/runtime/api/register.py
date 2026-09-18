@@ -4,6 +4,7 @@ from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.conf import settings
 from django.core.management.base import CommandError
+from django.db import transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse, StreamingHttpResponse
 from ninja.errors import ValidationError as NinjaValidationError
 from ninja.security import HttpBearer
@@ -828,18 +829,29 @@ def register(api: NinjaExtraAPI) -> None:
     def complete(request: HttpRequest, attempt_id, payload: CompleteRequest):
         try:
             context = authenticate_runtime_token(_bearer(request))
-            receipt = complete_attempt(
-                context,
-                attempt_id,
-                _lease_token(request),
-                payload.receipt,
-                terminal_event={
-                    "event_id": payload.event_id,
-                    "stream_id": payload.stream_id,
-                    "sequence": payload.sequence,
-                    "payload": payload.payload,
-                },
-            )
+            lease_token = _lease_token(request)
+            with transaction.atomic():
+                if payload.session_binding is not None:
+                    update_session_binding(
+                        context,
+                        attempt_id,
+                        lease_token,
+                        payload.session_binding.cloud_conversation_ref,
+                        payload.session_binding.expected_session_id,
+                        payload.session_binding.effective_session_id,
+                    )
+                receipt = complete_attempt(
+                    context,
+                    attempt_id,
+                    lease_token,
+                    payload.receipt,
+                    terminal_event={
+                        "event_id": payload.event_id,
+                        "stream_id": payload.stream_id,
+                        "sequence": payload.sequence,
+                        "payload": payload.payload,
+                    },
+                )
             return JsonResponse(_terminal_json(receipt), status=200)
         except RuntimeDomainError as exc:
             return _error(exc)

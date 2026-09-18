@@ -10,6 +10,7 @@ from uuid import UUID
 import pytest
 
 from allies_runtime import foundry as foundry_module
+from allies_runtime import observability as observability_module
 from allies_runtime.errors import (
     HermesDisconnected,
     HermesError,
@@ -358,6 +359,11 @@ async def test_client_mutation_shapes_and_deterministic_event_ids():
         sequence=2,
         payload={"run_id": "run-1", "status": "completed"},
         receipt={"code": "ok"},
+        session_binding={
+            "cloud_conversation_ref": "cloud-1",
+            "expected_session_id": "session-1",
+            "effective_session_id": "session-2",
+        },
     )
     failed = await foundry.fail(
         "attempt-1",
@@ -380,6 +386,11 @@ async def test_client_mutation_shapes_and_deterministic_event_ids():
     assert transport.calls[0][3]["event_id"] == deterministic_event_id(
         "attempt-1", "stream-1", 1
     )
+    assert transport.calls[3][3]["session_binding"] == {
+        "cloud_conversation_ref": "cloud-1",
+        "expected_session_id": "session-1",
+        "effective_session_id": "session-2",
+    }
 
 
 @pytest.mark.asyncio
@@ -445,7 +456,6 @@ async def test_worker_overlaps_profiles_and_completes_incremental_events():
     responses.extend(
         [{"status": 202, "body": {"event_id": "event", "sequence": 1}}] * 4
     )
-    responses.extend([{"session_id": "session-1"}] * 2)
     responses.extend(
         [
             {
@@ -507,7 +517,6 @@ async def test_worker_resolves_approval_and_continues_the_same_turn(decision, ou
             ),
         },
         {"status": 202, "body": {"event_id": "resolved", "sequence": 3}},
-        {"session_id": "session-1"},
         {
             "attempt_id": "attempt-1",
             "status": "succeeded",
@@ -571,7 +580,6 @@ async def test_worker_records_expired_approval_without_calling_resolver():
             ),
         },
         {"status": 202, "body": {"event_id": "resolved", "sequence": 3}},
-        {"session_id": "session-1"},
         {
             "attempt_id": "attempt-1",
             "status": "succeeded",
@@ -838,7 +846,6 @@ async def test_worker_reconciles_lost_approval_resolution_before_continuing():
             ),
         },
         {"status": 202, "body": {"event_id": "resolved", "sequence": 3}},
-        {"session_id": "session-1"},
         {
             "attempt_id": "attempt-1",
             "status": "succeeded",
@@ -1651,7 +1658,6 @@ async def test_worker_forwards_a_long_stream_beyond_legacy_513_event_limit():
     )
     responses.extend(
         [
-            {"session_id": "session-1"},
             {
                 "attempt_id": "attempt-1",
                 "status": "succeeded",
@@ -1761,6 +1767,14 @@ async def test_worker_closes_stream_and_emits_reserved_budget_failure(
 async def test_worker_clamps_failure_after_boundary_completion_rejection(monkeypatch):
     monkeypatch.setattr(foundry_module, "MAX_RUNTIME_EVENT_SEQUENCE", 2)
     monkeypatch.setattr(foundry_module, "MAX_TERMINAL_SEQUENCE", 3)
+    operations = []
+    monkeypatch.setattr(
+        observability_module,
+        "_emit_runtime_operation",
+        lambda operation, suffix, fields: operations.append(
+            (operation, suffix, dict(fields))
+        ),
+    )
 
     class BoundaryHermes:
         async def stream_profile_incremental(
@@ -1787,7 +1801,6 @@ async def test_worker_clamps_failure_after_boundary_completion_rejection(monkeyp
         CLAIM,
         {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
         {"status": 202, "body": {"event_id": "delta", "sequence": 2}},
-        {"session_id": "session-1"},
         ServiceUnavailableError("completion unavailable"),
         {
             "attempt_id": "attempt-1",
@@ -1807,6 +1820,14 @@ async def test_worker_clamps_failure_after_boundary_completion_rejection(monkeyp
     assert fail_calls[0][3]["sequence"] == 3
     assert fail_calls[0][3]["code"] == ServiceUnavailableError.code
     assert not any("/stopped" in call[1] for call in transport.calls)
+    finalization = next(
+        fields
+        for operation, suffix, fields in operations
+        if operation == "attempt.finalization" and suffix == "failed"
+    )
+    assert finalization["status_code"] == 503
+    assert finalization["error_code"] == ServiceUnavailableError.code
+    assert finalization["reason_code"] == "complete_rejected"
 
 
 @pytest.mark.asyncio
@@ -2518,7 +2539,6 @@ async def test_worker_replays_event_after_response_loss_with_same_event_id():
         {"status": 202, "body": {"event_id": "event-1", "sequence": 1}},
     ]
     responses.append({"status": 202, "body": {"event_id": "event-2", "sequence": 2}})
-    responses.append({"session_id": "session-1"})
     responses.append(
         {"attempt_id": "attempt-1", "status": "succeeded", "receipt_id": "receipt-1"}
     )
@@ -2564,7 +2584,6 @@ async def test_worker_replays_complete_after_response_loss_without_conflicting_f
             for i in (1, 2)
         ]
     )
-    responses.append({"session_id": "session-1"})
     responses.extend(
         [
             ResponseLossError("complete response lost"),
@@ -2597,7 +2616,6 @@ async def test_worker_second_complete_response_loss_stops_without_fail():
             for i in (1, 2)
         ]
     )
-    responses.append({"session_id": "session-1"})
     responses.extend(
         [
             ResponseLossError("complete response lost"),
@@ -2919,7 +2937,6 @@ async def test_worker_uses_non_incremental_hermes_fallback_and_handles_cancelled
     foundry, _ = client(
         CLAIM,
         *([{"status": 202, "body": {"event_id": "event", "sequence": 1}}] * 2),
-        {"session_id": "session-1"},
         {"attempt_id": "attempt-1", "status": "succeeded", "receipt_id": "receipt"},
     )
     worker = FoundryWorker(foundry, LegacyHermes(), slots=2, renew_interval=0.1)

@@ -331,13 +331,12 @@ async def test_first_turn_dispatches_once_binds_terminal_session_and_completes()
     assert [event["sequence"] for event in foundry.events] == [1, 1, 2]
     assert len(hermes.ensured) == 1
     assert len(hermes.streams) == 1
-    assert foundry.binds == [
-        {
-            "cloud_conversation_ref": "cloud-1",
-            "expected_session_id": None,
-            "effective_session_id": "rotated-1",
-        }
-    ]
+    assert foundry.binds == []
+    assert foundry.completes[0]["session_binding"] == {
+        "cloud_conversation_ref": "cloud-1",
+        "expected_session_id": None,
+        "effective_session_id": "rotated-1",
+    }
     assert foundry.completes[0]["sequence"] == 3
     assert foundry.completes[0]["payload"] == {
         "run_id": "run-1",
@@ -723,7 +722,8 @@ async def test_bound_turn_resumes_claimed_session_without_creating_one():
 
     assert hermes.ensured == []
     assert hermes.streams[0][1] == "session-1"
-    assert foundry.binds[0]["expected_session_id"] == "session-1"
+    assert foundry.binds == []
+    assert foundry.completes[0]["session_binding"]["expected_session_id"] == "session-1"
 
 
 @pytest.mark.asyncio
