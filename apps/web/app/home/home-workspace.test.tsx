@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   EMPTY_ACTIVITY_PROJECTION,
   type AllyViewModel,
+  type AssistantReplyViewModel,
   type ConversationViewModel,
   type MessageViewModel,
   type RoutineChatItemViewModel,
@@ -26,9 +27,87 @@ import {
   activitySnapshotBytes,
   HomeWorkspace,
   hasOnboardingExchange,
+  mergeAssistantReplies,
   projectConversationActivity,
   ROUTINE_ACTION_SENT_TIMEOUT_MS,
 } from "./home-workspace";
+
+describe("assistant reply reconciliation", () => {
+  const reply = (overrides: Partial<AssistantReplyViewModel> = {}): AssistantReplyViewModel => ({
+    id: "reply-1",
+    sourceMessageId: "message-1",
+    conversationTurnOrdinal: 1,
+    content: "Long in-progress prefix",
+    status: "in_progress",
+    hasFullPrefix: true,
+    createdAt: "2026-09-18T10:00:00Z",
+    updatedAt: "2026-09-18T10:00:01Z",
+    ...overrides,
+  });
+
+  it.each([
+    ["2026-09-18T10:00:00Z", "2026-09-18T10:00:00Z"],
+    ["invalid", "invalid"],
+    ["2026-09-18T10:00:02Z", "2026-09-18T10:00:01Z"],
+    ["2026-09-18T10:00:01Z", "2026-09-18T10:00:02Z"],
+  ])("keeps an exact terminal reply over stale progress (%s -> %s)", (progressAt, terminalAt) => {
+    const merged = mergeAssistantReplies(
+      [reply({ updatedAt: progressAt })],
+      [reply({ content: "Final", status: "completed", updatedAt: terminalAt })],
+      [reply({ content: "Stale progress after completion", updatedAt: "2026-09-18T10:00:03Z" })],
+    );
+    expect(merged[0]).toMatchObject({ content: "Final", status: "completed" });
+  });
+
+  it("accepts only a strictly newer valid terminal correction", () => {
+    expect(mergeAssistantReplies(
+      [reply({ content: "First final", status: "completed", updatedAt: "2026-09-18T10:00:02Z" })],
+      [reply({ content: "Older correction", status: "completed", updatedAt: "2026-09-18T10:00:01Z" })],
+      [reply({ content: "New correction", status: "completed", updatedAt: "2026-09-18T10:00:03Z" })],
+    )[0]?.content).toBe("New correction");
+  });
+
+  it.each(["completed", "failed", "stopped"] as const)(
+    "lets an incomplete %s snapshot end the turn without discarding the trusted prefix",
+    (status) => {
+      const merged = mergeAssistantReplies(
+        [reply({ content: "Trusted full prefix", updatedAt: "2026-09-18T10:00:02Z" })],
+        [reply({ content: "suffix only", status, hasFullPrefix: false, updatedAt: "invalid" })],
+        [reply({ content: "Stale active text", updatedAt: "2026-09-18T10:00:03Z" })],
+      );
+
+      expect(merged[0]).toMatchObject({
+        content: "Trusted full prefix",
+        hasFullPrefix: true,
+        status,
+      });
+    },
+  );
+
+  it.each(["completed", "failed", "stopped"] as const)(
+    "accepts a strictly newer incomplete %s correction while retaining trusted terminal text",
+    (status) => {
+      const merged = mergeAssistantReplies(
+        [reply({ content: "Trusted terminal text", status: "completed", updatedAt: "2026-09-18T10:00:02Z" })],
+        [reply({ content: "suffix only", status, hasFullPrefix: false, updatedAt: "2026-09-18T10:00:03Z" })],
+      );
+      expect(merged[0]).toMatchObject({ content: "Trusted terminal text", hasFullPrefix: true, status });
+    },
+  );
+
+  it.each([
+    ["2026-09-18T10:00:02Z", "2026-09-18T10:00:02Z"],
+    ["2026-09-18T10:00:02Z", "2026-09-18T10:00:01Z"],
+    ["invalid", "2026-09-18T10:00:03Z"],
+    ["2026-09-18T10:00:02Z", "invalid"],
+  ])("rejects an incomplete terminal correction without strictly newer valid timestamps (%s -> %s)", (currentAt, incomingAt) => {
+    const merged = mergeAssistantReplies(
+      [reply({ content: "Trusted terminal text", status: "completed", updatedAt: currentAt })],
+      [reply({ content: "suffix only", status: "failed", hasFullPrefix: false, updatedAt: incomingAt })],
+    );
+    expect(merged[0]).toMatchObject({ content: "Trusted terminal text", status: "completed" });
+  });
+});
 
 const selectedSegment = vi.hoisted(() => vi.fn<() => string | null>(() => null));
 const replace = vi.hoisted(() => vi.fn());
@@ -2558,6 +2637,7 @@ describe("HomeWorkspace", () => {
 
   it("keeps durable replies moving while the activity stream is connected", async () => {
     vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "stream");
     vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
     const conversationId = "00000000-0000-4000-8000-000000000005";
     const acceptedMessage = {
@@ -2627,8 +2707,7 @@ describe("HomeWorkspace", () => {
       timeout: 4_000,
       interval: 50,
     });
-    expect(screen.queryByTestId("activity-reply-2")).toBeNull();
-    expect(screen.queryByText("The durable answer recovered.")).toBeNull();
+    expect(screen.getByTestId("activity-reply-2").textContent).toContain("The durable answer recovered.");
     expect(closeStream).not.toHaveBeenCalled();
   }, 10_000);
 

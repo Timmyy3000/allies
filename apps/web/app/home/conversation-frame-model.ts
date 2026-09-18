@@ -15,6 +15,7 @@ import type {
   ActivityPresentationState,
 } from "../../lib/allies/activity-presentation";
 import type { AllyShape } from "../../components/ally-avatar";
+import type { ResponsePresentationMode } from "../../lib/env";
 import { conversationAccessCopy, type ConversationAccessFailure } from "./conversation-access-error";
 
 export type ProductionRuntimeIntentStatus = RuntimeIntentViewModel["status"] | "requesting" | null;
@@ -216,6 +217,7 @@ export interface ProductionConversationFrameModel {
   responseStarted: boolean;
   gettingReady: boolean;
   streaming: boolean;
+  responsePresentationMode?: ResponsePresentationMode;
   firstAssistantMessageId: string | null;
   retriedMessageIds: string[];
   retryingMessageId: string | null;
@@ -258,6 +260,7 @@ export interface ProductionConversationFrameInput {
   responseStarted: boolean;
   gettingReady: boolean;
   streaming: boolean;
+  responsePresentationMode?: ResponsePresentationMode;
   retriedMessageIds: ReadonlySet<string>;
   routineItems?: readonly RoutineChatItemViewModel[];
   routineDetail?: ProductionRoutineDetailState;
@@ -429,6 +432,7 @@ export function buildProductionConversationFrameModel(
     responseStarted: accessBlocked ? false : input.responseStarted,
     gettingReady: accessBlocked ? false : input.gettingReady,
     streaming: accessBlocked ? false : input.streaming,
+    responsePresentationMode: input.responsePresentationMode ?? "aggregate",
     firstAssistantMessageId,
     retriedMessageIds: [...input.retriedMessageIds],
     retryingMessageId: input.retryingMessageId,
@@ -467,9 +471,7 @@ function mergeTurnModels(
     const hasLegacyReply = hasLegacyAssistantReply(messages, turn);
     return {
       ...toTurnModel(turn),
-      assistantText: hasLegacyReply
-        ? ""
-        : reply?.content ?? (turn.state === "failed" || turn.state === "stopped" ? "" : turn.assistantText),
+      assistantText: hasLegacyReply ? "" : mergedAssistantText(turn, reply),
       createdAt: reply?.createdAt,
       state: reply?.status === "completed" || hasLegacyReply
         ? "completed"
@@ -499,6 +501,19 @@ function mergeTurnModels(
   return turns.sort(
     (left, right) => left.turnOrdinal - right.turnOrdinal || left.messageId.localeCompare(right.messageId),
   );
+}
+
+function mergedAssistantText(
+  turn: AssistantTurnProjection,
+  reply?: AssistantReplyViewModel,
+): string {
+  if (!reply) return turn.state === "failed" || turn.state === "stopped" ? "" : turn.assistantText;
+  if (reply.status === "completed" || reply.status === "failed" || reply.status === "stopped") {
+    return reply.content;
+  }
+  if (reply.content.startsWith(turn.assistantText)) return reply.content;
+  if (turn.assistantText.startsWith(reply.content)) return turn.assistantText;
+  return reply.content;
 }
 
 function hasLegacyAssistantReply(

@@ -355,7 +355,7 @@ export function ActivityDisclosure({
       }}
     >
       <summary onClick={(event) => { if (lockOpen) event.preventDefault(); }}>
-        <span role={ongoing ? "status" : undefined} aria-live={ongoing ? "polite" : undefined} aria-atomic={ongoing ? true : undefined}>
+        <span role={ongoing ? "status" : undefined} aria-live={ongoing ? "polite" : undefined} aria-atomic={ongoing ? true : undefined} aria-label={ongoing ? label : undefined}>
           <span key={label} className={styles.frameActivityLabel}>
             {ongoing ? <ShinyText color="var(--chat-accent)">{label}</ShinyText> : label}
           </span>

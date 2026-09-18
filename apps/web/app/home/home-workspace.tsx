@@ -46,7 +46,12 @@ import {
   mergeActivityPresentation,
   type ActivityPresentationState,
 } from "../../lib/allies/activity-presentation";
-import { getActivitySseEnabled, getCreationWakeEnabled, getWebEnvironment } from "../../lib/env";
+import {
+  getActivitySseEnabled,
+  getCreationWakeEnabled,
+  getResponsePresentationMode,
+  getWebEnvironment,
+} from "../../lib/env";
 import { useSession } from "../../lib/session/session-context";
 import { InstallInvitation } from "../../lib/pwa/pwa-install";
 import {
@@ -1148,6 +1153,7 @@ function ConversationPane({
   onHandoffRetryAvailable?: () => void;
 }) {
   const session = useSession();
+  const responsePresentationMode = getResponsePresentationMode();
   const approvalClient = useMemo<ApprovalClient>(() => ({
     getApprovals: (workspace, conversation, signal) => session.runCloudOperation((operationSignal) => session.client.getApprovals(workspace, conversation, operationSignal), { signal, retryTransient: "approval-read" }),
     getApproval: (workspace, conversation, approval, signal) => session.runCloudOperation((operationSignal) => session.client.getApproval(workspace, conversation, approval, operationSignal), { signal, retryTransient: "approval-read" }),
@@ -2680,6 +2686,7 @@ function ConversationPane({
     responseStarted,
     gettingReady,
     streaming: shouldPoll || streamConnected,
+    responsePresentationMode,
     retriedMessageIds,
     routineItems: conversation?.routineItems ?? [],
     routineDetail: {
@@ -2930,7 +2937,7 @@ function mergeMessages(...groups: MessageViewModel[][]): MessageViewModel[] {
   return mergeConversationMessageCopies(...groups);
 }
 
-function mergeAssistantReplies(
+export function mergeAssistantReplies(
   ...groups: readonly (readonly AssistantReplyViewModel[])[]
 ): AssistantReplyViewModel[] {
   const bySourceMessageId = new Map<string, AssistantReplyViewModel>();
@@ -2938,7 +2945,12 @@ function mergeAssistantReplies(
     for (const reply of group) {
       const current = bySourceMessageId.get(reply.sourceMessageId);
       if (!current || preferAssistantReply(current, reply)) {
-        bySourceMessageId.set(reply.sourceMessageId, reply);
+        bySourceMessageId.set(reply.sourceMessageId, current
+          && isTerminalReplyStatus(reply.status)
+          && !reply.hasFullPrefix
+          && current.hasFullPrefix
+          ? { ...reply, content: current.content, hasFullPrefix: true }
+          : reply);
       }
     }
   }
@@ -2966,9 +2978,17 @@ function preferAssistantReply(
   current: AssistantReplyViewModel,
   incoming: AssistantReplyViewModel,
 ): boolean {
-  if (current.hasFullPrefix !== incoming.hasFullPrefix) return incoming.hasFullPrefix;
+  const currentTerminal = isTerminalReplyStatus(current.status);
+  const incomingTerminal = isTerminalReplyStatus(incoming.status);
+  if (currentTerminal !== incomingTerminal) return incomingTerminal;
   const currentUpdatedAt = Date.parse(current.updatedAt);
   const incomingUpdatedAt = Date.parse(incoming.updatedAt);
+  if (currentTerminal && incomingTerminal) {
+    return Number.isFinite(currentUpdatedAt)
+      && Number.isFinite(incomingUpdatedAt)
+      && incomingUpdatedAt > currentUpdatedAt;
+  }
+  if (current.hasFullPrefix !== incoming.hasFullPrefix) return incoming.hasFullPrefix;
   if (Number.isFinite(currentUpdatedAt) && Number.isFinite(incomingUpdatedAt)
     && currentUpdatedAt !== incomingUpdatedAt) {
     return incomingUpdatedAt > currentUpdatedAt;
@@ -2976,6 +2996,10 @@ function preferAssistantReply(
   if (current.content.length !== incoming.content.length) return incoming.content.length > current.content.length;
   if (current.isTruncated !== incoming.isTruncated) return incoming.isTruncated === true;
   return incoming.status !== current.status && isLaterReplyStatus(incoming.status, current.status);
+}
+
+function isTerminalReplyStatus(status: AssistantReplyViewModel["status"]): boolean {
+  return status === "completed" || status === "failed" || status === "stopped";
 }
 
 function isLaterReplyStatus(

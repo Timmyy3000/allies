@@ -319,7 +319,13 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
                   </>
                 )}
 
-                {turn ? <TurnMessage model={model} turn={turn} onOpenRoutine={actions.onOpenRoutine} onOpenFile={onFileOpen} /> : null}
+                {turn ? <TurnMessage
+                  model={model}
+                  turn={turn}
+                  announceOnMount={message.id === latestUser?.id && model.responseStarted}
+                  onOpenRoutine={actions.onOpenRoutine}
+                  onOpenFile={onFileOpen}
+                /> : null}
                 {messagePublications ? <div className={styles.frameMessagePublications}>{messagePublications}</div> : null}
                 {activityGroups.filter((group) => docked || group.key !== currentGroup?.key).map((group) => (
                   <ActivityGroup key={group.key} group={group} />
@@ -638,29 +644,52 @@ function isTerminalActivityState(state: ProductionConversationFrameModel["activi
   return state !== "queued" && state !== "running";
 }
 
+function responseOutcomeAnnouncement(state: ProductionConversationTurnModel["state"]): string | null {
+  if (state === "completed") return "Response complete";
+  if (state === "failed") return "Response failed";
+  if (state === "stopped") return "Response stopped";
+  return null;
+}
+
 function TurnMessage({
   model,
   turn,
+  announceOnMount,
   onOpenRoutine,
   onOpenFile,
 }: {
   model: ProductionConversationFrameModel;
   turn: ProductionConversationTurnModel;
+  announceOnMount: boolean;
   onOpenRoutine?: (id: string) => void;
   onOpenFile?: (id: string) => void;
 }) {
   const pending = turn.state === "queued" || turn.state === "running" || turn.state === "awaiting_action";
-  const [presentation, setPresentation] = useState({ state: turn.state, reveal: false });
+  const [presentation, setPresentation] = useState({
+    state: turn.state,
+    reveal: false,
+    announcement: announceOnMount && !model.timeline.isLoading
+      ? responseOutcomeAnnouncement(turn.state)
+      : null,
+  });
   if (presentation.state !== turn.state) {
     const wasPending = ["queued", "running", "awaiting_action"].includes(presentation.state);
-    setPresentation({ state: turn.state, reveal: wasPending && turn.state === "completed" && !model.timeline.isLoading });
+    const previousOutcome = responseOutcomeAnnouncement(presentation.state);
+    const nextOutcome = responseOutcomeAnnouncement(turn.state);
+    const announcement = !model.timeline.isLoading
+      && nextOutcome
+      && (wasPending || (previousOutcome !== null && previousOutcome !== nextOutcome))
+      ? nextOutcome
+      : null;
+    setPresentation({ state: turn.state, reveal: announcement === "Response complete", announcement });
   }
   useEffect(() => {
-    if (!presentation.reveal) return;
-    const timer = setTimeout(() => setPresentation((current) => ({ ...current, reveal: false })), 2800);
+    if (!presentation.announcement) return;
+    const timer = setTimeout(() => setPresentation((current) => ({ ...current, reveal: false, announcement: null })), 2800);
     return () => clearTimeout(timer);
-  }, [presentation.reveal]);
-  if (pending) return null;
+  }, [presentation.announcement]);
+  const live = pending && model.responsePresentationMode === "stream" && Boolean(turn.assistantText);
+  if (pending && !live) return null;
   if (turn.state === "reconciliation_needed") {
     return (
       <AssistantMessage testId={`activity-reply-${turn.turnOrdinal}`}>
@@ -672,9 +701,18 @@ function TurnMessage({
     ? "This response failed."
     : turn.state === "stopped" ? "This response was stopped." : null;
   if (!turn.assistantText && !statusText && !turn.isTruncated) return null;
-  const reveal = presentation.reveal;
+  const reveal = presentation.reveal || live;
   return (
     <AssistantMessage createdAt={turn.createdAt} testId={`activity-reply-${turn.turnOrdinal}`}>
+      {pending || presentation.announcement ? (
+        <span
+          className={styles.frameSrOnly}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          aria-label={pending ? "Response in progress" : presentation.announcement ?? undefined}
+        />
+      ) : null}
       {turn.assistantText ? <Streamdown
         components={routineLinkComponents(onOpenRoutine, onOpenFile)}
         tableMaxHeight="none"
@@ -692,6 +730,7 @@ function TurnMessage({
 
 function ActivityGroup({ group, ongoing = false, responseInProgress = false }: { group: ProductionConversationActivityGroupModel; ongoing?: boolean; responseInProgress?: boolean }) {
   const active = group.entries.findLast((entry) => entry.activityId && !entry.outcome && entry.kind === "activity_started");
+  const current = active ?? group.entries.at(-1);
   const [disclosure, setDisclosure] = useState({ responseInProgress, open: responseInProgress });
   if (disclosure.responseInProgress !== responseInProgress) {
     setDisclosure({ responseInProgress, open: responseInProgress });
@@ -699,7 +738,7 @@ function ActivityGroup({ group, ongoing = false, responseInProgress = false }: {
   if (!group.entries.length) return null;
   return (
     <ActivityDisclosure
-      label={ongoing ? active ? activityText(active) : "Thinking…" : `${group.entries.length} ${group.entries.length === 1 ? "activity" : "activities"}`}
+      label={ongoing ? current ? activityText(current) : "Thinking…" : `${group.entries.length} ${group.entries.length === 1 ? "activity" : "activities"}`}
       ongoing={ongoing}
       open={disclosure.open}
       lockOpen={responseInProgress}
