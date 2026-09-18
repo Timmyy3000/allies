@@ -523,7 +523,7 @@ describe("HomeWorkspace", () => {
     const label = await screen.findByText("Attachments");
     const toggle = label.closest("button") as HTMLButtonElement;
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
-    expect(toggle.textContent).toContain("3 files · 1.2 MB");
+    expect(toggle.textContent).toContain("3 files · 1.1 MB");
     expect(screen.queryByText("one.pdf")).toBeNull();
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
@@ -3317,5 +3317,70 @@ describe("HomeWorkspace", () => {
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     render(<QueryClientProvider client={queryClient}><HomeWorkspace selectedAllyId={null} /></QueryClientProvider>);
     await waitFor(() => expect(replace).toHaveBeenCalledWith("/"));
+  });
+
+  it("restores the saved scroll anchor on reload instead of jumping to latest", async () => {
+    window.sessionStorage.setItem(
+      "allies:scroll:workspace:00000000-0000-4000-8000-000000000005",
+      JSON.stringify({ atBottom: false, messageId: "00000000-0000-4000-8000-000000000006", sequence: 1, offsetPx: 40, updatedAt: Date.now() }),
+    );
+    const offsetTops = new Map<string, number>([["00000000-0000-4000-8000-000000000006", 500]]);
+    const descriptor = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetTop");
+    Object.defineProperty(HTMLElement.prototype, "offsetTop", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return offsetTops.get(this.dataset.messageId ?? "") ?? 0;
+      },
+    });
+    try {
+      renderHome([ally], ally.id);
+      const canvas = await screen.findByTestId("conversation-frame-canvas");
+      const scrollTo = vi.fn();
+      Object.defineProperties(canvas, {
+        scrollHeight: { configurable: true, value: 2000 },
+        clientHeight: { configurable: true, value: 400 },
+        scrollTop: { configurable: true, value: 0, writable: true },
+        scrollTo: { configurable: true, value: scrollTo },
+      });
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 540 }));
+    } finally {
+      window.sessionStorage.clear();
+      if (descriptor) Object.defineProperty(HTMLElement.prototype, "offsetTop", descriptor);
+    }
+  });
+
+  it("falls back to the latest message when no scroll anchor was saved", async () => {
+    window.sessionStorage.clear();
+    renderHome([ally], ally.id);
+    const canvas = await screen.findByTestId("conversation-frame-canvas");
+    const scrollTo = vi.fn();
+    Object.defineProperties(canvas, {
+      scrollHeight: { configurable: true, value: 2000 },
+      clientHeight: { configurable: true, value: 400 },
+      scrollTop: { configurable: true, value: 0, writable: true },
+      scrollTo: { configurable: true, value: scrollTo },
+    });
+    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 2000 }));
+  });
+
+  it("falls back to the oldest loaded message when the anchor aged out of the window", async () => {
+    window.sessionStorage.setItem(
+      "allies:scroll:workspace:00000000-0000-4000-8000-000000000005",
+      JSON.stringify({ atBottom: false, messageId: "00000000-0000-4000-8000-000000000000", sequence: 0, offsetPx: 0, updatedAt: Date.now() }),
+    );
+    try {
+      renderHome([ally], ally.id);
+      const canvas = await screen.findByTestId("conversation-frame-canvas");
+      const scrollTo = vi.fn();
+      Object.defineProperties(canvas, {
+        scrollHeight: { configurable: true, value: 2000 },
+        clientHeight: { configurable: true, value: 400 },
+        scrollTop: { configurable: true, value: 0, writable: true },
+        scrollTo: { configurable: true, value: scrollTo },
+      });
+      await waitFor(() => expect(scrollTo).toHaveBeenCalledWith({ top: 0 }));
+    } finally {
+      window.sessionStorage.clear();
+    }
   });
 });

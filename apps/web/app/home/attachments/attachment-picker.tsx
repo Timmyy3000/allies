@@ -10,6 +10,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { FILE_EXTENSIONS, validateSelectedFiles } from "@allies/cloud-client";
 import { selectedFile, type SelectedFile } from "../../../lib/files/transfers";
+import { formatFileSize } from "../file-size";
 import styles from "./attachments.module.css";
 
 type Mode = "menu" | "photos" | "files" | "camera";
@@ -520,7 +521,7 @@ export function AttachmentPicker({
                                 <span className={styles.fileName}>
                                   {item.name}
                                   <small>
-                                    {(item.size / 1_000_000).toFixed(1)} MB
+                                    {formatFileSize(item.size)}
                                   </small>
                                 </span>
                               </>

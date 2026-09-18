@@ -6,6 +6,7 @@ import { AllyAvatar, type AllyShape } from "../../components/ally-avatar";
 import { ShinyText } from "../../components/text-animations/shiny-text";
 
 import styles from "./conversation-frame.module.css";
+import { formatFileSize } from "./file-size";
 import { useIsMobileHome } from "./use-is-mobile-home";
 import { ActivityIcon } from "./activity-icon";
 
@@ -1017,19 +1018,90 @@ export function ApprovalSheet({
   );
 }
 
+export type FilePreviewState = "loading" | "ready" | "error";
+
 export function ImageLightbox({
   onClose,
   alt,
+  fileName,
+  mime,
+  sizeBytes,
+  state = "ready",
+  src,
+  text,
+  onRetry,
 }: {
   onClose: () => void;
   alt: string;
+  fileName?: string;
+  mime?: string;
+  sizeBytes?: number;
+  state?: FilePreviewState;
+  src?: string;
+  text?: string;
+  onRetry?: () => void;
 }) {
+  const normalizedMime = mime?.split(";")[0]?.trim().toLowerCase() ?? "";
+  const isImage = normalizedMime.startsWith("image/");
+  const isPdf = normalizedMime === "application/pdf";
+  const isAudio = normalizedMime.startsWith("audio/");
+  const isVideo = normalizedMime.startsWith("video/");
+  const isTextLike =
+    normalizedMime.startsWith("text/") ||
+    normalizedMime === "application/json" ||
+    normalizedMime === "text/markdown" ||
+    normalizedMime === "text/csv";
+  const label = fileName ? `${fileName} preview` : "Image preview";
+  const isLegacyPlaceholder = !fileName && !src && !mime;
+  const isUnsupported = !isLegacyPlaceholder && (
+    (!isImage || !src) && (!isPdf || !src) && (!isAudio || !src) && (!isVideo || !src) && !(isTextLike && text !== undefined)
+  );
   return (
-    <div className={styles.frameLightbox} role="dialog" aria-modal="true" aria-label="Image preview">
-      <div className={styles.frameLargeImage} role="img" aria-label={alt}>
-        <span className={styles.frameLargeImageShape} aria-hidden="true" />
-      </div>
-      <button type="button" className={styles.frameLightboxClose} aria-label="Close image" onClick={onClose}><CloseIcon /></button>
+    <div className={styles.frameLightbox} role="dialog" aria-modal="true" aria-label={label} aria-busy={state === "loading"}>
+      {state === "loading" ? (
+        <div className={styles.framePreviewSkeleton} role="status" aria-label="Loading preview" />
+      ) : state === "error" ? (
+        <div className={styles.framePreviewUnsupported} role="alert">
+          <strong>{fileName ?? alt}</strong>
+          {sizeBytes !== undefined ? <span>{formatFileSize(sizeBytes)}</span> : null}
+          <span>Preview failed to load.</span>
+          {onRetry ? <button type="button" className={styles.frameAccentAction} onClick={onRetry}>Try again</button> : null}
+        </div>
+      ) : isImage && src ? (
+        <img className={styles.framePreviewImage} src={src} alt={alt} />
+      ) : isPdf && src ? (
+        <iframe className={styles.framePreviewFrame} src={src} title={fileName ?? alt} sandbox="allow-same-origin" />
+      ) : isAudio && src ? (
+        <audio className={styles.framePreviewMedia} src={src} controls aria-label={fileName ?? alt} />
+      ) : isVideo && src ? (
+        <video className={styles.framePreviewMedia} src={src} controls aria-label={fileName ?? alt} />
+      ) : isTextLike && text !== undefined ? (
+        <pre className={styles.framePreviewText}>{text}</pre>
+      ) : isUnsupported ? (
+        <div className={styles.framePreviewUnsupported}>
+          <strong>{fileName ?? alt}</strong>
+          {sizeBytes !== undefined ? <span>{formatFileSize(sizeBytes)}</span> : null}
+          {src ? (
+            <span className={styles.frameSheetActions}>
+              <a className={styles.frameNeutralAction} href={src} target="_blank" rel="noopener noreferrer">Open</a>
+              <a className={styles.frameAccentAction} href={src} download={fileName}>Download</a>
+            </span>
+          ) : (
+            <span>No preview available for this file type.</span>
+          )}
+        </div>
+      ) : (
+        <div className={styles.frameLargeImage} role="img" aria-label={alt}>
+          <span className={styles.frameLargeImageShape} aria-hidden="true" />
+        </div>
+      )}
+      {fileName && state === "ready" && !isUnsupported ? (
+        <p className={styles.framePreviewMeta}>
+          <strong>{fileName}</strong>
+          {sizeBytes !== undefined ? <span>{formatFileSize(sizeBytes)}</span> : null}
+        </p>
+      ) : null}
+      <button type="button" className={styles.frameLightboxClose} aria-label="Close preview" onClick={onClose}><CloseIcon /></button>
     </div>
   );
 }

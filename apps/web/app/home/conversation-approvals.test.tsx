@@ -42,6 +42,7 @@ describe("conversation approvals", () => {
   });
   it("shows fixed summary copy and keeps technical details closed until opened", async () => {
     const client = setup();
+    fireEvent.click(await screen.findByRole("button", { name: "Approval needed" }));
     await screen.findByText(approval.actionPreview);
     expect(screen.getByText("Your Ally is requesting permission to perform an action.")).toBeTruthy();
     const technical = screen.getByText("View technical details", { exact: true }).closest("details");
@@ -62,6 +63,7 @@ describe("conversation approvals", () => {
     let finish!: (value: ApprovalDetail) => void;
     const decideApproval = vi.fn(() => new Promise<ApprovalDetail>((resolve) => { finish = resolve; }));
     setup({ decideApproval });
+    fireEvent.click(await screen.findByRole("button", { name: "Approval needed" }));
     const approve = await screen.findByRole("button", { name: "Approve" });
     fireEvent.click(approve); fireEvent.click(approve);
     expect(decideApproval).toHaveBeenCalledTimes(1);
@@ -77,6 +79,7 @@ describe("conversation approvals", () => {
   it("restores focus to a terminal approval history row", async () => {
     const approved = { ...approval, status: "approved" as const, decidedAt: new Date().toISOString() };
     setup({ decideApproval: vi.fn().mockResolvedValue(approved) });
+    fireEvent.click(await screen.findByRole("button", { name: "Approval needed" }));
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -91,7 +94,8 @@ describe("conversation approvals", () => {
       <section aria-label="other"><ConversationApprovalSlot messageId="other-message" /></section>
       <section aria-label="fallback"><ConversationApprovalSlot visibleMessageIds={new Set([approval.messageId])} /></section>
     </>);
-    await screen.findByRole("dialog");
+    await screen.findByRole("button", { name: "Approval needed" });
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(screen.getByRole("region", { name: "matching" }).textContent).toContain("Approval needed");
     expect(screen.getByRole("region", { name: "other" }).textContent).toBe("");
     expect(screen.getByRole("region", { name: "fallback" }).textContent).toBe("");
@@ -111,7 +115,9 @@ describe("conversation approvals", () => {
       <section aria-label="fallback"><ConversationApprovalSlot visibleMessageIds={new Set(phase === "missing" ? [second.messageId] : [approval.messageId, second.messageId])} /></section>
     </>;
     const view = render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove>{slots("missing")}</ConversationApprovals></QueryClientProvider>);
-    await screen.findByRole("dialog");
+    const initialButtons = await screen.findAllByRole("button", { name: "Approval needed" });
+    expect(initialButtons).toHaveLength(2);
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(view.container.querySelectorAll(`[data-approval-id="${approval.id}"]`)).toHaveLength(1);
     expect(screen.getByRole("region", { name: "fallback" }).textContent).toContain("Approval needed");
     view.rerender(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove>{slots("active")}</ConversationApprovals></QueryClientProvider>);
@@ -127,6 +133,8 @@ describe("conversation approvals", () => {
     const client: ApprovalClient = { getApprovals: vi.fn().mockResolvedValue([approval]), getApproval: vi.fn().mockResolvedValue(approval), decideApproval: vi.fn() };
     const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const view = render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove><ConversationApprovalSlot messageId={approval.messageId} /></ConversationApprovals></QueryClientProvider>);
+    await screen.findByRole("button", { name: "Approval needed" });
+    fireEvent.click(screen.getByRole("button", { name: "Approval needed" }));
     await screen.findByRole("dialog");
     view.rerender(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove enabled={false}><ConversationApprovalSlot messageId={approval.messageId} /></ConversationApprovals></QueryClientProvider>);
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -153,7 +161,8 @@ describe("conversation approvals", () => {
     };
     const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove><ConversationApprovalSlot messageId={approval.messageId} /></ConversationApprovals></QueryClientProvider>);
-    await screen.findByRole("dialog");
+    await screen.findByRole("button", { name: "Approval needed" });
+    expect(screen.queryByRole("dialog")).toBeNull();
 
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       await query.refetchQueries({ queryKey: ["workspaces", "workspace", "approvals", "conversation"] });
@@ -168,6 +177,7 @@ describe("conversation approvals", () => {
   it("retries an uncertain response with the same choice and idempotency key", async () => {
     const decideApproval = vi.fn().mockRejectedValueOnce(new Error("network")).mockResolvedValue({ ...approval, status: "rejected" });
     setup({ decideApproval });
+    fireEvent.click(await screen.findByRole("button", { name: "Approval needed" }));
     fireEvent.click(await screen.findByRole("button", { name: "Reject" }));
     await screen.findByRole("alert");
     expect((screen.getByRole("button", { name: "Approve" }) as HTMLButtonElement).disabled).toBe(true);
@@ -178,6 +188,7 @@ describe("conversation approvals", () => {
 
   it("prevents read-only decisions", async () => {
     const client = setup({}, false);
+    fireEvent.click(await screen.findByRole("button", { name: "Approval needed" }));
     const approve = await screen.findByRole("button", { name: "Approve" });
     expect((approve as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(approve);
@@ -187,6 +198,7 @@ describe("conversation approvals", () => {
   it("keeps an uncertain choice and key when dismissed and reopened", async () => {
     const decideApproval = vi.fn().mockImplementationOnce(() => new Promise(() => undefined)).mockResolvedValue({ ...approval, status: "decision_recorded" });
     setup({ decideApproval });
+    fireEvent.click(await screen.findByRole("button", { name: "Approval needed" }));
     fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
     fireEvent.click(screen.getByRole("button", { name: /^Close$/ }));
     fireEvent.click(screen.getByRole("button", { name: "Approval needed" }));
@@ -217,12 +229,55 @@ describe("conversation approvals", () => {
     expect(approvalStatusAt({ ...approval, status: "decision_recorded", acknowledgementDeadlineAt: approval.expiresAt }, expires)).toBe("outcome_unknown");
   });
 
-  it("keeps an auto-opened approval visible when it expires", async () => {
+  it("stops summary and detail polling after a pending approval expires", async () => {
+    vi.useFakeTimers();
+    try {
+      const start = Date.now();
+      const expiring = { ...approval, expiresAt: new Date(start + 1_000).toISOString() };
+      const getApprovals = vi.fn().mockResolvedValue([expiring]);
+      const getApproval = vi.fn().mockResolvedValue(expiring);
+      setup({ getApprovals, getApproval });
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Approval needed" }));
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(getApprovals).toHaveBeenCalledTimes(1);
+      expect(getApproval).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        vi.setSystemTime(start + 1_000);
+        await vi.advanceTimersByTimeAsync(4_000);
+      });
+
+      expect(screen.getByRole("dialog").textContent).toContain("Approval expired");
+      expect(getApprovals).toHaveBeenCalledTimes(2);
+      expect(getApproval).toHaveBeenCalledTimes(2);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(9_000);
+      });
+      expect(getApprovals).toHaveBeenCalledTimes(2);
+      expect(getApproval).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an explicitly opened approval visible when it expires", async () => {
     vi.useFakeTimers();
     try {
       const start = Date.now();
       const expiring = { ...approval, expiresAt: new Date(start + 1_000).toISOString() };
       setup({ getApprovals: vi.fn().mockResolvedValue([expiring]), getApproval: vi.fn().mockResolvedValue(expiring) });
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      fireEvent.click(screen.getByRole("button", { name: "Approval needed" }));
       await act(async () => {
         await Promise.resolve();
         await vi.advanceTimersByTimeAsync(0);
