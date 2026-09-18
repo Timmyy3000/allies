@@ -7,6 +7,23 @@ const sentMessageId = "00000000-0000-4000-8000-000000000004";
 const now = "2099-01-01T12:00:37Z";
 const reply = "Keep this reply after reload.";
 const assistantReply = "This assistant reply remains durable.";
+const streamedHeading = "# Streaming answer\n\n";
+const streamedParagraph = "The first paragraph stays stable.\n\n";
+const streamedBurst = [
+  "## Details",
+  "- keeps earlier words",
+  "- adds a large burst",
+  "",
+  "```ts",
+  "const delivery = \"smooth\";",
+  "```",
+  "",
+  "| Mode | State |",
+  "| --- | --- |",
+  "| stream | wrong |",
+  "",
+  `Large payload ${"context ".repeat(120)}remains durable and wrong.`,
+].join("\n");
 const csrfToken = "a".repeat(32);
 const routineId = "00000000-0000-4000-8000-000000000020";
 const routineSchedule = { kind: "recurring", frequency: "daily", local_time: "09:00:00", timezone: "Europe/Berlin" };
@@ -64,7 +81,7 @@ function conversation(sent: boolean) {
   return success({ id: conversationId, ally_id: allyId, messages, assistant_replies: assistantReplies, next_cursor: null });
 }
 
-async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false, seedConversation = false, withActivity = false, withRoutine = false, withResult = false, withDeletion = false, approvalOptions?: { appearanceKey: string; preview: string }) {
+async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false, seedConversation = false, withActivity = false, withRoutine = false, withResult = false, withDeletion = false, approvalOptions?: { appearanceKey: string; preview: string }, streamResponse = false) {
   const fixtureAlly = () => ({ ...ally(), ...(approvalOptions ? { appearance: { catalog_version: "v1", key: approvalOptions.appearanceKey } } : {}) });
   let sent = seedConversation;
   let settings = { label: "chief of staff", show_label: false, settings_revision: 0 };
@@ -74,6 +91,8 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
   let sentRequest: { body: string | null; csrf: string | undefined } | null = null;
   let releaseSend: (() => void) | null = null;
   let approvalStatus = "pending";
+  let streamReads = 0;
+  let terminalServedAt = 0;
   const approvalId = "00000000-0000-4000-8000-000000000010";
   const approval = () => ({ id: approvalId, message_id: sentMessageId, status: approvalStatus, expires_at: now, decided_at: approvalStatus === "pending" ? null : new Date().toISOString(), acknowledgement_deadline_at: approvalStatus === "pending" ? null : new Date(Date.now() + 30_000).toISOString() });
   const sibling = () => ({ ...ally(), id: "00000000-0000-4000-8000-000000000011", name: "Sage" });
@@ -129,6 +148,10 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/allies/${allyId}/conversation`) {
       const payload = conversation(sent);
+      if (streamResponse && sent && streamReads < 8) {
+        payload.data.messages[0].status = "in_progress";
+        payload.data.assistant_replies = [];
+      }
       if (withRoutine) {
         payload.data.messages.push({ id: "00000000-0000-4000-8000-000000000021", sender: "user", content: "A later unrelated message", sequence: 2, status: "completed", created_at: "2099-01-01T12:05:00Z", retryable: false });
       }
@@ -152,6 +175,43 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
       }) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/activities`) {
+      if (streamResponse && sent) {
+        streamReads += 1;
+        const fragments = streamReads === 1
+          ? [streamedHeading]
+          : streamReads <= 3
+            ? [streamedHeading, streamedParagraph]
+            : [streamedHeading, streamedParagraph, streamedBurst];
+        const complete = streamReads >= 8;
+        if (complete && terminalServedAt === 0) terminalServedAt = Date.now();
+        return route.fulfill({ status: 200, headers, json: success({
+          conversation_id: conversationId,
+          activities: fragments.map((text, index) => ({
+            id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+            message_id: sentMessageId,
+            sequence: index + 1,
+            conversation_turn_ordinal: 1,
+            kind: "assistant_delta",
+            text,
+            state: complete ? "completed" : "running",
+            created_at: now,
+          })),
+          assistant_reply: {
+            id: "00000000-0000-4000-8000-000000000009",
+            source_message_id: sentMessageId,
+            conversation_turn_ordinal: 1,
+            content: complete ? assistantReply : fragments.join(""),
+            status: complete ? "completed" : "in_progress",
+            has_full_prefix: true,
+            is_truncated: false,
+            created_at: now,
+            updated_at: complete ? "2099-01-01T12:00:42Z" : `2099-01-01T12:00:${String(37 + streamReads).padStart(2, "0")}Z`,
+          },
+          active_message_id: complete ? null : sentMessageId,
+          state: complete ? "completed" : "running",
+          last_contiguous_sequence: fragments.length,
+        }) });
+      }
       const activities = withActivity && sent ? [{
         id: "00000000-0000-4000-8000-000000000011",
         message_id: sentMessageId,
@@ -202,7 +262,7 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
           sender: "user",
           content: reply,
           sequence: 1,
-          status: "completed",
+          status: streamResponse ? "in_progress" : "completed",
           created_at: now,
           retryable: false,
         },
@@ -216,6 +276,8 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
     sentRequest: () => sentRequest,
     releaseSend: () => releaseSend?.(),
     deletionStatusReads: () => deletionStatusReads,
+    streamReads: () => streamReads,
+    terminalServedAt: () => terminalServedAt,
   };
 }
 
@@ -621,6 +683,88 @@ test("opens an Ally and keeps a sent reply after reload", async ({ page }) => {
   expect(cloudinaryRequests).toEqual([]);
   await page.goto("/home/new");
   await expect(page.getByTestId("job-description")).toBeVisible();
+});
+
+test("smooths structured bursty streamed replies and reconciles the exact terminal answer", async ({ page }, testInfo) => {
+  const cloud = await fixtureCloud(
+    page, "signed-in", false, false, false, false, false, false, undefined, true,
+  );
+  await page.goto(`/home/${allyId}`);
+  await page.getByLabel("Message Ada").fill(reply);
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  const response = page.getByTestId("activity-reply-1");
+  await expect(response.getByRole("heading", { name: "Streaming answer" })).toBeVisible();
+  await expect(response.locator("[data-sd-animate]").first()).toBeVisible();
+  await response.evaluate((element) => { element.dataset.streamIdentity = "stable"; });
+  await response.locator("p").first().evaluate((element) => { element.dataset.firstChunk = "stable"; });
+  const canvas = page.getByTestId("conversation-frame-canvas");
+  const scrolledTop = await canvas.evaluate((element) => {
+    const rail = element.firstElementChild as HTMLElement | null;
+    if (rail) rail.style.minHeight = "1800px";
+    element.scrollTop = 120;
+    element.dispatchEvent(new Event("scroll"));
+    return element.scrollTop;
+  });
+
+  await expect.poll(cloud.streamReads).toBeGreaterThanOrEqual(2);
+  const beforePause = await response.textContent();
+  await expect.poll(cloud.streamReads).toBeGreaterThanOrEqual(3);
+  expect(await response.textContent()).toBe(beforePause);
+
+  await expect.poll(cloud.streamReads).toBeGreaterThanOrEqual(4);
+  await expect(response).toContainText("wrong");
+  await expect(response.getByRole("heading", { name: "Details" })).toBeVisible();
+  await expect(response.getByRole("list")).toContainText("large burst");
+  await expect(response.locator("code")).toContainText("delivery");
+  await expect(response.getByRole("table")).toContainText("stream");
+  expect((await response.textContent())!.length).toBeGreaterThan(beforePause!.length);
+  await expect(response).toHaveAttribute("data-stream-identity", "stable");
+  await expect(response.locator("p").first()).toHaveAttribute("data-first-chunk", "stable");
+  expect(await canvas.evaluate((element) => element.scrollTop)).toBe(scrolledTop);
+
+  await expect.poll(cloud.terminalServedAt).toBeGreaterThan(0);
+  await expect(response).toContainText(assistantReply, { timeout: 2_400 });
+  expect(Date.now() - cloud.terminalServedAt()).toBeLessThanOrEqual(2_400);
+  await expect(response).not.toContainText("wrong");
+  await expect(response).toHaveAttribute("data-stream-identity", "stable");
+  await expect(page.getByRole("status", { name: "Response complete" })).toBeVisible();
+  await testInfo.attach("streaming-presentation", {
+    body: await page.screenshot(),
+    contentType: "image/png",
+  });
+});
+
+test("does not leak streamed presentation after the conversation unmounts", async ({ page }) => {
+  await fixtureCloud(
+    page, "signed-in", false, false, false, false, false, false, undefined, true,
+  );
+  await page.goto(`/home/${allyId}`);
+  await page.getByLabel("Message Ada").fill(reply);
+  await page.getByRole("button", { name: "Send message" }).click();
+  await expect(page.getByTestId("activity-reply-1")).toContainText("Streaming answer");
+
+  await page.goto("/home");
+  await expect(page.getByTestId("activity-reply-1")).toHaveCount(0);
+  await page.waitForTimeout(500);
+  await expect(page.getByText("Streaming answer", { exact: false })).toHaveCount(0);
+});
+
+test("shows streamed text immediately when reduced motion is enabled", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await fixtureCloud(
+    page, "signed-in", false, false, false, false, false, false, undefined, true,
+  );
+  await page.goto(`/home/${allyId}`);
+  await page.getByLabel("Message Ada").fill(reply);
+  await page.getByRole("button", { name: "Send message" }).click();
+
+  const response = page.getByTestId("activity-reply-1");
+  await expect(response).toContainText("Streaming answer");
+  expect(await response.locator("[data-sd-animate]").first().evaluate((element) => (
+    getComputedStyle(element).animationName
+  ))).toBe("none");
+  await expect(page.getByRole("status", { name: "Response in progress" })).toBeAttached();
 });
 
 test("edits an Ally label, opts into roster display, and persists hiding it", async ({ page }, testInfo) => {

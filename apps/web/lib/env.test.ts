@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { getActivitySseEnabled, getCreationWakeEnabled, parseWebEnvironment } from "./env";
+import {
+  getActivitySseEnabled,
+  getCreationWakeEnabled,
+  getResponsePresentationMode,
+  parseWebEnvironment,
+} from "./env";
 
 describe("web environment", () => {
   it("defaults waitlist enablement off and consent empty", () => {
@@ -55,6 +60,18 @@ describe("web environment", () => {
     expect(getActivitySseEnabled()).toBe(true);
     vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "false");
     expect(getActivitySseEnabled()).toBe(false);
+    vi.unstubAllEnvs();
+  });
+
+  it("defaults response presentation to stream and accepts only aggregate as rollback", () => {
+    vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "");
+    expect(getResponsePresentationMode()).toBe("stream");
+    vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "aggregate");
+    expect(getResponsePresentationMode()).toBe("aggregate");
+    vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "stream");
+    expect(getResponsePresentationMode()).toBe("stream");
+    vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "AGGREGATE");
+    expect(getResponsePresentationMode()).toBe("stream");
     vi.unstubAllEnvs();
   });
 

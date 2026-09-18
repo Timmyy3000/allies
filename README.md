@@ -31,6 +31,14 @@ Copy `.env.example` to an ignored local environment file and set the public
 Cloud origin for each app. Public configuration is validated at runtime and
 must use HTTPS outside local development.
 
+Web response presentation defaults to `stream`, which shows smoothly paced
+assistant text while it arrives. Set
+`NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE=aggregate` to withhold the response
+until it completes. This public setting is baked into the web build, so a change
+requires rebuilding and redeploying the Interface. It is independent of
+`NEXT_PUBLIC_ACTIVITY_SSE_ENABLED`; polling fallback still works but may deliver
+larger text bursts.
+
 ## Validation
 
 Run the complete Interface foundation checks from the repository root:
