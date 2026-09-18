@@ -361,8 +361,8 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
           <div className={styles.framePresenceRow} data-docked={docked}>
             <span ref={threadAnchorRef} className={styles.framePresenceThreadSlot} aria-hidden="true" />
             <div className={styles.framePresenceActivity}>
-              {waking ? <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Waking up"><ShinyText color="var(--chat-accent)">Waking up</ShinyText></span> : !docked && currentGroup ? <ActivityGroup key={currentGroup.key} group={currentGroup} ongoing={activityIsCurrent && model.activityState !== "awaiting_action"} responseInProgress={activityIsCurrent} /> : !docked && model.showThinkingState ? (
-                <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Thinking"><ShinyText color="var(--chat-accent)">Thinking..</ShinyText></span>
+              {waking ? <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label="Waking up"><ShinyText color="var(--chat-accent)">Waking up</ShinyText></span> : !docked && currentGroup ? <ActivityGroup key={currentGroup.key} group={currentGroup} ongoing={activityIsCurrent && model.activityState !== "awaiting_action"} responseInProgress={activityIsCurrent} replying={model.responseStarted} /> : !docked && model.showThinkingState ? (
+                <span className={`${styles.framePresenceLabel} ${styles.frameThinkingLabel}`} role="status" aria-label={model.responseStarted ? "Replying" : "Thinking"}><ShinyText color="var(--chat-accent)">{model.responseStarted ? "Replying.." : "Thinking.."}</ShinyText></span>
               ) : null}
               {!docked && currentGroup ? <ConversationApprovalSlot messageId={currentGroup.messageId} /> : null}
             </div>
@@ -768,7 +768,7 @@ function TurnMessage({
   );
 }
 
-function ActivityGroup({ group, ongoing = false, responseInProgress = false }: { group: ProductionConversationActivityGroupModel; ongoing?: boolean; responseInProgress?: boolean }) {
+function ActivityGroup({ group, ongoing = false, responseInProgress = false, replying = false }: { group: ProductionConversationActivityGroupModel; ongoing?: boolean; responseInProgress?: boolean; replying?: boolean }) {
   const active = group.entries.findLast((entry) => entry.activityId && !entry.outcome && entry.kind === "activity_started");
   const current = active ?? group.entries.at(-1);
   const [disclosure, setDisclosure] = useState({ responseInProgress, open: responseInProgress });
@@ -778,7 +778,7 @@ function ActivityGroup({ group, ongoing = false, responseInProgress = false }: {
   if (!group.entries.length) return null;
   return (
     <ActivityDisclosure
-      label={ongoing ? current ? activityText(current) : "Thinking…" : `${group.entries.length} ${group.entries.length === 1 ? "activity" : "activities"}`}
+      label={ongoing ? replying ? "Replying…" : current ? activityText(current, true) : "Thinking…" : `${group.entries.length} ${group.entries.length === 1 ? "activity" : "activities"}`}
       ongoing={ongoing}
       open={disclosure.open}
       lockOpen={responseInProgress}
@@ -802,7 +802,8 @@ export function isLongDocument(text: string): boolean {
   return text.length >= 2000 || text.split("\n").length >= 20;
 }
 
-function activityText(entry: ProductionConversationActivityGroupModel["entries"][number]) {
+function activityText(entry: ProductionConversationActivityGroupModel["entries"][number], ongoing = false) {
+  if (ongoing && entry.ongoingText) return entry.ongoingText;
   if (entry.activityKind !== "terminal") return entry.text;
   if (entry.outcome && entry.outcome !== "completed") return entry.text;
   return entry.outcome || entry.kind === "activity_completed" ? "Ran a command" : "Running a command";
