@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalDetail } from "@allies/cloud-client";
-import { ConversationApprovalSlot, ConversationApprovals, approvalStatusAt, pruneDecisionIntents, type ApprovalClient } from "./conversation-approvals";
+import { ConversationApprovalSlot, ConversationApprovals, approvalStatusAt, mergeApprovalSummaries, pruneDecisionIntents, type ApprovalClient } from "./conversation-approvals";
 
 const approval: ApprovalDetail = {
   id: "e9cfec70-9140-4e08-8ba7-42c6edce5142",
@@ -20,7 +20,7 @@ beforeEach(() => {
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
 });
 
-function setup(overrides: Partial<ApprovalClient> = {}, canApprove = true, children?: ReactNode) {
+function setup(overrides: Partial<ApprovalClient> = {}, canApprove = true, children?: ReactNode, activityApprovals: ApprovalDetail[] = [], liveUpdatesConnected = false) {
   const client: ApprovalClient = {
     getApprovals: vi.fn().mockResolvedValue([approval]),
     getApproval: vi.fn().mockResolvedValue(approval),
@@ -28,11 +28,105 @@ function setup(overrides: Partial<ApprovalClient> = {}, canApprove = true, child
     ...overrides,
   };
   const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove={canApprove}>{children}</ConversationApprovals></QueryClientProvider>);
+  render(<QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove={canApprove} activityApprovals={activityApprovals} liveUpdatesConnected={liveUpdatesConnected}>{children}</ConversationApprovals></QueryClientProvider>);
   return client;
 }
 
 describe("conversation approvals", () => {
+  it("does not let stale activity regress a hydrated terminal approval", () => {
+    expect(mergeApprovalSummaries(
+      [{ ...approval, status: "approved" }],
+      [approval],
+      {},
+    )[0]?.status).toBe("approved");
+  });
+
+  it("does not carry a locally recorded approval into another conversation", async () => {
+    const recorded = {
+      ...approval,
+      status: "decision_recorded" as const,
+      decidedAt: new Date().toISOString(),
+      acknowledgementDeadlineAt: new Date(Date.now() + 30_000).toISOString(),
+    };
+    const client: ApprovalClient = {
+      getApprovals: vi.fn(async (_workspace, conversation) => conversation === "conversation-a" ? [approval] : []),
+      getApproval: vi.fn().mockResolvedValue(approval),
+      decideApproval: vi.fn().mockResolvedValue(recorded),
+    };
+    const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const content = (conversationId: string) => <QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId={conversationId} allyName="Shaka" accent="#ff5800" canApprove /></QueryClientProvider>;
+    const view = render(content("conversation-a"));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Approval needed" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Approve" }));
+    expect(await screen.findByRole("button", { name: "Decision recorded · Waiting for Ally" })).toBeTruthy();
+
+    view.rerender(content("conversation-b"));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Decision recorded · Waiting for Ally" })).toBeNull());
+  });
+
+  it("shows an activity approval before initial hydration completes and fetches detail only when opened", async () => {
+    const getApprovals = vi.fn(() => new Promise<ApprovalDetail[]>(() => undefined));
+    const getApproval = vi.fn().mockResolvedValue(approval);
+    setup({ getApprovals, getApproval }, true, undefined, [approval], true);
+
+    expect(await screen.findByRole("button", { name: "Approval needed" })).toBeTruthy();
+    expect(getApprovals).toHaveBeenCalledOnce();
+    expect(getApproval).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Approval needed" }));
+    await screen.findByText(approval.actionPreview);
+    expect(getApproval).toHaveBeenCalledOnce();
+  });
+
+  it("suppresses unresolved approval polling while live updates are connected and resumes after disconnect", async () => {
+    vi.useFakeTimers();
+    try {
+      const getApprovals = vi.fn().mockResolvedValue([approval]);
+      const client: ApprovalClient = {
+        getApprovals,
+        getApproval: vi.fn().mockResolvedValue(approval),
+        decideApproval: vi.fn(),
+      };
+      const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+      const content = (connected: boolean) => <QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove activityApprovals={[approval]} liveUpdatesConnected={connected} /></QueryClientProvider>;
+      const view = render(content(true));
+      await act(async () => {
+        await Promise.resolve();
+        await vi.advanceTimersByTimeAsync(0);
+      });
+      expect(getApprovals).toHaveBeenCalledOnce();
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(9_000); });
+      expect(getApprovals).toHaveBeenCalledOnce();
+
+      view.rerender(content(false));
+      await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
+      expect(getApprovals).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("applies streamed status changes once without another list read", async () => {
+    const getApprovals = vi.fn().mockResolvedValue([]);
+    const client: ApprovalClient = {
+      getApprovals,
+      getApproval: vi.fn().mockResolvedValue(approval),
+      decideApproval: vi.fn(),
+    };
+    const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const content = (status: ApprovalDetail["status"]) => <QueryClientProvider client={query}><ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove activityApprovals={[{ ...approval, status }]} liveUpdatesConnected /></QueryClientProvider>;
+    const view = render(content("pending"));
+    expect(await screen.findByRole("button", { name: "Approval needed" })).toBeTruthy();
+
+    view.rerender(content("approved"));
+    expect(await screen.findByRole("button", { name: "Approved" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Approval needed" })).toBeNull();
+    expect(document.querySelectorAll(`[data-approval-id="${approval.id}"]`)).toHaveLength(1);
+    expect(getApprovals).toHaveBeenCalledOnce();
+  });
+
   it("retains unresolved intent across a long history and prunes only confirmed terminal IDs", () => {
     const intents = Object.fromEntries(Array.from({ length: 60 }, (_, index) => [String(index), { decision: "approve" as const, key: String(index) }]));
     const pruned = pruneDecisionIntents(intents, [{ ...approval, id: "59", status: "approved" }]);

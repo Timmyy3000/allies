@@ -2711,6 +2711,81 @@ describe("HomeWorkspace", () => {
     expect(closeStream).not.toHaveBeenCalled();
   }, 10_000);
 
+  it("projects a delayed prior-turn approval from the activity stream without another approval-list read", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const acceptedMessage = {
+      id: "00000000-0000-4000-8000-000000000018",
+      sender: "user" as const,
+      content: "Do the protected action",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const priorMessageId = "00000000-0000-4000-8000-000000000006";
+    const approvalId = "00000000-0000-4000-8000-000000000020";
+    const approvalDetail = {
+      id: approvalId,
+      messageId: priorMessageId,
+      status: "pending" as const,
+      expiresAt: "2099-01-01T00:05:00Z",
+      decidedAt: null,
+      acknowledgementDeadlineAt: null,
+      actionLabel: "Run code",
+      actionPreview: "Run the protected action",
+    };
+    const getApprovals = vi.fn(async () => []);
+    const getApproval = vi.fn(async () => approvalDetail);
+    const sendMessage = vi.fn(async () => ({
+      conversationId,
+      message: acceptedMessage,
+      execution: null,
+      replayed: false,
+    }));
+    readActivityStreamMock.mockImplementation(() => ({ close: vi.fn() }));
+    renderHome([ally], ally.id, { getApprovals, getApproval, sendMessage });
+
+    await waitFor(() => expect(getApprovals).toHaveBeenCalledOnce());
+    const input = await screen.findByRole("textbox");
+    fireEvent.change(input, { target: { value: acceptedMessage.content } });
+    await clickSendMessage();
+    await waitFor(() => expect(readActivityStreamMock).toHaveBeenCalledOnce());
+
+    const stream = readActivityStreamMock.mock.calls[0][0] as ActivityStreamOptions;
+    await act(async () => {
+      stream.onOpen?.();
+      stream.onEvent({
+        type: "activity",
+        conversationId,
+        cursor: "cursor-approval",
+        activity: {
+          id: "00000000-0000-4000-8000-000000000021",
+          messageId: priorMessageId,
+          sequence: 1,
+          conversationTurnOrdinal: 1,
+          kind: "awaiting_action",
+          text: "Approval needed",
+          state: "awaiting_action",
+          createdAt: "2026-08-20T16:01:01Z",
+          approval: {
+            id: approvalId,
+            status: "pending",
+            expiresAt: approvalDetail.expiresAt,
+            decidedAt: null,
+          },
+        },
+      });
+    });
+
+    expect(await screen.findByRole("button", { name: "Approval needed" })).toBeTruthy();
+    expect(getApprovals).toHaveBeenCalledOnce();
+    expect(getApproval).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Approval needed" }));
+    expect(await screen.findByText(approvalDetail.actionPreview)).toBeTruthy();
+    expect(getApproval).toHaveBeenCalledOnce();
+  });
+
   it.each(["error", "mismatch"])("keeps healthy SSE open and grants bounded fallback after companion exhaustion (%s)", async (failure) => {
     vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");
     vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
