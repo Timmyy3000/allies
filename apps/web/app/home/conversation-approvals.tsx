@@ -64,6 +64,39 @@ function confirmedStatus(...sources: (ApprovalSummary | null | undefined)[]) {
     ?? sources.find(Boolean);
 }
 
+export function mergeApprovalSummaries(
+  hydrated: readonly ApprovalSummary[],
+  activity: readonly ApprovalSummary[],
+  recorded: Readonly<Record<string, ApprovalSummary>>,
+): ApprovalSummary[] {
+  const hydratedById = new Map(hydrated.map((approval) => [approval.id, approval]));
+  const activityById = new Map(activity.map((approval) => [approval.id, approval]));
+  const ids = [...new Set([
+    ...hydrated.map((approval) => approval.id),
+    ...activity.map((approval) => approval.id),
+  ])];
+
+  return ids.flatMap((id) => {
+    const persisted = hydratedById.get(id);
+    const streamed = activityById.get(id);
+    const local = recorded[id];
+    const selected = confirmedStatus(local, streamed, persisted);
+    if (!selected) return [];
+    return [{
+      ...persisted,
+      ...streamed,
+      ...local,
+      ...selected,
+      decidedAt: selected.decidedAt ?? local?.decidedAt ?? streamed?.decidedAt ?? persisted?.decidedAt ?? null,
+      acknowledgementDeadlineAt: selected.acknowledgementDeadlineAt
+        ?? local?.acknowledgementDeadlineAt
+        ?? persisted?.acknowledgementDeadlineAt
+        ?? streamed?.acknowledgementDeadlineAt
+        ?? null,
+    }];
+  });
+}
+
 export function approvalStatusAt(approval: ApprovalSummary, now: number): ApprovalSummary["status"] {
   if (approval.status === "pending" && now >= Date.parse(approval.expiresAt)) return "expired";
   if (approval.status === "decision_recorded" && approval.acknowledgementDeadlineAt && now >= Date.parse(approval.acknowledgementDeadlineAt)) return "outcome_unknown";
@@ -107,7 +140,7 @@ function ApprovalBadge() {
   </svg>;
 }
 
-export function ConversationApprovals({ client, workspaceId, conversationId, allyName, accent, canApprove, enabled = true, children }: {
+export function ConversationApprovals({ client, workspaceId, conversationId, allyName, accent, canApprove, enabled = true, activityApprovals = [], liveUpdatesConnected = false, children }: {
   client: ApprovalClient;
   workspaceId: string;
   conversationId: string;
@@ -115,6 +148,8 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
   accent: string;
   canApprove: boolean;
   enabled?: boolean;
+  activityApprovals?: readonly ApprovalSummary[];
+  liveUpdatesConnected?: boolean;
   children?: ReactNode;
 }) {
   const [openedId, setOpenedId] = useState<string | null>(null);
@@ -136,6 +171,9 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
       setSummaryPaused(false);
       setNotice(null);
       setOpenedId(null);
+      setIntents({});
+      setRecorded({});
+      restoreFocusId.current = null;
     });
     return () => { current = false; };
   }, [scopeKey]);
@@ -193,14 +231,16 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
     const timer = window.setTimeout(dismissNotice, 4_000);
     return () => window.clearTimeout(timer);
   }, [dismissNotice, notice]);
-  const summaryEnabled = enabled && !accessDisabled && !summaryPaused;
+  const approvalsVisible = enabled && !accessDisabled;
+  const summaryEnabled = approvalsVisible && !summaryPaused;
   const summaries = useQuery({
     queryKey: ["workspaces", workspaceId, "approvals", conversationId],
     queryFn: ({ signal }) => client.getApprovals(workspaceId, conversationId, signal),
     enabled: summaryEnabled,
     refetchInterval: (query) => {
       if (query.state.error && classifyApprovalReadError(query.state.error) !== "transient") return false;
-      const items = query.state.data ?? [];
+      if (liveUpdatesConnected) return false;
+      const items = mergeApprovalSummaries(query.state.data ?? [], activityApprovals, recorded);
       return items.some((approval) => {
         const status = approvalStatusAt(approval, Date.now());
         return status === "pending" || status === "decision_recorded";
@@ -218,7 +258,9 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
     });
     return () => { current = false; };
   }, [reportReadFailure, reportReadSuccess, summaries.error, summaries.errorUpdatedAt, summaries.isError, summaries.isSuccess]);
-  const approvals = useMemo(() => summaryEnabled ? summaries.data?.map((approval) => confirmedStatus(recorded[approval.id], approval) ?? approval) ?? [] : [], [recorded, summaries.data, summaryEnabled]);
+  const approvals = useMemo(() => approvalsVisible
+    ? mergeApprovalSummaries(summaries.data ?? [], activityApprovals, recorded)
+    : [], [activityApprovals, approvalsVisible, recorded, summaries.data]);
   const hasDeadlineBearing = approvals.some((approval) => {
     const status = approvalStatusAt(approval, now);
     return (status === "pending" && Boolean(approval.expiresAt))
@@ -229,7 +271,7 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
   }, [hasDeadlineBearing]);
-  const activeId = summaryEnabled ? openedId : null;
+  const activeId = approvalsVisible ? openedId : null;
   const selected = approvals.find((approval) => approval.id === activeId);
   const close = () => {
     restoreFocusId.current = activeId;
@@ -274,17 +316,18 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
         <button type="button" aria-label="Dismiss notification" onClick={dismissNotice}>×</button>
       </div>
     </div> : null}
-    {activeId ? <ApprovalDialog key={activeId} client={client} workspaceId={workspaceId} conversationId={conversationId} approvalId={activeId} summary={selected} intent={intents[activeId]} rememberIntent={(intent) => setIntents((prior) => ({ ...pruneDecisionIntents(prior, approvals), [activeId]: intent }))} now={now} allyName={allyName} accent={accent} canApprove={canApprove} onReadSuccess={() => reportReadSuccess(`approval:${activeId}`)} onReadFailure={(error, errorAt) => reportReadFailure(`approval:${activeId}`, error, errorAt)} onClose={() => close()} onRecorded={(approval) => {
+    {activeId ? <ApprovalDialog key={activeId} client={client} workspaceId={workspaceId} conversationId={conversationId} approvalId={activeId} summary={selected} intent={intents[activeId]} rememberIntent={(intent) => setIntents((prior) => ({ ...pruneDecisionIntents(prior, approvals), [activeId]: intent }))} now={now} allyName={allyName} accent={accent} canApprove={canApprove} liveUpdatesConnected={liveUpdatesConnected} onReadSuccess={() => reportReadSuccess(`approval:${activeId}`)} onReadFailure={(error, errorAt) => reportReadFailure(`approval:${activeId}`, error, errorAt)} onClose={() => close()} onRecorded={(approval) => {
       setRecorded((prior) => ({ ...prior, [approval.id]: confirmedStatus(prior[approval.id], approval) ?? approval }));
       close();
-      void summaries.refetch();
+      if (!liveUpdatesConnected) void summaries.refetch();
     }} /> : null}
   </>;
 }
 
-function ApprovalDialog({ client, workspaceId, conversationId, approvalId, summary, intent, rememberIntent, now, allyName, accent, canApprove, onReadSuccess, onReadFailure, onClose, onRecorded }: {
+function ApprovalDialog({ client, workspaceId, conversationId, approvalId, summary, intent, rememberIntent, now, allyName, accent, canApprove, liveUpdatesConnected, onReadSuccess, onReadFailure, onClose, onRecorded }: {
   client: ApprovalClient; workspaceId: string; conversationId: string; approvalId: string;
   summary?: ApprovalSummary; now: number; allyName: string; accent: string; canApprove: boolean; onClose: () => void; onRecorded: (approval: ApprovalSummary) => void;
+  liveUpdatesConnected: boolean;
   onReadSuccess: () => void; onReadFailure: (error: unknown, errorAt: number) => void;
   intent?: DecisionIntent; rememberIntent: (intent: DecisionIntent) => void;
 }) {
@@ -293,6 +336,7 @@ function ApprovalDialog({ client, workspaceId, conversationId, approvalId, summa
     queryFn: ({ signal }) => client.getApproval(workspaceId, conversationId, approvalId, signal),
     refetchInterval: (query) => {
       if (query.state.error && classifyApprovalReadError(query.state.error) !== "transient") return false;
+      if (liveUpdatesConnected) return false;
       const item = query.state.data;
       if (!item) return 3_000;
       const status = approvalStatusAt(item, Date.now());
