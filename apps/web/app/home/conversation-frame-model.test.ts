@@ -11,6 +11,7 @@ import {
   buildRoutineActionEvidence,
   buildRoutineActionMessage,
   buildRoutineActionContext,
+  completedParagraphs,
   routineMessageAnchor,
   buildProductionConversationFrameModel,
   conversationDateDividerAt,
@@ -548,5 +549,20 @@ describe("conversationDateDividerAt", () => {
     expect(conversationDateDividerAt(nextDay, laterSameDay, now)).toBe(
       formatConversationDateDivider(nextDay, now),
     );
+  });
+});
+
+describe("completedParagraphs", () => {
+  it("returns empty text when no paragraph boundary arrived yet", () => {
+    expect(completedParagraphs("")).toBe("");
+    expect(completedParagraphs("A single growing paragraph")).toBe("");
+    expect(completedParagraphs("- item one\n- item two")).toBe("");
+  });
+
+  it("reveals only complete paragraphs and keeps the partial tail back", () => {
+    expect(completedParagraphs("First paragraph.\n\nSecond partial")).toBe("First paragraph.");
+    expect(completedParagraphs("First.\n\nSecond.\n\nThird partial")).toBe("First.\n\nSecond.");
+    expect(completedParagraphs("Only paragraph.\n\n")).toBe("Only paragraph.");
+    expect(completedParagraphs("First.\r\n\r\nSecond partial")).toBe("First.");
   });
 });
