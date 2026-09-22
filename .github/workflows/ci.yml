@@ -120,17 +120,8 @@ jobs:
           if [ "$FULL_BROWSERS" = "true" ]; then browsers="$browsers firefox"; fi
           bun --cwd apps/web playwright install --with-deps $browsers
       - name: Verify production Home flows
-        id: home_smoke
         if: steps.scope.outputs.web == 'true'
         run: bun run --cwd apps/web test:home-smoke
-      - name: Upload Home smoke failure evidence
-        if: ${{ failure() && steps.home_smoke.outcome == 'failure' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: home-smoke-failure
-          path: apps/web/test-results/home-smoke
-          if-no-files-found: warn
-          retention-days: 7
       - name: Verify Ally SVG playback in Chromium and WebKit
         if: steps.scope.outputs.motion == 'true'
         run: bun run --cwd apps/web test:ally-motion
@@ -154,18 +145,6 @@ jobs:
           test -d tests/chat-frames/__screenshots__/chat-chromium
           baseline_count="$(find tests/chat-frames/__screenshots__/chat-chromium -type f -name '*.png' | wc -l)"
           test "$baseline_count" -eq 25
-      - name: Upload chat frame evidence
-        if: ${{ always() && steps.chat_frames.outcome != 'skipped' }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: chat-frame-regression-evidence
-          path: |
-            apps/web/playwright-report/chat-frames
-            apps/web/test-results/chat-frames
-            apps/web/test-output/chat-frames/summary.json
-            apps/web/tests/chat-frames/__screenshots__/chat-chromium
-          if-no-files-found: error
-          retention-days: 30
 
   quality:
     name: Interface CI suite
