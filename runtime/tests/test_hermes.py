@@ -582,6 +582,28 @@ async def test_incremental_profile_stream_close_before_terminal_is_failure(
 
 
 @pytest.mark.asyncio
+async def test_incremental_profile_stream_failure_carries_error_message(
+    monkeypatch,
+):
+    class Response(FakeResponse):
+        def readline(self, _limit):
+            return b""
+
+    events = []
+    monkeypatch.setattr(
+        "allies_runtime.hermes.emit_runtime_event",
+        lambda event: events.append(event),
+    )
+    client, _ = _client(monkeypatch, Response())
+
+    stream = await client.stream_profile_incremental("ally-a", "s1", "hello")
+    await stream.aclose()
+
+    assert events[-1]["event"] == "provider.operation.failed"
+    assert events[-1]["message"] == "Hermes stream closed"
+
+
+@pytest.mark.asyncio
 async def test_incremental_profile_stream_terminal_close_is_success(
     monkeypatch,
 ):
@@ -1972,6 +1994,47 @@ async def test_incremental_stream_accepts_empty_inline_transcript_after_completi
                     b"\n",
                 ]
             )
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+        def close(self):
+            return None
+
+    events = [
+        event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")
+    ]
+
+    assert [event.name for event in events] == [
+        "message.delta",
+        "execution.completed",
+    ]
+    assert events[0].payload == {"text": "final answer"}
+
+
+@pytest.mark.asyncio
+async def test_incremental_stream_accepts_large_transcript_terminal_event():
+    transcript = "x" * (300 * 1024)
+    rows = [
+        b"event: run.started\n",
+        b'data: {"session_id":"s1","run_id":"r1"}\n',
+        b"\n",
+        b"event: assistant.completed\n",
+        b'data: {"session_id":"s1","run_id":"r1","content":"final answer"}\n',
+        b"\n",
+        b"event: run.completed\n",
+        b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[{"role":"assistant","content":"'
+        + transcript.encode()
+        + b'"}]}\n',
+        b"\n",
+        b"event: done\n",
+        b'data: {"session_id":"s1","run_id":"r1"}\n',
+        b"\n",
+    ]
+
+    class Response:
+        def __init__(self):
+            self.rows = iter(rows)
 
         def readline(self, _limit):
             return next(self.rows, b"")
