@@ -16,6 +16,7 @@ import type {
   RoutineActionRequest,
 } from "./conversation-frame-model";
 import {
+  completedParagraphs,
   conversationDateDividerAt,
   formatConversationDateDivider,
   routineMessageAnchor,
@@ -728,7 +729,12 @@ function TurnMessage({
     const timer = setTimeout(() => setPresentation((current) => ({ ...current, reveal: false, announcement: null })), 2800);
     return () => clearTimeout(timer);
   }, [presentation.announcement]);
-  const live = pending && model.responsePresentationMode === "stream" && Boolean(turn.assistantText);
+  const pendingText = model.responsePresentationMode === "paragraph" && pending
+    ? completedParagraphs(turn.assistantText)
+    : turn.assistantText;
+  const live = pending
+    && (model.responsePresentationMode === "stream" || model.responsePresentationMode === "paragraph")
+    && Boolean(pendingText);
   if (pending && !live) return null;
   if (turn.state === "reconciliation_needed") {
     return (
@@ -740,7 +746,7 @@ function TurnMessage({
   const statusText = turn.state === "failed"
     ? "This response failed."
     : turn.state === "stopped" ? "This response was stopped." : null;
-  if (!turn.assistantText && !statusText && !turn.isTruncated) return null;
+  if (!pendingText && !statusText && !turn.isTruncated) return null;
   const reveal = presentation.reveal || live;
   return (
     <AssistantMessage createdAt={turn.createdAt} testId={`activity-reply-${turn.turnOrdinal}`}>
@@ -753,14 +759,14 @@ function TurnMessage({
           aria-label={pending ? "Response in progress" : presentation.announcement ?? undefined}
         />
       ) : null}
-      {turn.assistantText ? <Streamdown
+      {pendingText ? <Streamdown
         components={routineLinkComponents(onOpenRoutine, onOpenFile)}
         tableMaxHeight="none"
         mode={reveal ? "streaming" : "static"}
         animated={reveal ? { animation: "blurIn", sep: "word", duration: 180, stagger: 24, maxBacklogMs: 2400 } : false}
         isAnimating={reveal}
       >
-        {turn.assistantText}
+        {pendingText}
       </Streamdown> : null}
       {statusText ? <p>{statusText}</p> : null}
       {turn.isTruncated ? <p>This response reached its length limit.</p> : null}

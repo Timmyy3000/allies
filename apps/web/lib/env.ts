@@ -68,12 +68,12 @@ export function getActivitySseEnabled(): boolean {
   return process.env.NEXT_PUBLIC_ACTIVITY_SSE_ENABLED === "true";
 }
 
-export type ResponsePresentationMode = "aggregate" | "stream";
+export type ResponsePresentationMode = "aggregate" | "stream" | "paragraph";
 
 export function getResponsePresentationMode(): ResponsePresentationMode {
-  return process.env.NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE === "aggregate"
-    ? "aggregate"
-    : "stream";
+  const value = process.env.NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE;
+  if (value === "aggregate") return "aggregate";
+  return value === "paragraph" ? "paragraph" : "stream";
 }
 
 export function getCreationWakeEnabled(): boolean {
