@@ -516,6 +516,12 @@ function mergedAssistantText(
   return reply.content;
 }
 
+export function completedParagraphs(text: string): string {
+  const normalized = text.replaceAll("\r\n", "\n");
+  const boundary = normalized.lastIndexOf("\n\n");
+  return boundary < 0 ? "" : normalized.slice(0, boundary);
+}
+
 function hasLegacyAssistantReply(
   messages: readonly MessageViewModel[],
   turn: Pick<AssistantTurnProjection, "messageId" | "turnOrdinal">,

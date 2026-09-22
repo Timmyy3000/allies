@@ -63,11 +63,13 @@ describe("web environment", () => {
     vi.unstubAllEnvs();
   });
 
-  it("defaults response presentation to stream and accepts only aggregate as rollback", () => {
+  it("defaults response presentation to stream and accepts aggregate and paragraph", () => {
     vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "");
     expect(getResponsePresentationMode()).toBe("stream");
     vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "aggregate");
     expect(getResponsePresentationMode()).toBe("aggregate");
+    vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "paragraph");
+    expect(getResponsePresentationMode()).toBe("paragraph");
     vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "stream");
     expect(getResponsePresentationMode()).toBe("stream");
     vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "AGGREGATE");

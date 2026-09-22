@@ -931,7 +931,7 @@ describe("ConversationFrame", () => {
     } finally { vi.useRealTimers(); }
   });
 
-  it.each(["aggregate", "stream"] as const)(
+  it.each(["aggregate", "stream", "paragraph"] as const)(
     "announces a directly observed completion once in %s mode but keeps hydrated history quiet",
     (responsePresentationMode) => {
       const complete = {
@@ -1073,6 +1073,38 @@ describe("ConversationFrame", () => {
     expect(screen.getByTestId("activity-reply-4")).toBe(reply);
     expect(reply.textContent).toContain("Corrected final");
     expect(reply.textContent).not.toContain("A growing response");
+    expect(screen.getByRole("status", { name: "Response complete" })).toBeTruthy();
+  });
+
+  it("withholds a partial paragraph in paragraph mode but reveals complete ones", () => {
+    const running = {
+      ...model,
+      responsePresentationMode: "paragraph" as const,
+      messages: model.messages.slice(0, 2),
+      turns: [{
+        assistantText: "A partial paragraph with no boundary yet",
+        messageId: "message-2",
+        state: "running" as const,
+        turnOrdinal: 4,
+      }],
+    };
+    const view = render(<ConversationFrame model={running} actions={actions} />);
+    expect(screen.queryByTestId("activity-reply-4")).toBeNull();
+
+    view.rerender(<ConversationFrame model={{
+      ...running,
+      turns: [{ ...running.turns[0], assistantText: "First paragraph.\n\nSecond partial" }],
+    }} actions={actions} />);
+    const reply = screen.getByTestId("activity-reply-4");
+    expect(reply.textContent).toContain("First paragraph.");
+    expect(reply.textContent).not.toContain("Second partial");
+    expect(screen.getByRole("status", { name: "Response in progress" })).toBeTruthy();
+
+    view.rerender(<ConversationFrame model={{
+      ...running,
+      turns: [{ ...running.turns[0], assistantText: "First paragraph.\n\nSecond partial", state: "completed" }],
+    }} actions={actions} />);
+    expect(screen.getByTestId("activity-reply-4").textContent).toContain("Second partial");
     expect(screen.getByRole("status", { name: "Response complete" })).toBeTruthy();
   });
 
