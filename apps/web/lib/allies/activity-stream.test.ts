@@ -38,7 +38,7 @@ describe("readActivityStream", () => {
           'data: {"conversation_id":"conversation","cursor":"cursor-ready","high_water_sequence":4}\n\n',
           "id: cursor-activity\n",
           "event: activity\n",
-          'data: {"conversation_id":"conversation","cursor":"cursor-activity","activity":{"id":"activity","message_id":"message","sequence":5,"conversation_turn_ordinal":1,"kind":"assistant_delta","text":"Hello","state":"running","created_at":"2026-01-01T00:00:00Z","activity_attempt_id":"attempt-0123456789abcdef0123456789abcdef","activity_id":"activity-0123456789abcdef0123456789abcdef","activity_kind":"web_search","outcome":"failed","duration_ms":1234}}\n\n',
+          'data: {"conversation_id":"conversation","cursor":"cursor-activity","activity":{"id":"activity","message_id":"message","sequence":5,"conversation_turn_ordinal":1,"kind":"assistant_delta","text":"Hello","state":"running","created_at":"2026-01-01T00:00:00Z","activity_attempt_id":"attempt-0123456789abcdef0123456789abcdef","activity_id":"activity-0123456789abcdef0123456789abcdef","activity_kind":"web_search","outcome":"failed","duration_ms":1234,"approval":{"id":"00000000-0000-4000-8000-000000000001","status":"pending","expires_at":"2099-01-01T00:00:00Z"}}}\n\n',
         ].join(""),
         { status: 200, headers: { "Content-Type": "text/event-stream" } },
       ),
@@ -74,6 +74,11 @@ describe("readActivityStream", () => {
         activityKind: "web_search",
         outcome: "failed",
         durationMs: 1234,
+        approval: {
+          id: "00000000-0000-4000-8000-000000000001",
+          status: "pending",
+          expiresAt: "2099-01-01T00:00:00Z",
+        },
       },
     });
     expect(onError).toHaveBeenCalledOnce();

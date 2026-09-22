@@ -47,6 +47,11 @@ import {
   type ActivityPresentationState,
 } from "../../lib/allies/activity-presentation";
 import {
+  EMPTY_ACTIVITY_APPROVAL_PROJECTION,
+  mergeActivityApprovals,
+  selectActivityApprovals,
+} from "../../lib/allies/approval-activity";
+import {
   getActivitySseEnabled,
   getCreationWakeEnabled,
   getResponsePresentationMode,
@@ -1223,6 +1228,9 @@ function ConversationPane({
   const [activityPresentation, setActivityPresentation] = useState<ActivityPresentationState>(
     EMPTY_ACTIVITY_PRESENTATION,
   );
+  const [activityApprovals, setActivityApprovals] = useState(
+    EMPTY_ACTIVITY_APPROVAL_PROJECTION,
+  );
   const pollingRef = useRef(false);
   const pollCountRef = useRef(0);
   const activityHistoryLoadedRef = useRef<string | null>(null);
@@ -1263,6 +1271,11 @@ function ConversationPane({
 
   const presentActivitySnapshot = useCallback((snapshot: ActivitySnapshotViewModel) => {
     if (snapshot.assistantReply) presentAssistantReply(snapshot.conversationId, snapshot.assistantReply);
+    setActivityApprovals((current) => mergeActivityApprovals(
+      current,
+      snapshot.conversationId,
+      snapshot.activities,
+    ));
     setActivityPresentation((current) => mergeActivityPresentation(current, {
       conversationId: snapshot.conversationId,
       activities: snapshot.activities,
@@ -2564,6 +2577,11 @@ function ConversationPane({
           return;
         }
         if (event.type === "activity") {
+          setActivityApprovals((current) => mergeActivityApprovals(
+            current,
+            targetConversationId,
+            [event.activity],
+          ));
           const currentActiveMessageId = activeMessageIdRef.current;
           const currentActiveMessageOrdinal = activeMessageOrdinalRef.current;
           const eventIsActive = (!currentActiveMessageId || event.activity.messageId === currentActiveMessageId)
@@ -2738,6 +2756,9 @@ function ConversationPane({
   const scopedActivityPresentation = activityPresentation.conversationId === (conversationId ?? null)
     ? activityPresentation
     : EMPTY_ACTIVITY_PRESENTATION;
+  const scopedActivityApprovals = activityApprovals.conversationId === (conversationId ?? null)
+    ? selectActivityApprovals(activityApprovals)
+    : [];
   const baseFrameModel = buildProductionConversationFrameModel({
     ally,
     resolvedAppearance,
@@ -2921,6 +2942,8 @@ function ConversationPane({
     accent={allyAccent}
     canApprove={canApprove}
     enabled={Boolean(conversationId && !conversationAccessFailure)}
+    activityApprovals={scopedActivityApprovals}
+    liveUpdatesConnected={streamConnected}
   >
     {frame}
   </ConversationApprovals>;
