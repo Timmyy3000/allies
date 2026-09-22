@@ -51,7 +51,8 @@ MAX_RESPONSE_BYTES = 1_048_576
 MAX_EVENTS = 512
 MAX_BUFFERED_EVENTS = 65_536
 MAX_STREAM_BYTES = 4 * 1_048_576
-MAX_EVENT_BYTES = 256 * 1_024
+# ponytail: single-event ceiling tracks the stream budget; gateway transcript echo is the revisit trigger
+MAX_EVENT_BYTES = MAX_STREAM_BYTES
 MAX_SAFE_TEXT_BYTES = 16 * 1024
 MAX_MESSAGE_BYTES = 16 * 1024
 MANAGED_REASONING_EFFORTS = frozenset({"high", "xhigh"})
@@ -2325,6 +2326,7 @@ class HermesClient:
             if error is not None:
                 fields["error_type"] = type(error).__name__
                 fields["error_code"] = getattr(error, "code", None)
+                fields["message"] = str(error)
                 emit_runtime_event(build_event("provider.operation.failed", **fields))
             else:
                 emit_runtime_event(
