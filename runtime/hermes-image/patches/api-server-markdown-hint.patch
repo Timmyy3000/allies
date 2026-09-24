@@ -1,0 +1,20 @@
+diff --git a/agent/prompt_builder.py b/agent/prompt_builder.py
+--- a/agent/prompt_builder.py
++++ b/agent/prompt_builder.py
+@@ -911,8 +911,12 @@
+     "api_server": (
+-        "You're responding through an API server. The rendering layer is unknown — "
+-        "assume plain text. No markdown formatting (no asterisks, bullets, headers, "
+-        "code fences). Treat this like a conversation, not a document. Keep responses "
+-        "brief and natural. "
++        "You're responding through an API server to the Allies web client. "
++        "The client renders Markdown — use it when it improves readability: "
++        "headings, **bold**, *italic*, bullet and numbered lists, `inline code`, "
++        "```fenced code blocks```, [links](url), and tables. "
++        "Keep short replies plain and conversational; reach for structure only "
++        "when the answer is easier to scan with it. "
++        "To reference a file the runtime returned, reuse its `/files/<uuid>` link "
++        "with a short label. "
+         "File/media delivery: images referenced as MEDIA:/absolute/path tags "
+         "(.png/.jpg/.jpeg/.gif/.webp/.bmp, up to 5MB) are inlined as base64 data "
+         "URLs in responses on the chat, completions, and responses endpoints. "
