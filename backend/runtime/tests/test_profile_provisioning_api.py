@@ -237,9 +237,10 @@ def test_fixture_request_creates_pending_profile_without_private_receipt_fields(
     assert receipt["operation_id"] == contract["request"]["operation_id"]
     assert receipt["request_fingerprint"] == contract["request"]["request_fingerprint"]
     assert receipt["status"] == "pending"
-    # The historical receipt fixture predates the managed memory-tool default.
+    # The historical receipt fixture predates the managed memory-tool
+    # default and the compression threshold default.
     assert receipt["evidence_digest"] == (
-        "bb485cd94823691f204ea1c8ece6ab59516ffedd4fc80803f623d765b89d457d"
+        "c318990e966cc9252928f8310150782c3f5e979a553be57bb75f9ed89d34a8f6"
     )
     assert re.fullmatch(r"[0-9a-f]{64}", receipt["evidence_digest"])
     assert "profile_id" not in receipt

@@ -1517,6 +1517,11 @@ def _bounded_lines(stream: Any) -> Iterable[bytes]:
         yield line
 
 
+def _stream_bytes(stream: Any) -> int | None:
+    total = getattr(stream, "total_bytes", None)
+    return total if type(total) is int and total >= 0 else None
+
+
 class HermesClient:
     """Authenticated loopback client for Hermes health and session streams."""
 
@@ -2314,6 +2319,9 @@ class HermesClient:
             )
         )
 
+        body = b""
+        stream_ref: list[Any] = [None]
+
         def finish(error: BaseException | None) -> None:
             fields = {
                 "operation": "hermes_stream",
@@ -2322,6 +2330,8 @@ class HermesClient:
                 "session_id": session_id,
                 "duration_ms": (time.monotonic() - started_at) * 1000,
                 "outcome": "error" if error is not None else "success",
+                "request_bytes": len(body) if body else None,
+                "response_bytes": _stream_bytes(stream_ref[0]),
             }
             if error is not None:
                 fields["error_type"] = type(error).__name__
@@ -2362,17 +2372,17 @@ class HermesClient:
                 raise HermesMalformedResponse(
                     "Hermes stream did not expose incremental reads"
                 )
+            incremental = _IncrementalHTTPStream(
+                response,
+                profile_id,
+                session_id,
+                stream_timeout=self.settings.stream_timeout,
+                stream_idle_timeout=self.settings.stream_idle_timeout,
+                routine_result=routine_result,
+            )
+            stream_ref[0] = incremental
             return _ObservedHermesStream(
-                CancellableHermesStream(
-                    _IncrementalHTTPStream(
-                        response,
-                        profile_id,
-                        session_id,
-                        stream_timeout=self.settings.stream_timeout,
-                        stream_idle_timeout=self.settings.stream_idle_timeout,
-                        routine_result=routine_result,
-                    )
-                ),
+                CancellableHermesStream(incremental),
                 finish,
             )
         except TimeoutError as exc:

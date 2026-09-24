@@ -557,6 +557,43 @@ async def test_incremental_profile_stream_emits_one_provider_lifecycle_pair(
 
 
 @pytest.mark.asyncio
+async def test_incremental_profile_stream_reports_byte_totals(monkeypatch):
+    class Response(FakeResponse):
+        def __init__(self):
+            super().__init__()
+            self.rows = iter(
+                [
+                    b"event: run.started\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                    b"event: run.completed\n",
+                    b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[{"role":"assistant","content":"hello"}]}\n',
+                    b"\n",
+                    b"event: done\n",
+                    b'data: {"session_id":"s1","run_id":"r1"}\n',
+                    b"\n",
+                ]
+            )
+
+        def readline(self, _limit):
+            return next(self.rows, b"")
+
+    events = []
+    monkeypatch.setattr(
+        "allies_runtime.hermes.emit_runtime_event",
+        lambda event: events.append(event),
+    )
+    client, _ = _client(monkeypatch, Response())
+
+    stream = await client.stream_profile_incremental("ally-a", "s1", "hello")
+    [event async for event in stream]
+
+    assert events[-1]["event"] == "provider.operation.succeeded"
+    assert events[-1]["request_bytes"] > 0
+    assert events[-1]["response_bytes"] > 0
+
+
+@pytest.mark.asyncio
 async def test_incremental_profile_stream_close_before_terminal_is_failure(
     monkeypatch,
 ):

@@ -35,6 +35,7 @@ from runtime.models import (
 from runtime.profile_keys import derive_hermes_profile_key
 from runtime.services.leases import acknowledge_stopped, create_lease
 from runtime.services.profiles import (
+    DEFAULT_COMPRESSION_THRESHOLD_TOKENS,
     ProfileSeed,
     accept_cleanup_receipt,
     accept_materialization_receipt,
@@ -86,6 +87,67 @@ def test_profile_fingerprint_contract_includes_memory_policy(ready_workspace):
     assert receipt.seed_fingerprint == desired.seed_fingerprint
     assert desired.seed_payload["memory_provider"] == "allies_mnemosyne"
     assert desired.seed_payload["memory_policy_version"] == "allies-mnemosyne-v1"
+
+
+def test_profile_fingerprint_contract_includes_compression_threshold(
+    ready_workspace,
+):
+    profile_id = UUID("00000000-0000-0000-0000-000000000001")
+    receipt = ensure_runtime_profile(
+        ready_workspace.id,
+        profile_id,
+        "ally-a",
+        ProfileSeed(
+            personality="p",
+            provider="openai",
+            model="gpt-test",
+            first_chat_instruction="i",
+            credential_refs={"PROVIDER_API": "vault://p"},
+        ),
+    )
+
+    desired = list_profile_reconciliation(_context(ready_workspace)[0])[0]
+    assert receipt.seed_fingerprint == desired.seed_fingerprint
+    assert desired.seed_payload["compression_threshold_tokens"] == 100_000
+    with pytest.raises(RuntimeValidationError):
+        ensure_runtime_profile(
+            ready_workspace.id,
+            uuid4(),
+            "ally-b",
+            ProfileSeed(
+                personality="p",
+                provider="openai",
+                model="gpt-test",
+                first_chat_instruction="i",
+                credential_refs={"PROVIDER_API": "vault://p"},
+                compression_threshold_tokens=50_000,
+            ),
+        )
+
+
+def test_seed_fingerprint_matches_runtime_mirror():
+    from runtime.services.profiles import _seed_fingerprint
+
+    profile_id = UUID("00000000-0000-0000-0000-000000000001")
+    key = derive_hermes_profile_key(profile_id)
+    backend_seed = ProfileSeed(
+        personality="p",
+        provider="openai",
+        model="gpt-test",
+        first_chat_instruction="i",
+        credential_refs={"PROVIDER_API": "vault://p"},
+    )
+    assert backend_seed.compression_threshold_tokens == (
+        DEFAULT_COMPRESSION_THRESHOLD_TOKENS
+    )
+    assert DEFAULT_COMPRESSION_THRESHOLD_TOKENS == 100_000
+    # Pinned against the runtime mirror (allies_runtime.profile_store):
+    # both sides must hash the identical canonical payload, compression
+    # block included. The runtime test pins the same digest.
+    assert (
+        _seed_fingerprint(profile_id, key, "ally-a", backend_seed.payload())
+        == "dc579a4739785ecdd41a3bc82ca11ed55eae79e178cd3206f47d37f4e624945d"
+    )
 
 
 @pytest.fixture

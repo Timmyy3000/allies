@@ -67,6 +67,8 @@ _FIELDS = frozenset(
         "status_code",
         "duration_ms",
         "outcome",
+        "request_bytes",
+        "response_bytes",
         "error_type",
         "error_code",
         "error_fingerprint",

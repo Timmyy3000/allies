@@ -41,6 +41,9 @@ DEFAULT_MEMORY_PROVIDER = "allies_mnemosyne"
 CONTEXT_ONLY_MEMORY_MODE = "context_only"
 DEFAULT_MEMORY_MODE = "narrow_tools"
 DEFAULT_MEMORY_POLICY_VERSION = "allies-mnemosyne-v1"
+# Absolute compaction trigger; sessions compact at the lower of the
+# ratio-based threshold and this count. See backend DEFAULT_COMPRESSION_THRESHOLD_TOKENS.
+DEFAULT_COMPRESSION_THRESHOLD_TOKENS = 100_000
 MEMORY_MODES = frozenset({"context_only", "narrow_tools"})
 MEMORY_TOOLS = frozenset(
     {
@@ -194,6 +197,13 @@ def _canonical_json(value: Any) -> bytes:
     ).encode("utf-8")
 
 
+def _fingerprint_digest(payload: Mapping[str, object]) -> str:
+    return hashlib.sha256(
+        f"allies-profile-seed-v{PROFILE_FINGERPRINT_VERSION}\0".encode()
+        + _canonical_json(payload)
+    ).hexdigest()
+
+
 def _string_generation(value: str | int) -> str:
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         raise ProfileInputError("materialized generation is invalid")
@@ -292,6 +302,7 @@ class ProfileSeed:
     memory_tool_allowlist: tuple[str, ...] = DEFAULT_MEMORY_TOOL_ALLOWLIST
     memory_profile_isolation: bool = True
     memory_sync_roles: tuple[str, ...] = ()
+    compression_threshold_tokens: int = DEFAULT_COMPRESSION_THRESHOLD_TOKENS
 
     def __post_init__(self) -> None:
         try:
@@ -480,6 +491,8 @@ class ProfileSeed:
         )
         if not set(self.memory_tool_allowlist).issubset(MEMORY_TOOLS):
             raise ProfileInputError("memory tool allowlist is unsupported")
+        if self.compression_threshold_tokens != DEFAULT_COMPRESSION_THRESHOLD_TOKENS:
+            raise ProfileInputError("compression threshold tokens is unsupported")
         if self.memory_sync_roles:
             raise ProfileInputError("memory sync roles are disabled")
         if (
@@ -497,7 +510,10 @@ class ProfileSeed:
     def fingerprint(self) -> str:
         """Return a deterministic digest containing no resolved credentials."""
 
-        payload = {
+        return _fingerprint_digest(self._fingerprint_payload())
+
+    def _fingerprint_payload(self) -> dict[str, object]:
+        return {
             "schema_version": self.seed_version,
             "foundry_profile_id": self.foundry_profile_id,
             "hermes_profile_key": self.hermes_profile_key,
@@ -519,11 +535,18 @@ class ProfileSeed:
                 "profile_isolation": self.memory_profile_isolation,
                 "sync_roles": list(self.memory_sync_roles),
             },
+            "compression": {
+                "threshold_tokens": self.compression_threshold_tokens,
+            },
         }
-        return hashlib.sha256(
-            f"allies-profile-seed-v{PROFILE_FINGERPRINT_VERSION}\0".encode()
-            + _canonical_json(payload)
-        ).hexdigest()
+
+    @property
+    def legacy_compression_fingerprint(self) -> str:
+        """Return the fingerprint from before the compression threshold."""
+
+        payload = self._fingerprint_payload()
+        del payload["compression"]
+        return _fingerprint_digest(payload)
 
     @property
     def legacy_fingerprint(self) -> str:
@@ -552,11 +575,14 @@ class ProfileSeed:
     def legacy_memory_fingerprint(self) -> str:
         """Return the fingerprint of the previous managed memory default."""
 
-        return replace(
+        swapped = replace(
             self,
             memory_mode=CONTEXT_ONLY_MEMORY_MODE,
             memory_tool_allowlist=(),
-        ).fingerprint
+        )
+        payload = swapped._fingerprint_payload()
+        del payload["compression"]
+        return _fingerprint_digest(payload)
 
     @property
     def model_provider_name(self) -> str:
@@ -680,6 +706,7 @@ def _profile_config_bytes(seed: ProfileSeed) -> bytes:
     if seed.base_url is not None:
         lines.append(f"  base_url: {_yaml_string(seed.base_url)}")
     lines.extend(_memory_config_lines(seed))
+    lines.extend(_compression_config_lines(seed))
     return ("\n".join(lines) + "\n" + SKILLS_CONFIG).encode("utf-8")
 
 
@@ -696,6 +723,13 @@ def _memory_config_lines(seed: ProfileSeed) -> list[str]:
         "    profile_isolation: true",
         "    shared_surface_read: false",
         "    storage: mnemosyne",
+    ]
+
+
+def _compression_config_lines(seed: ProfileSeed) -> list[str]:
+    return [
+        "compression:",
+        f"  threshold_tokens: {seed.compression_threshold_tokens}",
     ]
 
 
@@ -736,11 +770,35 @@ def _replace_legacy_memory_config(content: bytes, seed: ProfileSeed) -> bytes:
     return yaml.safe_dump(config, allow_unicode=True, sort_keys=False).encode("utf-8")
 
 
+def _replace_legacy_compression_config(content: bytes, seed: ProfileSeed) -> bytes:
+    content = _config_with_catalog(content)
+    import yaml
+
+    config = yaml.safe_load(content)
+    desired = {"threshold_tokens": seed.compression_threshold_tokens}
+    if config.get("compression") == desired:
+        return content
+    if "compression" in config:
+        raise ValueError("legacy compression config does not match")
+    config["compression"] = desired
+    return yaml.safe_dump(config, allow_unicode=True, sort_keys=False).encode("utf-8")
+
+
 def _is_legacy_managed_memory_manifest(seed: ProfileSeed, manifest: Mapping[str, Any]) -> bool:
     return (
         seed.memory_mode == DEFAULT_MEMORY_MODE
         and seed.memory_tool_allowlist == DEFAULT_MEMORY_TOOL_ALLOWLIST
-        and manifest.get("seed_fingerprint") == seed.legacy_memory_fingerprint
+        and manifest.get("seed_fingerprint")
+        in {
+            seed.legacy_memory_fingerprint,
+            _fingerprint_digest(
+                replace(
+                    seed,
+                    memory_mode=CONTEXT_ONLY_MEMORY_MODE,
+                    memory_tool_allowlist=(),
+                )._fingerprint_payload()
+            ),
+        }
         and manifest.get("memory_provider") == DEFAULT_MEMORY_PROVIDER
         and manifest.get("memory_policy_version") == DEFAULT_MEMORY_POLICY_VERSION
         and manifest.get("memory_mode") == CONTEXT_ONLY_MEMORY_MODE
@@ -1720,9 +1778,13 @@ class ProfileStore:
                 seed, ProfileProvisionStatus.CONFLICT, repair_code="identity_collision"
             )
         legacy_memory_upgrade = _is_legacy_managed_memory_manifest(seed, manifest)
+        legacy_compression_upgrade = (
+            manifest.get("seed_fingerprint") == seed.legacy_compression_fingerprint
+        )
         if (
             manifest.get("seed_fingerprint") != seed.fingerprint
             and not legacy_memory_upgrade
+            and not legacy_compression_upgrade
         ):
             code = (
                 "instruction_version_conflict"
@@ -1837,11 +1899,13 @@ class ProfileStore:
                 config_bytes = _read_bounded_descriptor(descriptor)
             finally:
                 os.close(descriptor)
-            updated_config = (
-                _replace_legacy_memory_config(config_bytes, seed)
-                if legacy_memory_upgrade
-                else _config_with_catalog(config_bytes)
-            )
+            updated_config = _config_with_catalog(config_bytes)
+            if legacy_memory_upgrade:
+                updated_config = _replace_legacy_memory_config(updated_config, seed)
+            if legacy_memory_upgrade or legacy_compression_upgrade:
+                updated_config = _replace_legacy_compression_config(
+                    updated_config, seed
+                )
             if updated_config != config_bytes:
                 current_stat = config_path.stat(follow_symlinks=False)
                 if any(
@@ -1867,7 +1931,7 @@ class ProfileStore:
                 ProfileProvisionStatus.REPAIR_REQUIRED,
                 repair_code="skills_config_requires_repair",
             )
-        if legacy_memory_upgrade:
+        if legacy_memory_upgrade or legacy_compression_upgrade:
             upgraded = dict(manifest)
             upgraded.update(
                 {
@@ -1884,7 +1948,9 @@ class ProfileStore:
                 return self._receipt(
                     seed,
                     ProfileProvisionStatus.REPAIR_REQUIRED,
-                    repair_code="legacy_memory_upgrade_failed",
+                    repair_code="legacy_memory_upgrade_failed"
+                    if legacy_memory_upgrade
+                    else "legacy_compression_upgrade_failed",
                 )
         try:
             self._clean_owned_first_chat_block(seed, profile / "SOUL.md")
