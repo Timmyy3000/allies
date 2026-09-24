@@ -25,10 +25,12 @@ import {
   ActivityReplayBoundError,
   activityReplayFailure,
   activitySnapshotBytes,
+  buildQueuedFrameMessages,
   HomeWorkspace,
   hasOnboardingExchange,
   mergeAssistantReplies,
   projectConversationActivity,
+  queuedAttachmentQueueIds,
   ROUTINE_ACTION_SENT_TIMEOUT_MS,
 } from "./home-workspace";
 
@@ -3457,5 +3459,95 @@ describe("HomeWorkspace", () => {
     } finally {
       window.sessionStorage.clear();
     }
+  });
+});
+
+describe("buildQueuedFrameMessages", () => {
+  const cloudMessage = (overrides: Partial<MessageViewModel> = {}): MessageViewModel => ({
+    id: "cloud-1",
+    sender: "user",
+    content: "Review this",
+    sequence: 2,
+    status: "queued",
+    queueState: "unclaimed",
+    createdAt: "2026-09-06T12:00:00Z",
+    ...overrides,
+  });
+
+  it("carries cloud file previews into the queue", () => {
+    const items = buildQueuedFrameMessages(
+      [cloudMessage({
+        files: [
+          { id: "00000000-0000-4000-8000-000000000001", name: "a.pdf", size: 76600, state: "ready" },
+          { id: "00000000-0000-4000-8000-000000000002", name: "b.png", size: 1200, state: "retained" },
+        ],
+      })],
+      [],
+      null,
+      false,
+    );
+    expect(items).toEqual([{
+      id: "cloud-1",
+      content: "Review this",
+      removable: true,
+      statusLabel: null,
+      attachments: [
+        { id: "00000000-0000-4000-8000-000000000001", name: "a.pdf", ready: true },
+        { id: "00000000-0000-4000-8000-000000000002", name: "b.png", ready: true },
+      ],
+    }]);
+  });
+
+  it("resolves local file previews without reordering the queue", () => {
+    const items = buildQueuedFrameMessages(
+      [],
+      [
+        { id: "queued-text", content: "First", intentKey: "key-1", queuedAt: 1 },
+        { id: "queued-files", content: "Second", intentKey: "key-2", queuedAt: 2, fileTransferId: "11111111-1111-4111-8111-111111111111" },
+      ],
+      null,
+      false,
+      true,
+      (fileTransferId) => fileTransferId === "11111111-1111-4111-8111-111111111111"
+        ? [{ id: "local-1", name: "c.pdf", src: "blob:c", ready: true }]
+        : null,
+    );
+    expect(items.map((item) => item.id)).toEqual(["queued-text", "queued-files"]);
+    expect(items[1]).toMatchObject({ attachments: [{ id: "local-1", name: "c.pdf", src: "blob:c", ready: true }] });
+    expect(items[0]).not.toHaveProperty("attachments");
+  });
+});
+
+describe("queuedAttachmentQueueIds", () => {
+  const fileMessage = (overrides: Partial<MessageViewModel> = {}): MessageViewModel => ({
+    id: "file-1",
+    sender: "user",
+    content: "Review this",
+    sequence: 2,
+    status: "queued",
+    queueState: "unclaimed",
+    createdAt: "2026-09-06T12:00:00Z",
+    files: [{ id: "00000000-0000-4000-8000-000000000001", name: "a.pdf", size: 76600, state: "ready" }],
+    ...overrides,
+  });
+
+  it("keeps waiting file messages in the queue but not actively transferring ones", () => {
+    expect(queuedAttachmentQueueIds(
+      [fileMessage({ id: "waiting" }), fileMessage({ id: "uploading" }), fileMessage({ id: "sent", status: "completed" })],
+      new Set(["uploading"]),
+    )).toEqual(new Set(["waiting"]));
+  });
+
+  it("ignores text-only queued messages", () => {
+    const textOnly: MessageViewModel = {
+      id: "text",
+      sender: "user",
+      content: "Just words",
+      sequence: 2,
+      status: "queued",
+      queueState: "unclaimed",
+      createdAt: "2026-09-06T12:00:00Z",
+    };
+    expect(queuedAttachmentQueueIds([textOnly], new Set())).toEqual(new Set());
   });
 });

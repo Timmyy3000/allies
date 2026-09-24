@@ -7,6 +7,7 @@ import { ShinyText } from "../../components/text-animations/shiny-text";
 
 import styles from "./conversation-frame.module.css";
 import { formatFileSize } from "./file-size";
+import type { QueuedAttachmentPreview } from "./conversation-frame-model";
 import { useIsMobileHome } from "./use-is-mobile-home";
 import { ActivityIcon } from "./activity-icon";
 
@@ -383,11 +384,13 @@ export function QueueStack({
   onRemove,
   actionLabel = "",
   onAction,
+  renderAttachments,
 }: {
-  items: readonly { id: string; content: string; removable?: boolean; statusLabel?: string | null }[];
+  items: readonly { id: string; content: string; removable?: boolean; statusLabel?: string | null; attachments?: QueuedAttachmentPreview[] }[];
   onRemove?: (id: string) => void;
   actionLabel?: string;
   onAction?: () => void;
+  renderAttachments?: (files: QueuedAttachmentPreview[]) => ReactNode;
 }) {
   const reducedMotion = useReducedMotion();
   const duration = reducedMotion ? 0 : .32;
@@ -397,7 +400,12 @@ export function QueueStack({
       {items.map((item, index) => (
         <motion.li className={styles.frameQueueItem} key={item.id} initial={{ height: 0, marginTop: 0 }} animate={{ height: 48, marginTop: index === 0 ? 0 : 8 }} exit={{ height: 0, marginTop: 0 }} transition={{ duration, ease: [.25, 1, .5, 1] }}>
           <motion.div className={styles.frameQueuePill} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: duration * .65, ease: [.25, 1, .5, 1] }}>
-            <span title={item.content}>{item.content}</span>
+            {item.attachments?.length && renderAttachments ? (
+              <span className={styles.frameQueueThumbs} title={item.attachments.map((file) => file.name).join(", ")}>
+                {renderAttachments(item.attachments)}
+              </span>
+            ) : null}
+            <span title={item.attachments?.length ? `${item.content} (${item.attachments.map((file) => file.name).join(", ")})` : item.content}>{item.content}</span>
             {actionLabel && onAction ? <button type="button" onClick={onAction}>{actionLabel}</button> : null}
             {item.statusLabel ? <span aria-label={item.statusLabel}>{item.statusLabel}</span> : null}
             {onRemove && item.removable !== false ? (
