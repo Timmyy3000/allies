@@ -75,6 +75,10 @@ MEMORY_TOOLS = frozenset(
     }
 )
 DEFAULT_MEMORY_TOOL_ALLOWLIST = tuple(sorted(MEMORY_TOOLS))
+# Absolute compaction trigger: sessions compact at the lower of the
+# ratio-based threshold and this count. Set from the observed terminal-event
+# failure boundary: transcripts past ~256KB break single-event SSE parsing.
+DEFAULT_COMPRESSION_THRESHOLD_TOKENS = 100_000
 CLEANUP_GRACE_SECONDS = 60
 MAX_PROFILE_SEED_BYTES = 128 * 1024
 _OPAQUE_REFERENCE = re.compile(
@@ -106,6 +110,7 @@ class ProfileSeed:
     memory_tool_allowlist: tuple[str, ...] = DEFAULT_MEMORY_TOOL_ALLOWLIST
     memory_profile_isolation: bool = True
     memory_sync_roles: tuple[str, ...] = ()
+    compression_threshold_tokens: int = DEFAULT_COMPRESSION_THRESHOLD_TOKENS
 
     def payload(self) -> dict[str, Any]:
         return _normalize_seed(self)
@@ -786,6 +791,7 @@ def _normalize_seed(seed: ProfileSeed | Mapping[str, Any]) -> dict[str, Any]:
             "memory_tool_allowlist": list(seed.memory_tool_allowlist),
             "memory_profile_isolation": seed.memory_profile_isolation,
             "memory_sync_roles": list(seed.memory_sync_roles),
+            "compression_threshold_tokens": seed.compression_threshold_tokens,
         }
     elif isinstance(seed, Mapping):
         values = dict(seed)
@@ -867,6 +873,11 @@ def _normalize_seed(seed: ProfileSeed | Mapping[str, Any]) -> dict[str, Any]:
     )
     if memory_sync_roles:
         raise RuntimeValidationError("memory sync roles are disabled")
+    compression_threshold_tokens = values.get(
+        "compression_threshold_tokens", DEFAULT_COMPRESSION_THRESHOLD_TOKENS
+    )
+    if compression_threshold_tokens != DEFAULT_COMPRESSION_THRESHOLD_TOKENS:
+        raise RuntimeValidationError("unsupported compression threshold")
     payload = {
         "version": version,
         "personality": personality,
@@ -882,6 +893,7 @@ def _normalize_seed(seed: ProfileSeed | Mapping[str, Any]) -> dict[str, Any]:
         "memory_tool_allowlist": list(memory_tool_allowlist),
         "memory_profile_isolation": True,
         "memory_sync_roles": [],
+        "compression_threshold_tokens": compression_threshold_tokens,
     }
     if len(str(payload).encode("utf-8")) > MAX_PROFILE_SEED_BYTES:
         raise RuntimeValidationError("profile seed exceeds the bounded size")
@@ -917,6 +929,9 @@ def _seed_fingerprint(
             "tools": payload["memory_tool_allowlist"],
             "profile_isolation": payload["memory_profile_isolation"],
             "sync_roles": payload["memory_sync_roles"],
+        },
+        "compression": {
+            "threshold_tokens": payload["compression_threshold_tokens"],
         },
     }
     encoded = json.dumps(

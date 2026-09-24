@@ -30,6 +30,7 @@ from allies_runtime.profile_store import (
     ProfileStoreError,
     _process_is_alive,
     _read_lock_metadata,
+    _replace_legacy_compression_config,
     derive_profile_key,
     inspect_profile,
     validate_profile_key,
@@ -675,6 +676,128 @@ def test_legacy_memory_default_is_upgraded_without_replacing_profile_state(tmp_p
     config = yaml.safe_load((profile / "config.yaml").read_text(encoding="utf-8"))
     assert config["memory"]["mode"] == "narrow_tools"
     assert config["custom"] == "retained"
+
+
+def test_compression_threshold_is_provisioned_with_default(tmp_path):
+    store, seed = make_store(tmp_path), make_seed()
+    assert store.materialize(seed).status is ProfileProvisionStatus.CREATED
+    config = yaml.safe_load(
+        (profile_path(store, seed) / "config.yaml").read_text(encoding="utf-8")
+    )
+    assert config["compression"] == {
+        "threshold_tokens": profile_store_module.DEFAULT_COMPRESSION_THRESHOLD_TOKENS
+    }
+    assert profile_store_module.DEFAULT_COMPRESSION_THRESHOLD_TOKENS == 100_000
+
+
+def test_seed_fingerprint_matches_backend_mirror():
+    seed = ProfileSeed(
+        foundry_profile_id="00000000-0000-0000-0000-000000000001",
+        ally_name="ally-a",
+        personality="p",
+        provider="openai",
+        model="gpt-test",
+        first_chat_instruction="i",
+        credential_refs={"PROVIDER_API": "vault://p"},
+        hermes_profile_key="ally-v1-00000000000000000000000000000001",
+        identity={"ally_name": "ally-a"},
+    )
+    # Pinned against the backend mirror (services.profiles): both sides must
+    # hash the identical canonical payload, compression block included.
+    assert seed.fingerprint == (
+        "dc579a4739785ecdd41a3bc82ca11ed55eae79e178cd3206f47d37f4e624945d"
+    )
+
+
+def test_legacy_compression_default_is_upgraded_without_replacing_profile_state(
+    tmp_path,
+):
+    store, seed = make_store(tmp_path), make_seed()
+    assert store.materialize(seed).status is ProfileProvisionStatus.CREATED
+    manifest_path = profile_path(store, seed) / MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_fingerprint"] = seed.legacy_compression_fingerprint
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    config_path = profile_path(store, seed) / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    del config["compression"]
+    config_path.write_text(
+        yaml.safe_dump(config, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+    marker = profile_path(store, seed) / "sessions" / "preserved"
+    marker.write_text("keep", encoding="utf-8")
+
+    receipt = store.materialize(seed)
+
+    assert receipt.status is ProfileProvisionStatus.EXISTING
+    assert marker.read_text(encoding="utf-8") == "keep"
+    upgraded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert upgraded["seed_fingerprint"] == seed.fingerprint
+    assert yaml.safe_load(config_path.read_text(encoding="utf-8"))["compression"] == {
+        "threshold_tokens": profile_store_module.DEFAULT_COMPRESSION_THRESHOLD_TOKENS
+    }
+
+
+def test_replace_legacy_compression_config_edge_cases():
+    seed = make_seed()
+    upgraded = _replace_legacy_compression_config(b"model: {}\n", seed)
+    assert yaml.safe_load(upgraded)["compression"] == {"threshold_tokens": 100_000}
+    already = (
+        b"model: {}\n"
+        b"compression:\n"
+        b"  threshold_tokens: 100000\n"
+    )
+    assert yaml.safe_load(_replace_legacy_compression_config(already, seed))[
+        "compression"
+    ] == {"threshold_tokens": 100_000}
+    with pytest.raises(ValueError):
+        _replace_legacy_compression_config(b"compression:\n  threshold_tokens: 1\n", seed)
+
+
+def test_legacy_memory_upgrade_also_adds_compression_section(tmp_path):
+    store = make_store(tmp_path)
+    legacy_seed = replace(
+        make_seed(),
+        memory_mode=CONTEXT_ONLY_MEMORY_MODE,
+        memory_tool_allowlist=(),
+    )
+    assert store.materialize(legacy_seed).status is ProfileProvisionStatus.CREATED
+    manifest_path = profile_path(store, legacy_seed) / MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_fingerprint"] = legacy_seed.legacy_memory_fingerprint
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    config_path = profile_path(store, legacy_seed) / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    del config["compression"]
+    config["memory"] = {
+        "provider": "allies_mnemosyne",
+        "mode": "context_only",
+        "policy_version": "allies-mnemosyne-v1",
+        "tools": [],
+        "profile_isolation": True,
+        "sync_roles": [],
+        "mnemosyne": {
+            "profile_isolation": True,
+            "shared_surface_read": False,
+            "storage": "mnemosyne",
+        },
+    }
+    config_path.write_text(
+        yaml.safe_dump(config, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    receipt = store.materialize(make_seed())
+
+    assert receipt.status is ProfileProvisionStatus.EXISTING
+    upgraded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert upgraded["seed_fingerprint"] == make_seed().fingerprint
+    final = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert final["memory"]["mode"] == "narrow_tools"
+    assert final["compression"] == {
+        "threshold_tokens": profile_store_module.DEFAULT_COMPRESSION_THRESHOLD_TOKENS
+    }
 
 
 def test_legacy_memory_upgrade_retries_after_manifest_write_failure(tmp_path, monkeypatch):

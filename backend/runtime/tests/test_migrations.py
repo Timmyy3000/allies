@@ -257,3 +257,139 @@ def test_profile_memory_seed_migration_requeues_materialization(tmp_path):
         check=False,
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+COMPRESSION_MIGRATION_PROBE = r"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sys
+import uuid
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+import django
+
+django.setup()
+
+from django.db import connections
+from django.db.migrations.executor import MigrationExecutor
+
+MIGRATION_FROM = ("runtime", "0029_sleeping_ready_pool")
+MIGRATION_TO = ("runtime", "0030_profile_compression_threshold")
+database_path = sys.argv[1]
+connections.databases["default"]["NAME"] = database_path
+connections["default"].settings_dict["NAME"] = database_path
+connection = connections["default"]
+
+
+def migrate(target):
+    MigrationExecutor(connection).migrate([target])
+
+
+def models_at(target):
+    apps = MigrationExecutor(connection).loader.project_state([target]).apps
+    return apps.get_model("runtime", "Workspace"), apps.get_model("runtime", "RuntimeProfile")
+
+
+migrate(MIGRATION_FROM)
+workspace_model, profile_model = models_at(MIGRATION_FROM)
+workspace = workspace_model.objects.create(
+    id=uuid.uuid4(),
+    tenant_ref="compression-migration",
+    fly_app_ref="app-compression",
+    volume_ref="volume-compression",
+    machine_ref="machine-compression",
+    machine_generation=2,
+)
+profile_id = uuid.UUID("00000000-0000-0000-0000-000000000002")
+key = "ally-v1-00000000000000000000000000000002"
+seed = {
+    "version": 1,
+    "personality": "p",
+    "provider": "openai",
+    "model": "gpt-test",
+    "base_url": None,
+    "first_chat_instruction": "i",
+    "first_chat_instruction_version": 1,
+    "credential_refs": {"PROVIDER_API": "vault://p"},
+    "memory_provider": "allies_mnemosyne",
+    "memory_mode": "narrow_tools",
+    "memory_policy_version": "allies-mnemosyne-v1",
+    "memory_tool_allowlist": ["mnemosyne_recall"],
+    "memory_profile_isolation": True,
+    "memory_sync_roles": [],
+}
+canonical = {
+    "schema_version": 1,
+    "foundry_profile_id": str(profile_id),
+    "hermes_profile_key": key,
+    "identity": {"ally_name": "ally-b"},
+    "personality": "p",
+    "first_chat_version": 1,
+    "first_chat_instruction": "i",
+    "model": {"provider": "openai", "default": "gpt-test", "base_url": None},
+    "credential_refs": {"PROVIDER_API": "vault://p"},
+    "memory": {
+        "provider": "allies_mnemosyne",
+        "mode": "narrow_tools",
+        "policy_version": "allies-mnemosyne-v1",
+        "tools": ["mnemosyne_recall"],
+        "profile_isolation": True,
+        "sync_roles": [],
+    },
+}
+encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+legacy = hashlib.sha256(b"allies-profile-seed-v2\0" + encoded).hexdigest()
+profile_model.objects.create(
+    id=profile_id,
+    workspace=workspace,
+    ally_ref="ally-b",
+    hermes_profile_key=key,
+    lifecycle_state="active",
+    seed_payload=seed,
+    seed_fingerprint=legacy,
+    materialized_generation=2,
+    materialization_operation_id=uuid.uuid4(),
+    materialization_request_digest="b" * 64,
+    materialization_receipt_id=uuid.uuid4(),
+    materialization_result_code="created",
+)
+
+migrate(MIGRATION_TO)
+_, upgraded_model = models_at(MIGRATION_TO)
+profile = upgraded_model.objects.get(pk=profile_id)
+assert profile.seed_payload["compression_threshold_tokens"] == 100_000
+assert profile.seed_fingerprint != legacy
+assert profile.materialized_generation == 0
+assert profile.materialization_operation_id is None
+assert profile.materialization_request_digest == ""
+assert profile.materialization_receipt_id is None
+assert profile.materialization_result_code == ""
+assert profile.lifecycle_state == "active"
+
+migrate(MIGRATION_TO)
+profile = upgraded_model.objects.get(pk=profile_id)
+assert profile.seed_payload["compression_threshold_tokens"] == 100_000
+assert profile.materialized_generation == 0
+
+migrate(MIGRATION_FROM)
+_, rolled_back_model = models_at(MIGRATION_FROM)
+profile = rolled_back_model.objects.get(pk=profile_id)
+assert "compression_threshold_tokens" not in profile.seed_payload
+assert profile.seed_fingerprint == legacy
+assert profile.materialized_generation == 0
+"""
+
+
+def test_profile_compression_seed_migration_requeues_materialization(tmp_path):
+    database_path = tmp_path / "compression.sqlite3"
+    result = subprocess.run(
+        [sys.executable, "-c", COMPRESSION_MIGRATION_PROBE, str(database_path)],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
