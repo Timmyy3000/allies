@@ -181,6 +181,34 @@ describe("ConversationFrame", () => {
     await waitFor(() => expect(screen.getAllByText("First request")).toHaveLength(1));
   });
 
+  it("renders queued attachment thumbnails inside the queue pill", () => {
+    const queuedModel = {
+      ...model,
+      messages: [],
+      activityGroups: [],
+      queuedMessages: [
+        {
+          id: "local-files",
+          content: "Review these",
+          attachments: [
+            { id: "file-1", name: "a.pdf", ready: true },
+            { id: "file-2", name: "b.png", ready: true },
+          ],
+        },
+      ],
+    };
+    render(<ConversationFrame
+      model={queuedModel}
+      actions={actions}
+      sleeping
+      renderQueueAttachments={(files) => (<span data-testid="queue-thumbs">{files.map((file) => file.name).join(",")}</span>)}
+    />);
+    const thumbs = screen.getByTestId("queue-thumbs");
+    expect(thumbs.textContent).toBe("a.pdf,b.png");
+    expect(thumbs.closest("ol")?.getAttribute("aria-label")).toBe("Queued messages");
+    expect(screen.getByText("Review these").getAttribute("title")).toBe("Review these (a.pdf, b.png)");
+  });
+
   it("remeasures the avatar when the centred status label changes width", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const slot = this.className.includes("framePresenceHeaderSlot");

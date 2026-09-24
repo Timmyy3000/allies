@@ -1007,6 +1007,37 @@
   font-family: var(--chat-copy-font);
 }
 
+.frameQueueThumbs {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+}
+
+.frameQueueThumbs img {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  object-fit: cover;
+  border-radius: 8px;
+}
+
+.frameQueueThumbs svg {
+  width: 20px;
+  height: 20px;
+  flex: none;
+}
+
+.frameQueueThumbs > span:last-child {
+  flex: none;
+  color: var(--chat-muted);
+  font-size: 12px;
+  line-height: 15px;
+}
+
 .frameQueuePill > button {
   min-width: 44px;
   min-height: 36px;
