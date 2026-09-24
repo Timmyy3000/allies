@@ -151,6 +151,15 @@ RUN cd /opt/hermes \
     && git apply --whitespace=nowarn /tmp/allies-file-publication-protocol.patch \
     && rm -f /tmp/allies-file-publication-protocol.patch
 
+# The Allies web client renders Markdown. This source-pinned overlay replaces
+# the api_server plain-text hint so Allies use Markdown where it aids scanning.
+COPY patches/api-server-markdown-hint.patch /tmp/allies-api-server-markdown-hint.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-api-server-markdown-hint.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-api-server-markdown-hint.patch \
+    && git apply --whitespace=nowarn /tmp/allies-api-server-markdown-hint.patch \
+    && rm -f /tmp/allies-api-server-markdown-hint.patch
+
 COPY smoke_routine_result_tool.py /tmp/allies-smoke-routine-result-tool.py
 COPY smoke_incoming_file_context.py /tmp/allies-smoke-incoming-file-context.py
 COPY smoke_file_publication_tool.py /tmp/allies-smoke-file-publication-tool.py
@@ -160,6 +169,10 @@ RUN /opt/hermes/.venv/bin/python /tmp/allies-smoke-routine-result-tool.py \
     && rm -f /tmp/allies-smoke-routine-result-tool.py
 RUN PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-file-publication-tool.py \
     && rm -f /tmp/allies-smoke-file-publication-tool.py
+
+COPY smoke_api_server_markdown_hint.py /tmp/allies-smoke-api-server-markdown-hint.py
+RUN /opt/hermes/.venv/bin/python /tmp/allies-smoke-api-server-markdown-hint.py \
+    && rm -f /tmp/allies-smoke-api-server-markdown-hint.py
 
 COPY plugins/routines/ /opt/hermes/plugins/routines/
 COPY allies_routines.py /opt/hermes/tools/allies_routines.py
