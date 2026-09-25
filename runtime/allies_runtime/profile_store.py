@@ -29,6 +29,7 @@ from types import MappingProxyType
 from typing import Any, Literal
 
 from .errors import IncomingFileError
+from .soul_upgrade import legacy_soul_for
 
 SKILLS_CATALOG = "/opt/allies/skills"
 SKILLS_CONFIG = f"skills:\n  external_dirs: [{json.dumps(SKILLS_CATALOG)}]\n"
@@ -548,6 +549,17 @@ class ProfileSeed:
                 "threshold_tokens": self.compression_threshold_tokens,
             },
         }
+
+    @property
+    def legacy_soul_fingerprint(self) -> str | None:
+        """Return the fingerprint from before the platform-layer soul, if any."""
+
+        legacy = legacy_soul_for(self.personality)
+        if legacy is None:
+            return None
+        payload = self._fingerprint_payload()
+        payload["personality"] = legacy
+        return _fingerprint_digest(payload)
 
     @property
     def legacy_compression_fingerprint(self) -> str:
@@ -1811,10 +1823,16 @@ class ProfileStore:
         legacy_compression_upgrade = (
             manifest.get("seed_fingerprint") == seed.legacy_compression_fingerprint
         )
+        legacy_soul_fingerprint = seed.legacy_soul_fingerprint
+        legacy_soul_upgrade = (
+            legacy_soul_fingerprint is not None
+            and manifest.get("seed_fingerprint") == legacy_soul_fingerprint
+        )
         if (
             manifest.get("seed_fingerprint") != seed.fingerprint
             and not legacy_memory_upgrade
             and not legacy_compression_upgrade
+            and not legacy_soul_upgrade
         ):
             code = (
                 "instruction_version_conflict"
@@ -1961,6 +1979,23 @@ class ProfileStore:
                 ProfileProvisionStatus.REPAIR_REQUIRED,
                 repair_code="skills_config_requires_repair",
             )
+        if legacy_soul_upgrade:
+            # Managed souls are re-rendered from the Ally's original identity;
+            # the shared rules now live in the image's platform layer.
+            try:
+                self._write_bytes_atomic(
+                    profile / "SOUL.md", seed.personality.encode("utf-8"), mode=0o644
+                )
+                upgraded = dict(manifest)
+                upgraded["seed_fingerprint"] = seed.fingerprint
+                self._write_json_atomic(manifest_path, upgraded, mode=0o644)
+            except (ProfileStoreError, TypeError, UnicodeError, ValueError):
+                return self._receipt(
+                    seed,
+                    ProfileProvisionStatus.REPAIR_REQUIRED,
+                    repair_code="legacy_soul_upgrade_failed",
+                )
+            manifest = upgraded
         if legacy_memory_upgrade or legacy_compression_upgrade:
             upgraded = dict(manifest)
             upgraded.update(
