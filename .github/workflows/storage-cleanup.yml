@@ -1,0 +1,47 @@
+name: Clean Up Old Artifacts
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: "Delete for real (otherwise only list what would be deleted)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-cleanup
+  cancel-in-progress: false
+
+env:
+  # Scheduled runs only list until the repository variable STORAGE_CLEANUP_DELETE is "true".
+  DELETE: ${{ github.event_name == 'workflow_dispatch' && inputs.delete || github.event_name == 'schedule' && vars.STORAGE_CLEANUP_DELETE == 'true' }}
+
+jobs:
+  artifacts:
+    name: Delete workflow artifacts older than 7 days
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    steps:
+      - name: Delete old artifacts, keeping the newest 5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | [.id, .created_at, .size_in_bytes, .name] | @tsv' \
+            | sort -t$'\t' -k2,2r | tail -n +6 \
+            | awk -F'\t' -v cutoff="$cutoff" '$2 < cutoff' > old.tsv
+          echo "Old artifacts: $(wc -l < old.tsv), $(awk -F'\t' '{s+=$3} END {printf "%.1f", s/1048576}' old.tsv) MB (delete=$DELETE)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$DELETE" = true ]; then
+            cut -f1 old.tsv | while read -r id; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+            done
+          fi
