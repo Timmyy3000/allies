@@ -29,7 +29,7 @@ from chat.models import DispatchOutbox, Message
 from workspaces.capabilities import Capability
 from workspaces.services.access import require_workspace_capability
 
-from ..exceptions import ProviderUnavailable, RefreshRevoked
+from ..exceptions import IntegrationUnavailable, ProviderUnavailable, RefreshRevoked
 from ..models import PROVIDER_GMAIL, IntegrationSecret, IntegrationToolCall
 from .google_oauth import gmail_enabled, refresh_access_token
 from .grants import check_gmail_grant
@@ -181,7 +181,13 @@ def execute_gmail_tool(
                 422, "gmail_message_not_found", "Search again for the message."
             )
         return 503, {"error": "gmail_unavailable"}
-    except (ProviderUnavailable, URLError, OSError, ValueError):
+    except (
+        IntegrationUnavailable,
+        ProviderUnavailable,
+        URLError,
+        OSError,
+        ValueError,
+    ):
         return 503, {"error": "gmail_unavailable"}
 
 
@@ -260,7 +266,14 @@ def _send(message, call_id, digest, args, secret) -> tuple[int, dict]:
     except RefreshRevoked:
         record.delete()
         return NOT_CONNECTED
-    except (ProviderUnavailable, HTTPError, URLError, OSError, ValueError):
+    except (
+        IntegrationUnavailable,
+        ProviderUnavailable,
+        HTTPError,
+        URLError,
+        OSError,
+        ValueError,
+    ):
         record.delete()
         return 503, {"error": "gmail_unavailable"}
     body = {"raw": raw}
