@@ -25,10 +25,13 @@ import {
   ActivityReplayBoundError,
   activityReplayFailure,
   activitySnapshotBytes,
+  buildQueuedFrameMessages,
   HomeWorkspace,
   hasOnboardingExchange,
+  localTransferQueueStatus,
   mergeAssistantReplies,
   projectConversationActivity,
+  queuedAttachmentQueueIds,
   ROUTINE_ACTION_SENT_TIMEOUT_MS,
 } from "./home-workspace";
 
@@ -528,6 +531,163 @@ describe("HomeWorkspace", () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(screen.getByText("one.pdf")).toBeTruthy();
+  });
+
+  it("cancels the transfer before deleting when removing a cloud file message from the queue pill", async () => {
+    const fileId = "10000000-0000-4000-8000-000000000001";
+    const messageId = "00000000-0000-4000-8000-000000000006";
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const queuedFileMessage = {
+      id: messageId,
+      sender: "user" as const,
+      content: "See this",
+      sequence: 1,
+      status: "queued" as const,
+      queueState: "unclaimed" as const,
+      createdAt: "2026-08-20T16:00:00Z",
+      preparation: "ready" as const,
+      revision: 1,
+      files: [{ id: fileId, name: "notes.txt", size: 5, state: "ready" as const }],
+    };
+    const cancelFiles = vi.fn(async () => ({
+      message: { id: messageId, status: "queued", preparation: "cancelled", revision: 2 },
+      draft: {
+        id: messageId,
+        content: "Restored text",
+        files: [{ id: fileId, name: "notes.txt", state: "retained" as const }],
+      },
+    }));
+    const deleteQueuedMessage = vi.fn(async () => ({
+      ...queuedFileMessage,
+      content: "",
+      status: "stopped" as const,
+      queueState: null,
+      deletedAt: "2026-08-20T16:01:00Z",
+    }));
+    renderHome([ally], ally.id, {
+      files: { cancel: cancelFiles },
+      deleteQueuedMessage,
+      getAllyConversation: vi.fn(async () => deleteQueuedMessage.mock.calls.length
+        ? { id: conversationId, allyId: ally.id, messages: [], nextCursor: null }
+        : {
+          id: conversationId,
+          allyId: ally.id,
+          messages: [queuedFileMessage],
+          queue: [queuedFileMessage],
+          nextCursor: null,
+        }),
+    });
+
+    const queue = await screen.findByRole("list", { name: "Queued messages" });
+    expect(queue.textContent).toContain("See this");
+    fireEvent.click(screen.getByRole("button", { name: "Remove queued message: See this" }));
+    await waitFor(() => expect(cancelFiles).toHaveBeenCalled());
+    await waitFor(() => expect(deleteQueuedMessage).toHaveBeenCalled());
+    expect(cancelFiles.mock.invocationCallOrder[0]).toBeLessThan(deleteQueuedMessage.mock.invocationCallOrder[0]);
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Restored text"));
+    await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
+  });
+
+  it("cancels once and deletes when using in-bubble Cancel on a failed cloud file message", async () => {
+    const fileId = "10000000-0000-4000-8000-000000000001";
+    const messageId = "00000000-0000-4000-8000-000000000006";
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const failedFileMessage = {
+      id: messageId,
+      sender: "user" as const,
+      content: "See this",
+      sequence: 1,
+      status: "queued" as const,
+      queueState: "unclaimed" as const,
+      createdAt: "2026-08-20T16:00:00Z",
+      preparation: "failed" as const,
+      revision: 1,
+      files: [{ id: fileId, name: "notes.txt", size: 5, state: "failed" as const }],
+    };
+    const cancelFiles = vi.fn(async () => ({
+      message: { id: messageId, status: "queued", preparation: "cancelled", revision: 2 },
+      draft: {
+        id: messageId,
+        content: "Restored text",
+        files: [{ id: fileId, name: "notes.txt", state: "retained" as const }],
+      },
+    }));
+    const deleteQueuedMessage = vi.fn(async () => ({
+      ...failedFileMessage,
+      content: "",
+      status: "stopped" as const,
+      queueState: null,
+      deletedAt: "2026-08-20T16:01:00Z",
+    }));
+    renderHome([ally], ally.id, {
+      files: { cancel: cancelFiles },
+      deleteQueuedMessage,
+      getAllyConversation: vi.fn(async () => deleteQueuedMessage.mock.calls.length
+        ? { id: conversationId, allyId: ally.id, messages: [], nextCursor: null }
+        : {
+          id: conversationId,
+          allyId: ally.id,
+          messages: [failedFileMessage],
+          queue: [failedFileMessage],
+          nextCursor: null,
+        }),
+    });
+
+    await screen.findByText("See this", { selector: "article p" });
+    expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(deleteQueuedMessage).toHaveBeenCalled());
+    expect(cancelFiles).toHaveBeenCalledTimes(1);
+    expect(cancelFiles.mock.invocationCallOrder[0]).toBeLessThan(deleteQueuedMessage.mock.invocationCallOrder[0]);
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Restored text"));
+    await waitFor(() => expect(screen.queryByText("See this")).toBeNull());
+  });
+
+  it("leaves the draft untouched when deleting a cloud file message fails after cancel", async () => {
+    const fileId = "10000000-0000-4000-8000-000000000001";
+    const messageId = "00000000-0000-4000-8000-000000000006";
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const queuedFileMessage = {
+      id: messageId,
+      sender: "user" as const,
+      content: "See this",
+      sequence: 1,
+      status: "queued" as const,
+      queueState: "unclaimed" as const,
+      createdAt: "2026-08-20T16:00:00Z",
+      preparation: "ready" as const,
+      revision: 1,
+      files: [{ id: fileId, name: "notes.txt", size: 5, state: "ready" as const }],
+    };
+    const cancelFiles = vi.fn(async () => ({
+      message: { id: messageId, status: "queued", preparation: "cancelled", revision: 2 },
+      draft: {
+        id: messageId,
+        content: "Restored text",
+        files: [{ id: fileId, name: "notes.txt", state: "retained" as const }],
+      },
+    }));
+    const deleteQueuedMessage = vi.fn(async () => {
+      throw { kind: "network" };
+    });
+    renderHome([ally], ally.id, {
+      files: { cancel: cancelFiles },
+      deleteQueuedMessage,
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [queuedFileMessage],
+        queue: [queuedFileMessage],
+        nextCursor: null,
+      })),
+    });
+
+    const queue = await screen.findByRole("list", { name: "Queued messages" });
+    expect(queue.textContent).toContain("See this");
+    fireEvent.click(screen.getByRole("button", { name: "Remove queued message: See this" }));
+    await waitFor(() => expect(deleteQueuedMessage).toHaveBeenCalled());
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+    expect(screen.getByRole("list", { name: "Queued messages" }).textContent).toContain("See this");
   });
 
   it("falls back to the original file when the optimized preview is unavailable", async () => {
@@ -3457,5 +3617,145 @@ describe("HomeWorkspace", () => {
     } finally {
       window.sessionStorage.clear();
     }
+  });
+});
+
+describe("buildQueuedFrameMessages", () => {
+  const cloudMessage = (overrides: Partial<MessageViewModel> = {}): MessageViewModel => ({
+    id: "cloud-1",
+    sender: "user",
+    content: "Review this",
+    sequence: 2,
+    status: "queued",
+    queueState: "unclaimed",
+    createdAt: "2026-09-06T12:00:00Z",
+    ...overrides,
+  });
+
+  it("carries cloud file previews into the queue", () => {
+    const items = buildQueuedFrameMessages(
+      [cloudMessage({
+        files: [
+          { id: "00000000-0000-4000-8000-000000000001", name: "a.pdf", size: 76600, state: "ready" },
+          { id: "00000000-0000-4000-8000-000000000002", name: "b.png", size: 1200, state: "retained" },
+        ],
+      })],
+      [],
+      null,
+      false,
+    );
+    expect(items).toEqual([{
+      id: "cloud-1",
+      content: "Review this",
+      removable: true,
+      statusLabel: null,
+      attachments: [
+        { id: "00000000-0000-4000-8000-000000000001", name: "a.pdf", ready: true },
+        { id: "00000000-0000-4000-8000-000000000002", name: "b.png", ready: true },
+      ],
+    }]);
+  });
+
+  it("resolves local file previews without reordering the queue", () => {
+    const items = buildQueuedFrameMessages(
+      [],
+      [
+        { id: "queued-text", content: "First", intentKey: "key-1", queuedAt: 1 },
+        { id: "queued-files", content: "Second", intentKey: "key-2", queuedAt: 2, fileTransferId: "11111111-1111-4111-8111-111111111111" },
+      ],
+      null,
+      false,
+      true,
+      (fileTransferId) => fileTransferId === "11111111-1111-4111-8111-111111111111"
+        ? {
+          files: [{ id: "local-1", name: "c.pdf", src: "blob:c", ready: true, local: true as const }],
+          status: "Uploading 42%",
+        }
+        : null,
+    );
+    expect(items.map((item) => item.id)).toEqual(["queued-text", "queued-files"]);
+    expect(items[1]).toMatchObject({
+      attachments: [{ id: "local-1", name: "c.pdf", src: "blob:c", ready: true }],
+      statusLabel: "Uploading 42%",
+    });
+    expect(items[0]).toMatchObject({ statusLabel: null });
+    expect(items[0]).not.toHaveProperty("attachments");
+  });
+
+  it("labels uploading cloud file pills when no local transfer is visible", () => {
+    const items = buildQueuedFrameMessages(
+      [cloudMessage({
+        preparation: "uploading",
+        files: [
+          { id: "00000000-0000-4000-8000-000000000001", name: "a.pdf", size: 76600, state: "pending" },
+        ],
+      })],
+      [],
+      null,
+      false,
+    );
+    expect(items[0]).toMatchObject({ statusLabel: "Uploading…" });
+  });
+});
+
+describe("queuedAttachmentQueueIds", () => {
+  const fileMessage = (overrides: Partial<MessageViewModel> = {}): MessageViewModel => ({
+    id: "file-1",
+    sender: "user",
+    content: "Review this",
+    sequence: 2,
+    status: "queued",
+    queueState: "unclaimed",
+    createdAt: "2026-09-06T12:00:00Z",
+    files: [{ id: "00000000-0000-4000-8000-000000000001", name: "a.pdf", size: 76600, state: "ready" }],
+    ...overrides,
+  });
+
+  it("keeps waiting file messages in the queue, including ones still uploading", () => {
+    const waiting = fileMessage({ id: "waiting" });
+    const uploading = fileMessage({
+      id: "uploading",
+      preparation: "uploading",
+      files: [{ id: "00000000-0000-4000-8000-000000000001", name: "a.pdf", size: 76600, state: "pending" }],
+    });
+    const sent = fileMessage({ id: "sent", status: "completed" });
+    expect(queuedAttachmentQueueIds([waiting, uploading, sent], null)).toEqual(new Set(["waiting", "uploading"]));
+  });
+
+  it("keeps failed, claimed, and active file messages in the timeline", () => {
+    const failed = fileMessage({ id: "cloud-failed", preparation: "failed" });
+    const claimed = fileMessage({ id: "cloud-claimed", preparation: "ready", queueState: "claimed" });
+    const active = fileMessage({ id: "cloud-active", preparation: "ready" });
+    const waiting = fileMessage({ id: "cloud-waiting", preparation: "ready" });
+    expect(queuedAttachmentQueueIds([failed, claimed, active, waiting], "cloud-active")).toEqual(new Set(["cloud-waiting"]));
+  });
+
+  it("ignores text-only queued messages", () => {
+    const textOnly: MessageViewModel = {
+      id: "text",
+      sender: "user",
+      content: "Just words",
+      sequence: 2,
+      status: "queued",
+      queueState: "unclaimed",
+      createdAt: "2026-09-06T12:00:00Z",
+    };
+    expect(queuedAttachmentQueueIds([textOnly], null)).toEqual(new Set());
+  });
+});
+
+describe("localTransferQueueStatus", () => {
+  it.each([
+    ["uploading", [{ state: "pending", progress: 99 }], "Uploading 99%"],
+    ["uploading", [{ state: "pending", progress: 40 }, { state: "pending", progress: 80 }], "Uploading 40%"],
+    ["uploading", [{ state: "receiving", progress: 50 }], "Checking file…"],
+    ["uploading", [{ state: "validating", progress: 50 }], "Checking file…"],
+    ["uploading", [{ state: "ready", progress: 100 }], null],
+    ["checking", [{ state: "pending", progress: 10 }], "Checking file…"],
+    ["failed", [{ state: "pending", progress: 10 }], "Needs attention"],
+    ["ready", [{ state: "ready", progress: 100 }], null],
+    ["cancelled", [{ state: "pending", progress: 10 }], null],
+  ])("maps %s transfer state to %s", (phase, files, expected) => {
+    expect(localTransferQueueStatus({ phase, files })).toBe(expected);
   });
 });
