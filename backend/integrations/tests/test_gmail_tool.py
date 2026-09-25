@@ -273,7 +273,7 @@ def test_gmail_rejection_frees_the_confirmation(gmail, monkeypatch):
 
 def test_reply_threads_under_the_last_message(gmail):
     draft = {**DRAFT, "thread_id": "t1"}
-    status, prepared = run(gmail["turn"], {"action": "prepare_send", **draft})
+    _, prepared = run(gmail["turn"], {"action": "prepare_send", **draft})
     later = _turn(_next_message(gmail["conversation"], 2), gmail["binding"])
     arguments = {
         "action": "send",
