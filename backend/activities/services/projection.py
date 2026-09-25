@@ -658,7 +658,15 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
         raise ProjectionConflict("event attempt identity conflicts with generation")
     if _prior_turn_is_open(message):
         logger.warning(
-            "foundry event held for prior open turn",
+            "foundry event held for prior open turn "
+            "conversation_id=%s message_id=%s execution_id=%s "
+            "attempt_id=%s generation=%d attempt_sequence=%d",
+            conversation.id,
+            message.id,
+            foundry.execution_id,
+            foundry.attempt_id,
+            foundry.generation,
+            foundry.attempt_sequence,
             extra={
                 "conversation_id": str(conversation.id),
                 "message_id": str(message.id),
@@ -674,7 +682,16 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
     )
     if foundry.attempt_sequence > expected_sequence:
         logger.warning(
-            "foundry event held for sequence gap",
+            "foundry event held for sequence gap "
+            "conversation_id=%s message_id=%s execution_id=%s "
+            "attempt_id=%s generation=%d expected_sequence=%d attempt_sequence=%d",
+            conversation.id,
+            message.id,
+            foundry.execution_id,
+            foundry.attempt_id,
+            foundry.generation,
+            expected_sequence,
+            foundry.attempt_sequence,
             extra={
                 "conversation_id": str(conversation.id),
                 "message_id": str(message.id),

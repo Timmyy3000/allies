@@ -595,6 +595,9 @@ def test_event_sequence_gaps_are_held_until_the_missing_event_arrives(
     assert record.message_id == str(message.id)
     assert record.expected_sequence == 1
     assert record.attempt_sequence == 2
+    assert str(message.id) in caplog.text
+    assert "expected_sequence=1" in caplog.text
+    assert "attempt_sequence=2" in caplog.text
     assert Activity.objects.count() == 0
     assert FoundryEventReceipt.objects.count() == 0
 
