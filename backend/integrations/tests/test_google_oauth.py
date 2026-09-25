@@ -1,10 +1,10 @@
-import base64
 import hashlib
 import json
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from cryptography.fernet import Fernet
 
 from allies.models import Ally, AllyBinding
 from auths.models import User
@@ -25,7 +25,11 @@ from integrations.services.google_oauth import (
 from integrations.services.vault import seal_refresh_token
 from workspaces.models import Membership, Workspace
 
-VAULT_KEY_B64 = base64.urlsafe_b64encode(b"v" * 32).decode()
+
+def _test_vault_key() -> str:
+    return Fernet.generate_key().decode()
+
+
 FULL_SCOPES = (
     "https://www.googleapis.com/auth/gmail.readonly "
     "https://www.googleapis.com/auth/gmail.send"
@@ -66,7 +70,7 @@ def gmail_settings(settings):
     settings.ALLIES_GMAIL_CLIENT_ID = "test-client-id"
     settings.ALLIES_GMAIL_CLIENT_SECRET = "test-client-secret"
     settings.ALLIES_GMAIL_REDIRECT_URI = "https://app.example/callback"
-    settings.ALLIES_INTEGRATIONS_VAULT_KEY = VAULT_KEY_B64
+    settings.ALLIES_INTEGRATIONS_VAULT_KEY = _test_vault_key()
     return settings
 
 

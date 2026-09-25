@@ -1,8 +1,8 @@
-import base64
 import hashlib
 import logging
 
 import pytest
+from cryptography.fernet import Fernet
 
 from allies.models import Ally, AllyBinding
 from auths.models import User
@@ -23,13 +23,15 @@ from integrations.services.grants import (
 from integrations.services.vault import seal_refresh_token
 from workspaces.models import Membership, Workspace
 
-VAULT_KEY_B64 = base64.urlsafe_b64encode(b"v" * 32).decode()
+
+def _test_vault_key() -> str:
+    return Fernet.generate_key().decode()
 
 
 @pytest.fixture
 def gmail_settings(settings):
     settings.ALLIES_GMAIL_ENABLED = True
-    settings.ALLIES_INTEGRATIONS_VAULT_KEY = VAULT_KEY_B64
+    settings.ALLIES_INTEGRATIONS_VAULT_KEY = _test_vault_key()
     return settings
 
 
