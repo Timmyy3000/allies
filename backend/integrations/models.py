@@ -130,3 +130,28 @@ class GmailConnectSession(models.Model):
 
     def __str__(self) -> str:
         return str(self.id)
+
+
+class IntegrationToolCall(models.Model):
+    """One relayed integration tool call, replayed by ``(message, call_id)``.
+
+    ``consumed_ref`` marks the send confirmation a call used; the unique
+    constraint makes each confirmation send at most once.
+    """
+
+    message = models.ForeignKey("chat.Message", on_delete=models.CASCADE)
+    call_id = models.UUIDField()
+    request_digest = models.CharField(max_length=64)
+    response = models.JSONField()
+    consumed_ref = models.CharField(max_length=36, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("message", "call_id"), name="integration_tool_call_uniq"
+            ),
+            models.UniqueConstraint(
+                fields=("consumed_ref",), name="integration_tool_ref_uniq"
+            ),
+        ]
