@@ -6,6 +6,7 @@ import asyncio
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 from .errors import (
     HermesAuthenticationError,
@@ -64,6 +65,9 @@ class FakeHermesClient:
         self.plans = dict(plans or {})
         self.health_status = health_status
         self.calls: list[tuple[str, str, str]] = []
+        self.overrides: list[dict[str, Any]] = []
+        self.locks: list[dict[str, Any]] = []
+        self.lock_failure: Any | None = None
         self.session_keys: list[str] = []
         self.ensured_sessions: list[tuple[str, str]] = []
         self._run_numbers: dict[str, int] = {}
@@ -88,6 +92,37 @@ class FakeHermesClient:
     ) -> None:
         self.ensured_sessions.append((profile_id, session_id))
 
+    async def lock_session_model(
+        self,
+        profile_id: str,
+        session_id: str,
+        *,
+        provider: str | None = None,
+        model: str | None = None,
+    ) -> dict[str, Any]:
+        # Mirrors HermesClient.lock_session_model bounds so tests exercise
+        # the same fail-closed paths as production.
+        if provider is not None and (
+            not isinstance(provider, str) or len(provider.encode("utf-8")) > 80
+        ):
+            raise ValueError("Hermes lock provider must be bounded text")
+        if model is not None and (
+            not isinstance(model, str) or len(model.encode("utf-8")) > 256
+        ):
+            raise ValueError("Hermes lock model must be bounded text")
+        if not provider and not model:
+            raise ValueError("Hermes session model lock needs a provider or model")
+        self.locks.append(
+            {"profile_id": profile_id, "session_id": session_id,
+             "provider": provider, "model": model}
+        )
+        if self.lock_failure is not None:
+            raise self.lock_failure
+        return {
+            "object": "hermes.session.model_lock",
+            "session_id": session_id,
+        }
+
     async def stream_profile(
         self,
         profile_id: str,
@@ -96,11 +131,18 @@ class FakeHermesClient:
         *,
         session_key: str | None = None,
         reasoning_effort: str | None = None,
+        model_options: Mapping[str, Any] | None = None,
     ) -> HermesStreamResult:
         plan = self.plans.get(profile_id, FakeProfilePlan())
         self.calls.append((profile_id, session_id, message))
         if session_key is not None:
             self.session_keys.append(session_key)
+        self.overrides.append(
+            {
+                "reasoning_effort": reasoning_effort,
+                "model_options": dict(model_options or {}),
+            }
+        )
         await asyncio.sleep(plan.delay)
         if plan.failure == "auth":
             raise HermesAuthenticationError("Hermes authentication was rejected")
@@ -146,6 +188,7 @@ class FakeHermesClient:
         *,
         session_key: str | None = None,
         reasoning_effort: str | None = None,
+        model_options: Mapping[str, Any] | None = None,
     ) -> CancellableHermesStream:
         """Yield fixture events incrementally and record cancellation."""
 
@@ -153,6 +196,12 @@ class FakeHermesClient:
         self.calls.append((profile_id, session_id, message))
         if session_key is not None:
             self.session_keys.append(session_key)
+        self.overrides.append(
+            {
+                "reasoning_effort": reasoning_effort,
+                "model_options": dict(model_options or {}),
+            }
+        )
         if plan.failure == "auth":
             raise HermesAuthenticationError("Hermes authentication was rejected")
         if plan.failure == "malformed":

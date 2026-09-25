@@ -22,6 +22,7 @@ from allies_runtime.profile_store import (
     DEFAULT_MEMORY_TOOL_ALLOWLIST,
     HERMES_PROFILE_DIRECTORIES,
     MANIFEST_NAME,
+    BindingApplyStatus,
     ProfileCleanupStatus,
     ProfileInputError,
     ProfileProvisionStatus,
@@ -1822,3 +1823,85 @@ def test_profile_store_accessors_default_factory_overrides_and_inspection(
         naive_expiry,
     )
     assert naive_receipt.status is ProfileCleanupStatus.DEPROVISIONED
+
+
+def test_apply_binding_rewrites_live_keys_with_generation_fence(tmp_path):
+    store = ProfileStore(
+        tmp_path / "volume",
+        api_key_factory=lambda: "profile-local-key-0123456789",
+        credential_resolver={
+            "vault://tenant/openai": PROFILE_SECRET,
+            "vault://tenant/zen": "zen-secret",
+        },
+    )
+    seed = make_seed()
+    store.materialize(seed)
+    key = seed.hermes_profile_key or ""
+    profile = profile_path(store, seed)
+
+    applied = store.apply_binding(
+        key,
+        generation=1,
+        key_refs={"OPENCODE_ZEN_API_KEY": "vault://tenant/zen"},
+    )
+    assert applied.status is BindingApplyStatus.APPLIED
+    env_text = (profile / ".env").read_text(encoding="utf-8")
+    assert "API_SERVER_KEY=profile-local-key-0123456789\n" in env_text
+    assert "OPENCODE_ZEN_API_KEY=zen-secret\n" in env_text
+    assert "OPENAI_API_KEY" not in env_text
+    assert "zen-secret" not in json.dumps(applied.to_dict())
+    if os.name != "nt":
+        assert (profile / ".env").stat().st_mode & 0o777 == 0o600
+
+    replay = store.apply_binding(
+        key,
+        generation=1,
+        key_refs={"OPENCODE_ZEN_API_KEY": "vault://tenant/zen"},
+    )
+    assert replay.status is BindingApplyStatus.CURRENT
+
+    assert store.read_api_key(key) == "profile-local-key-0123456789"
+
+
+def test_apply_binding_fails_closed_without_touching_live_files(tmp_path):
+    store = make_store(tmp_path)
+    seed = make_seed()
+    store.materialize(seed)
+    key = seed.hermes_profile_key or ""
+    profile = profile_path(store, seed)
+    before = (profile / ".env").read_bytes()
+
+    missing = store.apply_binding(
+        key, generation=1, key_refs={"MISSING": "vault://tenant/absent"}
+    )
+    assert missing.status is BindingApplyStatus.REPAIR_REQUIRED
+    assert (profile / ".env").read_bytes() == before
+
+    unknown = store.apply_binding("ally-v1-" + "0" * 32, generation=1, key_refs={})
+    assert unknown.status is BindingApplyStatus.REPAIR_REQUIRED
+
+    with pytest.raises(ProfileInputError):
+        store.apply_binding(key, generation=0, key_refs={})
+    with pytest.raises(ProfileInputError):
+        store.apply_binding("bad/key", generation=1, key_refs={})
+    with pytest.raises(ProfileInputError):
+        store.apply_binding(key, generation=1, key_refs=["not-a-mapping"])
+    invalid_name = store.apply_binding(
+        key, generation=2, key_refs={"bad-name!": "vault://tenant/zen"}
+    )
+    assert invalid_name.status is BindingApplyStatus.REPAIR_REQUIRED
+    assert (profile / ".env").read_bytes() == before
+
+    (profile / ".allies-binding.json").write_text('{"generation": "x"}')
+    corrupt = store.apply_binding(
+        key, generation=3, key_refs={"OPENCODE_ZEN_API_KEY": "vault://tenant/zen"}
+    )
+    assert corrupt.status is BindingApplyStatus.REPAIR_REQUIRED
+    assert (profile / ".env").read_bytes() == before
+
+    (profile / ".allies-binding.json").unlink()
+    (profile / ".allies-profile.json").unlink()
+    incomplete = store.apply_binding(
+        key, generation=3, key_refs={"OPENCODE_ZEN_API_KEY": "vault://tenant/zen"}
+    )
+    assert incomplete.status is BindingApplyStatus.REPAIR_REQUIRED

@@ -17,7 +17,7 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import AsyncIterator, Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -283,6 +283,10 @@ class FoundryClaim:
     reasoning_effort: str | None = None
     command_id: str | None = None
     routine_tool_token: str | None = None
+    provider: str = ""
+    model_options: dict = field(default_factory=dict)
+    binding_generation: int = 0
+    binding_key_refs: dict = field(default_factory=dict)
 
     def __repr__(self) -> str:  # pragma: no cover - defensive redaction
         return (
@@ -903,6 +907,19 @@ class FoundryClient:
             profile_id=str(payload["profile_id"]),
             hermes_profile_key=str(payload["hermes_profile_key"]),
             model=str(payload["model"]),
+            provider=str(payload.get("provider") or ""),
+            model_options=dict(payload["model_options"])
+            if isinstance(payload.get("model_options"), dict)
+            else {},
+            binding_generation=payload.get("binding_generation")
+            if isinstance(payload.get("binding_generation"), int)
+            and not isinstance(payload.get("binding_generation"), bool)
+            else 0,
+            binding_key_refs={
+                str(k): str(v)
+                for k, v in payload.get("binding_key_refs", {}).items()
+                if isinstance(payload.get("binding_key_refs"), dict)
+            },
             conversation_id=payload.get("conversation_id"),
             session_id=payload.get("session_id"),
             stream_id=str(payload["stream_id"]),
@@ -1724,6 +1741,7 @@ async def _stream_events(
     message: str,
     *,
     session_key: str,
+    model_options: Mapping[str, Any] | None = None,
     reasoning_effort: str | None = None,
     routine_result: bool = False,
     file_context: Mapping[str, Any] | None = None,
@@ -1731,6 +1749,8 @@ async def _stream_events(
     routine_tool_token: str | None = None,
 ) -> Any:
     stream_kwargs: dict[str, Any] = {"session_key": session_key}
+    if model_options:
+        stream_kwargs["model_options"] = model_options
     if reasoning_effort is not None:
         stream_kwargs["reasoning_effort"] = reasoning_effort
     if routine_result:
@@ -1793,6 +1813,7 @@ class FoundryWorker:
         clock: Callable[[], float] = time.monotonic,
         profile_reconciler: Any | None = None,
         profile_reconcile_interval: float = DEFAULT_PROFILE_RECONCILE_INTERVAL,
+        binding_applier: Callable | None = None,
         readiness_heartbeat_interval: float = 15.0,
         boot_id: str | UUID | None = None,
         activity_wait_enabled: bool = False,
@@ -1814,6 +1835,13 @@ class FoundryWorker:
             raise ValueError("profile reconcile interval must be positive")
         if readiness_heartbeat_interval <= 0:
             raise ValueError("readiness heartbeat interval must be positive")
+        if binding_applier is not None and not callable(binding_applier):
+            raise ValueError("binding applier must be callable")
+        self.binding_applier = binding_applier
+        # Sessions this process already pinned: Hermes locks are ephemeral
+        # but the binding outlives restarts, so re-lock once per session
+        # per process instead of only on a fresh key apply.
+        self._session_model_locks: dict[str, tuple[str, str]] = {}
         if not isinstance(activity_wait_enabled, bool):
             raise TypeError("activity wait enabled must be a boolean")
         if (
@@ -2332,6 +2360,54 @@ class FoundryWorker:
                 if inspect.isawaitable(ensured):
                     await ensured
 
+            if claim.binding_generation and self.binding_applier is not None:
+                try:
+                    receipt = await asyncio.to_thread(
+                        self.binding_applier,
+                        claim.hermes_profile_key,
+                        claim.binding_generation,
+                        claim.binding_key_refs,
+                    )
+                except ProfileStoreError:
+                    return await self.foundry.stopped(
+                        claim.attempt_id,
+                        claim.lease_token,
+                        reason="binding_repair_required",
+                    )
+                applied = str(getattr(getattr(receipt, "status", ""), "value", ""))
+                if applied not in ("APPLIED", "CURRENT"):
+                    return await self.foundry.stopped(
+                        claim.attempt_id,
+                        claim.lease_token,
+                        reason="binding_repair_required",
+                    )
+            if claim.binding_generation and (claim.provider or claim.model):
+                pinned = self._session_model_locks.get(session_id)
+                if pinned != (claim.provider, claim.model):
+                    lock_session = getattr(self.hermes, "lock_session_model", None)
+                    if not callable(lock_session):
+                        raise HermesError("Hermes session model lock was unavailable")
+                    try:
+                        locked = lock_session(
+                            claim.hermes_profile_key,
+                            session_id,
+                            provider=claim.provider or None,
+                            model=claim.model or None,
+                        )
+                        if inspect.isawaitable(locked):
+                            await locked
+                    except (HermesError, ValueError):
+                        return await self.foundry.stopped(
+                            claim.attempt_id,
+                            claim.lease_token,
+                            reason="binding_repair_required",
+                        )
+                    if len(self._session_model_locks) > 1024:
+                        self._session_model_locks.clear()
+                    self._session_model_locks[session_id] = (
+                        claim.provider,
+                        claim.model,
+                    )
             stream = await _stream_events(
                 self.hermes,
                 claim.hermes_profile_key,
@@ -2343,6 +2419,7 @@ class FoundryWorker:
                 file_context=file_context,
                 publication_context=publication_context,
                 routine_tool_token=claim.routine_tool_token,
+                model_options=claim.model_options,
             )
             stream_ref[0] = stream
             if renewal is None:

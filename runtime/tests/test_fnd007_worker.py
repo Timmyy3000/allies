@@ -873,33 +873,33 @@ async def test_first_turn_requires_a_bounded_conversation_reference(conversation
 @pytest.mark.asyncio
 @pytest.mark.parametrize("events", [[object()], ["terminal", "late"]])
 async def test_worker_rejects_malformed_or_post_terminal_adapter_events(events):
+    async def rows():
+        for value in events:
+            if value == "terminal":
+                yield HermesEvent(
+                    "execution.completed",
+                    "ally-a",
+                    "session-1",
+                    "run-1",
+                    1,
+                    {"run_id": "run-1", "status": "completed"},
+                )
+            elif value == "late":
+                yield HermesEvent(
+                    "message.delta",
+                    "ally-a",
+                    "session-1",
+                    "run-1",
+                    2,
+                    {"text": "late"},
+                )
+            else:
+                yield value
+
     class Adapter(RecordingHermes):
         async def stream_profile_incremental(
             self, profile_key, session_id, message, *, session_key
         ):
-            async def rows():
-                for value in events:
-                    if value == "terminal":
-                        yield HermesEvent(
-                            "execution.completed",
-                            profile_key,
-                            session_id,
-                            "run-1",
-                            1,
-                            {"run_id": "run-1", "status": "completed"},
-                        )
-                    elif value == "late":
-                        yield HermesEvent(
-                            "message.delta",
-                            profile_key,
-                            session_id,
-                            "run-1",
-                            2,
-                            {"text": "late"},
-                        )
-                    else:
-                        yield value
-
             return CancellableHermesStream(rows())
 
     foundry = RecordingFoundry()

@@ -575,6 +575,11 @@ class RuntimeProfile(models.Model):
     # resolved provider values.
     seed_payload = models.JSONField(default=dict, blank=True)
     seed_fingerprint = models.CharField(max_length=64, default="", blank=True)
+    # Mutable model selection, deliberately outside the immutable seed payload:
+    # null/empty means the deployment default; otherwise
+    # {provider, model, reasoning?, key_refs?} plus a monotonic generation the
+    # runtime uses to apply each change exactly once to the live volume.
+    model_override = models.JSONField(default=dict, blank=True)
     materialized_generation = models.PositiveIntegerField(default=0)
     materialization_operation_id = models.UUIDField(null=True, blank=True)
     materialization_request_digest = models.CharField(

@@ -29,6 +29,7 @@ from allies_runtime.hermes import (
     UnixSocketCredentialResolver,
     _IncrementalHTTPStream,
     stable_session_identifiers,
+    validate_model_options,
 )
 from allies_runtime.hermes import (
     test_credential_for_reference as derive_test_credential,
@@ -2368,6 +2369,69 @@ async def test_streams_reject_invalid_reasoning_before_request(
             await result
 
     assert calls == []
+
+
+@pytest.mark.asyncio
+async def test_stream_forwards_model_options_and_validates_bounds(monkeypatch):
+    lines = [
+        b"event: run.started\n",
+        b'data: {"session_id":"s1","run_id":"r1","seq":1}\n',
+        b"\n",
+        b"event: run.completed\n",
+        b'data: {"session_id":"s1","run_id":"r1","seq":2,"completed":true,"messages":[{"role":"assistant","content":"hello"}]}\n',
+        b"\n",
+        b"data: [DONE]\n\n",
+    ]
+    response = FakeResponse(lines=lines)
+    client, calls = _client(monkeypatch, response)
+    await client.stream_profile(
+        "ally-a", "s1", "hello", model_options={"reasoning": "high"}
+    )
+    assert json.loads(calls[0][3]) == {
+        "message": "hello",
+        "model_options": {"reasoning": {"enabled": True, "effort": "high"}},
+    }
+
+    assert validate_model_options(None) == {}
+    assert validate_model_options({}) == {}
+    with pytest.raises(ValueError):
+        validate_model_options({f"k{i}": i for i in range(9)})
+    with pytest.raises(ValueError):
+        validate_model_options({"Bad-Key": "x"})
+    with pytest.raises(ValueError):
+        validate_model_options({"reasoning": ["high"]})
+
+
+@pytest.mark.asyncio
+async def test_lock_session_model_posts_selection_and_validates(monkeypatch):
+    response = FakeResponse(
+        body=json.dumps(
+            {
+                "object": "hermes.session.model_lock",
+                "session_id": "s1",
+                "runtime": {"provider": "opencode-zen", "model": "gpt-5.2"},
+            }
+        ).encode()
+    )
+    client, calls = _client(monkeypatch, response)
+    receipt = await client.lock_session_model(
+        "ally-a", "s1", provider="opencode-zen", model="gpt-5.2"
+    )
+    assert receipt["object"] == "hermes.session.model_lock"
+    assert "/p/ally-a/api/sessions/s1/model" in calls[0][0]
+    assert json.loads(calls[0][3]) == {
+        "provider": "opencode-zen",
+        "model": "gpt-5.2",
+    }
+
+    with pytest.raises(ValueError):
+        await client.lock_session_model("ally-a", "s1")
+    with pytest.raises(ValueError):
+        await client.lock_session_model("ally-a", "s1", provider="p" * 81)
+
+    bad_client, _ = _client(monkeypatch, FakeResponse(body=b'{"object":"nope"}'))
+    with pytest.raises(HermesMalformedResponse):
+        await bad_client.lock_session_model("ally-a", "s1", model="gpt-5.2")
 
 
 @pytest.mark.asyncio

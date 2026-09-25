@@ -81,6 +81,7 @@ DEFAULT_MEMORY_TOOL_ALLOWLIST = tuple(sorted(MEMORY_TOOLS))
 DEFAULT_COMPRESSION_THRESHOLD_TOKENS = 100_000
 CLEANUP_GRACE_SECONDS = 60
 MAX_PROFILE_SEED_BYTES = 128 * 1024
+MAX_BINDING_KEY_REFS = 32
 _OPAQUE_REFERENCE = re.compile(
     r"^[a-z][a-z0-9+.-]{1,31}://[^\s]{1,191}$", re.IGNORECASE
 )
@@ -812,41 +813,9 @@ def _normalize_seed(seed: ProfileSeed | Mapping[str, Any]) -> dict[str, Any]:
     base_url = values.get("base_url")
     if base_url is not None:
         base_url = _seed_text(base_url, "base_url", 512)
-    raw_refs = values.get("credential_refs", {})
-    if type(raw_refs) is not dict:
-        raise RuntimeValidationError("credential_refs must be an object")
-    if len(raw_refs) > 32:
-        raise RuntimeValidationError("credential_refs exceed the bounded size")
-    credential_refs: dict[str, str] = {}
-    for name, reference in raw_refs.items():
-        if (
-            type(name) is not str
-            or not (
-                re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name)
-                or re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", name)
-            )
-            or not isinstance(reference, str)
-            or not _OPAQUE_REFERENCE.fullmatch(reference)
-        ):
-            raise RuntimeValidationError(
-                "credential_refs must contain opaque references"
-            )
-        lowered = reference.lower()
-        if lowered.startswith(("bearer ", "token=", "key=", "sk-", "api_key=")):
-            raise RuntimeValidationError(
-                "credential_refs must not contain credential values"
-            )
-        normalized_name = name.upper().replace("-", "_")
-        if normalized_name == "API_SERVER_KEY":
-            raise RuntimeValidationError(
-                "credential_refs must not reserve the runtime API key"
-            )
-        if normalized_name in credential_refs:
-            raise RuntimeValidationError(
-                "credential_refs contain colliding environment names"
-            )
-        credential_refs[normalized_name] = reference
-    credential_refs = dict(sorted(credential_refs.items()))
+    credential_refs = _normalize_ref_entries(
+        values.get("credential_refs", {}), "credential_refs"
+    )
     memory_provider = values.get("memory_provider", DEFAULT_MEMORY_PROVIDER)
     if memory_provider != DEFAULT_MEMORY_PROVIDER:
         raise RuntimeValidationError("unsupported memory provider")
@@ -1002,6 +971,197 @@ def _assert_profile_identity(
         raise RuntimeConflictError("profile identity is immutable")
     if profile.hermes_profile_key_version == 0:
         raise RuntimeRepairRequiredError("legacy Hermes profile key requires repair")
+
+
+def _normalize_env_name(name: Any, field: str) -> str:
+    if type(name) is not str or not (
+        re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", name)
+        or re.fullmatch(r"[A-Z][A-Z0-9_]{0,63}", name)
+    ):
+        raise RuntimeValidationError(f"{field} must contain opaque references")
+    normalized = name.upper().replace("-", "_")
+    if normalized == "API_SERVER_KEY":
+        raise RuntimeValidationError(f"{field} must not reserve the runtime API key")
+    return normalized
+
+
+def _normalize_ref_entries(raw: Any, field: str) -> dict[str, str]:
+    if type(raw) is not dict:
+        raise RuntimeValidationError(f"{field} must be an object")
+    if len(raw) > 32:
+        raise RuntimeValidationError(f"{field} exceed the bounded size")
+    refs: dict[str, str] = {}
+    for name, reference in raw.items():
+        if not isinstance(reference, str) or not _OPAQUE_REFERENCE.fullmatch(reference):
+            raise RuntimeValidationError(f"{field} must contain opaque references")
+        lowered = reference.lower()
+        if lowered.startswith(("bearer ", "token=", "key=", "sk-", "api_key=")):
+            raise RuntimeValidationError(f"{field} must not contain credential values")
+        normalized_name = _normalize_env_name(name, field)
+        if normalized_name in refs:
+            raise RuntimeValidationError(f"{field} contain colliding environment names")
+        refs[normalized_name] = reference
+    return dict(sorted(refs.items()))
+
+
+def normalize_model_binding(raw: Any) -> dict[str, Any]:
+    """Validate a mutable per-profile model binding (outside the seed)."""
+    if not isinstance(raw, Mapping):
+        raise RuntimeValidationError("model binding must be an object")
+    binding: dict[str, Any] = {}
+    provider = raw.get("provider")
+    if provider is not None:
+        # Bound matches the Hermes session-lock provider limit (80 chars);
+        # longer values would fail closed mid-turn instead of at set time.
+        binding["provider"] = _seed_text(provider, "binding provider", 80)
+    model = raw.get("model")
+    if model is not None:
+        binding["model"] = _seed_text(model, "binding model", 255)
+    reasoning = raw.get("reasoning")
+    if reasoning is not None:
+        # Matches the Hermes managed reasoning set; anything else would
+        # fail the turn at request-build time instead of at set time.
+        if reasoning not in ("high", "xhigh"):
+            raise RuntimeValidationError("binding reasoning must be high or xhigh")
+        binding["reasoning"] = reasoning
+    key_refs = raw.get("key_refs", {})
+    binding["key_refs"] = _normalize_ref_entries(key_refs, "binding key_refs")
+    unknown = set(raw) - {"provider", "model", "reasoning", "key_refs"}
+    if unknown:
+        raise RuntimeValidationError("model binding contains unknown fields")
+    return binding
+
+
+@dataclass(frozen=True, slots=True)
+class ModelBindingReceipt:
+    profile_id: UUID
+    generation: int
+    binding: Mapping[str, Any]
+
+
+def _binding_profile(profile_id: UUID | str) -> RuntimeProfile:
+    profile_uuid = _uuid(profile_id, "profile_id")
+    try:
+        profile = RuntimeProfile.objects.select_for_update().get(pk=profile_uuid)
+    except RuntimeProfile.DoesNotExist:
+        raise RuntimeValidationError("profile does not exist") from None
+    if profile.lifecycle_state not in ("pending", "active"):
+        raise RuntimeValidationError("profile binding is not mutable in its state")
+    return profile
+
+
+def _store_binding(
+    profile: RuntimeProfile, binding: dict[str, Any]
+) -> ModelBindingReceipt:
+    stored = profile.model_override if isinstance(profile.model_override, dict) else {}
+    generation = int(stored.get("generation", 0) or 0) + 1
+    profile.model_override = {"generation": generation, "binding": binding}
+    profile.save(update_fields=["model_override", "updated_at"])
+    return ModelBindingReceipt(
+        profile_id=profile.id, generation=generation, binding=binding
+    )
+
+
+def set_model_binding(profile_id: UUID | str, binding: Any) -> ModelBindingReceipt:
+    with transaction.atomic():
+        profile = _binding_profile(profile_id)
+        normalized = normalize_model_binding(binding)
+        if isinstance(binding, Mapping) and "key_refs" not in binding:
+            stored = (
+                profile.model_override
+                if isinstance(profile.model_override, dict)
+                else {}
+            )
+            current = (
+                stored.get("binding")
+                if isinstance(stored.get("binding"), dict)
+                else {}
+            )
+            installed = current.get("key_refs")
+            if isinstance(installed, dict) and installed:
+                normalized["key_refs"] = dict(installed)
+        return _store_binding(profile, normalized)
+
+
+def clear_model_binding(profile_id: UUID | str) -> ModelBindingReceipt:
+    with transaction.atomic():
+        profile = _binding_profile(profile_id)
+        return _store_binding(profile, {"key_refs": {}})
+
+
+def install_provider_key(
+    profile_id: UUID | str,
+    env_name: Any,
+    reference: Any,
+) -> ModelBindingReceipt:
+    with transaction.atomic():
+        profile = _binding_profile(profile_id)
+        stored = (
+            profile.model_override if isinstance(profile.model_override, dict) else {}
+        )
+        current = (
+            stored.get("binding") if isinstance(stored.get("binding"), dict) else {}
+        )
+        merged = dict(current.get("key_refs", {}))
+        merged.update(_normalize_ref_entries({env_name: reference}, "binding key_refs"))
+        # The runtime applies seed refs merged with binding refs, so the
+        # bound applies to the union — otherwise install could persist a
+        # generation apply_binding rejects and every later turn misses repair.
+        seed_refs = (
+            profile.seed_payload.get("credential_refs")
+            if isinstance(profile.seed_payload, dict)
+            else {}
+        )
+        if not isinstance(seed_refs, dict):
+            seed_refs = {}
+        if len(set(seed_refs) | set(merged)) > MAX_BINDING_KEY_REFS:
+            raise RuntimeValidationError(
+                "binding key_refs exceed the bounded size with seed references"
+            )
+        return _store_binding(profile, {**current, "key_refs": merged})
+
+
+def remove_provider_key(profile_id: UUID | str, env_name: Any) -> ModelBindingReceipt:
+    with transaction.atomic():
+        profile = _binding_profile(profile_id)
+        stored = (
+            profile.model_override if isinstance(profile.model_override, dict) else {}
+        )
+        current = (
+            stored.get("binding") if isinstance(stored.get("binding"), dict) else {}
+        )
+        merged = dict(current.get("key_refs", {}))
+        normalized = _normalize_env_name(env_name, "binding key_refs")
+        merged.pop(normalized, None)
+        return _store_binding(profile, {**current, "key_refs": merged})
+
+
+def effective_model_selection(profile: RuntimeProfile) -> dict[str, Any]:
+    """Resolve binding-over-seed model selection for one claim or turn.
+
+    Key refs merge seed-first so a live ``.env`` rewrite never drops the
+    deployment (org) keys: binding entries win on collision, and clearing
+    the binding restores exactly the seed set.
+    """
+    seed = profile.seed_payload if isinstance(profile.seed_payload, dict) else {}
+    stored = profile.model_override if isinstance(profile.model_override, dict) else {}
+    binding = stored.get("binding") if isinstance(stored.get("binding"), dict) else {}
+    provider = binding.get("provider") or seed.get("provider") or ""
+    model = binding.get("model") or seed.get("model") or ""
+    options: dict[str, Any] = {}
+    if binding.get("reasoning"):
+        options["reasoning"] = binding["reasoning"]
+    seed_refs = seed.get("credential_refs")
+    merged: dict[str, str] = dict(seed_refs) if isinstance(seed_refs, dict) else {}
+    binding_refs = binding.get("key_refs")
+    if isinstance(binding_refs, dict):
+        merged.update(binding_refs)
+    return {
+        "provider": provider,
+        "model": model,
+        "options": options,
+        "key_refs": merged,
+    }
 
 
 def _assert_seed_compatible(

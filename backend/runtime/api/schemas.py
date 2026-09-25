@@ -31,8 +31,11 @@ __all__ = [
     "FailRequest",
     "FoundryEventEnvelope",
     "MaterializationReceiptRequest",
+    "ModelBindingReceipt",
+    "ModelBindingRequest",
     "ProfileProvisioningReceipt",
     "ProfileProvisioningRequest",
+    "ProviderKeyRequest",
     "PublicationFrozenRequest",
     "PublicationIntentRequest",
     "PublicationRegisterRequest",
@@ -223,6 +226,31 @@ class CleanupQuiescence(Schema):
     active_profile_io: StrictInt = Field(..., ge=0)
     open_profile_stores: StrictInt = Field(..., ge=0)
     owned_children: StrictInt = Field(..., ge=0)
+
+
+class ModelBindingRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: UUID
+    provider: str | None = None
+    model: str | None = None
+    reasoning: str | None = None
+
+
+class ProviderKeyRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: UUID
+    env_name: str
+    reference: str
+
+
+class ModelBindingReceipt(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    profile_id: UUID
+    generation: int
+    binding: dict[str, Any]
 
 
 class CleanupReceiptRequest(Schema):
