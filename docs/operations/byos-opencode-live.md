@@ -49,3 +49,21 @@ Re-install under the same env name with the updated reference: the generation
 bump re-triggers the rewrite. Replays of an already-applied generation are
 no-ops, so retries are safe. Seed re-provisioning is not required and sessions
 survive.
+
+## Cloud-held keys (`allies-key://` refs)
+
+Cloud stores tenant keys and passes refs of the form
+`allies-key://model-keys/<uuid>`. The runtime resolves them by calling
+`POST /api/v1/runtime/credentials/resolve` with its runtime token. Foundry
+checks that the ref is bound to one of that workspace's profiles, then asks
+Cloud's broker (`POST /api/v1/internal/credentials/resolve`) with the
+workspace's tenant ref. The value is returned `no-store` and never persisted
+or logged by Foundry.
+
+Configure `ALLIES_CLOUD_URL` and `ALLIES_CLOUD_CREDENTIAL_TOKEN` (at least 32
+bytes, dedicated to this path; Cloud's `ALLIES_CREDENTIAL_BROKER_TOKEN` must
+match). Without the token, broker refs fail closed and the turn stops with
+`binding_repair_required`.
+
+`PUT .../model-binding` also accepts `key_refs`, so Cloud can set the
+selection and its key in one generation.
