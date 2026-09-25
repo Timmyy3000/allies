@@ -126,6 +126,28 @@ describe("buildProductionConversationFrameModel", () => {
     expect(running.queuedMessages).toEqual([{ id: "local-next", content: "And a drink" }]);
   });
 
+  it("preserves queued attachment previews through the frame model", () => {
+    const model = buildProductionConversationFrameModel(makeInput({
+      projection: EMPTY_ACTIVITY_PROJECTION,
+      queuedMessages: [{
+        id: "local-files",
+        content: "Review these",
+        attachments: [
+          { id: "file-1", name: "a.pdf", ready: true },
+          { id: "file-2", name: "b.png", src: "blob:preview", ready: true },
+        ],
+      }],
+    }));
+    expect(model.queuedMessages).toEqual([{
+      id: "local-files",
+      content: "Review these",
+      attachments: [
+        { id: "file-1", name: "a.pdf", ready: true },
+        { id: "file-2", name: "b.png", src: "blob:preview", ready: true },
+      ],
+    }]);
+  });
+
   it("treats a matching claimed message as active work instead of queued copy", () => {
     const model = buildProductionConversationFrameModel(makeInput({
       messages: [{ ...userMessage, status: "queued", queueState: "claimed" }],

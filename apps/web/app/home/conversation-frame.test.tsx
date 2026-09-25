@@ -181,6 +181,86 @@ describe("ConversationFrame", () => {
     await waitFor(() => expect(screen.getAllByText("First request")).toHaveLength(1));
   });
 
+  it("renders queued attachment thumbnails inside the queue pill", () => {
+    const queuedModel = {
+      ...model,
+      messages: [],
+      activityGroups: [],
+      queuedMessages: [
+        {
+          id: "local-files",
+          content: "Review these",
+          attachments: [
+            { id: "file-1", name: "a.pdf", ready: true },
+            { id: "file-2", name: "b.png", ready: true },
+          ],
+        },
+      ],
+    };
+    render(<ConversationFrame
+      model={queuedModel}
+      actions={actions}
+      sleeping
+      onQueueAttachmentOpen={() => undefined}
+    />);
+    const pill = screen.getByRole("list", { name: "Queued messages" });
+    const thumbs = pill.querySelector("li > div > span[title]");
+    expect(thumbs?.getAttribute("title")).toBe("a.pdf, b.png");
+    expect(screen.getByText("Review these").getAttribute("title")).toBe("Review these (a.pdf, b.png)");
+    expect(screen.getByRole("button", { name: "Open b.png preview" })).toBeTruthy();
+  });
+
+  it("opens local photo previews inline without a preview button", () => {
+    const queuedModel = {
+      ...model,
+      messages: [],
+      activityGroups: [],
+      queuedMessages: [
+        {
+          id: "local-photo",
+          content: "See this",
+          attachments: [
+            { id: "file-1", name: "b.png", src: "blob:photo", ready: true, local: true },
+          ],
+        },
+      ],
+    };
+    render(<ConversationFrame
+      model={queuedModel}
+      actions={actions}
+      sleeping
+      onQueueAttachmentOpen={() => undefined}
+    />);
+    expect(screen.queryByRole("button", { name: /preview/ })).toBeNull();
+  });
+
+  it("does not route local queued files to the cloud preview loader", () => {
+    const queuedModel = {
+      ...model,
+      messages: [],
+      activityGroups: [],
+      queuedMessages: [
+        {
+          id: "local-pdf",
+          content: "See this",
+          attachments: [
+            { id: "local-1", name: "a.pdf", ready: true, local: true },
+          ],
+        },
+      ],
+    };
+    const onOpen = vi.fn();
+    render(<ConversationFrame
+      model={queuedModel}
+      actions={actions}
+      sleeping
+      onQueueAttachmentOpen={onOpen}
+    />);
+    expect(screen.queryByRole("button", { name: "Open a.pdf preview" })).toBeNull();
+    expect(screen.getByText("See this")).toBeTruthy();
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+
   it("remeasures the avatar when the centred status label changes width", () => {
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
       const slot = this.className.includes("framePresenceHeaderSlot");

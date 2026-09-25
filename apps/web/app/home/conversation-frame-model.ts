@@ -56,11 +56,20 @@ export interface ProductionConversationActivityGroupModel {
   entries: ActivityPresentationGroup["entries"];
 }
 
+export interface QueuedAttachmentPreview {
+  id: string;
+  name: string;
+  src?: string;
+  ready: boolean;
+  local?: boolean;
+}
+
 export interface ProductionQueuedMessageModel {
   id: string;
   content: string;
   removable?: boolean;
   statusLabel?: string | null;
+  attachments?: QueuedAttachmentPreview[];
 }
 
 export type RoutineAction = "pause" | "resume" | "delete" | "approve" | "reject" | "cancel";
@@ -427,6 +436,7 @@ export function buildProductionConversationFrameModel(
       content: item.content,
       removable: item.removable,
       statusLabel: item.statusLabel,
+      ...(item.attachments ? { attachments: item.attachments } : {}),
     }))],
     showThinkingState: accessBlocked ? false : input.showThinkingState,
     responseStarted: accessBlocked ? false : input.responseStarted,

@@ -73,6 +73,7 @@ import {
   type ProductionQueuedMessageModel,
   type ProductionConversationFrameActions,
   type ProductionRoutineActionState,
+  type QueuedAttachmentPreview,
   type RoutineActionRequest,
 } from "./conversation-frame-model";
 import {
@@ -1693,6 +1694,14 @@ function ConversationPane({
     activeMessageId,
     activeMessageHasProgress,
     messages.some((message) => message.id === activeMessageId),
+    (fileTransferId) => {
+      const transfer = fileManager.find(fileTransferId);
+      if (!transfer) return null;
+      return {
+        files: transfer.files.map((file) => ({ id: file.id, name: file.name, src: file.src, ready: true, local: true as const })),
+        status: localTransferQueueStatus(transfer),
+      };
+    },
   );
   const waitingForVisibleResponse = awaitingVisibleResponse && !responseStarted;
   const shouldPoll = activeTurn || waitingForVisibleResponse || (!pollingSettled && persistedTurnActive);
@@ -2820,13 +2829,51 @@ function ConversationPane({
     const cloudMessage = conversationQueueMessages.find((message) => message.id === id);
     if (cloudMessage) {
       if (!isCloudQueueMessageRemovable(cloudMessage) || !conversation) return;
+      const hasAttachments = Boolean(cloudMessage.files?.length
+        || (cloudMessage.preparation && cloudMessage.preparation !== "none" && cloudMessage.preparation !== "ready"));
       await withQueueMessageLock(queuedMessagesStorageKey, id, async () => {
         try {
+          let cancelledDraft: { content: string; files: { id: string; name: string }[] } | null = null;
+          if (hasAttachments) {
+            const liveRecord = fileManager.snapshot().find((record) => (
+              record.reservation?.message.id === id && record.phase !== "ready" && record.phase !== "cancelled"
+            ));
+            if (liveRecord) {
+              try {
+                await fileManager.restore(fileScope);
+                await fileManager.cancel(liveRecord.id);
+              } catch {
+                // The server cancel below still governs; a stuck local upload must not block removal.
+              }
+            }
+            const result = await session.runCloudOperation(
+              (signal) => session.client.files.cancel(
+                workspaceId,
+                conversation.id,
+                id,
+                cloudMessage.revision ?? 0,
+                signal,
+              ),
+              { csrf: true },
+            );
+            cancelledDraft = result.draft;
+          }
           const tombstone = await session.runCloudOperation(
             (signal) => session.client.deleteQueuedMessage(workspaceId, conversation.id, id, signal),
             { csrf: true },
           );
           if (!tombstone.deletedAt) throw { kind: "contract" };
+          if (cancelledDraft) {
+            restoreFileText(cancelledDraft.content);
+            attachments.change([
+              ...cancelledDraft.files.map((f) => ({
+                id: crypto.randomUUID(),
+                name: f.name,
+                size: cloudMessage.files?.find((r) => r.id === f.id)?.size ?? 0,
+              })),
+              ...(fileManager.drafts.get(fileScope) ?? []),
+            ]);
+          }
           setDeletedMessageIds((current) => {
             if (current.has(tombstone.id)) return current;
             return new Set(current).add(tombstone.id);
@@ -2859,8 +2906,9 @@ function ConversationPane({
     }
   };
   const fileMessageIds = new Set(timelineMessages.filter(message => message.files?.length || message.preparation && message.preparation !== "none").map(message => message.id));
-  const visibleFrameMessages = baseFrameModel.messages.map((message) => immediateMessageIds.has(message.id) || fileMessageIds.has(message.id)
-    ? { ...message, queued: false } : message);
+  const queuedAttachmentIds = queuedAttachmentQueueIds(timelineMessages, activeMessageId);
+  const visibleFrameMessages = baseFrameModel.messages.map((message) => immediateMessageIds.has(message.id) || (fileMessageIds.has(message.id) && !queuedAttachmentIds.has(message.id))
+    ? { ...message, queued: false, ...(message.queued && fileMessageIds.has(message.id) && !queuedAttachmentIds.has(message.id) && !message.statusLabel ? { statusLabel: "Queued" } : {}) } : message);
   const lastSequence = Math.max(0, ...visibleFrameMessages.map((message) => message.sequence));
   const immediateFrameMessages = queuedMessages.filter((message) => !baseFrameModel.timeline.accessCopy && immediateMessageIds.has(message.id)).map((message, index) => ({
     id: message.id,
@@ -2876,7 +2924,7 @@ function ConversationPane({
     ...baseFrameModel,
     composer: { ...baseFrameModel.composer, disabled: baseFrameModel.composer.disabled || preparingFiles },
     messages: [...visibleFrameMessages, ...immediateFrameMessages],
-    queuedMessages: baseFrameModel.queuedMessages.filter((message) => !immediateMessageIds.has(message.id) && !fileMessageIds.has(message.id)),
+    queuedMessages: baseFrameModel.queuedMessages.filter((message) => !immediateMessageIds.has(message.id) && !(fileMessageIds.has(message.id) && !queuedAttachmentIds.has(message.id))),
   };
   const frameActions: ProductionConversationFrameActions = {
     onDraftChange: (value) => {
@@ -2928,10 +2976,13 @@ function ConversationPane({
     onFilesDrop={preparingFiles ? undefined : attachments.addFiles}
     onFileOpen={attachments.openFile}
     publications={id => attachments.publications(id, assistantReplies.filter(reply => reply.sourceMessageId === id).flatMap(reply => reply.publications ?? []))}
+    onQueueAttachmentOpen={(file) => attachments.openFile(file.id)}
     messageAttachments={id => {
       const message = timelineMessages.find(message => message.id === id);
       const local = queuedMessages.find(message => message.id === id);
-      return message ? attachments.render(message, restoreFileText, conversationId ?? "") : local?.fileTransferId ? attachments.pending(local.fileTransferId) : null;
+      return message
+        ? attachments.render(message, restoreFileText, conversationId ?? "", (messageId) => void removeQueuedMessage(messageId))
+        : local?.fileTransferId ? attachments.pending(local.fileTransferId) : null;
     }}
   />{attachments.overlays(allyAccent)}</>;
   return <ConversationApprovals
@@ -3264,12 +3315,31 @@ function filterAuthoritativeQueueMessages(
   ));
 }
 
-function buildQueuedFrameMessages(
+export interface LocalQueuedAttachments {
+  files: QueuedAttachmentPreview[];
+  status: string | null;
+}
+
+export function localTransferQueueStatus(transfer: {
+  phase: string;
+  files: readonly { state: string; progress: number }[];
+}): string | null {
+  if (transfer.phase === "failed") return "Needs attention";
+  if (transfer.phase === "checking") return "Checking file…";
+  if (transfer.phase !== "uploading") return null;
+  if (transfer.files.some((file) => file.state === "validating" || file.state === "receiving")) return "Checking file…";
+  const pending = transfer.files.filter((file) => file.state === "pending");
+  if (!pending.length) return null;
+  return `Uploading ${Math.min(...pending.map((file) => file.progress))}%`;
+}
+
+export function buildQueuedFrameMessages(
   cloudQueue: readonly MessageViewModel[],
   localQueue: readonly QueuedMessage[],
   activeMessageId: string | null,
   activeMessageHasProgress: boolean,
   activeMessageInTimeline = true,
+  resolveLocalFiles?: (fileTransferId: string) => LocalQueuedAttachments | null,
 ): ProductionQueuedMessageModel[] {
   const items: ProductionQueuedMessageModel[] = [];
   for (const message of cloudQueue) {
@@ -3279,18 +3349,53 @@ function buildQueuedFrameMessages(
       id: message.id,
       content: message.content,
       removable: isCloudQueueMessageRemovable(message),
-      statusLabel: message.id === activeMessageId && !activeMessageHasProgress ? "Queued" : null,
+      statusLabel: cloudQueuedAttachmentStatus(message) ?? (message.id === activeMessageId && !activeMessageHasProgress ? "Queued" : null),
+      ...(message.files?.length ? {
+        attachments: message.files.map((file) => ({
+          id: file.id,
+          name: file.name,
+          ready: file.state === "ready" || file.state === "retained",
+        })),
+      } : {}),
     });
   }
   for (const message of localQueue) {
+    const resolved = message.fileTransferId ? resolveLocalFiles?.(message.fileTransferId) ?? null : null;
     items.push({
       id: message.id,
       content: message.content,
       removable: supportsQueueMessageLocks() && message.attemptedAt === undefined,
-      statusLabel: null,
+      statusLabel: resolved?.status ?? null,
+      ...(resolved ? { attachments: resolved.files } : {}),
     });
   }
   return items;
+}
+
+function cloudQueuedAttachmentStatus(message: MessageViewModel): string | null {
+  if (message.preparation === "uploading"
+    || message.files?.some((file) => file.state === "pending" || file.state === "receiving" || file.state === "validating")) {
+    return "Uploading…";
+  }
+  return null;
+}
+
+const FAILED_FILE_PREPARATIONS: ReadonlySet<string> = new Set(["failed", "needs_retry"]);
+const FAILED_FILE_STATES: ReadonlySet<string> = new Set(["failed", "rejected"]);
+
+export function queuedAttachmentQueueIds(
+  timelineMessages: readonly MessageViewModel[],
+  activeMessageId: string | null,
+): Set<string> {
+  return new Set(timelineMessages.filter((message) => {
+    if (!message.files?.length && !(message.preparation && message.preparation !== "none")) return false;
+    if (!isLiveQueuedMessage(message)) return false;
+    if (message.id === activeMessageId) return false;
+    if (message.queueState === "claimed") return false;
+    if (message.preparation && FAILED_FILE_PREPARATIONS.has(message.preparation)) return false;
+    if (message.files?.some((file) => FAILED_FILE_STATES.has(file.state))) return false;
+    return true;
+  }).map((message) => message.id));
 }
 
 function activityStateFromMessage(status: MessageViewModel["status"]): ActivityState {

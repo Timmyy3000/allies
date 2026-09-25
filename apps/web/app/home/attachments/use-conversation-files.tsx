@@ -169,7 +169,14 @@ export function useConversationFiles(
         <span className={styles.transfer}>
           {transfer.files.map((file) => (
             <span key={file.id} className={styles.transferFile}>
-              <FileIcon />
+              <FileThumbnail
+                id={file.id}
+                name={file.name}
+                src={file.src}
+                ready
+                workspaceId={workspaceId}
+                allyId={allyId}
+              />
               <span>{file.name}</span>
             </span>
           ))}
@@ -270,6 +277,7 @@ export function useConversationFiles(
       message: MessageViewModel | undefined,
       restoreText: (content: string) => void,
       conversationId: string,
+      onCancelQueued?: (messageId: string) => void,
     ) => {
       if (!message) return null;
       const transfer = active.find(
@@ -391,17 +399,19 @@ export function useConversationFiles(
                 <button
                   type="button"
                   onClick={() =>
-                    void perform(async () => {
-                      const recovered = await manager.cancel(transfer.id);
-                      change([
-                        ...recovered.files,
-                        ...(manager.drafts.get(scope) ?? []),
-                      ]);
-                      setRestoredDrafts((current) =>
-                        new Set(current).add(transfer.id),
-                      );
-                      restoreText(recovered.content);
-                    })
+                    onCancelQueued
+                      ? onCancelQueued(message.id)
+                      : void perform(async () => {
+                        const recovered = await manager.cancel(transfer.id);
+                        change([
+                          ...recovered.files,
+                          ...(manager.drafts.get(scope) ?? []),
+                        ]);
+                        setRestoredDrafts((current) =>
+                          new Set(current).add(transfer.id),
+                        );
+                        restoreText(recovered.content);
+                      })
                   }
                 >
                   Cancel
@@ -421,28 +431,30 @@ export function useConversationFiles(
                 <button
                   type="button"
                   onClick={() =>
-                    void perform(async () => {
-                      const result = await session.runCloudOperation(
-                        (signal) =>
-                          session.client.files.cancel(
-                            workspaceId,
-                            conversationId,
-                            message.id,
-                            message.revision ?? 0,
-                            signal,
-                          ),
-                        { csrf: true },
-                      );
-                      restoreText(result.draft.content);
-                      change([
-                        ...result.draft.files.map((f) => ({
-                          id: crypto.randomUUID(),
-                          name: f.name,
-                          size: remote.find((r) => r.id === f.id)?.size ?? 0,
-                        })),
-                        ...files,
-                      ]);
-                    })
+                    onCancelQueued
+                      ? onCancelQueued(message.id)
+                      : void perform(async () => {
+                        const result = await session.runCloudOperation(
+                          (signal) =>
+                            session.client.files.cancel(
+                              workspaceId,
+                              conversationId,
+                              message.id,
+                              message.revision ?? 0,
+                              signal,
+                            ),
+                          { csrf: true },
+                        );
+                        restoreText(result.draft.content);
+                        change([
+                          ...result.draft.files.map((f) => ({
+                            id: crypto.randomUUID(),
+                            name: f.name,
+                            size: remote.find((r) => r.id === f.id)?.size ?? 0,
+                          })),
+                          ...files,
+                        ]);
+                      })
                   }
                 >
                   Cancel
@@ -816,7 +828,7 @@ function FilePublications({
   );
 }
 
-function FileThumbnail({
+export function FileThumbnail({
   id,
   name,
   src,
