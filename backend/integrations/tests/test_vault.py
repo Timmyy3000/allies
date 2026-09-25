@@ -1,3 +1,5 @@
+import base64
+
 import pytest
 from cryptography.fernet import Fernet
 
@@ -49,3 +51,9 @@ def test_vault_tampered_ciphertext_fails_closed(settings):
     tampered[10] ^= 0xFF
     with pytest.raises(IntegrationUnavailable):
         unseal_refresh_token(bytes(tampered), key_version=version)
+
+
+def test_vault_wrong_length_key_fails_closed(settings):
+    settings.ALLIES_INTEGRATIONS_VAULT_KEY = base64.urlsafe_b64encode(b"short").decode()
+    with pytest.raises(IntegrationUnavailable):
+        vault_key(1)

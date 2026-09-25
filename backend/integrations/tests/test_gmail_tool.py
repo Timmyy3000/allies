@@ -367,3 +367,22 @@ def test_unreadable_vault_is_retryable_and_frees_the_send(gmail, monkeypatch):
     assert run(later, arguments)[0] == 503
     monkeypatch.setattr(gmail_tool, "refresh_access_token", real)
     assert run(later, arguments)[0] == 200
+
+
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN="test-service-token",
+)
+def test_internal_endpoint_rejects_oversized_and_malformed_bodies(db):
+    client = Client()
+    url = "/api/v1/internal/foundry/integrations/tool"
+    auth = {"HTTP_AUTHORIZATION": "Bearer test-service-token"}
+    huge = json.dumps({"arguments": {"body": "x" * (65 * 1024)}})
+    assert (
+        client.post(url, huge, content_type="application/json", **auth).status_code
+        == 413
+    )
+    assert (
+        client.post(url, "{}", content_type="application/json", **auth).status_code
+        == 422
+    )

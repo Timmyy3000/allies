@@ -5,11 +5,13 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import HttpRequest, JsonResponse
 from ninja_extra import NinjaExtraAPI
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from auths.exceptions import WorkspaceAccessDenied
 from integrations.api.controllers import GmailCallbackController, GmailController
 from integrations.services.gmail_tool import execute_gmail_tool
+
+_MAX_TOOL_BYTES = 64 * 1024
 
 
 def _foundry_token_valid(request: HttpRequest) -> bool:
@@ -35,9 +37,17 @@ def register(api: NinjaExtraAPI) -> None:
     api.register_controllers(GmailController, GmailCallbackController)
 
     @api.post("/internal/foundry/integrations/tool", auth=_foundry_token_valid)
-    def integration_tool(request: HttpRequest, payload: IntegrationToolEnvelope):
-        if len(request.body) > 64 * 1024:
+    def integration_tool(request: HttpRequest):
+        try:
+            declared = int(request.headers.get("Content-Length") or 0)
+        except ValueError:
+            declared = 0
+        if declared > _MAX_TOOL_BYTES or len(request.body) > _MAX_TOOL_BYTES:
             return JsonResponse({"error": "request_too_large"}, status=413)
+        try:
+            payload = IntegrationToolEnvelope.model_validate_json(request.body)
+        except ValidationError:
+            return JsonResponse({"error": "invalid_request"}, status=422)
         if payload.integration != "gmail":
             return JsonResponse({"error": "integration_unsupported"}, status=422)
         fields = payload.model_dump(exclude={"integration"})

@@ -39,9 +39,12 @@ def vault_key(version: int) -> bytes:
     if not raw:
         raise IntegrationUnavailable("integration vault key unavailable")
     try:
-        return base64.urlsafe_b64decode(raw)
+        key = base64.urlsafe_b64decode(raw)
     except (binascii.Error, ValueError):
         return hashlib.sha256(raw).digest()
+    if len(key) != 32:
+        raise IntegrationUnavailable("integration vault key invalid")
+    return key
 
 
 def seal_refresh_token(refresh_token: str) -> tuple[bytes, int]:
