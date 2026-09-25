@@ -8,6 +8,7 @@ import { ShinyText } from "../../components/text-animations/shiny-text";
 import styles from "./conversation-frame.module.css";
 import { formatFileSize } from "./file-size";
 import type { QueuedAttachmentPreview } from "./conversation-frame-model";
+import { FileIcon } from "./attachments/attachment-picker";
 import { useIsMobileHome } from "./use-is-mobile-home";
 import { ActivityIcon } from "./activity-icon";
 
@@ -384,13 +385,13 @@ export function QueueStack({
   onRemove,
   actionLabel = "",
   onAction,
-  renderAttachments,
+  onAttachmentOpen,
 }: {
   items: readonly { id: string; content: string; removable?: boolean; statusLabel?: string | null; attachments?: QueuedAttachmentPreview[] }[];
   onRemove?: (id: string) => void;
   actionLabel?: string;
   onAction?: () => void;
-  renderAttachments?: (files: QueuedAttachmentPreview[]) => ReactNode;
+  onAttachmentOpen?: (file: QueuedAttachmentPreview) => void;
 }) {
   const reducedMotion = useReducedMotion();
   const duration = reducedMotion ? 0 : .32;
@@ -400,9 +401,21 @@ export function QueueStack({
       {items.map((item, index) => (
         <motion.li className={styles.frameQueueItem} key={item.id} initial={{ height: 0, marginTop: 0 }} animate={{ height: 48, marginTop: index === 0 ? 0 : 8 }} exit={{ height: 0, marginTop: 0 }} transition={{ duration, ease: [.25, 1, .5, 1] }}>
           <motion.div className={styles.frameQueuePill} initial={{ opacity: 0, y: 5 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -3 }} transition={{ duration: duration * .65, ease: [.25, 1, .5, 1] }}>
-            {item.attachments?.length && renderAttachments ? (
+            {item.attachments?.length ? (
               <span className={styles.frameQueueThumbs} title={item.attachments.map((file) => file.name).join(", ")}>
-                {renderAttachments(item.attachments)}
+                {item.attachments.slice(0, 3).map((file) => {
+                  const thumb = file.src
+                    ? <img src={file.src} alt="" />
+                    : <FileIcon />;
+                  return !file.src && file.ready && onAttachmentOpen ? (
+                    <button key={file.id} type="button" aria-label={`Open ${file.name} preview`} onClick={() => onAttachmentOpen(file)}>
+                      {thumb}
+                    </button>
+                  ) : (
+                    <span key={file.id}>{thumb}</span>
+                  );
+                })}
+                {item.attachments.length > 3 ? <span>+{item.attachments.length - 3}</span> : null}
               </span>
             ) : null}
             <span title={item.attachments?.length ? `${item.content} (${item.attachments.map((file) => file.name).join(", ")})` : item.content}>{item.content}</span>

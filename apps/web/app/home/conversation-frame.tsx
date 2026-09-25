@@ -58,10 +58,10 @@ export interface ConversationFrameProps {
   messageAttachments?: (id: string) => ReactNode;
   publications?: (messageId: string) => ReactNode;
   onFileOpen?: (fileId: string) => void;
-  renderQueueAttachments?: (files: QueuedAttachmentPreview[]) => ReactNode;
+  onQueueAttachmentOpen?: (file: QueuedAttachmentPreview) => void;
 }
 
-export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, settingsHref = "/account", sleeping = false, stateReady = true, runtimeIntentStatus = null, attachments, fileRecovery, onAttach, onFilesDrop, messageAttachments, publications, onFileOpen, renderQueueAttachments }: ConversationFrameProps) {
+export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, settingsHref = "/account", sleeping = false, stateReady = true, runtimeIntentStatus = null, attachments, fileRecovery, onAttach, onFilesDrop, messageAttachments, publications, onFileOpen, onQueueAttachmentOpen }: ConversationFrameProps) {
   useEffect(() => {
     // Markdown dialogs portal outside the conversation's accent scope.
     const previous = document.body.style.getPropertyValue("--active-chat-accent");
@@ -438,7 +438,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
         ) : null}
         {model.composer.sendError ? <p className={styles.frameComposerError} role="alert">{model.composer.sendError}</p> : null}
         {model.queuedMessages.length > 0 ? (
-          <QueueStack items={model.queuedMessages} onRemove={actions.onRemoveQueuedMessage} renderAttachments={renderQueueAttachments} />
+          <QueueStack items={model.queuedMessages} onRemove={actions.onRemoveQueuedMessage} onAttachmentOpen={onQueueAttachmentOpen} />
         ) : null}
         <ConversationComposer
           attachments={attachments}
