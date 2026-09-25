@@ -1392,3 +1392,20 @@ def test_stalled_held_gap_fails_the_turn_as_retryable(conversation_records):
     assert FoundryHeldEvent.objects.count() == 0
     with pytest.raises(ProjectionConflict):
         project_foundry_event(event_for(message, binding, attempt_sequence=2))
+
+
+def test_stalled_gap_of_superseded_attempt_spares_current_turn(conversation_records):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    project_foundry_event(event_for(message, binding, attempt_sequence=3, generation=2))
+    project_foundry_event(event_for(message, binding, attempt_sequence=1))
+    project_foundry_event(event_for(message, binding, attempt_sequence=3))
+    stale = datetime.now(UTC) - timedelta(
+        seconds=projection_service.HELD_GAP_TIMEOUT_SECONDS + 1
+    )
+    FoundryHeldEvent.objects.filter(generation=2).update(created_at=stale)
+
+    assert projection_service.expire_stalled_held_gaps() == 0
+
+    message.refresh_from_db()
+    assert message.status == MessageLifecycle.IN_PROGRESS
+    assert list(FoundryHeldEvent.objects.values_list("generation", flat=True)) == [3]
