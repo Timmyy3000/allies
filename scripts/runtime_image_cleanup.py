@@ -11,8 +11,8 @@ from uuid import UUID
 sys.path.insert(0, str(Path(__file__).parent))
 sys.path.insert(0, str(Path(__file__).parent / "integrations" / "railway"))
 
-import runtime_release as release  # noqa: E402
-import update_runtime_images as live_config  # noqa: E402
+import runtime_release as release
+import update_runtime_images as live_config
 
 KEEP_RELEASES = 5
 KEEP_DAYS = 14
