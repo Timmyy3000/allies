@@ -13,14 +13,16 @@ from tools.registry import registry
 def main():
     discover_plugins(force=True)
     assert registry.get_entry("allies_routines") is not None
+    assert registry.get_entry("allies_gmail") is not None
     definitions = get_tool_definitions(
-        enabled_toolsets=["allies-routines", "cronjob"],
+        enabled_toolsets=["allies-routines", "allies-gmail", "cronjob"],
         disabled_toolsets=["cronjob"],
         quiet_mode=True,
         skip_tool_search_assembly=True,
     )
     names = {item["function"]["name"] for item in definitions}
     assert "allies_routines" in names and "cronjob" not in names, names
+    assert "allies_gmail" in names, names
     definition = next(item["function"] for item in definitions if item["function"]["name"] == "allies_routines")
     assert definition["description"]
     assert definition["parameters"]["required"] == ["action"]
@@ -32,7 +34,10 @@ def main():
 
         def do_POST(self):
             body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-            assert self.path == "/api/v1/runtime/routines/tool"
+            assert self.path in {
+                "/api/v1/runtime/routines/tool",
+                "/api/v1/runtime/integrations/tool",
+            }, self.path
             assert self.headers["Authorization"] == "Bearer smoke-capability"
             observed.append(body)
             self.send_response(200)
@@ -59,12 +64,25 @@ def main():
             )
             assert json.loads(result)["status"] == "saved", result
         assert observed[0]["call_id"] == observed[1]["call_id"]
+        result = handle_function_call(
+            "tool_call",
+            {"name": "allies_gmail", "arguments": {"action": "search", "query": "x"}},
+            task_id="smoke",
+            tool_call_id="call_smoke_gmail",
+            enabled_tools=["tool_call", "tool_search", "tool_describe"],
+            enabled_toolsets=["allies-gmail"],
+            disabled_toolsets=["cronjob"],
+        )
+        assert json.loads(result)["status"] == "saved", result
+        assert observed[-1]["integration"] == "gmail", observed[-1]
+        assert observed[-1]["arguments"] == {"action": "search", "query": "x"}
     finally:
         context.reset(token)
         server.shutdown()
         server.server_close()
         thread.join()
     assert "unavailable" in registry.dispatch("allies_routines", {"action": "list"})
+    assert "unavailable" in registry.dispatch("allies_gmail", {"action": "search"})
     print("Hermes routine management discovery, dispatch and isolation: PASS")
 
 

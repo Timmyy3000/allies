@@ -176,6 +176,8 @@ RUN /opt/hermes/.venv/bin/python /tmp/allies-smoke-api-server-markdown-hint.py \
 
 COPY plugins/routines/ /opt/hermes/plugins/routines/
 COPY allies_routines.py /opt/hermes/tools/allies_routines.py
+COPY plugins/gmail/ /opt/hermes/plugins/gmail/
+COPY allies_gmail.py /opt/hermes/tools/allies_gmail.py
 COPY patches/routine-management-tool.patch /tmp/allies-routine-management-tool.patch
 RUN cd /opt/hermes \
     && sed -i 's/\r$//' /tmp/allies-routine-management-tool.patch \

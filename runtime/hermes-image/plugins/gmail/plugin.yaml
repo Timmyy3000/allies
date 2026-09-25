@@ -1,0 +1,7 @@
+name: allies-gmail
+version: 0.1.0
+description: Read and send the workspace's connected Gmail through Allies Cloud
+author: Allies
+kind: backend
+provides_tools:
+  - allies_gmail
