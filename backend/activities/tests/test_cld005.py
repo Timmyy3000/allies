@@ -1371,3 +1371,24 @@ def test_held_event_cap_ignores_other_attempts(conversation_records, monkeypatch
     assert project_foundry_event(event_for(message, binding, attempt_sequence=3)).held
     with pytest.raises(ProjectionSequenceGap):
         project_foundry_event(event_for(message, binding, attempt_sequence=4))
+
+
+def test_stalled_held_gap_fails_the_turn_as_retryable(conversation_records):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    project_foundry_event(event_for(message, binding, attempt_sequence=1))
+    project_foundry_event(event_for(message, binding, attempt_sequence=3))
+    now = datetime.now(UTC)
+
+    assert projection_service.expire_stalled_held_gaps(now=now) == 0
+    message.refresh_from_db()
+    assert message.status == MessageLifecycle.IN_PROGRESS
+
+    later = now + timedelta(seconds=projection_service.HELD_GAP_TIMEOUT_SECONDS + 1)
+    assert projection_service.expire_stalled_held_gaps(now=later) == 1
+
+    message.refresh_from_db()
+    assert message.status == MessageLifecycle.FAILED
+    assert message.retry_allowed is True
+    assert FoundryHeldEvent.objects.count() == 0
+    with pytest.raises(ProjectionConflict):
+        project_foundry_event(event_for(message, binding, attempt_sequence=2))
