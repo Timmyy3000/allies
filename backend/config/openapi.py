@@ -473,6 +473,56 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "message": "Waitlist registration complete",
         "data": {"email": "a***@example.com"},
     },
+    "SuccessResponse_ConnectResponse_": {
+        "status": "success",
+        "message": "Gmail connect started",
+        "data": {
+            "connect_session_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "auth_url": "https://accounts.google.com/o/oauth2/v2/auth?...",
+            "expires_at": "2026-09-25T08:00:00Z",
+        },
+    },
+    "SuccessResponse_GmailConnectionResponse_": {
+        "status": "success",
+        "message": "Gmail connected",
+        "data": {
+            "connection_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d80",
+            "account_email": "user@gmail.com",
+            "scope_set": [
+                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/gmail.send",
+            ],
+            "connected_at": "2026-09-25T08:00:00Z",
+            "ally_grants": [
+                {
+                    "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+                    "level": "send",
+                    "grant_generation": 1,
+                    "updated_at": "2026-09-25T08:00:00Z",
+                }
+            ],
+        },
+    },
+    "SuccessResponse_Union_GmailConnectionResponse__NoneType__": {
+        "status": "success",
+        "message": "Gmail connection status",
+        "data": None,
+    },
+    "SuccessResponse_AllyGrantResponse_": {
+        "status": "success",
+        "message": "Ally gmail grant saved",
+        "data": {
+            "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "level": "send",
+            "grant_generation": 1,
+            "updated_at": "2026-09-25T08:00:00Z",
+        },
+    },
+    "SuccessResponse_DisconnectResponse_": {
+        "status": "success",
+        "message": "Gmail disconnect accepted",
+        "data": {"status": "deprovisioned"},
+    },
 }
 
 WAITLIST_ERROR_CODES: dict[tuple[str, str], dict[int, tuple[str, ...]]] = {
