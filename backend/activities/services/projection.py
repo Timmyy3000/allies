@@ -611,11 +611,14 @@ def _drain_held_events(envelope: FoundryEventEnvelope, applied_sequence: int) ->
         )
         if held is None:
             return
-        held.delete()
         try:
             with transaction.atomic():
                 _apply_foundry_event(FoundryEventEnvelope.model_validate(held.envelope))
+        except ProjectionSequenceGap:
+            # Still blocked (e.g. a prior turn is open); keep it for a later drain.
+            return
         except (ProjectionError, ValueError) as exc:
+            held.delete()
             logger.warning(
                 "held foundry event discarded message_id=%s attempt_id=%s "
                 "generation=%d attempt_sequence=%d error=%s",
@@ -626,6 +629,7 @@ def _drain_held_events(envelope: FoundryEventEnvelope, applied_sequence: int) ->
                 type(exc).__name__,
             )
             return
+        held.delete()
         applied_sequence = held.attempt_sequence
 
 
@@ -633,33 +637,30 @@ def _hold_event(
     envelope: FoundryEventEnvelope, message: Message, expected_sequence: int
 ) -> ProjectionResult:
     foundry = envelope.foundry
-    existing = FoundryHeldEvent.objects.filter(
+    attempt_held = FoundryHeldEvent.objects.filter(
+        message=message, attempt_id=foundry.attempt_id, generation=foundry.generation
+    )
+    if (
+        not attempt_held.filter(attempt_sequence=foundry.attempt_sequence).exists()
+        and attempt_held.count() >= MAX_HELD_EVENTS_PER_MESSAGE
+    ):
+        raise ProjectionSequenceGap("held event limit reached")
+    held, _created = FoundryHeldEvent.objects.get_or_create(
         message=message,
         attempt_id=foundry.attempt_id,
         generation=foundry.generation,
         attempt_sequence=foundry.attempt_sequence,
-    ).first()
-    if existing is not None:
-        if (
-            existing.event_id != envelope.event_id
-            or existing.event_fingerprint != envelope.fingerprint
-        ):
-            raise ProjectionConflict("event sequence conflicts with held event")
-    else:
-        if (
-            FoundryHeldEvent.objects.filter(message=message).count()
-            >= MAX_HELD_EVENTS_PER_MESSAGE
-        ):
-            raise ProjectionSequenceGap("held event limit reached")
-        FoundryHeldEvent.objects.create(
-            message=message,
-            event_id=envelope.event_id,
-            attempt_id=foundry.attempt_id,
-            generation=foundry.generation,
-            attempt_sequence=foundry.attempt_sequence,
-            event_fingerprint=envelope.fingerprint,
-            envelope=envelope.model_dump(mode="json"),
-        )
+        defaults={
+            "event_id": envelope.event_id,
+            "event_fingerprint": envelope.fingerprint,
+            "envelope": envelope.model_dump(mode="json"),
+        },
+    )
+    if (
+        held.event_id != envelope.event_id
+        or held.event_fingerprint != envelope.fingerprint
+    ):
+        raise ProjectionConflict("event sequence conflicts with held event")
     # Foundry's receipt contract only knows applied/duplicate; a held event is
     # durably accepted, so it is acknowledged as applied.
     return ProjectionResult(
