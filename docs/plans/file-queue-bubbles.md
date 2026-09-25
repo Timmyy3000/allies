@@ -180,6 +180,28 @@ plus a slowed upload asserts the uploading file message shows pill text +
 carries the new text, and the upload request fires. Unit coverage for the
 split rule and the status helper included.
 
+## Enkii second-round P1s (2026-09-25, implemented)
+
+Both accepted; both were double-mutation bugs in the cancel path:
+
+- P1-1 (double cancel): in-bubble Cancel on a preparation-active cloud
+  message ran `files.cancel` in `render()` and then `removeQueuedMessage`
+  ran it again with the now-stale revision, so the delete never ran and the
+  draft was already restored. `render()` now delegates fully to
+  `onCancelQueued` when present (single cancel site); the inline
+  `files.cancel` remains only as a fallback.
+- P1-2 (restore before delete): pill removal restored the draft/tray before
+  `deleteQueuedMessage` succeeded, duplicating the draft when the delete
+  failed. The draft restore and tray update now run only after the
+  tombstone/`deletedAt` check succeeds, matching the local path. The cloud
+  branch also stops a still-live local transfer record for the same message
+  before the server cancel, so background uploads cannot outlive the queue
+  removal.
+
+Covered by two new integration tests: in-bubble Cancel asserts exactly one
+`files.cancel` before delete plus restore and bubble removal; a
+delete-failure test asserts the draft stays untouched and the queue remains.
+
 ## Adversarial review (non-independent, in-session — original revision)
 
 Independent `codex/sol_review_worker` and generic `reviewer` workers were both
