@@ -14,6 +14,7 @@ from activities.exceptions import (
     ProjectionCursorGap,
     ProjectionInvalid,
     ProjectionNotFound,
+    ProjectionSequenceGap,
 )
 from activities.models import (
     Activity,
@@ -1357,3 +1358,16 @@ def test_foundry_event_conflict_codes_are_stable_and_typed(conversation_records)
     )
     assert conflict.status_code == 409
     assert conflict.json() == {"code": "conflict"}
+
+
+def test_held_event_cap_ignores_other_attempts(conversation_records, monkeypatch):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    monkeypatch.setattr(projection_service, "MAX_HELD_EVENTS_PER_MESSAGE", 1)
+    project_foundry_event(event_for(message, binding, attempt_sequence=3, generation=2))
+
+    held = project_foundry_event(event_for(message, binding, attempt_sequence=3))
+    assert held.held is True
+    # Redelivery of an already held event is not blocked by the cap.
+    assert project_foundry_event(event_for(message, binding, attempt_sequence=3)).held
+    with pytest.raises(ProjectionSequenceGap):
+        project_foundry_event(event_for(message, binding, attempt_sequence=4))
