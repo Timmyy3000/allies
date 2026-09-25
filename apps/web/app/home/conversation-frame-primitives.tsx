@@ -407,7 +407,7 @@ export function QueueStack({
                   const thumb = file.src
                     ? <img src={file.src} alt="" />
                     : <FileIcon />;
-                  return !file.src && file.ready && onAttachmentOpen ? (
+                  return !file.src && file.ready && !file.local && onAttachmentOpen ? (
                     <button key={file.id} type="button" aria-label={`Open ${file.name} preview`} onClick={() => onAttachmentOpen(file)}>
                       {thumb}
                     </button>

@@ -61,6 +61,7 @@ export interface QueuedAttachmentPreview {
   name: string;
   src?: string;
   ready: boolean;
+  local?: boolean;
 }
 
 export interface ProductionQueuedMessageModel {

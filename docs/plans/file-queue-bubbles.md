@@ -129,6 +129,28 @@ Validation added: pill-thumbnail rendering tests, preparation-aware split
 tests, and a pill-trash integration test asserting cancel-before-delete
 ordering plus single draft restore.
 
+## CI follow-up (2026-09-25, implemented)
+
+CI on the pill revision failed 4 home-smoke `files.spec.ts` assertions
+(desktop+mobile `sends files-only` and `requires retry`): after a successful
+upload the message is `preparation: ready` and now correctly renders as a
+queue pill, so the old timeline-bubble button (`/notes.txt.*5 B/`) no longer
+exists. The failure error-context confirmed the pill (`Open notes.txt preview`
++ trash) rendered correctly — the tests encoded the superseded bubble
+behavior, so the two assertions now target the pill preview button. The rest
+of each flow (upload counts, no `/messages` request, preview dialog content,
+retry across reload, `/send-files`) is unchanged.
+
+Enkii P2 (accepted and fixed): pill preview buttons forwarded local transfer
+ids to the cloud preview loader, failing for queued local non-images. Pills
+now carry `local: true` for pre-admission items and only cloud-backed ready
+attachments get a preview button; local photos render their blob thumbnail
+inline with no button.
+
+Local verification on the final head: smoke `files.spec.ts` 4/4 desktop and
+4/4 mobile; unit 104 frame/model + 133 workspace + 66 composer/file/transfer;
+`lint:web` 0 errors; `web` typecheck clean.
+
 ## Adversarial review (non-independent, in-session — original revision)
 
 Independent `codex/sol_review_worker` and generic `reviewer` workers were both
