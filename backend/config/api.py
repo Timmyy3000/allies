@@ -11,6 +11,7 @@ from chat.api.register import register as register_chat_api
 from config.health import HealthController
 from config.openapi import AlliesAPI
 from files.api.register import register as register_files_api
+from integrations.api.register import register as register_integrations_api
 from routines.api.register import register as register_routines_api
 from waitlist.api.register import register as register_waitlist_api
 from workspaces.api.register import register as register_workspaces_api
@@ -106,6 +107,7 @@ def register_all_apis() -> None:
     register_files_api(api)
     register_activities_api(api)
     register_routines_api(api)
+    register_integrations_api(api)
 
 
 register_all_apis()

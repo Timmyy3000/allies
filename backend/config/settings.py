@@ -176,6 +176,7 @@ INSTALLED_APPS = [
     "chat",
     "files",
     "activities",
+    "integrations",
     "devtools",
 ]
 
@@ -583,6 +584,14 @@ ALLIES_FILE_STORAGE_SECRET_ACCESS_KEY = os.environ.get(
     "ALLIES_FILE_STORAGE_SECRET_ACCESS_KEY", ""
 )
 ALLIES_FILE_INSPECTION_ENABLED = env_bool("ALLIES_FILE_INSPECTION_ENABLED", True)
+
+# Managed Gmail (provider-neutral passthrough, Gmail first). Grants default
+# to none and sends require consent plus approval, so the rollout flag ships
+# default-on; prod holds it False until Phase 6 evidences slice compatibility.
+ALLIES_GMAIL_ENABLED = env_bool("ALLIES_GMAIL_ENABLED", True)
+ALLIES_GMAIL_CLIENT_ID = os.environ.get("ALLIES_GMAIL_CLIENT_ID", "")
+ALLIES_GMAIL_CLIENT_SECRET = os.environ.get("ALLIES_GMAIL_CLIENT_SECRET", "")
+ALLIES_GMAIL_REDIRECT_URI = os.environ.get("ALLIES_GMAIL_REDIRECT_URI", "")
 ALLIES_FILE_SCANNER_HOST = os.environ.get("ALLIES_FILE_SCANNER_HOST", "")
 ALLIES_FILE_SCANNER_PORT = env_bounded_int("ALLIES_FILE_SCANNER_PORT", 3310, 1, 65535)
 ALLIES_FILE_INPUT_DELIVERY_ENABLED = env_bool(
