@@ -44,6 +44,7 @@ from runtime.services.approvals import (
 )
 from runtime.services.attempts import complete_attempt, fail_attempt
 from runtime.services.claims import claim_next_execution
+from runtime.services.credential_broker import resolve_brokered_credential
 from runtime.services.events import append_runtime_event
 from runtime.services.executions import (
     create_execution_intent,
@@ -96,6 +97,7 @@ from .schemas import (
     ClaimRequest,
     CleanupReceiptRequest,
     CompleteRequest,
+    CredentialResolveRequest,
     EventRequest,
     ExecutionCommand,
     FailRequest,
@@ -205,6 +207,17 @@ def register(api: NinjaExtraAPI) -> None:
             if claim is None:
                 return HttpResponse(status=204)
             return JsonResponse(_claim_json(claim), status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post("/runtime/credentials/resolve", auth=None)
+    def resolve_credential(request: HttpRequest, payload: CredentialResolveRequest):
+        try:
+            context = authenticate_runtime_token(_bearer(request))
+            value = resolve_brokered_credential(context, payload.reference)
+            response = JsonResponse({"value": value}, status=200)
+            response["Cache-Control"] = "no-store"
+            return response
         except RuntimeDomainError as exc:
             return _error(exc)
 

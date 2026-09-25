@@ -238,9 +238,9 @@ def test_fixture_request_creates_pending_profile_without_private_receipt_fields(
     assert receipt["request_fingerprint"] == contract["request"]["request_fingerprint"]
     assert receipt["status"] == "pending"
     # The historical receipt fixture predates the managed memory-tool
-    # default and the compression threshold default.
+    # default, the compression threshold default, and the platform-layer soul.
     assert receipt["evidence_digest"] == (
-        "c318990e966cc9252928f8310150782c3f5e979a553be57bb75f9ed89d34a8f6"
+        "b06be9fbcd88513b5190ab24e8357a97bb35b8da35eedb61cdc4cdd9aef425c6"
     )
     assert re.fullmatch(r"[0-9a-f]{64}", receipt["evidence_digest"])
     assert "profile_id" not in receipt
@@ -255,11 +255,10 @@ def test_fixture_request_creates_pending_profile_without_private_receipt_fields(
     assert contract["request"]["name"] in soul
     assert contract["request"]["job"] in soul
     assert contract["request"]["personality"] in soul
-    assert "Hermes is your private runtime" in soul
     assert "## Your personality" in soul
     assert "This personality is not decoration" in soul
-    assert "Respond to the moment you are actually in" in soul
-    assert "Be recognizable" in soul
+    assert "Be recognisable" in soul
+    assert "Hermes" not in soul
     instruction = profile.seed_payload["first_chat_instruction"]
     assert "start of a working relationship" in instruction
     assert "Do not repeat profile fields" in instruction

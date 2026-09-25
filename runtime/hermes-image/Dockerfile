@@ -210,6 +210,16 @@ RUN cd /opt/hermes \
     && git apply --whitespace=nowarn /tmp/allies-prompt-compartment-refresh.patch \
     && rm -f /tmp/allies-prompt-compartment-refresh.patch
 
+# Allies platform layer: rules every Ally follows, placed after the soul. Its
+# content feeds the platform version marker, so edits reach live sessions.
+COPY PLATFORM.md /opt/hermes/allies/PLATFORM.md
+COPY patches/platform-layer.patch /tmp/allies-platform-layer.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-platform-layer.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-platform-layer.patch \
+    && git apply --whitespace=nowarn /tmp/allies-platform-layer.patch \
+    && rm -f /tmp/allies-platform-layer.patch
+
 # Version stamp for the refresh gate: source SHA plus the full overlay patch
 # set, so any Hermes code or config change retires live session prompts once.
 COPY patches/ /tmp/allies-prompt-version-patches/
@@ -220,6 +230,10 @@ RUN printf '%s:' "${HERMES_SOURCE_SHA}" > /opt/hermes/.allies-prompt-config-vers
 COPY smoke_prompt_compartment_refresh.py /tmp/allies-smoke-prompt-compartment-refresh.py
 RUN PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-prompt-compartment-refresh.py \
     && rm -f /tmp/allies-smoke-prompt-compartment-refresh.py
+
+COPY smoke_platform_layer.py /tmp/allies-smoke-platform-layer.py
+RUN PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-platform-layer.py \
+    && rm -f /tmp/allies-smoke-platform-layer.py
 
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends bubblewrap=0.12.0-1~deb13u1 \
