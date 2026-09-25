@@ -43,6 +43,9 @@ SLOW_DELIVERY_POST_MS = 3000
 # Cloud answers 409 sequence_gap while an earlier event of the attempt is
 # still in flight; retry soon without spending one of the bounded attempts.
 SEQUENCE_GAP_RETRY_SECONDS = 15
+# Past this age a persistent gap falls back to normal retry accounting so a
+# permanently missing predecessor still exhausts and surfaces for redrive.
+SEQUENCE_GAP_PATIENCE_SECONDS = 30 * 60
 
 logger = logging.getLogger(__name__)
 
@@ -265,8 +268,9 @@ def publish_pending_event_deliveries(limit: int = MAX_DELIVERY_BATCH) -> Deliver
                 _wake_attempt_successors(marked)
             else:
                 deferred += 1
-        elif status == 409 and code == "sequence_gap":
-            _defer_for_sequence_gap(claim)
+        elif (
+            status == 409 and code == "sequence_gap" and _defer_for_sequence_gap(claim)
+        ):
             deferred += 1
         elif status in (401, 403, 404, 422) or (status == 409 and code == "conflict"):
             marked = mark_event_delivery(
@@ -310,22 +314,30 @@ def publish_pending_event_deliveries(limit: int = MAX_DELIVERY_BATCH) -> Deliver
 
 def _defer_for_sequence_gap(
     claim: EventDeliveryClaim, now: datetime | None = None
-) -> None:
-    """Wait for the missing predecessor without consuming a delivery attempt."""
+) -> bool:
+    """Wait for the missing predecessor without consuming a delivery attempt.
+
+    Returns False once the gap has outlived its patience, so the caller
+    records an ordinary retryable failure instead.
+    """
 
     observed_at = now or timezone.now()
-    ExecutionEventDelivery.objects.filter(
-        pk=claim.delivery_id,
-        state=EventDeliveryState.DELIVERING,
-        delivery_attempts=claim.attempt,
-        repair_cycle=claim.repair_cycle,
-    ).update(
-        state=EventDeliveryState.PENDING,
-        delivery_attempts=claim.attempt - 1,
-        lease_expires_at=None,
-        next_attempt_at=observed_at + timedelta(seconds=SEQUENCE_GAP_RETRY_SECONDS),
-        safe_error_code="sequence_gap",
-        updated_at=observed_at,
+    return bool(
+        ExecutionEventDelivery.objects.filter(
+            pk=claim.delivery_id,
+            state=EventDeliveryState.DELIVERING,
+            delivery_attempts=claim.attempt,
+            repair_cycle=claim.repair_cycle,
+            created_at__gt=observed_at
+            - timedelta(seconds=SEQUENCE_GAP_PATIENCE_SECONDS),
+        ).update(
+            state=EventDeliveryState.PENDING,
+            delivery_attempts=claim.attempt - 1,
+            lease_expires_at=None,
+            next_attempt_at=observed_at + timedelta(seconds=SEQUENCE_GAP_RETRY_SECONDS),
+            safe_error_code="sequence_gap",
+            updated_at=observed_at,
+        )
     )
 
 
@@ -340,6 +352,7 @@ def _wake_attempt_successors(
         event__attempt_id=event.attempt_id,
         event__sequence__gt=event.sequence,
         state=EventDeliveryState.PENDING,
+        safe_error_code="sequence_gap",
         next_attempt_at__gt=observed_at,
     ).update(next_attempt_at=observed_at, updated_at=observed_at)
 

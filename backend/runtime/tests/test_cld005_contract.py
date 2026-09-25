@@ -1195,8 +1195,10 @@ def test_event_delivery_command_bounds_power_work_around_delivery(monkeypatch):
     command_path = "runtime.management.commands.publish_event_deliveries"
     monkeypatch.setattr(
         f"{command_path}.wake_due_publications",
-        lambda *, limit, cursor: calls.append(("publication", limit, cursor))
-        or type("Publication", (), {"woken": 0, "next_cursor": None})(),
+        lambda *, limit, cursor: (
+            calls.append(("publication", limit, cursor))
+            or type("Publication", (), {"woken": 0, "next_cursor": None})()
+        ),
     )
     monkeypatch.setattr(
         f"{command_path}.process_runtime_wakes",
@@ -1255,7 +1257,9 @@ def test_event_delivery_command_keeps_publication_wake_cursor_across_watch_passe
     monkeypatch.setattr(f"{command_path}.wake_due_publications", wake_publications)
     monkeypatch.setattr(
         f"{command_path}.process_runtime_wakes",
-        lambda *, limit: type("Wake", (), {"started": 0, "failed": 0, "unavailable": 0})(),
+        lambda *, limit: type(
+            "Wake", (), {"started": 0, "failed": 0, "unavailable": 0}
+        )(),
     )
     monkeypatch.setattr(
         f"{command_path}.publish_pending_event_deliveries",
@@ -1328,7 +1332,9 @@ def test_delivered_event_wakes_backed_off_successors(
     settings.ALLIES_CLOUD_EVENT_DELIVERY_ENABLED = True
     first, second = ordered_deliveries
     later = timezone.now() + timedelta(minutes=5)
-    ExecutionEventDelivery.objects.filter(pk=second.pk).update(next_attempt_at=later)
+    ExecutionEventDelivery.objects.filter(pk=second.pk).update(
+        next_attempt_at=later, safe_error_code="sequence_gap"
+    )
     first_body = bytes(first.envelope_bytes)
     monkeypatch.setattr(
         event_delivery,
@@ -1342,3 +1348,48 @@ def test_delivered_event_wakes_backed_off_successors(
     second.refresh_from_db()
     assert first.state == "delivered"
     assert second.next_attempt_at <= timezone.now()
+
+
+def test_delivered_event_leaves_other_backoffs_alone(
+    ordered_deliveries, settings, monkeypatch
+):
+    settings.ALLIES_CLOUD_EVENT_DELIVERY_ENABLED = True
+    first, second = ordered_deliveries
+    later = timezone.now() + timedelta(minutes=5)
+    ExecutionEventDelivery.objects.filter(pk=second.pk).update(
+        next_attempt_at=later, safe_error_code="delivery_unavailable"
+    )
+    first_body = bytes(first.envelope_bytes)
+    monkeypatch.setattr(
+        event_delivery,
+        "_post_to_cloud",
+        lambda body: (202, "") if body == first_body else (503, ""),
+    )
+
+    publish_pending_event_deliveries()
+
+    second.refresh_from_db()
+    assert second.next_attempt_at == later
+
+
+def test_stale_sequence_gap_consumes_attempts(
+    ordered_deliveries, settings, monkeypatch
+):
+    settings.ALLIES_CLOUD_EVENT_DELIVERY_ENABLED = True
+    _first, second = ordered_deliveries
+    ExecutionEventDelivery.objects.filter(pk=second.pk).update(
+        created_at=timezone.now()
+        - timedelta(seconds=event_delivery.SEQUENCE_GAP_PATIENCE_SECONDS + 1)
+    )
+    second_body = bytes(second.envelope_bytes)
+    monkeypatch.setattr(
+        event_delivery,
+        "_post_to_cloud",
+        lambda body: (409, "sequence_gap") if body == second_body else (503, ""),
+    )
+
+    publish_pending_event_deliveries()
+
+    second.refresh_from_db()
+    assert second.delivery_attempts == 1
+    assert second.state == "pending"
