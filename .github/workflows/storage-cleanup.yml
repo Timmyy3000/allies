@@ -69,11 +69,13 @@ jobs:
 
       - name: Plan and apply runtime image cleanup
         env:
-          GH_TOKEN: ${{ secrets.PACKAGE_CLEANUP_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN_FALLBACK: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_CLEANUP_TOKEN: ${{ secrets.PACKAGE_CLEANUP_TOKEN }}
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
         run: |
           set -euo pipefail
+          export GH_TOKEN="${PACKAGE_CLEANUP_TOKEN:-$GITHUB_TOKEN_FALLBACK}"
           flag=""
           if [ "$DELETE" = true ]; then flag="--delete"; fi
           python scripts/runtime_image_cleanup.py $flag | tee plan.json
