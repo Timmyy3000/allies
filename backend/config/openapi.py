@@ -513,7 +513,7 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             "connection_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d80",
             "account_email": "user@gmail.com",
             "scope_set": [
-                "https://www.googleapis.com/auth/gmail.readonly",
+                "https://www.googleapis.com/auth/gmail.modify",
                 "https://www.googleapis.com/auth/gmail.send",
             ],
             "connected_at": "2026-09-25T08:00:00Z",

@@ -86,6 +86,18 @@ def gmail(dispatch_records, gmail_settings, monkeypatch):  # noqa: F811
         calls.append((path, query, body))
         if path == "/messages":
             return {"messages": [{"id": "m1"}]}
+        if path == "/labels" and body is None:
+            return {
+                "labels": [
+                    {"id": "INBOX", "name": "INBOX", "type": "system"},
+                    {"id": "UNREAD", "name": "UNREAD", "type": "system"},
+                    {"id": "Label_7", "name": "Receipts", "type": "user"},
+                ]
+            }
+        if path == "/labels":
+            return {"id": "Label_9", "name": body["name"]}
+        if path == "/messages/batchModify":
+            return {}
         if path == "/messages/m1":
             return {
                 "id": "m1",
@@ -386,3 +398,54 @@ def test_internal_endpoint_rejects_oversized_and_malformed_bodies(db):
         client.post(url, "{}", content_type="application/json", **auth).status_code
         == 422
     )
+
+
+def test_organise_marks_read_archives_and_labels_by_name(gmail):
+    status, labels = run(gmail["turn"], {"action": "list_labels"})
+    assert (
+        status == 200
+        and {"id": "Label_7", "name": "Receipts", "type": "user"} in (labels["labels"])
+    )
+    arguments = {
+        "action": "modify",
+        "message_ids": ["m1", "m2"],
+        "add_labels": ["receipts"],
+        "remove_labels": ["UNREAD", "INBOX"],
+    }
+    assert run(gmail["turn"], arguments) == (
+        200,
+        {"status": "updated", "message_count": 2},
+    )
+    _, _, body = gmail["calls"][-1]
+    assert body == {
+        "ids": ["m1", "m2"],
+        "addLabelIds": ["Label_7"],
+        "removeLabelIds": ["UNREAD", "INBOX"],
+    }
+    status, created = run(gmail["turn"], {"action": "create_label", "label": "Travel"})
+    assert (status, created) == (200, {"label_id": "Label_9", "name": "Travel"})
+
+
+def test_organise_rejects_unknown_labels_and_trash(gmail):
+    status, result = run(
+        gmail["turn"],
+        {"action": "modify", "message_ids": ["m1"], "add_labels": ["Nope"]},
+    )
+    assert (status, result["error"]) == (422, "gmail_label_not_found")
+    status, result = run(
+        gmail["turn"],
+        {"action": "modify", "message_ids": ["m1"], "add_labels": ["trash"]},
+    )
+    assert (status, result["error"]) == (422, "invalid_gmail_request")
+    assert not any(path == "/messages/batchModify" for path, _, _ in gmail["calls"])
+
+
+def test_read_grant_can_list_labels_but_not_organise(gmail):
+    set_ally_grant(secret=gmail["secret"], ally=gmail["ally"], level="read")
+    assert run(gmail["turn"], {"action": "list_labels"})[0] == 200
+    for arguments in (
+        {"action": "create_label", "label": "X"},
+        {"action": "modify", "message_ids": ["m1"], "remove_labels": ["UNREAD"]},
+    ):
+        status, result = run(gmail["turn"], arguments)
+        assert (status, result["error"]) == (403, "gmail_not_granted")

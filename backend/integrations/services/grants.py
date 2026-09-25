@@ -23,7 +23,7 @@ from .google_oauth import gmail_enabled
 logger = logging.getLogger(__name__)
 
 READ_ALLOWLIST = ("gmail search", "gmail get")
-SEND_ALLOWLIST = ("gmail search", "gmail get", "gmail send", "gmail reply")
+SEND_ALLOWLIST = (*READ_ALLOWLIST, "gmail send", "gmail reply", "gmail organize")
 
 
 def _require_enabled() -> None:
