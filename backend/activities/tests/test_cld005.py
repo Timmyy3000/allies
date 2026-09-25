@@ -1409,3 +1409,18 @@ def test_stalled_gap_of_superseded_attempt_spares_current_turn(conversation_reco
     message.refresh_from_db()
     assert message.status == MessageLifecycle.IN_PROGRESS
     assert list(FoundryHeldEvent.objects.values_list("generation", flat=True)) == [3]
+
+
+def test_stalled_gap_without_receipts_fails_the_turn(conversation_records):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    project_foundry_event(event_for(message, binding, attempt_sequence=2))
+    later = datetime.now(UTC) + timedelta(
+        seconds=projection_service.HELD_GAP_TIMEOUT_SECONDS + 1
+    )
+
+    assert projection_service.expire_stalled_held_gaps(now=later) == 1
+
+    message.refresh_from_db()
+    assert message.status == MessageLifecycle.FAILED
+    assert message.retry_allowed is True
+    assert FoundryHeldEvent.objects.count() == 0

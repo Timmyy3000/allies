@@ -673,6 +673,14 @@ def expire_stalled_held_gaps(*, limit: int = 50, now: datetime | None = None) ->
                 .first()
             )
             held = FoundryHeldEvent.objects.filter(message=message)
+            if current is None:
+                # Nothing projected yet (the first event itself is missing):
+                # the newest held attempt is the current one.
+                current = (
+                    held.order_by("-generation", "-created_at")
+                    .values_list("attempt_id", "generation")
+                    .first()
+                )
             current_held = (
                 held.filter(attempt_id=current[0], generation=current[1])
                 if current is not None
