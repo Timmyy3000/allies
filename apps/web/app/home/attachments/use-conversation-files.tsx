@@ -431,29 +431,30 @@ export function useConversationFiles(
                 <button
                   type="button"
                   onClick={() =>
-                    void perform(async () => {
-                      const result = await session.runCloudOperation(
-                        (signal) =>
-                          session.client.files.cancel(
-                            workspaceId,
-                            conversationId,
-                            message.id,
-                            message.revision ?? 0,
-                            signal,
-                          ),
-                        { csrf: true },
-                      );
-                      restoreText(result.draft.content);
-                      change([
-                        ...result.draft.files.map((f) => ({
-                          id: crypto.randomUUID(),
-                          name: f.name,
-                          size: remote.find((r) => r.id === f.id)?.size ?? 0,
-                        })),
-                        ...files,
-                      ]);
-                      onCancelQueued?.(message.id);
-                    })
+                    onCancelQueued
+                      ? onCancelQueued(message.id)
+                      : void perform(async () => {
+                        const result = await session.runCloudOperation(
+                          (signal) =>
+                            session.client.files.cancel(
+                              workspaceId,
+                              conversationId,
+                              message.id,
+                              message.revision ?? 0,
+                              signal,
+                            ),
+                          { csrf: true },
+                        );
+                        restoreText(result.draft.content);
+                        change([
+                          ...result.draft.files.map((f) => ({
+                            id: crypto.randomUUID(),
+                            name: f.name,
+                            size: remote.find((r) => r.id === f.id)?.size ?? 0,
+                          })),
+                          ...files,
+                        ]);
+                      })
                   }
                 >
                   Cancel

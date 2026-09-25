@@ -588,6 +588,108 @@ describe("HomeWorkspace", () => {
     await waitFor(() => expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull());
   });
 
+  it("cancels once and deletes when using in-bubble Cancel on a failed cloud file message", async () => {
+    const fileId = "10000000-0000-4000-8000-000000000001";
+    const messageId = "00000000-0000-4000-8000-000000000006";
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const failedFileMessage = {
+      id: messageId,
+      sender: "user" as const,
+      content: "See this",
+      sequence: 1,
+      status: "queued" as const,
+      queueState: "unclaimed" as const,
+      createdAt: "2026-08-20T16:00:00Z",
+      preparation: "failed" as const,
+      revision: 1,
+      files: [{ id: fileId, name: "notes.txt", size: 5, state: "failed" as const }],
+    };
+    const cancelFiles = vi.fn(async () => ({
+      message: { id: messageId, status: "queued", preparation: "cancelled", revision: 2 },
+      draft: {
+        id: messageId,
+        content: "Restored text",
+        files: [{ id: fileId, name: "notes.txt", state: "retained" as const }],
+      },
+    }));
+    const deleteQueuedMessage = vi.fn(async () => ({
+      ...failedFileMessage,
+      content: "",
+      status: "stopped" as const,
+      queueState: null,
+      deletedAt: "2026-08-20T16:01:00Z",
+    }));
+    renderHome([ally], ally.id, {
+      files: { cancel: cancelFiles },
+      deleteQueuedMessage,
+      getAllyConversation: vi.fn(async () => deleteQueuedMessage.mock.calls.length
+        ? { id: conversationId, allyId: ally.id, messages: [], nextCursor: null }
+        : {
+          id: conversationId,
+          allyId: ally.id,
+          messages: [failedFileMessage],
+          queue: [failedFileMessage],
+          nextCursor: null,
+        }),
+    });
+
+    await screen.findByText("See this", { selector: "article p" });
+    expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(deleteQueuedMessage).toHaveBeenCalled());
+    expect(cancelFiles).toHaveBeenCalledTimes(1);
+    expect(cancelFiles.mock.invocationCallOrder[0]).toBeLessThan(deleteQueuedMessage.mock.invocationCallOrder[0]);
+    await waitFor(() => expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("Restored text"));
+    await waitFor(() => expect(screen.queryByText("See this")).toBeNull());
+  });
+
+  it("leaves the draft untouched when deleting a cloud file message fails after cancel", async () => {
+    const fileId = "10000000-0000-4000-8000-000000000001";
+    const messageId = "00000000-0000-4000-8000-000000000006";
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const queuedFileMessage = {
+      id: messageId,
+      sender: "user" as const,
+      content: "See this",
+      sequence: 1,
+      status: "queued" as const,
+      queueState: "unclaimed" as const,
+      createdAt: "2026-08-20T16:00:00Z",
+      preparation: "ready" as const,
+      revision: 1,
+      files: [{ id: fileId, name: "notes.txt", size: 5, state: "ready" as const }],
+    };
+    const cancelFiles = vi.fn(async () => ({
+      message: { id: messageId, status: "queued", preparation: "cancelled", revision: 2 },
+      draft: {
+        id: messageId,
+        content: "Restored text",
+        files: [{ id: fileId, name: "notes.txt", state: "retained" as const }],
+      },
+    }));
+    const deleteQueuedMessage = vi.fn(async () => {
+      throw { kind: "network" };
+    });
+    renderHome([ally], ally.id, {
+      files: { cancel: cancelFiles },
+      deleteQueuedMessage,
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [queuedFileMessage],
+        queue: [queuedFileMessage],
+        nextCursor: null,
+      })),
+    });
+
+    const queue = await screen.findByRole("list", { name: "Queued messages" });
+    expect(queue.textContent).toContain("See this");
+    fireEvent.click(screen.getByRole("button", { name: "Remove queued message: See this" }));
+    await waitFor(() => expect(deleteQueuedMessage).toHaveBeenCalled());
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).value).toBe("");
+    expect(screen.getByRole("list", { name: "Queued messages" }).textContent).toContain("See this");
+  });
+
   it("falls back to the original file when the optimized preview is unavailable", async () => {
     const file = {
       id: "10000000-0000-4000-8000-000000000001",

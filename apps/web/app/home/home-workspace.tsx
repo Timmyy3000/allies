@@ -2833,7 +2833,19 @@ function ConversationPane({
         || (cloudMessage.preparation && cloudMessage.preparation !== "none" && cloudMessage.preparation !== "ready"));
       await withQueueMessageLock(queuedMessagesStorageKey, id, async () => {
         try {
+          let cancelledDraft: { content: string; files: { id: string; name: string }[] } | null = null;
           if (hasAttachments) {
+            const liveRecord = fileManager.snapshot().find((record) => (
+              record.reservation?.message.id === id && record.phase !== "ready" && record.phase !== "cancelled"
+            ));
+            if (liveRecord) {
+              try {
+                await fileManager.restore(fileScope);
+                await fileManager.cancel(liveRecord.id);
+              } catch {
+                // The server cancel below still governs; a stuck local upload must not block removal.
+              }
+            }
             const result = await session.runCloudOperation(
               (signal) => session.client.files.cancel(
                 workspaceId,
@@ -2844,9 +2856,17 @@ function ConversationPane({
               ),
               { csrf: true },
             );
-            restoreFileText(result.draft.content);
+            cancelledDraft = result.draft;
+          }
+          const tombstone = await session.runCloudOperation(
+            (signal) => session.client.deleteQueuedMessage(workspaceId, conversation.id, id, signal),
+            { csrf: true },
+          );
+          if (!tombstone.deletedAt) throw { kind: "contract" };
+          if (cancelledDraft) {
+            restoreFileText(cancelledDraft.content);
             attachments.change([
-              ...result.draft.files.map((f) => ({
+              ...cancelledDraft.files.map((f) => ({
                 id: crypto.randomUUID(),
                 name: f.name,
                 size: cloudMessage.files?.find((r) => r.id === f.id)?.size ?? 0,
@@ -2854,11 +2874,6 @@ function ConversationPane({
               ...(fileManager.drafts.get(fileScope) ?? []),
             ]);
           }
-          const tombstone = await session.runCloudOperation(
-            (signal) => session.client.deleteQueuedMessage(workspaceId, conversation.id, id, signal),
-            { csrf: true },
-          );
-          if (!tombstone.deletedAt) throw { kind: "contract" };
           setDeletedMessageIds((current) => {
             if (current.has(tombstone.id)) return current;
             return new Set(current).add(tombstone.id);
