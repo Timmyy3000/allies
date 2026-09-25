@@ -84,6 +84,7 @@ def set_ally_grant(
             grant.save(
                 update_fields=["level", "grant_generation", "created_by", "updated_at"]
             )
+    _scrub_refs_for_grant(secret, ally)
     return grant
 
 
@@ -102,6 +103,7 @@ def revoke_ally_grant(*, secret, ally) -> int:
         grant.delete()
         locked_secret.generation_epoch += 1
         locked_secret.save(update_fields=["generation_epoch"])
+    _scrub_refs_for_grant(secret, ally)
     return generation
 
 
@@ -142,20 +144,43 @@ class MintedCredential:
     grant_generation: int = 0
 
 
-_registry: dict[str, tuple[str, float]] = {}
+_registry: dict[str, tuple[str, float, str, str, int]] = {}
 _registry_lock = threading.Lock()
 
 
-def _register_ref(ref: str, access_token: str, expires_at) -> None:
+def _register_ref(
+    ref: str, access_token: str, expires_at, *, secret, ally, generation: int
+) -> None:
     with _registry_lock:
-        _registry[ref] = (access_token, expires_at.timestamp())
+        _registry[ref] = (
+            access_token,
+            expires_at.timestamp(),
+            str(secret.id),
+            str(ally.id),
+            generation,
+        )
         now = time.time()
-        stale = [key for key, (_, expiry) in _registry.items() if expiry <= now]
+        stale = [key for key, (_, expiry, *_rest) in _registry.items() if expiry <= now]
         for key in stale:
             del _registry[key]
 
 
+def _scrub_refs_for_grant(secret, ally) -> int:
+    secret_id, ally_id = str(secret.id), str(ally.id)
+    with _registry_lock:
+        doomed = [
+            key
+            for key, (_, _, ref_secret, ref_ally, _gen) in _registry.items()
+            if ref_secret == secret_id and ref_ally == ally_id
+        ]
+        for key in doomed:
+            del _registry[key]
+        return len(doomed)
+
+
 def resolve_credential_ref(ref: str, *, command_id: str) -> str:
+    from ..models import AllyIntegrationGrant as GrantModel
+
     parts = ref.split(":")
     if len(parts) != 4 or parts[0] != "gmail" or parts[2] != command_id:
         raise GrantDenied("credential reference rejected")
@@ -163,11 +188,20 @@ def resolve_credential_ref(ref: str, *, command_id: str) -> str:
         entry = _registry.get(ref)
         if entry is None:
             raise GrantDenied("unknown credential reference")
-        access_token, expiry = entry
+        access_token, expiry, secret_id, ally_id, generation = entry
         if expiry <= time.time():
             del _registry[ref]
             raise GrantDenied("expired credential reference")
-        return access_token
+    live = (
+        GrantModel.objects.select_related("secret")
+        .filter(secret_id=secret_id, ally_id=ally_id)
+        .first()
+    )
+    if live is None or live.grant_generation != generation:
+        raise GrantDenied("credential grant changed")
+    if live.secret.revoked_at is not None:
+        raise GrantDenied("gmail connection revoked")
+    return access_token
 
 
 def mint_execution_credential(
@@ -188,7 +222,14 @@ def mint_execution_credential(
         tool_allowlist=decision.tool_allowlist,
         grant_generation=decision.grant_generation,
     )
-    _register_ref(ref, fresh.access_token, fresh.expires_at)
+    _register_ref(
+        ref,
+        fresh.access_token,
+        fresh.expires_at,
+        secret=secret,
+        ally=ally,
+        generation=decision.grant_generation,
+    )
     logger.info(
         "gmail credential minted",
         extra={
@@ -244,9 +285,13 @@ def disconnect_gmail_account(*, secret) -> DisconnectResult:
             extra={"secret_id": str(locked.id)},
         )
         return DisconnectResult(status="repair_required", scrubbed_refs=scrubbed)
-    with transaction.atomic():
-        wiped = secret.__class__.objects.select_for_update().get(pk=secret.pk)
-        wiped.ciphertext = b""
-        wiped.scope_set = []
-        wiped.save(update_fields=["ciphertext", "scope_set"])
+    wiped = secret.__class__.objects.filter(
+        pk=locked.pk, revoked_at=locked.revoked_at
+    ).update(ciphertext=b"", scope_set=[])
+    if wiped == 0:
+        logger.warning(
+            "gmail disconnect wipe skipped",
+            extra={"secret_id": str(locked.id)},
+        )
+        return DisconnectResult(status="repair_required", scrubbed_refs=scrubbed)
     return DisconnectResult(status="deprovisioned", scrubbed_refs=scrubbed)

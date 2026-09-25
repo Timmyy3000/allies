@@ -3,7 +3,7 @@ from typing import Literal
 from uuid import UUID
 
 from ninja import Schema
-from pydantic import ConfigDict, Field
+from pydantic import ConfigDict
 
 
 class BeginConnectRequest(Schema):
@@ -12,7 +12,6 @@ class BeginConnectRequest(Schema):
     entry_point: Literal["integrations", "in_chat"]
     ally_id: UUID | None = None
     grant_level: Literal["read", "send"] | None = None
-    idempotency_key: str = Field(min_length=16, max_length=128)
 
 
 class ConnectResponse(Schema):

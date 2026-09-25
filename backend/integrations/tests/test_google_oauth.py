@@ -131,6 +131,78 @@ def test_begin_and_complete_connect(account, gmail_settings, monkeypatch):
 
 
 @pytest.mark.django_db
+def test_begin_replay_mismatch_rejected(account, gmail_settings):
+    from allies.models import Ally, AllyBinding
+
+    _, workspace, ally = account
+    other = Ally.objects.create(
+        workspace=workspace,
+        name="Other",
+        job="Other job",
+        personality="Calm.",
+        appearance_catalog_version="v1",
+        appearance_key="sunrise",
+    )
+    AllyBinding.objects.create(ally=other)
+    google_oauth.begin_gmail_connect(
+        workspace=workspace,
+        entry_point="in_chat",
+        ally=ally,
+        grant_level="read",
+        idempotency_key="connect-key-mismatch-01",
+    )
+    with pytest.raises(IntegrationInvalid):
+        google_oauth.begin_gmail_connect(
+            workspace=workspace,
+            entry_point="in_chat",
+            ally=other,
+            grant_level="read",
+            idempotency_key="connect-key-mismatch-01",
+        )
+    with pytest.raises(IntegrationInvalid):
+        google_oauth.begin_gmail_connect(
+            workspace=workspace,
+            entry_point="in_chat",
+            ally=ally,
+            grant_level="send",
+            idempotency_key="connect-key-mismatch-01",
+        )
+
+
+@pytest.mark.django_db
+def test_exchange_4xx_not_retried(account, gmail_settings, monkeypatch):
+    from urllib.error import HTTPError
+
+    _, workspace, _ = account
+    begun = google_oauth.begin_gmail_connect(
+        workspace=workspace,
+        entry_point="integrations",
+        idempotency_key="connect-key-4xx-00001",
+    )
+    calls = []
+
+    def _bad_request(request, timeout=None):
+        import io
+
+        calls.append(request.full_url)
+        raise HTTPError(
+            request.full_url,
+            400,
+            "Bad Request",
+            {},
+            io.BytesIO(b'{"error": "invalid_grant"}'),
+        )
+
+    monkeypatch.setattr(google_oauth, "urlopen", _bad_request)
+    with pytest.raises(IntegrationInvalid):
+        complete_gmail_connect(
+            state=_state_from_auth_url(begun.auth_url), code="auth-code-bad"
+        )
+    assert len(calls) == 1
+    assert IntegrationSecret.objects.count() == 0
+
+
+@pytest.mark.django_db
 def test_begin_replay_returns_live_session(account, gmail_settings):
     _, workspace, ally = account
     first = google_oauth.begin_gmail_connect(
