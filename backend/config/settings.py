@@ -590,8 +590,15 @@ ALLIES_FILE_INSPECTION_ENABLED = env_bool("ALLIES_FILE_INSPECTION_ENABLED", True
 # to none and sends require consent plus approval, so the rollout flag ships
 # default-on; prod holds it False until Phase 6 evidences slice compatibility.
 ALLIES_GMAIL_ENABLED = env_bool("ALLIES_GMAIL_ENABLED", True)
-ALLIES_GMAIL_CLIENT_ID = os.environ.get("ALLIES_GMAIL_CLIENT_ID", "")
-ALLIES_GMAIL_CLIENT_SECRET = os.environ.get("ALLIES_GMAIL_CLIENT_SECRET", "")
+# Gmail reuses the sign-in Google client unless given its own full pair.
+_gmail_client_id = os.environ.get("ALLIES_GMAIL_CLIENT_ID", "")
+_gmail_client_secret = os.environ.get("ALLIES_GMAIL_CLIENT_SECRET", "")
+if bool(_gmail_client_id) != bool(_gmail_client_secret):
+    raise ImproperlyConfigured(
+        "ALLIES_GMAIL_CLIENT_ID and ALLIES_GMAIL_CLIENT_SECRET must be set together"
+    )
+ALLIES_GMAIL_CLIENT_ID = _gmail_client_id or ALLIES_AUTH_GOOGLE_CLIENT_ID
+ALLIES_GMAIL_CLIENT_SECRET = _gmail_client_secret or ALLIES_AUTH_GOOGLE_CLIENT_SECRET
 ALLIES_GMAIL_REDIRECT_URI = os.environ.get("ALLIES_GMAIL_REDIRECT_URI", "")
 ALLIES_FILE_SCANNER_HOST = os.environ.get("ALLIES_FILE_SCANNER_HOST", "")
 ALLIES_FILE_SCANNER_PORT = env_bounded_int("ALLIES_FILE_SCANNER_PORT", 3310, 1, 65535)
