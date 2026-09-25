@@ -101,7 +101,35 @@ Revert branch `web/fix/file-queue-bubbles`; no migrations or contract changes.
 - None remaining; thumbnail-strip vs chip resolved by the owner toward
   thumbnails (max 3 + overflow count) in the queue pill.
 
-## Adversarial review (non-independent, in-session)
+## Follow-up revision (2026-09-25, uncommitted at plan time, now implemented)
+
+Owner reports on the first revision: (a) queue-pill text renders centered
+instead of left; (b) an uploading file message flickers — bubble during upload,
+then back to the pill when finished.
+
+Root causes found: (a) the thumbs wrapper inherited the pill's `flex: 1` span
+rule, squeezing the text span into the pill's center — fixed with a
+`span.frameQueueThumbs` flex override; (b) the bubble/pill split keyed only on
+local transfer records, so cloud uploading/checking/failed messages without a
+local record were misclassified as waiting pills and lost their timeline
+retry/cancel — fixed by also treating active `preparation`
+(`uploading`/`failed`/`needs_retry`) and in-flight remote file states
+(`pending`/`receiving`/`validating`/`failed`/`rejected`) as timeline bubbles.
+Pills now render lightweight thumbnails internally (`img` for local `src`,
+file icon otherwise; remote-ready thumbs open the existing preview modal), so
+no session-scoped renderer crosses the frame-model boundary.
+
+Enkii P1s (both accepted and fixed): P1-1 as above; P1-2 — pill trash on cloud
+file messages called only `deleteQueuedMessage`, dropping attachments with no
+transfer-cancel or draft restore — fixed with cancel-before-delete
+(`files.cancel` with `revision`, fail-closed on stale revision, then
+`deleteQueuedMessage`) reusing the in-bubble draft mapping.
+
+Validation added: pill-thumbnail rendering tests, preparation-aware split
+tests, and a pill-trash integration test asserting cancel-before-delete
+ordering plus single draft restore.
+
+## Adversarial review (non-independent, in-session — original revision)
 
 Independent `codex/sol_review_worker` and generic `reviewer` workers were both
 unavailable in this harness (dispatch failures recorded in chat); the owner

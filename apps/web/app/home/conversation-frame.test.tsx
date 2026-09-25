@@ -201,12 +201,37 @@ describe("ConversationFrame", () => {
       model={queuedModel}
       actions={actions}
       sleeping
-      renderQueueAttachments={(files) => (<span data-testid="queue-thumbs">{files.map((file) => file.name).join(",")}</span>)}
+      onQueueAttachmentOpen={() => undefined}
     />);
-    const thumbs = screen.getByTestId("queue-thumbs");
-    expect(thumbs.textContent).toBe("a.pdf,b.png");
-    expect(thumbs.closest("ol")?.getAttribute("aria-label")).toBe("Queued messages");
+    const pill = screen.getByRole("list", { name: "Queued messages" });
+    const thumbs = pill.querySelector("li > div > span[title]");
+    expect(thumbs?.getAttribute("title")).toBe("a.pdf, b.png");
     expect(screen.getByText("Review these").getAttribute("title")).toBe("Review these (a.pdf, b.png)");
+    expect(screen.getByRole("button", { name: "Open b.png preview" })).toBeTruthy();
+  });
+
+  it("opens local photo previews inline without a preview button", () => {
+    const queuedModel = {
+      ...model,
+      messages: [],
+      activityGroups: [],
+      queuedMessages: [
+        {
+          id: "local-photo",
+          content: "See this",
+          attachments: [
+            { id: "file-1", name: "b.png", src: "blob:photo", ready: true },
+          ],
+        },
+      ],
+    };
+    render(<ConversationFrame
+      model={queuedModel}
+      actions={actions}
+      sleeping
+      onQueueAttachmentOpen={() => undefined}
+    />);
+    expect(screen.queryByRole("button", { name: /preview/ })).toBeNull();
   });
 
   it("remeasures the avatar when the centred status label changes width", () => {
