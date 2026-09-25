@@ -55,8 +55,12 @@ from runtime.services.profiles import (
     ProfileSeed,
     accept_cleanup_receipt,
     accept_materialization_receipt,
+    clear_model_binding,
     ensure_runtime_profile,
+    install_provider_key,
     list_profile_reconciliation,
+    remove_provider_key,
+    set_model_binding,
 )
 from runtime.services.publications import (
     MAX_PUBLICATION_FILE_BYTES,
@@ -91,9 +95,11 @@ from .schemas import (
     ExecutionCommand,
     FailRequest,
     MaterializationReceiptRequest,
+    ModelBindingRequest,
     ProfileDeletionRequest,
     ProfileDeletionResumeRequest,
     ProfileProvisioningRequest,
+    ProviderKeyRequest,
     PublicationFrozenRequest,
     PublicationIntentRequest,
     PublicationRegisterRequest,
@@ -514,6 +520,67 @@ def register(api: NinjaExtraAPI) -> None:
             return JsonResponse(receipt, status=200)
         except RuntimeDomainError as exc:
             return _profile_provisioning_error(exc)
+
+    @api.put("/internal/profiles/{profile_id}/model-binding", auth=None)
+    def put_model_binding(
+        request: HttpRequest,
+        profile_id: UUID,
+        payload: ModelBindingRequest,
+    ):
+        try:
+            _authenticate_cloud_service(request)
+            if payload.profile_id != profile_id:
+                raise RuntimeValidationError(
+                    "profile binding identity does not match path"
+                )
+            receipt = set_model_binding(
+                profile_id,
+                {
+                    key: value
+                    for key, value in payload.model_dump().items()
+                    if key != "profile_id" and value is not None
+                },
+            )
+            return JsonResponse(_binding_receipt_json(receipt), status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.delete("/internal/profiles/{profile_id}/model-binding", auth=None)
+    def delete_model_binding(request: HttpRequest, profile_id: UUID):
+        try:
+            _authenticate_cloud_service(request)
+            receipt = clear_model_binding(profile_id)
+            return JsonResponse(_binding_receipt_json(receipt), status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.put("/internal/profiles/{profile_id}/provider-keys", auth=None)
+    def put_provider_key(
+        request: HttpRequest,
+        profile_id: UUID,
+        payload: ProviderKeyRequest,
+    ):
+        try:
+            _authenticate_cloud_service(request)
+            if payload.profile_id != profile_id:
+                raise RuntimeValidationError(
+                    "profile binding identity does not match path"
+                )
+            receipt = install_provider_key(
+                profile_id, payload.env_name, payload.reference
+            )
+            return JsonResponse(_binding_receipt_json(receipt), status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.delete("/internal/profiles/{profile_id}/provider-keys/{env_name}", auth=None)
+    def delete_provider_key(request: HttpRequest, profile_id: UUID, env_name: str):
+        try:
+            _authenticate_cloud_service(request)
+            receipt = remove_provider_key(profile_id, env_name)
+            return JsonResponse(_binding_receipt_json(receipt), status=200)
+        except RuntimeDomainError as exc:
+            return _error(exc)
 
     @api.post("/internal/profile-provisioning", auth=None)
     def profile_provisioning(
@@ -1055,6 +1122,10 @@ def _claim_json(claim):
         "hermes_profile_key": claim.hermes_profile_key,
         "model": claim.model,
         "reasoning_effort": claim.reasoning_effort,
+        "provider": claim.provider,
+        "model_options": claim.model_options,
+        "binding_generation": claim.binding_generation,
+        "binding_key_refs": claim.binding_key_refs,
         "conversation_id": claim.conversation_id,
         "session_id": claim.session_id,
         "stream_id": claim.stream_id,
@@ -1090,6 +1161,14 @@ def _approval_status_json(status):
             else None
         ),
         "expires_at": _timestamp(status.expires_at),
+    }
+
+
+def _binding_receipt_json(receipt):
+    return {
+        "profile_id": str(receipt.profile_id),
+        "generation": receipt.generation,
+        "binding": dict(receipt.binding),
     }
 
 

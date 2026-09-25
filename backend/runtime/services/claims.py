@@ -39,7 +39,7 @@ from runtime.models import (
     Workspace,
 )
 
-from .profiles import profile_is_claim_ready
+from .profiles import effective_model_selection, profile_is_claim_ready
 from .retry import run_with_sqlite_lock_retry
 from .routines import _require_routine_admission, routine_scope_key
 from .runtime_auth import RuntimeContext
@@ -56,6 +56,10 @@ class Claim:
     profile_id: UUID
     hermes_profile_key: str
     model: str
+    provider: str
+    model_options: dict
+    binding_generation: int
+    binding_key_refs: dict
     conversation_id: str | None
     session_id: str | None
     stream_id: str
@@ -631,12 +635,30 @@ def _claim_from_records(
                 "provider_idempotency_key": authorization.provider_idempotency_key,
                 "continuation": deepcopy(authorization.continuation),
             }
+    selection = effective_model_selection(profile)
+    stored = (
+        profile.model_override
+        if isinstance(profile.model_override, dict)
+        else {}
+    )
+    binding_generation = stored.get("generation", 0)
+    if (
+        isinstance(binding_generation, bool)
+        or not isinstance(binding_generation, int)
+        or binding_generation < 0
+    ):
+        binding_generation = 0
+    binding_key_refs = dict(selection.get("key_refs", {}))
     return Claim(
         attempt_id=attempt.id,
         execution_id=attempt.execution_id,
         profile_id=profile.id,
         hermes_profile_key=profile.hermes_profile_key,
-        model=str(profile.seed_payload.get("model") or ""),
+        model=str(selection["model"]),
+        provider=str(selection["provider"]),
+        model_options=dict(selection["options"]),
+        binding_generation=binding_generation,
+        binding_key_refs=binding_key_refs,
         conversation_id=conversation_id,
         session_id=session_id,
         stream_id=f"stream-{attempt.id.hex}",
