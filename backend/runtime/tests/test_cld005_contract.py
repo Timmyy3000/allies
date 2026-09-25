@@ -1270,3 +1270,75 @@ def test_event_delivery_command_keeps_publication_wake_cursor_across_watch_passe
     call_command("publish_event_deliveries", "--watch", "--max-runs", "2")
 
     assert cursors == [(20, None), (20, "second-page")]
+
+
+@pytest.fixture
+def ordered_deliveries(binding, contract):
+    workspace, _profile = binding
+    create_execution_intent(ExecutionCommand.model_validate(contract["command"]))
+    issued = issue_runtime_credential(workspace.id, "runtime-contract-token")
+    context = authenticate_runtime_token(issued.raw_token)
+    claim = claim_next_execution(context, uuid4(), 1)
+    assert claim is not None
+    events = [
+        append_runtime_event(
+            context,
+            claim.attempt_id,
+            claim.lease_token,
+            uuid4(),
+            claim.stream_id,
+            sequence,
+            "execution.dispatched" if sequence == 1 else "message.delta",
+            {"status": "dispatched"} if sequence == 1 else {"text": "hi"},
+        )
+        for sequence in (1, 2)
+    ]
+    return [ExecutionEventDelivery.objects.get(event=event) for event in events]
+
+
+def test_sequence_gap_defers_without_consuming_attempts(
+    ordered_deliveries, settings, monkeypatch
+):
+    settings.ALLIES_CLOUD_EVENT_DELIVERY_ENABLED = True
+    _first, second = ordered_deliveries
+    second_body = bytes(second.envelope_bytes)
+    monkeypatch.setattr(
+        event_delivery,
+        "_post_to_cloud",
+        lambda body: (409, "sequence_gap") if body == second_body else (503, ""),
+    )
+
+    for _ in range(event_delivery.MAX_DELIVERY_ATTEMPTS + 2):
+        ExecutionEventDelivery.objects.filter(pk=second.pk).update(
+            next_attempt_at=timezone.now()
+        )
+        publish_pending_event_deliveries()
+
+    second.refresh_from_db()
+    assert second.state == "pending"
+    assert second.delivery_attempts == 0
+    assert second.repair_cycle == 0
+    assert second.safe_error_code == "sequence_gap"
+    assert second.next_attempt_at > timezone.now()
+
+
+def test_delivered_event_wakes_backed_off_successors(
+    ordered_deliveries, settings, monkeypatch
+):
+    settings.ALLIES_CLOUD_EVENT_DELIVERY_ENABLED = True
+    first, second = ordered_deliveries
+    later = timezone.now() + timedelta(minutes=5)
+    ExecutionEventDelivery.objects.filter(pk=second.pk).update(next_attempt_at=later)
+    first_body = bytes(first.envelope_bytes)
+    monkeypatch.setattr(
+        event_delivery,
+        "_post_to_cloud",
+        lambda body: (202, "") if body == first_body else (503, ""),
+    )
+
+    publish_pending_event_deliveries()
+
+    first.refresh_from_db()
+    second.refresh_from_db()
+    assert first.state == "delivered"
+    assert second.next_attempt_at <= timezone.now()
