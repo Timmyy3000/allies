@@ -7,7 +7,8 @@ const w = "00000000-0000-4000-8000-000000000001",
   m = "00000000-0000-4000-8000-000000000004",
   f = "00000000-0000-4000-8000-000000000005";
 const csrf = "a".repeat(32),
-  now = "2099-01-01T12:00:00Z";
+  now = "2099-01-01T12:00:00Z",
+  h = "00000000-0000-4000-8000-000000000010";
 function makePdfFixture() {
   const stream = "BT /F1 18 Tf 24 100 Td (PDF preview works) Tj ET";
   const objects = [
@@ -31,7 +32,7 @@ function makePdfFixture() {
 }
 const pdfBytes = makePdfFixture();
 type PreviewKind = "text" | "pdf";
-async function cloud(page: Page, fail = false, previewKind: PreviewKind = "text") {
+async function cloud(page: Page, fail = false, previewKind: PreviewKind = "text", opts: { slowUploadMs?: number; thinking?: boolean } = {}) {
   let reserved = false,
     state = "pending",
     preparation = "uploading",
@@ -42,6 +43,16 @@ async function cloud(page: Page, fail = false, previewKind: PreviewKind = "text"
   const uploadBytes = previewKind === "pdf" ? pdfBytes : Buffer.from("hello");
   const fileName = previewKind === "pdf" ? "notes.pdf" : "notes.txt";
   const file = () => ({ id: f, name: fileName, size: uploadBytes.length, state });
+  const head = () => ({
+    id: h,
+    sender: "user",
+    content: "First question",
+    sequence: 1,
+    status: "in_progress",
+    queue_state: "claimed",
+    created_at: now,
+    retryable: false,
+  });
   const message = () => ({
     id: m,
     sender: "user",
@@ -114,7 +125,7 @@ async function cloud(page: Page, fail = false, previewKind: PreviewKind = "text"
       return ok({
         id: c,
         ally_id: a,
-        messages: reserved ? [message()] : [],
+        messages: reserved ? [head(), message()] : opts.thinking ? [head()] : [],
         assistant_replies: [],
         next_cursor: null,
       });
@@ -122,14 +133,15 @@ async function cloud(page: Page, fail = false, previewKind: PreviewKind = "text"
       return ok({
         conversation_id: c,
         activities: [],
-        state: "completed",
+        state: opts.thinking ? "running" : "completed",
+        active_message_id: opts.thinking ? h : null,
         last_contiguous_sequence: 0,
       });
     if (path.endsWith("/approvals")) return ok({ approvals: [] });
     if (path.endsWith("/file-messages")) {
       expect(req.headers()["x-csrftoken"]).toBe(csrf);
       expect(req.headers()["idempotency-key"]).toBeTruthy();
-      expect(req.postDataJSON().content).toBe("");
+      expect(typeof req.postDataJSON().content).toBe("string");
       expect(req.postDataJSON().files[0].sha256).toBe(createHash("sha256").update(uploadBytes).digest("hex"));
       const replayed = reserved;
       reserved = true;
@@ -151,6 +163,7 @@ async function cloud(page: Page, fail = false, previewKind: PreviewKind = "text"
     if (path.endsWith(`/files/${f}/content`)) {
       expect(req.headers()["x-csrftoken"]).toBe(csrf);
       expect(req.postDataBuffer()).toEqual(uploadBytes);
+      if (opts.slowUploadMs) await new Promise((resolve) => setTimeout(resolve, opts.slowUploadMs));
       uploads++;
       state = fail && uploads === 1 ? "failed" : "ready";
       preparation =
@@ -266,6 +279,22 @@ test("sends files-only through the real composer and opens a private preview", a
   ).toBeVisible();
   expect(fixture.uploads()).toBe(1);
   expect(fixture.requests.some((r) => r.endsWith(`/messages`))).toBe(false);
+});
+test("keeps an uploading file message in the queue pill while another turn is thinking", async ({
+  page,
+}) => {
+  const fixture = await cloud(page, false, "text", { slowUploadMs: 2500, thinking: true });
+  await select(page);
+  await expect(page.getByText("Thinking..", { exact: true })).toBeVisible();
+  await expect(page.locator("article", { hasText: "First question" })).toBeVisible();
+  await page.getByRole("textbox").fill("This is nice");
+  await page.getByRole("button", { name: "Send message" }).click();
+  const queue = page.getByRole("list", { name: "Queued messages" });
+  await expect(queue.getByText("This is nice")).toBeVisible();
+  await expect(queue.getByText(/Uploading/)).toBeVisible();
+  await expect(page.locator("article", { hasText: "First question" })).toBeVisible();
+  expect(await page.locator("article", { hasText: "This is nice" }).count()).toBe(0);
+  await expect.poll(fixture.uploads).toBe(1);
 });
 test("renders a PDF preview from normalized private bytes", async ({ page }) => {
   await cloud(page, false, "pdf");
