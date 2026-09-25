@@ -19,3 +19,5 @@
 137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_vault.py:generic-api-key:27
 137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_vault.py:generic-api-key:45
 137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_google_oauth.py:generic-api-key:71
+# Synthetic provider key used only as a BYOS test fixture, not a credential.
+614e9ddf21ecea637519d356f26802067dc129ad:backend/model_keys/tests/test_model_keys.py:generic-api-key:22
