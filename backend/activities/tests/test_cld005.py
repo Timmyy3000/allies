@@ -579,13 +579,25 @@ def test_event_projection_is_idempotent_and_conflicts_do_not_mutate(
 
 
 def test_event_sequence_gaps_are_held_until_the_missing_event_arrives(
-    conversation_records,
+    conversation_records, caplog
 ):
     _user, _workspace, _ally, binding, _conversation, message = conversation_records
     second = event_for(message, binding, attempt_sequence=2)
 
-    with pytest.raises(ProjectionSequenceGap):
+    with (
+        caplog.at_level("WARNING", logger="allies.activities"),
+        pytest.raises(ProjectionSequenceGap),
+    ):
         project_foundry_event(second)
+    record = next(
+        record for record in caplog.records if record.name == "allies.activities"
+    )
+    assert record.message_id == str(message.id)
+    assert record.expected_sequence == 1
+    assert record.attempt_sequence == 2
+    assert str(message.id) in caplog.text
+    assert "expected_sequence=1" in caplog.text
+    assert "attempt_sequence=2" in caplog.text
     assert Activity.objects.count() == 0
     assert FoundryEventReceipt.objects.count() == 0
 
