@@ -1013,6 +1013,19 @@ def test_event_delivery_manual_redrive_is_dry_run_then_fences_old_claim(
         stdout=output,
     )
     assert "dry-run: validated 1" in output.getvalue()
+    output = StringIO()
+    call_command(
+        "redrive_event_deliveries",
+        "--attempt-id",
+        str(delivery.event.attempt_id),
+        stdout=output,
+    )
+    assert "dry-run: validated 1" in output.getvalue()
+    output = StringIO()
+    call_command(
+        "redrive_event_deliveries", "--attempt-id", str(uuid4()), stdout=output
+    )
+    assert "no exhausted deliveries" in output.getvalue()
     delivery.refresh_from_db()
     assert delivery.state == "exhausted"
     assert delivery.envelope_bytes == b""
