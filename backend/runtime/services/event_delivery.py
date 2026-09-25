@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import random
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from time import monotonic
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -37,6 +39,9 @@ MAX_DELIVERY_BACKOFF_SECONDS = 300
 MAX_RESPONSE_BYTES = 8 * 1024
 REPAIR_DELAY_SECONDS = 300
 MAX_AUTOMATIC_REPAIR_CYCLES = 3
+SLOW_DELIVERY_POST_MS = 3000
+
+logger = logging.getLogger(__name__)
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -523,20 +528,30 @@ def _post_to_cloud(envelope_bytes: bytes) -> tuple[int, str]:
         method="POST",
     )
     try:
-        with build_opener(_NoRedirect).open(request, timeout=5) as response:
-            status = int(response.status)
-            body = response.read(MAX_RESPONSE_BYTES + 1)
-            if len(body) > MAX_RESPONSE_BYTES:
-                return 503, "delivery_response_too_large"
-            if status == 202:
-                try:
-                    receipt = EventDeliveryReceipt.model_validate_json(body)
-                except (TypeError, ValueError):
-                    return 503, "delivery_receipt_invalid"
-                if receipt.event_id != expected_event_id:
-                    return 503, "delivery_receipt_mismatch"
-                return status, ""
-            return status, _safe_response_code(body)
+        started = monotonic()
+        try:
+            with build_opener(_NoRedirect).open(request, timeout=5) as response:
+                status = int(response.status)
+                body = response.read(MAX_RESPONSE_BYTES + 1)
+                if len(body) > MAX_RESPONSE_BYTES:
+                    return 503, "delivery_response_too_large"
+                if status == 202:
+                    try:
+                        receipt = EventDeliveryReceipt.model_validate_json(body)
+                    except (TypeError, ValueError):
+                        return 503, "delivery_receipt_invalid"
+                    if receipt.event_id != expected_event_id:
+                        return 503, "delivery_receipt_mismatch"
+                    return status, ""
+                return status, _safe_response_code(body)
+        finally:
+            elapsed_ms = int((monotonic() - started) * 1000)
+            if elapsed_ms >= SLOW_DELIVERY_POST_MS and expected_event_id is not None:
+                logger.warning(
+                    "event_delivery_post_slow event_id=%s duration_ms=%d",
+                    expected_event_id,
+                    elapsed_ms,
+                )
     except HTTPError as exc:
         try:
             body = exc.read(MAX_RESPONSE_BYTES + 1)

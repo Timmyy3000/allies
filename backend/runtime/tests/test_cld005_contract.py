@@ -780,6 +780,25 @@ def test_event_delivery_allows_only_the_debug_proof_cloud_http_host(
     assert (status, code) == (202, "")
 
 
+def test_slow_delivery_post_logs_event_identity(
+    delivery, settings, monkeypatch, caplog
+):
+    _configure_delivery(settings)
+    body = json.dumps(
+        {"event_id": str(delivery.event.event_id), "status": "applied"}
+    ).encode()
+    opener = _DeliveryOpener(_DeliveryResponse(202, body))
+    monkeypatch.setattr(event_delivery, "build_opener", lambda *_: opener)
+    ticks = iter([10.0, 15.0])
+    monkeypatch.setattr(event_delivery, "monotonic", lambda: next(ticks))
+
+    with caplog.at_level("WARNING", logger="runtime.services.event_delivery"):
+        status, code = event_delivery._post_to_cloud(bytes(delivery.envelope_bytes))
+
+    assert (status, code) == (202, "")
+    assert str(delivery.event.event_id) in caplog.text
+
+
 def test_event_delivery_disables_redirects_before_sending_bearer(
     delivery, settings, monkeypatch
 ):
