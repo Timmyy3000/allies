@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 
 from .config import CredentialReference, RuntimeSettings
 from .foundry import (
+    BROKERED_CREDENTIAL_SCHEME,
     DEFAULT_PROFILE_RECONCILE_INTERVAL,
     FoundryClient,
     FoundryWorker,
@@ -60,6 +61,8 @@ def compose_runtime(
     correlation_id = str(boot_id or uuid4())
 
     def resolve_profile_credential(reference: str) -> str:
+        if reference.lower().startswith(BROKERED_CREDENTIAL_SCHEME):
+            return foundry.resolve_credential_blocking(reference)
         return credential_resolver(CredentialReference(reference))
 
     profile_store = ProfileStore(

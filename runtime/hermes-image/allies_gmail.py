@@ -6,8 +6,13 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 from uuid import NAMESPACE_URL, uuid5
 
 INSTRUCTION = (
-    "Read and send email from the workspace's connected Gmail account. "
-    "search and get need the Ally's read access; prepare_send and send need send access. "
+    "Read, organise and send email from the workspace's connected Gmail account. "
+    "search, get and list_labels need the Ally's read access; create_label, modify, "
+    "prepare_send and send need full access. "
+    "To organise: modify changes labels on up to 50 message ids at once, by label name "
+    "or id. Mark read by removing UNREAD, mark unread by adding UNREAD, archive by "
+    "removing INBOX, star by adding STARRED; create_label makes a new label. "
+    "Trash and spam are not available. "
     "To send: call prepare_send with the exact message, show the user the recipients, "
     "subject and body, and ask them to confirm. Only after the user confirms in a later "
     "message, call send with the same fields and the returned confirmation_ref. "
@@ -27,14 +32,22 @@ SCHEMA = {
             "properties": {
                 "action": {
                     "type": "string",
-                    "enum": ["search", "get", "prepare_send", "send"],
+                    "enum": [
+                        "search",
+                        "get",
+                        "list_labels",
+                        "create_label",
+                        "modify",
+                        "prepare_send",
+                        "send",
+                    ],
                 },
                 "query": {
                     "type": "string",
                     "maxLength": 512,
                     "description": "Gmail search syntax, for search.",
                 },
-                "max_results": {"type": "integer", "minimum": 1, "maximum": 20},
+                "max_results": {"type": "integer", "minimum": 1, "maximum": 10},
                 "message_id": {"type": "string", "maxLength": 64},
                 "to": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
                 "cc": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
@@ -46,6 +59,27 @@ SCHEMA = {
                     "description": "Reply within this thread.",
                 },
                 "confirmation_ref": {"type": "string", "maxLength": 36},
+                "label": {
+                    "type": "string",
+                    "maxLength": 225,
+                    "description": "New label name, for create_label.",
+                },
+                "message_ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 50,
+                    "description": "Messages to change, for modify.",
+                },
+                "add_labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 20,
+                },
+                "remove_labels": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 20,
+                },
             },
         },
     },

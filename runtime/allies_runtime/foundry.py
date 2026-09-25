@@ -10,6 +10,7 @@ durably acknowledged.
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import inspect
 import json
 import random
@@ -761,6 +762,14 @@ def _error_for(status: int, payload: Mapping[str, Any] | None) -> FoundryError:
             message, status=status, code=code or getattr(cls, "code", "CONFLICT")
         )
     return FoundryError(message, status=status, code=code or "FOUNDRY_ERROR")
+
+
+BROKERED_CREDENTIAL_SCHEME = "allies-key://"
+BROKERED_CREDENTIAL_TIMEOUT_SECONDS = 15.0
+# Shared and small so a hung broker call can never multiply threads per key.
+_BROKER_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="allies-credential"
+)
 
 
 class FoundryClient:
@@ -1556,6 +1565,28 @@ class FoundryClient:
         return SessionReceipt(str(result["session_id"]))
 
     update_session_binding = bind
+
+    async def resolve_credential(self, reference: str) -> str:
+        payload = await self._request(
+            "POST",
+            "/api/v1/runtime/credentials/resolve",
+            body={"reference": reference},
+        )
+        value = payload.get("value") if isinstance(payload, Mapping) else None
+        if not isinstance(value, str) or not value:
+            raise FoundryError(
+                "Foundry credential response was malformed",
+                status=200,
+                code="MALFORMED_RESPONSE",
+            )
+        return value
+
+    def resolve_credential_blocking(self, reference: str) -> str:
+        """Resolve from sync profile-store code, whatever thread it runs on."""
+
+        return _BROKER_EXECUTOR.submit(
+            asyncio.run, self.resolve_credential(reference)
+        ).result(timeout=BROKERED_CREDENTIAL_TIMEOUT_SECONDS)
 
     async def stopped(
         self, attempt_id: str | UUID, lease_token: str, *, reason: str
