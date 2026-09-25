@@ -6,6 +6,7 @@ import binascii
 import hashlib
 import hmac
 import json
+import logging
 from dataclasses import dataclass
 from datetime import datetime
 from uuid import UUID
@@ -51,6 +52,8 @@ from ..models import (
     ProjectionState,
 )
 from ..presentation import activity_text
+
+logger = logging.getLogger("allies.activities")
 
 MAX_ACTIVITY_SNAPSHOT = 200
 MAX_ACTIVITIES_PER_MESSAGE = 513
@@ -654,11 +657,34 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
     if current_attempt is not None and current_attempt != foundry.attempt_id:
         raise ProjectionConflict("event attempt identity conflicts with generation")
     if _prior_turn_is_open(message):
+        logger.warning(
+            "foundry event held for prior open turn",
+            extra={
+                "conversation_id": str(conversation.id),
+                "message_id": str(message.id),
+                "execution_id": str(foundry.execution_id),
+                "attempt_id": str(foundry.attempt_id),
+                "generation": foundry.generation,
+                "attempt_sequence": foundry.attempt_sequence,
+            },
+        )
         raise ProjectionSequenceGap("prior conversation turn is not terminal")
     expected_sequence = (
         _last_contiguous(message.id, foundry.attempt_id, foundry.generation) + 1
     )
     if foundry.attempt_sequence > expected_sequence:
+        logger.warning(
+            "foundry event held for sequence gap",
+            extra={
+                "conversation_id": str(conversation.id),
+                "message_id": str(message.id),
+                "execution_id": str(foundry.execution_id),
+                "attempt_id": str(foundry.attempt_id),
+                "generation": foundry.generation,
+                "expected_sequence": expected_sequence,
+                "attempt_sequence": foundry.attempt_sequence,
+            },
+        )
         raise ProjectionSequenceGap("event sequence gap")
     if foundry.attempt_sequence < expected_sequence:
         raise ProjectionConflict("event sequence is stale")
