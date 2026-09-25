@@ -299,6 +299,30 @@ class FoundryEventReceipt(models.Model):
         ]
 
 
+class FoundryHeldEvent(models.Model):
+    """Accepted Foundry event waiting for its missing predecessor."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    message = models.ForeignKey(
+        Message, on_delete=models.CASCADE, related_name="foundry_held_events"
+    )
+    event_id = models.UUIDField()
+    attempt_id = models.UUIDField()
+    generation = models.PositiveIntegerField()
+    attempt_sequence = models.PositiveIntegerField()
+    event_fingerprint = models.CharField(max_length=90)
+    envelope = models.JSONField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("message", "attempt_id", "generation", "attempt_sequence"),
+                name="activities_held_event_sequence_uniq",
+            ),
+        ]
+
+
 class RoutineResultOutcome(models.TextChoices):
     CHANGED = "changed", "Changed"
     UNCHANGED = "unchanged", "Unchanged"
