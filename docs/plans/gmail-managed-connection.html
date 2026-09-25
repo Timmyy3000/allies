@@ -1,0 +1,3781 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Managed Gmail Connection — Plan Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&family=Geist+Mono:wght@400..600&display=swap" rel="stylesheet" referrerpolicy="no-referrer">
+<style>/* vbg-bundle:start */
+/*
+ * Composable Vercel report primitives derived from Geist color, type, and
+ * spacing semantics. All selectors and custom properties are namespaced.
+ * GeistCN source snapshot: 4f5d9c0da9ad400918e15083c83626572f19fd9b
+ * GeistCN src/styles/tailwind.css SHA-256:
+ * 118f810739af4ba8508a3a5a155f684b09dae795d08a9c12d78958a91d2ad749
+ * GeistCN src/styles/components/design-system.css SHA-256:
+ * a78c1328cc1ad27bc3832f2568f7cef35cfa61271ae636d0e6889ee2c0eeecb8
+ *
+ * Public reports load Geist from the HTML head. The Vercel identity primitives
+ * below use the stable public wordmark and logo URLs as masks so currentColor
+ * follows the report theme. The font stacks retain system fallbacks.
+ */
+
+:where(.vbg-report) {
+  color-scheme: light;
+  --vbg-font-sans: var(--font-geist-sans, var(--font-sans, "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif));
+  --vbg-font-mono: var(--font-geist-mono, var(--font-mono, "Geist Mono", "SFMono-Regular", Consolas, monospace));
+  --vbg-background-100: light-dark(oklch(1 0 0), oklch(0 0 0));
+  --vbg-background-200: light-dark(oklch(0.984 0 0), oklch(0.027 0 0));
+  --vbg-gray-100: light-dark(oklch(0.961 0 0), oklch(0.218 0 0));
+  --vbg-gray-200: light-dark(oklch(0.94 0 0), oklch(0.239 0 0));
+  --vbg-gray-300: light-dark(oklch(0.925 0 0), oklch(0.281 0 0));
+  --vbg-gray-400: light-dark(oklch(0.937 0 0), oklch(0.301 0 0));
+  --vbg-gray-500: light-dark(oklch(0.836 0 0), oklch(0.39 0 0));
+  --vbg-gray-600: light-dark(oklch(0.732 0 0), oklch(0.623 0 0));
+  --vbg-gray-700: light-dark(oklch(0.65 0 0), oklch(0.65 0 0));
+  --vbg-gray-800: light-dark(oklch(0.59 0 0), oklch(0.59 0 0));
+  --vbg-gray-900: light-dark(oklch(0.42 0 0), oklch(0.706 0 0));
+  --vbg-gray-1000: light-dark(oklch(0.205 0 0), oklch(0.946 0 0));
+  --vbg-gray-alpha-100: light-dark(oklch(0 0 0 / 0.05), oklch(1 0 0 / 0.07));
+  --vbg-gray-alpha-200: light-dark(oklch(0 0 0 / 0.081), oklch(1 0 0 / 0.09));
+  --vbg-gray-alpha-300: light-dark(oklch(0 0 0 / 0.1), oklch(1 0 0 / 0.13));
+  --vbg-gray-alpha-400: light-dark(oklch(0 0 0 / 0.08), oklch(1 0 0 / 0.14));
+  --vbg-gray-alpha-500: light-dark(oklch(0 0 0 / 0.21), oklch(1 0 0 / 0.24));
+  --vbg-gray-alpha-600: light-dark(oklch(0 0 0 / 0.24), oklch(1 0 0 / 0.51));
+  --vbg-gray-alpha-700: light-dark(oklch(0 0 0 / 0.44), oklch(1 0 0 / 0.54));
+  --vbg-gray-alpha-800: light-dark(oklch(0 0 0 / 0.51), oklch(1 0 0 / 0.47));
+  --vbg-gray-alpha-900: light-dark(oklch(0 0 0 / 0.7), oklch(1 0 0 / 0.61));
+  --vbg-gray-alpha-1000: light-dark(oklch(0 0 0 / 0.91), oklch(1 0 0 / 0.92));
+  --vbg-blue-100: light-dark(oklch(97.32% 0.0141 251.56), oklch(22.17% 0.069 259.89));
+  --vbg-blue-400: light-dark(oklch(91.58% 0.0473 245.116), oklch(34.1% 0.121 254.74));
+  --vbg-blue-700: light-dark(oklch(57.61% 0.2508 258.23), oklch(57.61% 0.2321 258.23));
+  --vbg-blue-900: light-dark(oklch(53.18% 0.2399 256.99), oklch(71.7% 0.1648 250.794));
+  --vbg-blue-1000: light-dark(oklch(26.67% 0.1099 254.34), oklch(96.75% 0.0179 242.423));
+  --vbg-green-100: light-dark(oklch(97.59% 0.0289 145.42), oklch(23.09% 0.0716 149.68));
+  --vbg-green-400: light-dark(oklch(91.49% 0.0976 146.24), oklch(34.39% 0.1039 147.78));
+  --vbg-green-700: light-dark(oklch(64.58% 0.1746 147.27), oklch(64.58% 0.199 147.27));
+  --vbg-green-900: light-dark(oklch(51.75% 0.1453 147.65), oklch(73.1% 0.2158 148.29));
+  --vbg-green-1000: light-dark(oklch(29.15% 0.1197 147.38), oklch(96.76% 0.056 154.18));
+  --vbg-amber-100: light-dark(oklch(97.48% 0.0331 85.79), oklch(22.46% 0.0538 76.04));
+  --vbg-amber-400: light-dark(oklch(91.02% 0.1322 88.25), oklch(35.53% 0.0903 66.297));
+  --vbg-amber-700: light-dark(oklch(81.87% 0.1969 76.46), oklch(81.87% 0.1969 76.46));
+  --vbg-amber-900: light-dark(oklch(52.79% 0.1496 54.65), oklch(77.21% 0.1991 64.28));
+  --vbg-amber-1000: light-dark(oklch(30.83% 0.099 45.48), oklch(96.7% 0.0418 84.59));
+  --vbg-red-100: light-dark(oklch(96.5% 0.0223 13.09), oklch(22.1% 0.0657 15.11));
+  --vbg-red-400: light-dark(oklch(91.51% 0.0471 19.8), oklch(35.27% 0.1273 21.23));
+  --vbg-red-700: light-dark(oklch(62.56% 0.2524 23.03), oklch(62.56% 0.2234 23.03));
+  --vbg-red-900: light-dark(oklch(54.99% 0.232 25.29), oklch(69.96% 0.2136 22.03));
+  --vbg-red-1000: light-dark(oklch(24.8% 0.1041 18.86), oklch(95.6% 0.0293 6.61));
+  /* Category series are monochrome by default. Reserve chromatic tokens for meaning. */
+  --vbg-chart-1: var(--vbg-gray-1000);
+  --vbg-chart-2: var(--vbg-gray-900);
+  --vbg-chart-3: var(--vbg-gray-800);
+  --vbg-chart-4: var(--vbg-gray-1000);
+  --vbg-chart-5: var(--vbg-gray-900);
+  --vbg-chart-6: var(--vbg-gray-800);
+  --vbg-surface-primary: var(--vbg-background-100);
+  --vbg-surface-secondary: var(--vbg-background-200);
+  /* Contrast fields stay dark in both themes instead of inverting with text tokens. */
+  --vbg-surface-contrast: oklch(0.205 0 0);
+  --vbg-text-primary: var(--vbg-gray-1000);
+  --vbg-text-secondary: var(--vbg-gray-900);
+  --vbg-text-on-contrast: oklch(0.946 0 0);
+  --vbg-text-on-contrast-secondary: oklch(0.72 0 0);
+  --vbg-border-subtle: var(--vbg-gray-alpha-300);
+  --vbg-border-default: var(--vbg-gray-alpha-400);
+  --vbg-border-strong: var(--vbg-gray-alpha-700);
+  --vbg-border-on-contrast: oklch(1 0 0 / 0.24);
+  --vbg-color-info: var(--vbg-blue-700);
+  --vbg-color-success: var(--vbg-green-900);
+  --vbg-color-warning: var(--vbg-amber-900);
+  --vbg-color-error: var(--vbg-red-700);
+  --vbg-focus: light-dark(var(--vbg-blue-700), var(--vbg-blue-900));
+  --vbg-space-1: 4px;
+  --vbg-space-2: 8px;
+  --vbg-space-3: 12px;
+  --vbg-space-4: 16px;
+  --vbg-space-5: 20px;
+  --vbg-space-6: 24px;
+  --vbg-space-8: 32px;
+  --vbg-space-10: 40px;
+  --vbg-space-12: 48px;
+  --vbg-space-16: 64px;
+  --vbg-radius-small: 6px;
+  --vbg-radius: 8px;
+  --vbg-type-display: 3rem;
+  --vbg-type-page-title: 2.5rem;
+  --vbg-type-title: 2rem;
+  --vbg-type-section: 1.5rem;
+  --vbg-type-subsection: 1.25rem;
+  --vbg-type-lede: 1.125rem;
+  --vbg-type-body: 1rem;
+  --vbg-type-compact: 0.875rem;
+  --vbg-type-label: 0.8125rem;
+  --vbg-type-metadata: 0.8125rem;
+  --vbg-weight-regular: 400;
+  --vbg-weight-heading: 450;
+  --vbg-weight-medium: 500;
+  --vbg-weight-semibold: 600;
+  --vbg-leading-body: 24px;
+  --vbg-leading-compact: 20px;
+  --vbg-leading-caption: 18px;
+  --vbg-leading-display: 56px;
+  --vbg-leading-page-title: 48px;
+  --vbg-leading-title: 40px;
+  --vbg-leading-section: 32px;
+  --vbg-leading-subsection: 26px;
+  --vbg-leading-lede: 28px;
+  --vbg-flow-tight: var(--vbg-space-2);
+  --vbg-flow-copy: var(--vbg-space-4);
+  --vbg-flow-group: var(--vbg-space-8);
+  --vbg-flow-section: var(--vbg-space-16);
+  --vbg-reading-width: 68ch;
+  --vbg-display-measure: 20ch;
+  --vbg-title-measure: 24ch;
+  --vbg-compact-title-measure: 30ch;
+  --vbg-content-width: 1200px;
+  --vbg-chart-min-width: 640px;
+  --vbg-control-height: 36px;
+  --vbg-control-height-touch: 44px;
+  box-sizing: border-box;
+  margin: 0;
+  min-height: 100%;
+  min-height: 100dvh;
+  background: var(--vbg-background-100);
+  color: var(--vbg-gray-1000);
+  font-family: var(--vbg-font-sans);
+  font-size: 16px;
+  font-weight: var(--vbg-weight-regular);
+  line-height: var(--vbg-leading-body);
+  font-kerning: normal;
+  font-optical-sizing: auto;
+  font-feature-settings: "rlig" 1, "calt" 0, "ss11" 1;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+@supports selector(body:has(> .vbg-report)) {
+  body:has(> .vbg-report) {
+    margin: 0;
+  }
+}
+
+:where(.vbg-report *, .vbg-report *::before, .vbg-report *::after) {
+  box-sizing: inherit;
+}
+
+/* Published display primitives must never override the HTML hidden state. */
+.vbg-report[hidden],
+:where(.vbg-report) [hidden] {
+  display: none !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  :where(
+    .vbg-report[data-theme="auto"]:not(.light-theme):not(.dark-theme),
+    .vbg-report:not([data-theme]):not(.light-theme):not(.dark-theme)
+  ) {
+    color-scheme: dark;
+  }
+}
+
+/* Host theme classes override OS preference without requiring a theme package. */
+:where(.light .vbg-report, .vbg-report.light) {
+  color-scheme: light;
+}
+
+:where(.dark .vbg-report, .vbg-report.dark) {
+  color-scheme: dark;
+}
+
+/* Explicit VBG themes override both host and OS themes. If both classes are present, dark wins. */
+:where(
+  .vbg-report.light-theme,
+  .vbg-report[data-theme="light"]:not(.light-theme):not(.dark-theme)
+) {
+  color-scheme: light;
+}
+
+:where(
+  .vbg-report.dark-theme,
+  .vbg-report[data-theme="dark"]:not(.light-theme):not(.dark-theme)
+) {
+  color-scheme: dark;
+}
+
+:where(.vbg-report) :where(h1, h2, h3, h4, p, ul, ol, dl, figure, blockquote, pre) {
+  margin-block-start: 0;
+}
+
+:where(.vbg-report) :where(h1, h2, h3, h4) {
+  color: var(--vbg-gray-1000);
+  font-weight: var(--vbg-weight-heading);
+  text-wrap: balance;
+}
+
+:where(.vbg-report) .vbg-display,
+:where(.vbg-report) .vbg-title,
+:where(.vbg-report) .vbg-heading-24,
+:where(.vbg-report) .vbg-heading-20,
+:where(.vbg-report) .vbg-heading-16 {
+  color: var(--vbg-gray-1000);
+  font-weight: var(--vbg-weight-heading);
+  text-wrap: balance;
+}
+
+:where(.vbg-report) :where(h1, h2, h3, h4, .vbg-display, .vbg-title, .vbg-heading-24, .vbg-heading-20, .vbg-heading-16) strong {
+  color: inherit;
+  font-weight: inherit;
+}
+
+:where(.vbg-report) :where(p, li, dd, blockquote, figcaption, .vbg-summary, .vbg-lede) strong {
+  color: var(--vbg-gray-1000);
+  font-weight: var(--vbg-weight-medium);
+}
+
+:where(.vbg-report) :where([id]) {
+  scroll-margin-top: var(--vbg-space-8);
+}
+
+:where(.vbg-report) h1 {
+  max-width: var(--vbg-title-measure);
+  margin-block-end: var(--vbg-space-4);
+  font-size: var(--vbg-type-page-title);
+  line-height: var(--vbg-leading-page-title);
+  letter-spacing: -0.06em;
+}
+
+:where(.vbg-report) .vbg-title {
+  max-width: var(--vbg-title-measure);
+  margin-block-end: var(--vbg-space-4);
+  font-size: var(--vbg-type-page-title);
+  line-height: var(--vbg-leading-page-title);
+  letter-spacing: -0.06em;
+}
+
+:where(.vbg-report) .vbg-display {
+  max-width: var(--vbg-display-measure);
+  font-size: var(--vbg-type-display);
+  line-height: var(--vbg-leading-display);
+  letter-spacing: -0.06em;
+}
+
+:where(.vbg-report) h2,
+:where(.vbg-report) .vbg-heading-24 {
+  margin-block-end: var(--vbg-space-4);
+  font-size: var(--vbg-type-section);
+  line-height: var(--vbg-leading-section);
+  letter-spacing: -0.04em;
+}
+
+:where(.vbg-report) h3,
+:where(.vbg-report) .vbg-heading-20 {
+  margin-block-end: var(--vbg-space-3);
+  font-size: var(--vbg-type-subsection);
+  line-height: var(--vbg-leading-subsection);
+  letter-spacing: -0.02em;
+}
+
+:where(.vbg-report) h4,
+:where(.vbg-report) .vbg-heading-16 {
+  margin-block-end: var(--vbg-space-2);
+  font-size: 1rem;
+  line-height: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+:where(.vbg-report) p {
+  margin-block-end: var(--vbg-space-4);
+  line-height: var(--vbg-leading-body);
+  text-wrap: pretty;
+}
+
+:where(.vbg-report) :where(ul, ol) {
+  margin-block-end: var(--vbg-space-4);
+  padding-inline-start: 1.25rem;
+}
+
+:where(.vbg-report) li {
+  line-height: var(--vbg-leading-body);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow, .vbg-list) li + li {
+  margin-block-start: var(--vbg-flow-tight);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow, .vbg-list) li > :where(p, ul, ol) {
+  margin-block-end: 0;
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow, .vbg-list) li > p + p {
+  margin-block-start: var(--vbg-flow-tight);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow, .vbg-list) li > :where(ul, ol) {
+  margin-block-start: var(--vbg-flow-tight);
+}
+
+:where(.vbg-report) .vbg-list-compact li + li {
+  margin-block-start: var(--vbg-space-1);
+}
+
+:where(.vbg-report) dt {
+  font-weight: var(--vbg-weight-medium);
+  line-height: var(--vbg-leading-body);
+}
+
+:where(.vbg-report) dd {
+  margin-inline-start: 0;
+  color: var(--vbg-text-secondary);
+  line-height: var(--vbg-leading-body);
+}
+
+:where(.vbg-report) dt:not(:first-child) {
+  margin-block-start: var(--vbg-flow-copy);
+}
+
+:where(.vbg-report) dt + dd {
+  margin-block-start: var(--vbg-space-1);
+}
+
+:where(.vbg-report) blockquote {
+  margin-inline: 0;
+  margin-block-end: var(--vbg-flow-copy);
+  padding-block: var(--vbg-space-2);
+  color: var(--vbg-text-secondary);
+  font-size: 1.125rem;
+  line-height: 1.75rem;
+}
+
+:where(.vbg-report) :where(p, li, dd, figcaption, .vbg-label, .vbg-meta) {
+  overflow-wrap: anywhere;
+}
+
+:where(.vbg-report) :where(td, th) {
+  overflow-wrap: break-word;
+}
+
+:where(.vbg-report) :where(a) {
+  color: inherit;
+  text-decoration-color: var(--vbg-gray-600);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+:where(.vbg-report) a:hover {
+  text-decoration-color: currentColor;
+}
+
+:where(.vbg-report) .vbg-link {
+  color: var(--vbg-text-primary);
+  font-weight: var(--vbg-weight-medium);
+  text-decoration: underline;
+  text-decoration-color: var(--vbg-gray-600);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+:where(.vbg-report) .vbg-link:hover {
+  text-decoration-color: currentColor;
+}
+
+:where(.vbg-report) .vbg-link[data-variant="highlight"] {
+  color: var(--vbg-blue-900);
+}
+
+:where(.vbg-report) .vbg-link[data-variant="secondary"] {
+  color: var(--vbg-text-secondary);
+  font-weight: var(--vbg-weight-regular);
+}
+
+:where(.vbg-report) .vbg-link[data-variant="secondary"]:hover {
+  color: var(--vbg-text-primary);
+}
+
+:where(.vbg-report) :where(a, button, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--vbg-focus);
+  outline-offset: 3px;
+}
+
+:where(.vbg-report) :where(code, kbd, samp, pre) {
+  font-family: var(--vbg-font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+:where(.vbg-report) :where(code, kbd) {
+  border: 1px solid var(--vbg-border-subtle);
+  border-radius: 4px;
+  background: var(--vbg-gray-100);
+  padding: 0.1em 0.3em;
+  font-size: 0.875em;
+}
+
+:where(.vbg-report) .vbg-formula {
+  display: block;
+  max-width: 100%;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+/* Formula semantics always remain wrap-safe, including additive authored classes. */
+.vbg-report :is(
+  .vbg-formula,
+  [data-vbg-formula],
+  [data-formula],
+  [class*="vbg-" i][class*="formula" i],
+  [class*="vbg-" i][class*="equation" i]
+) {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+  word-break: normal;
+  white-space: normal !important;
+}
+
+:where(.vbg-report) pre {
+  overflow: auto;
+  border: 1px solid var(--vbg-border-subtle);
+  border-radius: var(--vbg-radius);
+  background: var(--vbg-background-200);
+  padding: var(--vbg-space-4);
+  font-size: 0.8125rem;
+  line-height: 1.55;
+}
+
+:where(.vbg-report) pre code {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+}
+
+:where(.vbg-report) :where(img, svg, video, canvas) {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+:where(.vbg-report) figure {
+  margin-inline: 0;
+  margin-block-end: var(--vbg-space-8);
+}
+
+:where(.vbg-report) figcaption,
+:where(.vbg-report) .vbg-caption {
+  margin-block-start: var(--vbg-space-3);
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-compact);
+  line-height: var(--vbg-leading-compact);
+}
+
+:where(.vbg-report) .vbg-shell {
+  width: min(calc(100% - 48px), var(--vbg-content-width));
+  margin-inline: auto;
+  padding-block: clamp(40px, 7vw, 80px);
+  container-name: vbg-shell;
+  container-type: inline-size;
+}
+
+:where(.vbg-report) .vbg-header {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--vbg-space-6);
+  row-gap: 0;
+  padding-block-end: clamp(32px, 5vw, 56px);
+}
+
+:where(.vbg-report) .vbg-header > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin-block: 0;
+}
+
+:where(.vbg-report) .vbg-header > :where(h1, .vbg-title, .vbg-display) {
+  grid-column: 1 / span 8;
+}
+
+:where(.vbg-report) .vbg-header > :where(.vbg-summary, .vbg-lede) {
+  grid-column: 1 / span 7;
+}
+
+:where(.vbg-report) .vbg-header > * + * {
+  margin-block-start: var(--vbg-flow-copy);
+}
+
+:where(.vbg-report) .vbg-header > .vbg-context + :where(h1, .vbg-title, .vbg-display) {
+  margin-block-start: var(--vbg-space-3);
+}
+
+:where(.vbg-report) .vbg-masthead {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--vbg-space-3) var(--vbg-space-6);
+  align-items: first baseline;
+}
+
+/* Unknown masthead content stays readable instead of entering a narrow track. */
+:where(.vbg-report) .vbg-masthead > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+@supports selector(.vbg-masthead:has(> .vbg-identity)) {
+  :where(.vbg-report) .vbg-masthead:has(> .vbg-identity):has(> .vbg-document-meta) > .vbg-identity {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  :where(.vbg-report) .vbg-masthead:has(> .vbg-identity):has(> .vbg-document-meta) > .vbg-document-meta {
+    grid-column: 2;
+    grid-row: 1;
+  }
+}
+
+:where(.vbg-report) .vbg-header > .vbg-masthead + :where(h1, .vbg-title, .vbg-display) {
+  margin-block-start: clamp(32px, 4vw, 48px);
+}
+
+:where(.vbg-report) .vbg-identity {
+  display: flex;
+  min-width: max-content;
+  align-items: center;
+  gap: var(--vbg-space-2);
+  color: var(--vbg-text-primary);
+  font-size: var(--vbg-type-compact);
+  font-weight: var(--vbg-weight-medium);
+  line-height: var(--vbg-leading-compact);
+  white-space: nowrap;
+}
+
+:where(.vbg-report) .vbg-identity > :where(img, svg) {
+  width: auto;
+  max-width: 128px;
+  height: 18px;
+}
+
+/* Remote SVG documents do not inherit currentColor through <img>. Masks do. */
+:where(.vbg-report) .vbg-wordmark,
+:where(.vbg-report) .vbg-logo {
+  display: inline-block;
+  flex: none;
+  background: currentColor;
+  -webkit-mask-position: center;
+  mask-position: center;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: contain;
+  mask-size: contain;
+}
+
+:where(.vbg-report) .vbg-wordmark {
+  width: 92px;
+  height: 18px;
+  -webkit-mask-image: url("https://py8fhxnkzwtsqdo9.public.blob.vercel-storage.com/p/vercel-wordmark.svg");
+  mask-image: url("https://py8fhxnkzwtsqdo9.public.blob.vercel-storage.com/p/vercel-wordmark.svg");
+}
+
+:where(.vbg-report) .vbg-logo {
+  width: 16px;
+  height: 14px;
+  -webkit-mask-image: url("https://py8fhxnkzwtsqdo9.public.blob.vercel-storage.com/p/vercel-logo.svg");
+  mask-image: url("https://py8fhxnkzwtsqdo9.public.blob.vercel-storage.com/p/vercel-logo.svg");
+}
+
+:where(.vbg-report) .vbg-document-meta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: first baseline;
+  justify-content: flex-end;
+  gap: var(--vbg-space-1) var(--vbg-space-4);
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-label);
+  line-height: var(--vbg-leading-compact);
+}
+
+/* Semantic child elements keep the metadata role instead of body paragraph leading. */
+:where(.vbg-report) .vbg-document-meta > * {
+  margin-block: 0;
+  font-size: var(--vbg-type-label);
+  line-height: var(--vbg-leading-compact);
+}
+
+:where(.vbg-report) :where(
+  .vbg-masthead,
+  .vbg-identity,
+  .vbg-document-meta,
+  .vbg-recipient,
+  .vbg-state,
+  .vbg-date,
+  .vbg-confidentiality
+) > * {
+  margin-block: 0;
+}
+
+:where(.vbg-report) :where(.vbg-recipient, .vbg-state, .vbg-date, .vbg-confidentiality) {
+  overflow-wrap: anywhere;
+}
+
+:where(.vbg-report) :where(.vbg-state, .vbg-confidentiality) {
+  color: var(--vbg-text-primary);
+  font-weight: var(--vbg-weight-medium);
+}
+
+:where(.vbg-report) .vbg-state[data-status="verified"] {
+  color: var(--vbg-color-success);
+}
+
+:where(.vbg-report) .vbg-summary,
+:where(.vbg-report) .vbg-lede {
+  max-width: var(--vbg-reading-width);
+  color: var(--vbg-gray-900);
+  font-size: var(--vbg-type-lede);
+  line-height: var(--vbg-leading-lede);
+}
+
+/* Semantic wrappers keep their editorial leading when prose uses child elements. */
+:where(.vbg-report) :is(.vbg-summary, .vbg-lede) > :where(p, ul, ol, blockquote),
+:where(.vbg-report) :is(.vbg-summary, .vbg-lede) > :where(ul, ol) > li {
+  font-size: inherit;
+  line-height: inherit;
+}
+
+:where(.vbg-report) .vbg-reading {
+  max-width: var(--vbg-reading-width);
+}
+
+/* Intrinsic content may scroll locally, but published layout primitives must not widen the page. */
+:where(.vbg-report) :where(
+  .vbg-flow,
+  .vbg-grid,
+  .vbg-split,
+  .vbg-calculator,
+  .vbg-calculator-layout,
+  .vbg-table-wrap,
+  .vbg-chart,
+  .vbg-chart-viewport
+) {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+:where(.vbg-report) :where(
+  .vbg-flow,
+  .vbg-grid,
+  .vbg-split,
+  .vbg-calculator,
+  .vbg-calculator-layout
+) > * {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+/* Keep unwrapped narrative readable without narrowing tables, charts, or data regions. */
+:where(.vbg-report) .vbg-header > :where(p, ul, ol, dl, blockquote),
+:where(.vbg-report) .vbg-section > :where(h2, h3, h4, p, ul, ol, dl, blockquote),
+:where(.vbg-report) .vbg-flow > :where(p, ul, ol, dl, blockquote) {
+  max-width: var(--vbg-reading-width);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow) > * {
+  margin-block: 0;
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow) > * + * {
+  margin-block-start: var(--vbg-flow-copy);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow) > :where(h2):not(:first-child) {
+  margin-block-start: var(--vbg-flow-section);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow) > :where(h3):not(:first-child) {
+  margin-block-start: var(--vbg-space-8);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow) > :where(h4):not(:first-child) {
+  margin-block-start: var(--vbg-flow-group);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow) > h1 + :where(p, ul, ol, dl, blockquote),
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow) > h2 + :where(p, ul, ol, dl, blockquote) {
+  margin-block-start: var(--vbg-flow-copy);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow) > h3 + :where(p, ul, ol, dl, blockquote) {
+  margin-block-start: var(--vbg-space-3);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow) > h4 + :where(p, ul, ol, dl, blockquote) {
+  margin-block-start: var(--vbg-flow-tight);
+}
+
+:where(.vbg-report) :where(.vbg-reading, .vbg-flow) > :where(figure, pre, .vbg-table-wrap, .vbg-figure, .vbg-chart) {
+  margin-block: var(--vbg-flow-group) var(--vbg-space-8);
+}
+
+:where(.vbg-report) .vbg-stack {
+  display: grid;
+  gap: var(--vbg-flow-copy);
+}
+
+:where(.vbg-report) .vbg-stack[data-gap="tight"] { gap: var(--vbg-flow-tight); }
+:where(.vbg-report) .vbg-stack[data-gap="group"] { gap: var(--vbg-flow-group); }
+:where(.vbg-report) .vbg-stack[data-gap="section"] { gap: var(--vbg-flow-section); }
+
+:where(.vbg-report) .vbg-stack > * {
+  min-width: 0;
+  margin-block: 0;
+}
+
+:where(.vbg-report) :where(
+  .vbg-header,
+  .vbg-grid,
+  .vbg-metrics,
+  .vbg-comparison,
+  .vbg-metric,
+  .vbg-calculator,
+  .vbg-field
+) > :where(h1, h2, h3, h4, p, ul, ol, dl, figure, blockquote, pre) {
+  margin-block: 0;
+}
+
+:where(.vbg-report) :where(.vbg-section, .vbg-surface, .vbg-callout, .vbg-note, .vbg-decision, .vbg-recommendation, .vbg-next-step, .vbg-band, .vbg-footer) > :last-child {
+  margin-block-end: 0;
+}
+
+:where(.vbg-report) .vbg-section {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--vbg-space-6);
+  padding-block: 0;
+}
+
+:where(.vbg-report) .vbg-section > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin-block: 0;
+}
+
+:where(.vbg-report) .vbg-section > :where(h2, h3, h4, p, ul, ol, dl, blockquote, .vbg-reading) {
+  grid-column: 1 / span 7;
+}
+
+:where(.vbg-report) .vbg-section > * + * {
+  margin-block-start: var(--vbg-flow-copy);
+}
+
+/* Explicit section grids own peer and row rhythm through their grid gap. */
+:where(.vbg-report) .vbg-section.vbg-grid > * + * {
+  margin-block-start: 0;
+}
+
+/* A split section introduction aligns the first text baselines rather than
+ * merely aligning unlike heading and paragraph boxes at their top edges. */
+@supports selector(.vbg-section:has(> h2.vbg-span-6 + p.vbg-span-6)) {
+  :where(.vbg-report) .vbg-section.vbg-grid:has(> h2.vbg-span-6 + p.vbg-span-6)
+    > :where(h2.vbg-span-6, p.vbg-span-6) {
+    align-self: baseline;
+  }
+}
+
+/* Plain narrative lists need readable item rhythm even without a flow wrapper. */
+:where(.vbg-report) .vbg-section > :where(ul, ol):not(
+  .vbg-legend,
+  .vbg-list-compact,
+  [role="listbox"],
+  [role="menu"],
+  [role="menubar"],
+  [role="navigation"],
+  [role="tablist"]
+) > li + li {
+  margin-block-start: var(--vbg-flow-tight);
+}
+
+/* Preserve editorial heading rhythm even when a section omits .vbg-flow. */
+:where(.vbg-report) .vbg-section > h2:not(:first-child) {
+  margin-block-start: var(--vbg-flow-section);
+}
+
+:where(.vbg-report) .vbg-section > h3:not(:first-child) {
+  margin-block-start: var(--vbg-space-8);
+}
+
+:where(.vbg-report) .vbg-section > h4:not(:first-child) {
+  margin-block-start: var(--vbg-flow-group);
+}
+
+:where(.vbg-report) .vbg-section > h3 + :where(p, ul, ol, dl, blockquote) {
+  margin-block-start: var(--vbg-space-3);
+}
+
+:where(.vbg-report) .vbg-section > h4 + :where(p, ul, ol, dl, blockquote) {
+  margin-block-start: var(--vbg-flow-tight);
+}
+
+:where(.vbg-report) .vbg-section > :where(
+  figure,
+  pre,
+  .vbg-action,
+  .vbg-decision,
+  .vbg-recommendation,
+  .vbg-next-step,
+  .vbg-band,
+  .vbg-evidence,
+  .vbg-table-wrap,
+  .vbg-figure,
+  .vbg-chart,
+  .vbg-calculator,
+  .vbg-metrics,
+  .vbg-stat-strip,
+  .vbg-comparison,
+  .vbg-result-group
+) {
+  margin-block-start: var(--vbg-flow-group);
+}
+
+:where(.vbg-report) .vbg-section + .vbg-section {
+  margin-block-start: clamp(48px, 5vw, 64px);
+}
+
+/* The optional opening context is still part of the opening; the first chapter
+ * needs the same boundary as later sibling sections after that context reflows. */
+:where(.vbg-report) .vbg-opening + .vbg-section {
+  margin-block-start: clamp(48px, 5vw, 64px);
+}
+
+:where(.vbg-report) .vbg-chapter:not(.vbg-reading):not(.vbg-flow) > * {
+  margin-block: 0;
+}
+
+:where(.vbg-report) :where(main, .vbg-flow) > .vbg-chapter + .vbg-chapter {
+  margin-block-start: clamp(64px, 8vw, 96px);
+}
+
+:where(.vbg-report) .vbg-chapter > .vbg-section + .vbg-section {
+  margin-block-start: clamp(32px, 4vw, 48px);
+}
+
+:where(.vbg-report) .vbg-chapter.vbg-stack > .vbg-section + .vbg-section {
+  margin-block-start: 0;
+}
+
+/* A complete evidence component followed by narrative is a semantic boundary
+ * only when its direct parent does not already own rhythm or placement. Keep
+ * this after chapter resets so responsive peer stacking cannot erase the gap. */
+.vbg-report :is(
+  .vbg-section:not(.vbg-grid):not(.vbg-stack):not(.vbg-flow),
+  .vbg-chapter:not(.vbg-reading):not(.vbg-flow):not(.vbg-stack)
+) > :where(
+  figure,
+  pre,
+  .vbg-action,
+  .vbg-decision,
+  .vbg-recommendation,
+  .vbg-next-step,
+  .vbg-band,
+  .vbg-evidence,
+  .vbg-table-wrap,
+  .vbg-figure,
+  .vbg-chart,
+  .vbg-calculator,
+  .vbg-metrics,
+  .vbg-stat-strip,
+  .vbg-comparison,
+  .vbg-result-group
+) + :is(.vbg-reading, .vbg-flow, h2, h3) {
+  margin-block-start: var(--vbg-space-8);
+}
+
+:where(.vbg-report) .vbg-band {
+  display: grid;
+  gap: var(--vbg-space-4);
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+:where(.vbg-report) .vbg-band > * {
+  min-width: 0;
+  margin-block: 0;
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] {
+  --vbg-text-primary: var(--vbg-text-on-contrast);
+  --vbg-text-secondary: var(--vbg-text-on-contrast-secondary);
+  --vbg-border-subtle: var(--vbg-border-on-contrast);
+  --vbg-border-default: var(--vbg-border-on-contrast);
+  --vbg-border-strong: var(--vbg-text-on-contrast);
+  border-color: var(--vbg-border-on-contrast);
+  background: var(--vbg-surface-contrast);
+  color: var(--vbg-text-on-contrast);
+  padding: clamp(32px, 5vw, 56px) clamp(24px, 4vw, 48px);
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] :where(
+  h1,
+  h2,
+  h3,
+  h4,
+  .vbg-display,
+  .vbg-title,
+  .vbg-heading-24,
+  .vbg-heading-20,
+  .vbg-heading-16,
+  .vbg-lede,
+  .vbg-summary,
+  .vbg-stat-value,
+  .vbg-metric-value,
+  .vbg-identity,
+  strong
+) {
+  color: var(--vbg-text-on-contrast);
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] :where(
+  .vbg-context,
+  .vbg-label,
+  .vbg-meta,
+  .vbg-helper,
+  .vbg-metric-detail,
+  .vbg-lede,
+  .vbg-summary,
+  figcaption
+) {
+  color: var(--vbg-text-on-contrast-secondary);
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] :where(.vbg-action, .vbg-decision, .vbg-stat-strip) {
+  border-color: var(--vbg-border-on-contrast);
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] .vbg-stat-strip {
+  border-color: var(--vbg-border-on-contrast);
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] :where(a, .vbg-link) {
+  color: var(--vbg-text-on-contrast);
+  text-decoration-color: var(--vbg-text-on-contrast-secondary);
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] .vbg-link[data-variant] {
+  color: var(--vbg-text-on-contrast);
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] :where(button, .vbg-button) {
+  border-color: var(--vbg-border-on-contrast);
+  background: transparent;
+  color: var(--vbg-text-on-contrast);
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] :where(button, .vbg-button)[data-variant="primary"] {
+  border-color: var(--vbg-text-on-contrast);
+  background: var(--vbg-text-on-contrast);
+  color: var(--vbg-surface-contrast);
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] :where(button, .vbg-button):hover {
+  border-color: var(--vbg-text-on-contrast-secondary);
+  background: var(--vbg-border-on-contrast);
+}
+
+:where(.vbg-report) .vbg-band[data-tone="contrast"] :where(button, .vbg-button)[data-variant="primary"]:hover {
+  border-color: var(--vbg-text-on-contrast);
+  background: var(--vbg-gray-200);
+  color: var(--vbg-gray-1000);
+}
+
+:where(.vbg-report) .vbg-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--vbg-space-6);
+}
+
+:where(.vbg-report) .vbg-grid > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
+:where(.vbg-report) .vbg-split {
+  display: grid;
+  grid-template-columns: minmax(0, 7fr) minmax(0, 5fr);
+  gap: var(--vbg-space-6);
+  align-items: start;
+}
+
+:where(.vbg-report) .vbg-split[data-ratio="equal"] {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+:where(.vbg-report) .vbg-split[data-ratio="wide"] {
+  grid-template-columns: minmax(0, 8fr) minmax(0, 4fr);
+}
+
+:where(.vbg-report) .vbg-split > * {
+  min-width: 0;
+}
+
+/*
+ * A source-ordered opening composition: claim, decisive proof, then optional
+ * context. The split variant shares one desktop band; the stacked variant
+ * gives the proof the full report measure. Decoration remains opt-in elsewhere.
+ */
+:where(.vbg-report) .vbg-opening {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  align-items: start;
+  gap: var(--vbg-space-6);
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+:where(.vbg-report) .vbg-opening > * {
+  grid-column: 1 / -1;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  margin-block: 0;
+}
+
+:where(.vbg-report) .vbg-opening > .vbg-opening-claim {
+  grid-row: 1;
+}
+
+:where(.vbg-report) .vbg-opening > .vbg-opening-proof {
+  grid-row: 2;
+}
+
+:where(.vbg-report) .vbg-opening > .vbg-opening-context {
+  grid-row: 3;
+  max-width: var(--vbg-reading-width);
+}
+
+:where(.vbg-report) .vbg-opening[data-layout="split"] {
+  row-gap: var(--vbg-space-4);
+}
+
+:where(.vbg-report) .vbg-opening[data-layout="split"] > .vbg-opening-claim {
+  grid-column: 1 / span 7;
+  grid-row: 1;
+}
+
+:where(.vbg-report) .vbg-opening[data-layout="split"] > .vbg-opening-proof {
+  grid-column: 8 / -1;
+  grid-row: 1;
+}
+
+:where(.vbg-report) .vbg-opening[data-layout="split"] > .vbg-opening-context {
+  grid-column: 1 / span 7;
+  grid-row: 2;
+}
+
+:where(.vbg-report) .vbg-opening :where(
+  .vbg-opening-claim,
+  .vbg-opening-proof,
+  .vbg-opening-context
+) > * {
+  max-inline-size: 100%;
+}
+
+/* The opening grid owns space between its regions; child margins own only
+ * rhythm within a region. This prevents the last heading or paragraph margin
+ * from being added to the grid gap. */
+:where(.vbg-report) .vbg-opening :where(
+  .vbg-opening-claim,
+  .vbg-opening-proof,
+  .vbg-opening-context
+) > :last-child {
+  margin-block-end: 0;
+}
+
+:where(.vbg-report) .vbg-metrics,
+:where(.vbg-report) .vbg-comparison {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: var(--vbg-space-8);
+}
+
+/*
+ * Opt comparable two-child peers into shared desktop heading and body rows.
+ * Subgrid is progressive enhancement; older engines reserve two heading lines.
+ * Peers with additional content and narrow layouts keep ordinary vbg-stack flow.
+ */
+@media (min-width: 801px) {
+  @supports not (grid-template-rows: subgrid) {
+    :where(.vbg-report) .vbg-comparison[data-align="rows"] > .vbg-stack:has(> :nth-child(2):last-child) > :first-child {
+      min-block-size: calc(2 * var(--vbg-leading-subsection));
+    }
+  }
+
+  @supports (grid-template-rows: subgrid) {
+    :where(.vbg-report) .vbg-comparison[data-align="rows"] {
+      row-gap: var(--vbg-flow-copy);
+    }
+
+    :where(.vbg-report) .vbg-comparison[data-align="rows"] > .vbg-stack:has(> :nth-child(2):last-child) {
+      grid-row: span 2;
+      grid-template-rows: subgrid;
+      row-gap: var(--vbg-flow-copy);
+    }
+  }
+}
+
+/*
+ * A flat, responsive length comparison for two to six non-negative values
+ * that share one unit, zero baseline, and domain maximum. Exact labels and
+ * values remain normal HTML; only the mark width is supplied inline.
+ */
+:where(.vbg-report) .vbg-bar-comparison {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+}
+
+:where(.vbg-report) .vbg-bar-list {
+  display: grid;
+  gap: var(--vbg-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+:where(.vbg-report) .vbg-bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: baseline;
+  gap: var(--vbg-space-2) var(--vbg-space-4);
+  min-inline-size: 0;
+}
+
+:where(.vbg-report) :is(.vbg-bar-label, .vbg-bar-value) {
+  min-inline-size: 0;
+  color: var(--vbg-text-primary);
+  font-family: var(--vbg-font-sans);
+  font-size: var(--vbg-type-compact);
+  font-weight: var(--vbg-weight-medium);
+  line-height: var(--vbg-leading-compact);
+}
+
+:where(.vbg-report) .vbg-bar-value {
+  justify-self: end;
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+
+:where(.vbg-report) .vbg-bar-track {
+  display: block;
+  grid-column: 1 / -1;
+  inline-size: 100%;
+  block-size: 8px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--vbg-surface-secondary);
+}
+
+:where(.vbg-report) .vbg-bar-fill {
+  display: block;
+  inline-size: 0;
+  max-inline-size: 100%;
+  block-size: 100%;
+  background: var(--vbg-text-primary);
+}
+
+:where(.vbg-report) .vbg-bar[data-role="reference"] .vbg-bar-fill {
+  background: var(--vbg-text-secondary);
+}
+
+:where(.vbg-report) .vbg-bar-list:has(> .vbg-bar[data-role="primary"]) > .vbg-bar:not([data-role="primary"]) .vbg-bar-fill {
+  background: var(--vbg-text-secondary);
+}
+
+:where(.vbg-report) .vbg-bar[data-role="primary"] .vbg-bar-fill {
+  background: var(--vbg-text-primary);
+}
+
+:where(.vbg-report) .vbg-span-4 { grid-column: span 4; }
+:where(.vbg-report) .vbg-span-5 { grid-column: span 5; }
+:where(.vbg-report) .vbg-span-6 { grid-column: span 6; }
+:where(.vbg-report) .vbg-span-7 { grid-column: span 7; }
+:where(.vbg-report) .vbg-span-8 { grid-column: span 8; }
+:where(.vbg-report) .vbg-span-12 { grid-column: 1 / -1; }
+
+/* Explicit full-span table ownership must survive page-owned grid placement. */
+:where(.vbg-report) .vbg-table-wrap.vbg-span-12 {
+  grid-column: 1 / -1 !important;
+}
+
+:where(.vbg-report) .vbg-context,
+:where(.vbg-report) .vbg-label {
+  color: var(--vbg-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: var(--vbg-weight-regular);
+  line-height: 1.2308;
+}
+
+:where(.vbg-report) :where(.vbg-context, .vbg-label) strong {
+  color: var(--vbg-gray-1000);
+  font-weight: var(--vbg-weight-medium);
+}
+
+:where(.vbg-report) .vbg-context {
+  line-height: var(--vbg-leading-caption);
+}
+
+:where(.vbg-report) .vbg-meta {
+  color: var(--vbg-text-secondary);
+  font-family: var(--vbg-font-sans);
+  font-size: var(--vbg-type-metadata);
+  font-weight: var(--vbg-weight-regular);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--vbg-leading-caption);
+}
+
+:where(.vbg-report) .vbg-surface {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+/* Containment is opt-in. Use it only when a region has a real boundary. */
+:where(.vbg-report) :where(
+  .vbg-surface[data-variant="contained"],
+  .vbg-surface[data-contained="true"]
+) {
+  border: 1px solid var(--vbg-border-subtle);
+  border-radius: var(--vbg-radius);
+  background: var(--vbg-surface-primary);
+  padding: var(--vbg-space-6);
+}
+
+:where(.vbg-report) .vbg-action {
+  display: grid;
+  gap: var(--vbg-space-3);
+  border: 0;
+  padding-block: 0;
+}
+
+:where(.vbg-report) .vbg-decision {
+  display: grid;
+  gap: var(--vbg-space-3);
+  border: 0;
+  padding-block: 0;
+}
+
+/* These roles may be applied directly to prose; inline children must stay inline. */
+:where(.vbg-report) :is(p, li, blockquote).vbg-decision,
+:where(.vbg-report) :is(p, li, blockquote).vbg-recommendation,
+:where(.vbg-report) :is(p, li, blockquote).vbg-action {
+  display: block;
+}
+
+:where(.vbg-report) .vbg-decision[data-priority="primary"] {
+  padding-block: 0;
+}
+
+:where(.vbg-report) .vbg-recommendation {
+  display: grid;
+  gap: var(--vbg-space-3);
+  border: 0;
+  padding-block: 0;
+}
+
+:where(.vbg-report) :where(.vbg-action, .vbg-decision, .vbg-recommendation) > :where(p, ul, ol) {
+  max-inline-size: var(--vbg-reading-width);
+}
+
+:where(.vbg-report) .vbg-next-step {
+  display: grid;
+  grid-template-columns: minmax(160px, 4fr) minmax(0, 8fr);
+  gap: var(--vbg-space-4) var(--vbg-space-6);
+  align-items: first baseline;
+  border: 0;
+  padding-block: 0;
+}
+
+@supports selector(.vbg-decision:has(> .vbg-table-wrap:last-child)) {
+  :where(.vbg-report) :where(.vbg-decision, .vbg-recommendation):has(> :where(.vbg-stat-strip, .vbg-table-wrap):last-child) {
+    border-bottom: 0;
+  }
+}
+
+/* Only an exact primary/supporting pair receives the split placement. */
+:where(.vbg-report) .vbg-next-step > * {
+  grid-column: 1 / -1;
+}
+
+@supports selector(.vbg-next-step:has(> :nth-child(2):last-child)) {
+  :where(.vbg-report) .vbg-next-step:has(> :nth-child(2):last-child) > :first-child {
+    grid-column: 1;
+  }
+
+  :where(.vbg-report) .vbg-next-step:has(> :nth-child(2):last-child) > :nth-child(2) {
+    grid-column: 2;
+  }
+}
+
+:where(.vbg-report) .vbg-action > *,
+:where(.vbg-report) .vbg-decision > *,
+:where(.vbg-report) .vbg-evidence > *,
+:where(.vbg-report) .vbg-recommendation > *,
+:where(.vbg-report) .vbg-next-step > * {
+  min-width: 0;
+  margin-block: 0;
+}
+
+:where(.vbg-report) .vbg-evidence {
+  display: grid;
+  gap: var(--vbg-space-4);
+  border: 0;
+  background: transparent;
+  padding-block: 0;
+}
+
+:where(.vbg-report) .vbg-stat-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: var(--vbg-space-8);
+  border: 0;
+  background: transparent;
+}
+
+/* A sole peer group has no sibling topology to preserve, so it owns its grid. */
+:where(.vbg-report) .vbg-grid > :is(
+  .vbg-stat-strip,
+  .vbg-metrics,
+  .vbg-result-group
+):only-child {
+  grid-column: 1 / -1 !important;
+}
+
+:where(.vbg-report) .vbg-stat {
+  display: grid;
+  align-content: start;
+  gap: var(--vbg-space-2);
+  min-width: 0;
+  background: transparent;
+  padding: 0;
+}
+
+:where(.vbg-report) .vbg-stat > * {
+  margin-block: 0;
+}
+
+:where(.vbg-report) :is(
+  .vbg-stat-label,
+  .vbg-stat > .vbg-label:first-child
+) {
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-compact);
+  font-weight: var(--vbg-weight-regular);
+  line-height: var(--vbg-leading-compact);
+}
+
+:where(.vbg-report) :is(
+  .vbg-stat-value,
+  .vbg-stat > :is(strong, output):nth-child(2)
+) {
+  color: var(--vbg-text-primary);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: var(--vbg-weight-heading);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+  max-inline-size: 100%;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+:where(.vbg-report) .vbg-stat[data-priority="primary"] :is(
+  .vbg-stat-value,
+  :is(strong, output):nth-child(2)
+) {
+  font-size: clamp(2rem, 4vw, 2.5rem);
+}
+
+:where(.vbg-report) .vbg-stat[data-priority="supporting"] :is(
+  .vbg-stat-value,
+  :is(strong, output):nth-child(2)
+) {
+  font-size: clamp(1.25rem, 2vw, 1.5rem);
+}
+
+:where(.vbg-report) :is(
+  .vbg-stat-detail,
+  .vbg-stat > .vbg-meta
+) {
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-metadata);
+  font-weight: var(--vbg-weight-regular);
+  line-height: var(--vbg-leading-caption);
+}
+
+:where(.vbg-report) .vbg-metric {
+  display: grid;
+  align-content: start;
+  gap: var(--vbg-space-2);
+}
+
+:where(.vbg-report) :is(
+  .vbg-metric-label,
+  .vbg-metric > .vbg-label:first-child
+) {
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-compact);
+  font-weight: var(--vbg-weight-regular);
+  line-height: var(--vbg-leading-compact);
+}
+
+:where(.vbg-report) :is(
+  .vbg-metric-value,
+  .vbg-metric > :is(strong, output):nth-child(2)
+) {
+  color: var(--vbg-text-primary);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: var(--vbg-weight-heading);
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  max-inline-size: 100%;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+:where(.vbg-report) :is(
+  .vbg-metric-detail,
+  .vbg-metric > .vbg-meta
+) {
+  color: var(--vbg-text-secondary);
+  font-size: 0.875rem;
+  line-height: var(--vbg-leading-compact);
+}
+
+:where(.vbg-report) .vbg-note {
+  border: 0;
+  padding-block: var(--vbg-space-3);
+}
+
+:where(.vbg-report) .vbg-callout {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+:where(.vbg-report) :where(
+  .vbg-callout[data-variant="contained"],
+  .vbg-callout[data-contained="true"],
+  .vbg-callout[data-tone="info"],
+  .vbg-callout[data-tone="success"],
+  .vbg-callout[data-tone="warning"],
+  .vbg-callout[data-tone="error"]
+) {
+  border: 0;
+  border-radius: var(--vbg-radius);
+  background: var(--vbg-background-200);
+  padding: var(--vbg-space-5);
+}
+
+:where(.vbg-report) .vbg-callout[data-tone="info"] { background: var(--vbg-blue-100); }
+:where(.vbg-report) .vbg-callout[data-tone="success"] { background: var(--vbg-green-100); }
+:where(.vbg-report) .vbg-callout[data-tone="warning"] { background: var(--vbg-amber-100); }
+:where(.vbg-report) .vbg-callout[data-tone="error"] { background: var(--vbg-red-100); }
+
+:where(.vbg-report) .vbg-note[data-tone="info"] { border-color: var(--vbg-color-info); }
+:where(.vbg-report) .vbg-note[data-tone="success"] { border-color: var(--vbg-color-success); }
+:where(.vbg-report) .vbg-note[data-tone="warning"] { border-color: var(--vbg-color-warning); }
+:where(.vbg-report) .vbg-note[data-tone="error"] { border-color: var(--vbg-color-error); }
+
+:where(.vbg-report) .vbg-table-wrap {
+  position: relative;
+  display: block;
+  align-self: stretch;
+  justify-self: stretch;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: auto;
+  border: 0;
+  container-type: inline-size;
+}
+
+/* Evidence tables always own the complete desktop evidence track. */
+:where(.vbg-report) :where(.vbg-section, .vbg-grid) > .vbg-table-wrap {
+  grid-column: 1 / -1;
+  inline-size: 100%;
+}
+
+:where(.vbg-report) .vbg-overflow-cue {
+  display: none;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--vbg-space-3);
+  inline-size: 100%;
+  max-inline-size: 100%;
+  margin-block: var(--vbg-space-2);
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-compact);
+  font-weight: var(--vbg-weight-regular);
+  line-height: var(--vbg-leading-compact);
+  overflow-wrap: break-word;
+}
+
+:where(.vbg-report) .vbg-overflow-cue::after {
+  content: "\2192";
+  flex: none;
+  color: var(--vbg-text-primary);
+  font-size: var(--vbg-type-body);
+  line-height: 1;
+}
+
+:where(.vbg-report[dir="rtl"]) .vbg-overflow-cue::after {
+  content: "\2190";
+}
+
+/* Full-width evidence is resilient when a shell-level reading wrapper is used by mistake. */
+@supports (width: 1cqi) {
+  :where(.vbg-report) .vbg-shell > :where(.vbg-reading, .vbg-section.vbg-reading) > :is(.vbg-table-wrap, .vbg-chart, .vbg-figure, .vbg-evidence, .vbg-comparison, .vbg-calculator, .vbg-result-group),
+  :where(.vbg-report) .vbg-shell > .vbg-section > .vbg-reading > :is(.vbg-table-wrap, .vbg-chart, .vbg-figure, .vbg-evidence, .vbg-comparison, .vbg-calculator, .vbg-result-group),
+  :where(.vbg-report) .vbg-shell > main > :where(.vbg-reading, .vbg-section.vbg-reading) > :is(.vbg-table-wrap, .vbg-chart, .vbg-figure, .vbg-evidence, .vbg-comparison, .vbg-calculator, .vbg-result-group),
+  :where(.vbg-report) .vbg-shell > main > .vbg-section > .vbg-reading > :is(.vbg-table-wrap, .vbg-chart, .vbg-figure, .vbg-evidence, .vbg-comparison, .vbg-calculator, .vbg-result-group),
+  :where(.vbg-report) .vbg-shell > .vbg-section > :where(.vbg-reading, .vbg-flow) > :is(.vbg-table-wrap, .vbg-chart, .vbg-figure, .vbg-evidence, .vbg-comparison, .vbg-calculator, .vbg-result-group),
+  :where(.vbg-report) .vbg-shell > main > .vbg-section > :where(.vbg-reading, .vbg-flow) > :is(.vbg-table-wrap, .vbg-chart, .vbg-figure, .vbg-evidence, .vbg-comparison, .vbg-calculator, .vbg-result-group) {
+    width: 100cqi;
+    max-width: 100cqi;
+  }
+}
+
+:where(.vbg-report) .vbg-figure,
+:where(.vbg-report) .vbg-chart {
+  min-width: 0;
+}
+
+:where(.vbg-report) .vbg-chart {
+  overflow: visible;
+}
+
+:where(.vbg-report) .vbg-chart-viewport > .vbg-chart-desktop {
+  display: block;
+}
+
+:where(.vbg-report) .vbg-chart-viewport > .vbg-chart-mobile {
+  display: none;
+}
+
+:where(.vbg-report) .vbg-chart-viewport {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-gutter: stable;
+}
+
+:where(.vbg-report) .vbg-chart-header {
+  display: grid;
+  gap: var(--vbg-space-1);
+  margin-block-end: var(--vbg-space-4);
+}
+
+:where(.vbg-report) .vbg-chart-header > * {
+  max-width: var(--vbg-reading-width);
+  margin-block: 0;
+}
+
+:where(.vbg-report) .vbg-chart-title {
+  color: var(--vbg-text-primary);
+  font-size: var(--vbg-type-body);
+  font-weight: var(--vbg-weight-medium);
+  line-height: var(--vbg-leading-body);
+  letter-spacing: -0.02em;
+}
+
+:where(.vbg-report) .vbg-chart-description {
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-compact);
+  line-height: var(--vbg-leading-compact);
+}
+
+:where(.vbg-report) .vbg-chart-plot,
+:where(.vbg-report) .vbg-chart-viewport {
+  position: relative;
+  min-width: 0;
+}
+
+:where(.vbg-report) .vbg-chart :where(svg, .vbg-chart-plot) {
+  max-width: 100%;
+}
+
+/* A plot without a local viewport must reflow rather than widen the document. */
+:where(.vbg-report) .vbg-chart > :where(svg, .vbg-chart-plot) {
+  min-width: 0 !important;
+}
+
+:where(.vbg-report) .vbg-chart :where(svg) {
+  width: 100%;
+}
+
+:where(.vbg-report) .vbg-chart text {
+  fill: var(--vbg-text-secondary);
+  font-family: var(--vbg-font-sans);
+  font-size: 12px;
+}
+
+:where(.vbg-report) .vbg-chart text.vbg-mono {
+  font-family: var(--vbg-font-mono);
+}
+
+:where(.vbg-report) .vbg-chart :is(.vbg-chart-direct-label, .vbg-chart-annotation, .vbg-chart-value) {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+:where(.vbg-report) .vbg-chart :is(.vbg-chart-direct-label, .vbg-chart-value) {
+  fill: var(--vbg-text-primary);
+  color: var(--vbg-text-primary);
+  font-size: 14px;
+  font-weight: var(--vbg-weight-medium);
+  font-variant-numeric: tabular-nums;
+}
+
+:where(.vbg-report) .vbg-chart .vbg-chart-annotation {
+  fill: var(--vbg-text-primary);
+  color: var(--vbg-text-primary);
+}
+
+:where(.vbg-report) .vbg-chart .vbg-chart-annotation-line {
+  fill: none;
+  stroke: var(--vbg-border-strong);
+  stroke-dasharray: 3 3;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+:where(.vbg-report) .vbg-chart-gridline {
+  fill: none;
+  stroke: var(--vbg-border-subtle);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+:where(.vbg-report) .vbg-chart-axis {
+  fill: none;
+  stroke: var(--vbg-border-default);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+:where(.vbg-report) .vbg-series-stroke {
+  fill: none;
+  stroke: var(--vbg-series-color, var(--vbg-chart-1));
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+:where(.vbg-report) .vbg-series-fill {
+  fill: var(--vbg-series-color, var(--vbg-chart-1));
+}
+
+:where(.vbg-report) .vbg-data-point {
+  fill: var(--vbg-surface-primary);
+  stroke: var(--vbg-series-color, var(--vbg-chart-1));
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+:where(.vbg-report) table {
+  width: 100%;
+  border-collapse: collapse;
+  caption-side: top;
+  font-size: 0.875rem;
+  line-height: var(--vbg-leading-compact);
+  font-variant-numeric: tabular-nums;
+}
+
+:where(.vbg-report) caption {
+  padding: 0 0 var(--vbg-space-3);
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-compact);
+  line-height: var(--vbg-leading-compact);
+  text-align: left;
+}
+
+/* Keep table context in the visible scrollport while columns move beneath it. */
+@supports (width: 1cqi) {
+  :where(.vbg-report) .vbg-table-wrap > table > caption {
+    position: sticky;
+    inset-inline-start: 0;
+    inline-size: 100cqi;
+    max-inline-size: 100cqi;
+    min-inline-size: 0;
+    box-sizing: border-box;
+    overflow-wrap: break-word;
+    white-space: normal;
+  }
+}
+
+:where(.vbg-report) :where(th, td) {
+  border-bottom: 1px solid var(--vbg-border-subtle);
+  padding: 10px var(--vbg-space-3);
+  text-align: left;
+  vertical-align: baseline;
+}
+
+:where(.vbg-report) :where(th, td):first-child {
+  padding-inline-start: 0;
+}
+
+/* Preserve meaningful row labels. Prefer local table scrolling to character-by-character wrapping. */
+:where(.vbg-report) .vbg-table-wrap > table :is(th, td):first-child {
+  min-inline-size: 8ch;
+  overflow-wrap: break-word;
+  white-space: normal;
+  word-break: normal;
+}
+
+:where(.vbg-report) :where(th, td):last-child {
+  padding-inline-end: 0;
+}
+
+:where(.vbg-report) thead th {
+  border-bottom-color: var(--vbg-border-default);
+  background: transparent;
+  color: var(--vbg-gray-900);
+  font-weight: var(--vbg-weight-medium);
+  hyphens: none;
+  overflow-wrap: normal;
+  vertical-align: bottom;
+  word-break: normal;
+}
+
+:where(.vbg-report) th > .vbg-meta {
+  display: block;
+  margin-block-start: var(--vbg-space-1);
+}
+
+:where(.vbg-report) .vbg-table-wrap > table thead th:first-child {
+  overflow-wrap: normal;
+}
+
+:where(.vbg-report) tbody th {
+  background: transparent;
+  color: var(--vbg-text-primary);
+  font-weight: var(--vbg-weight-medium);
+}
+
+/* Let long technical identifiers yield inside semantic ledger columns. */
+:where(.vbg-report) .vbg-table-wrap > table :is(th, td):not([data-align="numeric"]):not(.vbg-numeric) .vbg-mono:not(.vbg-numeric) {
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+:where(.vbg-report) tbody tr:last-child > :where(th, td) { border-bottom-color: var(--vbg-border-default); }
+:where(.vbg-report) .vbg-numeric {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow-wrap: normal;
+}
+
+:where(.vbg-report) :where(th, td)[data-align="numeric"],
+:where(.vbg-report) :where(th, td).vbg-numeric {
+  white-space: nowrap;
+  overflow-wrap: normal;
+  text-align: right;
+}
+
+:where(.vbg-report) .vbg-table-wrap[data-density="compact"] :where(th, td) {
+  padding: 5px var(--vbg-space-2);
+}
+
+:where(.vbg-report) .vbg-table-wrap[data-variant="comparison"] tbody tr[data-recommended="true"],
+:where(.vbg-report) .vbg-table-wrap[data-variant="comparison"] :where(th, td)[data-recommended="true"],
+:where(.vbg-report) :where(tr, th, td).vbg-table-emphasis {
+  background: var(--vbg-background-200);
+}
+
+:where(.vbg-report) .vbg-table-wrap[data-variant="comparison"] tbody tr[data-recommended="true"] > :first-child {
+  font-weight: var(--vbg-weight-medium);
+}
+
+:where(.vbg-report) .vbg-table-wrap[data-variant="comparison"] :where(th, td)[data-recommended="true"] {
+  box-shadow: none;
+}
+
+:where(.vbg-report) .vbg-table-wrap[data-sticky-first="true"] :where(th, td):first-child {
+  position: sticky;
+  inset-inline-start: 0;
+  z-index: 1;
+  background: var(--vbg-surface-primary);
+  box-shadow: inset -1px 0 var(--vbg-border-subtle);
+}
+
+:where(.vbg-report) .vbg-table-wrap[data-sticky-first="true"] thead th:first-child {
+  z-index: 2;
+  background: var(--vbg-surface-secondary);
+}
+
+:where(.vbg-report) .vbg-table-wrap[data-sticky-first="true"][data-variant="comparison"] tbody tr[data-recommended="true"] > :first-child,
+:where(.vbg-report) .vbg-table-wrap[data-sticky-first="true"] :where(th, td):first-child.vbg-table-emphasis {
+  background: var(--vbg-background-200);
+  box-shadow: inset -1px 0 var(--vbg-border-subtle);
+}
+
+:where(.vbg-report) .vbg-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vbg-space-3) var(--vbg-space-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-compact);
+  line-height: var(--vbg-leading-compact);
+}
+
+:where(.vbg-report) .vbg-legend > li + li {
+  margin-block-start: 0;
+}
+
+:where(.vbg-report) .vbg-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-inline-end: var(--vbg-space-2);
+  border: 1px solid rgb(127 127 127 / 35%);
+  border-radius: 2px;
+  background: var(--vbg-series-color, var(--vbg-chart-1));
+}
+
+:where(.vbg-report) .vbg-series-1 { --vbg-series-color: var(--vbg-chart-1); }
+:where(.vbg-report) .vbg-series-2 { --vbg-series-color: var(--vbg-chart-2); }
+:where(.vbg-report) .vbg-series-3 { --vbg-series-color: var(--vbg-chart-3); }
+:where(.vbg-report) .vbg-series-4 { --vbg-series-color: var(--vbg-chart-4); }
+:where(.vbg-report) .vbg-series-5 { --vbg-series-color: var(--vbg-chart-5); }
+:where(.vbg-report) .vbg-series-6 { --vbg-series-color: var(--vbg-chart-6); }
+
+/* Stroke patterns keep monochrome series distinguishable without color alone. */
+:where(.vbg-report) .vbg-chart :where(
+  .vbg-series-stroke.vbg-series-2,
+  .vbg-series-2 .vbg-series-stroke
+) { stroke-dasharray: 8 4; }
+
+:where(.vbg-report) .vbg-chart :where(
+  .vbg-series-stroke.vbg-series-3,
+  .vbg-series-3 .vbg-series-stroke
+) { stroke-dasharray: 3 3; }
+
+:where(.vbg-report) .vbg-chart :where(
+  .vbg-series-stroke.vbg-series-4,
+  .vbg-series-4 .vbg-series-stroke
+) { stroke-dasharray: 10 3 2 3; }
+
+:where(.vbg-report) .vbg-chart :where(
+  .vbg-series-stroke.vbg-series-5,
+  .vbg-series-5 .vbg-series-stroke
+) { stroke-dasharray: 1 4; }
+
+:where(.vbg-report) .vbg-chart :where(
+  .vbg-series-stroke.vbg-series-6,
+  .vbg-series-6 .vbg-series-stroke
+) { stroke-dasharray: 12 4 3 4; }
+
+/* Narrative roles add emphasis without changing an assigned category color. */
+:where(.vbg-report) .vbg-chart :where(
+  .vbg-series-primary:not(.vbg-series-1, .vbg-series-2, .vbg-series-3, .vbg-series-4, .vbg-series-5, .vbg-series-6),
+  [data-role="primary"]:not(.vbg-series-1, .vbg-series-2, .vbg-series-3, .vbg-series-4, .vbg-series-5, .vbg-series-6)
+) {
+  --vbg-series-color: var(--vbg-chart-1);
+}
+
+:where(.vbg-report) .vbg-chart :where(
+  .vbg-series-stroke.vbg-series-primary,
+  .vbg-series-primary .vbg-series-stroke,
+  .vbg-series-stroke[data-role="primary"],
+  [data-role="primary"] .vbg-series-stroke
+) {
+  stroke-width: 2.5;
+}
+
+:where(.vbg-report) .vbg-chart :where(
+  .vbg-series-reference:not(.vbg-series-1, .vbg-series-2, .vbg-series-3, .vbg-series-4, .vbg-series-5, .vbg-series-6),
+  [data-role="reference"]:not(.vbg-series-1, .vbg-series-2, .vbg-series-3, .vbg-series-4, .vbg-series-5, .vbg-series-6)
+) {
+  --vbg-series-color: var(--vbg-gray-900);
+}
+
+:where(.vbg-report) .vbg-chart :where(
+  .vbg-series-stroke.vbg-series-reference,
+  .vbg-series-reference .vbg-series-stroke,
+  .vbg-series-stroke[data-role="reference"],
+  [data-role="reference"] .vbg-series-stroke
+) {
+  stroke-dasharray: 4 4;
+  stroke-width: 1.5;
+}
+
+:where(.vbg-report) :where(button, .vbg-button) {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  min-height: var(--vbg-control-height);
+  align-items: center;
+  justify-content: center;
+  gap: var(--vbg-space-2);
+  border: 1px solid var(--vbg-border-default);
+  border-radius: var(--vbg-radius-small);
+  background: var(--vbg-background-100);
+  color: var(--vbg-gray-1000);
+  padding: 7px var(--vbg-space-4);
+  font: var(--vbg-weight-medium) 0.875rem/var(--vbg-leading-compact) var(--vbg-font-sans);
+  text-align: center;
+  text-decoration: none;
+  overflow-wrap: break-word;
+  word-break: normal;
+  white-space: normal;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background-color 150ms ease, border-color 150ms ease;
+}
+
+:where(.vbg-report) :where(button, .vbg-button) > :where(img, svg) {
+  flex: none;
+}
+
+:where(.vbg-report) :where(button, .vbg-button):hover {
+  border-color: var(--vbg-border-default);
+  background: var(--vbg-gray-alpha-200);
+}
+
+:where(.vbg-report) :where(button, .vbg-button)[data-variant="primary"] {
+  border-color: var(--vbg-gray-1000);
+  background: var(--vbg-gray-1000);
+  color: var(--vbg-background-100);
+}
+
+:where(.vbg-report) :where(button, .vbg-button)[data-variant="primary"]:hover {
+  border-color: var(--vbg-gray-900);
+  background: var(--vbg-gray-900);
+}
+
+/*
+ * Chromium can retain the light branch of light-dark() on a descendant after
+ * an explicit runtime theme switch. Pin ordinary and secondary actions to the
+ * forced theme so reset controls never become light text on a light surface.
+ */
+.vbg-report.light-theme :is(button, .vbg-button):is(:not([data-variant]), [data-variant="secondary"]):not(.vbg-band[data-tone="contrast"] *),
+.vbg-report[data-theme="light"]:not(.light-theme):not(.dark-theme) :is(button, .vbg-button):is(:not([data-variant]), [data-variant="secondary"]):not(.vbg-band[data-tone="contrast"] *) {
+  border-color: oklch(0 0 0 / 0.08);
+  background: #ffffff;
+  color: #1f1f1f;
+  transition-property: border-color;
+}
+
+.vbg-report.dark-theme :is(button, .vbg-button):is(:not([data-variant]), [data-variant="secondary"]):not(.vbg-band[data-tone="contrast"] *),
+.vbg-report[data-theme="dark"]:not(.light-theme):not(.dark-theme) :is(button, .vbg-button):is(:not([data-variant]), [data-variant="secondary"]):not(.vbg-band[data-tone="contrast"] *) {
+  border-color: oklch(1 0 0 / 0.14);
+  background: #1f1f1f;
+  color: #ededed;
+  transition-property: border-color;
+}
+
+:where(.vbg-report) :where(button, .vbg-button)[data-variant="tertiary"] {
+  border-color: transparent;
+  background: transparent;
+}
+
+/*
+ * Chromium can retain the light branch of an inherited light-dark() token on
+ * a descendant when an explicit theme class is switched after first paint.
+ * Keep quiet actions legible through that runtime override path.
+ */
+.vbg-report.dark-theme :is(button, .vbg-button)[data-variant="tertiary"],
+.vbg-report[data-theme="dark"]:not(.light-theme):not(.dark-theme) :is(button, .vbg-button)[data-variant="tertiary"] {
+  color: #ededed;
+}
+
+:where(.vbg-report) :where(button, .vbg-button)[data-variant="tertiary"]:hover {
+  border-color: var(--vbg-gray-alpha-200);
+  background: var(--vbg-gray-alpha-200);
+}
+
+:where(.vbg-report) :where(button, .vbg-button):active {
+  background: var(--vbg-gray-alpha-300);
+}
+
+:where(.vbg-report) :where(button, .vbg-button)[data-variant="primary"]:active {
+  border-color: var(--vbg-gray-800);
+  background: var(--vbg-gray-800);
+}
+
+:where(.vbg-report) :where(
+  button[aria-pressed="true"],
+  .vbg-button[aria-pressed="true"],
+  button[data-selected="true"],
+  .vbg-button[data-selected="true"],
+  button[data-state="active"],
+  .vbg-button[data-state="active"]
+) {
+  border-color: var(--vbg-gray-1000);
+  background: var(--vbg-gray-1000);
+  color: var(--vbg-background-100);
+}
+
+:where(.vbg-report) :where(
+  button[aria-pressed="true"],
+  .vbg-button[aria-pressed="true"],
+  button[data-selected="true"],
+  .vbg-button[data-selected="true"],
+  button[data-state="active"],
+  .vbg-button[data-state="active"]
+):hover {
+  border-color: var(--vbg-gray-900);
+  background: var(--vbg-gray-900);
+}
+
+/*
+ * Explicit theme overrides have higher specificity than the generic selected
+ * state. Pin selected tertiary controls to definite accessible color pairs.
+ */
+.vbg-report.light-theme :is(button, .vbg-button)[data-variant="tertiary"]:is([aria-pressed="true"], [data-selected="true"], [data-state="active"]):not(:disabled):not([aria-disabled="true"]),
+.vbg-report[data-theme="light"]:not(.light-theme):not(.dark-theme) :is(button, .vbg-button)[data-variant="tertiary"]:is([aria-pressed="true"], [data-selected="true"], [data-state="active"]):not(:disabled):not([aria-disabled="true"]) {
+  border-color: #1f1f1f;
+  background: #1f1f1f;
+  color: #ffffff;
+}
+
+.vbg-report.dark-theme :is(button, .vbg-button)[data-variant="tertiary"]:is([aria-pressed="true"], [data-selected="true"], [data-state="active"]):not(:disabled):not([aria-disabled="true"]),
+.vbg-report[data-theme="dark"]:not(.light-theme):not(.dark-theme) :is(button, .vbg-button)[data-variant="tertiary"]:is([aria-pressed="true"], [data-selected="true"], [data-state="active"]):not(:disabled):not([aria-disabled="true"]) {
+  border-color: #ededed;
+  background: #ededed;
+  color: #1f1f1f;
+}
+
+.vbg-report .vbg-band[data-tone="contrast"] :is(button, .vbg-button)[data-variant="tertiary"]:is([aria-pressed="true"], [data-selected="true"], [data-state="active"]):not(:disabled):not([aria-disabled="true"]) {
+  border-color: #ededed;
+  background: #ededed;
+  color: #1f1f1f;
+}
+
+:where(.vbg-report) :where(button, .vbg-button):where(:disabled, [aria-disabled="true"]) {
+  border-color: var(--vbg-gray-alpha-400);
+  background: var(--vbg-gray-100);
+  color: var(--vbg-gray-700);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+:where(.vbg-report) :where(button, .vbg-button)[data-variant="tertiary"]:where(:disabled, [aria-disabled="true"]) {
+  border-color: transparent;
+  background: transparent;
+  color: var(--vbg-gray-700);
+  opacity: 0.5;
+}
+
+:where(.vbg-report) .vbg-action-row,
+:where(.vbg-report) .vbg-actions,
+:where(.vbg-report) .vbg-cluster {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--vbg-space-3);
+}
+
+:where(.vbg-report) :where(.vbg-action-row, .vbg-actions, .vbg-cluster) > * {
+  margin-block: 0;
+}
+
+:where(.vbg-report) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+  width: 100%;
+  min-height: var(--vbg-control-height);
+  border: 1px solid var(--vbg-border-default);
+  border-radius: var(--vbg-radius-small);
+  background: var(--vbg-background-100);
+  color: var(--vbg-gray-1000);
+  padding: var(--vbg-space-2) var(--vbg-space-3);
+  font: var(--vbg-weight-regular) 0.875rem/1.4 var(--vbg-font-sans);
+}
+
+:where(.vbg-report) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea):hover {
+  border-color: var(--vbg-border-strong);
+}
+
+:where(.vbg-report) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea):disabled {
+  cursor: not-allowed;
+  background: var(--vbg-background-200);
+  color: var(--vbg-text-secondary);
+  opacity: 0.7;
+}
+
+:where(.vbg-report) :where(
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"])[aria-invalid="true"],
+  select[aria-invalid="true"],
+  textarea[aria-invalid="true"],
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):user-invalid,
+  select:user-invalid,
+  textarea:user-invalid,
+  .vbg-field[data-invalid="true"] input,
+  .vbg-field[data-invalid="true"] select,
+  .vbg-field[data-invalid="true"] textarea
+) {
+  border-color: var(--vbg-color-error);
+}
+
+:where(.vbg-report) input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  min-height: 28px;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  accent-color: var(--vbg-text-primary);
+  cursor: pointer;
+}
+
+:where(.vbg-report) input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--vbg-border-default);
+}
+
+:where(.vbg-report) input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border: 2px solid var(--vbg-surface-primary);
+  border-radius: 50%;
+  background: var(--vbg-text-primary);
+  box-shadow: 0 0 0 1px var(--vbg-border-strong);
+}
+
+:where(.vbg-report) input[type="range"]::-moz-range-track {
+  height: 4px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--vbg-border-default);
+}
+
+:where(.vbg-report) input[type="range"]::-moz-range-progress {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--vbg-text-primary);
+}
+
+:where(.vbg-report) input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--vbg-surface-primary);
+  border-radius: 50%;
+  background: var(--vbg-text-primary);
+  box-shadow: 0 0 0 1px var(--vbg-border-strong);
+}
+
+:where(.vbg-report) input[type="range"]:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+:where(.vbg-report) .vbg-range-ends {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--vbg-space-4);
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-label);
+  line-height: var(--vbg-leading-caption);
+  font-variant-numeric: tabular-nums;
+}
+
+:where(.vbg-report) :where(.vbg-range-min, .vbg-range-max) {
+  margin: 0;
+}
+
+:where(.vbg-report) .vbg-range-max {
+  margin-inline-start: auto;
+  text-align: end;
+}
+
+:where(.vbg-report) :where(input[type="checkbox"], input[type="radio"]) {
+  width: auto;
+  min-height: auto;
+  accent-color: var(--vbg-text-primary);
+}
+
+:where(.vbg-report) .vbg-calculator {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--vbg-space-6);
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+:where(.vbg-report) :where(
+  .vbg-calculator[data-variant="contained"],
+  .vbg-calculator[data-contained="true"]
+) {
+  border: 1px solid var(--vbg-border-subtle);
+  border-radius: var(--vbg-radius);
+  padding: var(--vbg-space-6);
+}
+
+:where(.vbg-report) .vbg-calculator-layout,
+:where(.vbg-report) .vbg-calculator[data-layout="split"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--vbg-space-6);
+}
+
+@supports selector(.vbg-calculator:has(> .vbg-calculator-inputs)) {
+  :where(.vbg-report) :where(.vbg-calculator, .vbg-calculator-layout):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) {
+    grid-template-columns: minmax(0, 5fr) minmax(260px, 4fr);
+    grid-template-areas: "inputs output";
+    gap: var(--vbg-space-8);
+    align-items: stretch;
+  }
+
+  :where(.vbg-report) :where(.vbg-calculator, .vbg-calculator-layout):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-inputs {
+    grid-area: inputs;
+  }
+
+  :where(.vbg-report) :where(.vbg-calculator, .vbg-calculator-layout):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-output {
+    grid-area: output;
+  }
+
+  /*
+   * Preferred calculator composition. Source order keeps the decisive result
+   * first on narrow screens while desktop places one control column beside one
+   * continuous result column. The generated grid line is the only divider.
+   */
+  :where(.vbg-report) .vbg-calculator:has(> .vbg-result[data-priority="primary"]):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) {
+    grid-template-columns: minmax(0, 5fr) 1px minmax(260px, 4fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    grid-template-areas:
+      "inputs divider primary"
+      "inputs divider output";
+    column-gap: 0;
+    row-gap: var(--vbg-space-6);
+    align-items: start;
+  }
+
+  :where(.vbg-report) .vbg-calculator:has(> .vbg-result[data-priority="primary"]):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden]))::before {
+    content: "";
+    grid-area: divider;
+    align-self: stretch;
+    background: var(--vbg-border-subtle);
+  }
+
+  :where(.vbg-report) .vbg-calculator:has(> .vbg-result[data-priority="primary"]):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-result[data-priority="primary"] {
+    grid-area: primary;
+    border-block-start: 0;
+    padding-block-start: 0;
+    padding-inline-start: var(--vbg-space-8);
+  }
+
+  :where(.vbg-report) .vbg-calculator:has(> .vbg-result[data-priority="primary"]):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-inputs {
+    grid-area: inputs;
+    padding-inline-end: var(--vbg-space-8);
+  }
+
+  :where(.vbg-report) .vbg-calculator:has(> .vbg-result[data-priority="primary"]):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-output {
+    grid-area: output;
+    border-inline-start: 0;
+    padding-inline-start: var(--vbg-space-8);
+  }
+}
+
+:where(.vbg-report) :where(.vbg-calculator-inputs, .vbg-calculator-output) {
+  display: grid;
+  min-width: 0;
+  align-content: start;
+  gap: var(--vbg-space-6);
+}
+
+:where(.vbg-report) .vbg-calculator-output {
+  border-inline-start: 0;
+  padding-inline-start: 0;
+}
+
+/* The output owns the split boundary instead of inheriting it from source order. */
+@supports selector(.vbg-calculator:has(> .vbg-calculator-inputs)) {
+  :where(.vbg-report) :where(.vbg-calculator, .vbg-calculator-layout):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-output {
+    border-inline-start: 1px solid var(--vbg-border-subtle);
+    padding-inline-start: var(--vbg-space-8);
+  }
+}
+
+:where(.vbg-report) .vbg-calculator-output > :where(h2, h3, h4, p) {
+  margin-block: 0;
+}
+
+:where(.vbg-report) .vbg-field {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--vbg-space-2);
+}
+
+:where(.vbg-report) .vbg-control-group {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--vbg-space-4);
+  min-width: 0;
+}
+
+:where(.vbg-report) .vbg-unit-field {
+  display: flex;
+  min-width: 0;
+  min-height: var(--vbg-control-height);
+  align-items: center;
+  overflow: hidden;
+  border: 1px solid var(--vbg-border-default);
+  border-radius: var(--vbg-radius-small);
+  background: var(--vbg-background-100);
+}
+
+:where(.vbg-report) .vbg-unit-field:hover {
+  border-color: var(--vbg-border-strong);
+}
+
+:where(.vbg-report) .vbg-unit-field:focus-within {
+  border-color: var(--vbg-focus);
+  outline: 2px solid var(--vbg-focus);
+  outline-offset: 2px;
+}
+
+:where(.vbg-report) .vbg-unit-field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
+  min-width: 0;
+  min-height: calc(var(--vbg-control-height) - 2px);
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding-inline: var(--vbg-space-3);
+  outline: 0;
+}
+
+:where(.vbg-report) .vbg-unit-field > :where(.vbg-unit-prefix, .vbg-unit-suffix, .vbg-unit) {
+  flex: none;
+  color: var(--vbg-text-secondary);
+  padding-inline: var(--vbg-space-3);
+  font-size: var(--vbg-type-compact);
+  line-height: var(--vbg-leading-compact);
+  white-space: nowrap;
+}
+
+:where(.vbg-report) .vbg-unit-field > .vbg-unit-prefix {
+  padding-inline-end: 0;
+}
+
+:where(.vbg-report) .vbg-unit-field > :where(.vbg-unit-suffix, .vbg-unit) {
+  padding-inline-start: 0;
+}
+
+:where(.vbg-report) :where(
+  .vbg-unit-field[data-invalid="true"],
+  .vbg-unit-field:has(> [aria-invalid="true"]),
+  .vbg-unit-field:has(> :user-invalid),
+  .vbg-field[data-invalid="true"] .vbg-unit-field
+) {
+  border-color: var(--vbg-color-error);
+}
+
+:where(.vbg-report) .vbg-helper,
+:where(.vbg-report) .vbg-error {
+  margin-block: 0;
+  font-size: var(--vbg-type-label);
+  line-height: var(--vbg-leading-caption);
+}
+
+:where(.vbg-report) .vbg-helper {
+  color: var(--vbg-text-secondary);
+}
+
+:where(.vbg-report) .vbg-error {
+  color: var(--vbg-color-error);
+  font-weight: var(--vbg-weight-medium);
+}
+
+:where(.vbg-report) .vbg-error:empty {
+  display: none;
+}
+
+:where(.vbg-report) :where(.vbg-calculator, .vbg-field, .vbg-result, .vbg-calculator > *) {
+  min-width: 0;
+}
+
+:where(.vbg-report) .vbg-result {
+  display: grid;
+  align-content: start;
+  gap: var(--vbg-space-1);
+  border-top: 1px solid var(--vbg-border-subtle);
+  padding-block-start: var(--vbg-space-4);
+  font-variant-numeric: tabular-nums;
+}
+
+:where(.vbg-report) .vbg-opening-proof > .vbg-result[data-priority="primary"] {
+  border-block-start: 0;
+  padding-block-start: 0;
+}
+
+:where(.vbg-report) .vbg-calculator-output > .vbg-result:nth-child(1 of .vbg-result) {
+  border-top: 0;
+  padding-block-start: 0;
+}
+
+:where(.vbg-report) :is(
+  .vbg-result-label,
+  .vbg-result > .vbg-label:first-child
+) {
+  margin: 0;
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-label);
+  line-height: var(--vbg-leading-caption);
+}
+
+:where(.vbg-report) :is(
+  .vbg-result-value,
+  .vbg-result > :is(strong, output):nth-child(2)
+) {
+  margin: 0;
+  color: var(--vbg-text-primary);
+  font-size: clamp(1.5rem, 3vw, 2rem);
+  font-weight: var(--vbg-weight-heading);
+  line-height: 1.15;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+  max-inline-size: 100%;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+:where(.vbg-report) :where(.vbg-metric, .vbg-result)[data-priority="supporting"] :is(
+  .vbg-metric-value,
+  .vbg-result-value,
+  :is(strong, output):nth-child(2)
+),
+:where(.vbg-report) :where(.vbg-metric-value, .vbg-result-value)[data-priority="supporting"] {
+  font-size: clamp(1.25rem, 2vw, 1.5rem);
+}
+
+:where(.vbg-report) :where(.vbg-stat, .vbg-metric, .vbg-result)[data-priority="primary"] :is(
+  .vbg-stat-value,
+  .vbg-metric-value,
+  .vbg-result-value,
+  :is(strong, output):nth-child(2)
+),
+:where(.vbg-report) :where(.vbg-stat-value, .vbg-metric-value, .vbg-result-value)[data-priority="primary"],
+:where(.vbg-report) .vbg-value-primary {
+  color: var(--vbg-text-primary);
+  font-size: clamp(2rem, 4vw, 2.5rem);
+  font-weight: var(--vbg-weight-heading);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.04em;
+  line-height: 1.15;
+  max-inline-size: 100%;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+@supports (font-size: 1cqi) {
+  :where(.vbg-report) :where(.vbg-stat-strip, .vbg-metrics, .vbg-result-group, .vbg-stat, .vbg-metric, .vbg-result) {
+    container-type: inline-size;
+  }
+
+  :where(.vbg-report) :is(
+    .vbg-stat-value,
+    .vbg-metric-value,
+    .vbg-result-value,
+    .vbg-stat > :is(strong, output):nth-child(2),
+    .vbg-metric > :is(strong, output):nth-child(2),
+    .vbg-result > :is(strong, output):nth-child(2)
+  ) {
+    font-size: clamp(1.25rem, 12cqi, 2rem);
+  }
+
+  :where(.vbg-report) :where(.vbg-stat, .vbg-metric, .vbg-result)[data-priority="primary"] :is(
+    .vbg-stat-value,
+    .vbg-metric-value,
+    .vbg-result-value,
+    :is(strong, output):nth-child(2)
+  ),
+  :where(.vbg-report) :where(.vbg-stat-value, .vbg-metric-value, .vbg-result-value)[data-priority="primary"] {
+    font-size: clamp(1.5rem, 14cqi, 2.5rem);
+  }
+}
+
+/* Visual peers keep one value role; priority must be expressed outside the peer group. */
+:where(.vbg-report) :is(
+  .vbg-stat-strip > .vbg-stat,
+  .vbg-metrics > .vbg-metric,
+  .vbg-result-group > .vbg-result
+) :is(.vbg-stat-value, .vbg-metric-value, .vbg-result-value) {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+}
+
+:where(.vbg-report) :is(
+  .vbg-stat-strip > .vbg-stat,
+  .vbg-metrics > .vbg-metric,
+  .vbg-result-group > .vbg-result
+) > :is(strong, output):nth-child(2) {
+  font-size: clamp(1.5rem, 3vw, 2rem);
+}
+
+/* Keep peer values responsive to their owned track, including narrow split proofs. */
+@supports (font-size: 1cqi) {
+  :where(.vbg-report) :is(
+    .vbg-stat-strip > .vbg-stat,
+    .vbg-metrics > .vbg-metric,
+    .vbg-result-group > .vbg-result
+  ) :is(.vbg-stat-value, .vbg-metric-value, .vbg-result-value),
+  :where(.vbg-report) :is(
+    .vbg-stat-strip > .vbg-stat,
+    .vbg-metrics > .vbg-metric,
+    .vbg-result-group > .vbg-result
+  ) > :is(strong, output):nth-child(2) {
+    font-size: clamp(1.25rem, 4cqi, 2rem);
+  }
+}
+
+/*
+ * Numeric peer values stay atomic by default. On desktop, values with authored
+ * whitespace may use a second line inside their owned track; digits, currency,
+ * dates, and units never break internally. Stacked mobile values remain atomic.
+ */
+@media (min-width: 801px) {
+  :where(.vbg-report) :is(
+    .vbg-stat-strip > .vbg-stat,
+    .vbg-metrics > .vbg-metric,
+    .vbg-result-group > .vbg-result
+  ) :is(.vbg-stat-value, .vbg-metric-value, .vbg-result-value).vbg-numeric,
+  :where(.vbg-report) :is(
+    .vbg-stat-strip > .vbg-stat,
+    .vbg-metrics > .vbg-metric,
+    .vbg-result-group > .vbg-result
+  ) > :is(strong, output).vbg-numeric:nth-child(2) {
+    white-space: normal;
+    overflow-wrap: normal;
+    word-break: normal;
+    text-wrap: balance;
+  }
+}
+
+:where(.vbg-report) :is(
+  .vbg-result-detail,
+  .vbg-result > .vbg-meta
+) {
+  margin: var(--vbg-space-1) 0 0;
+  color: var(--vbg-text-secondary);
+  font-size: var(--vbg-type-compact);
+  line-height: var(--vbg-leading-compact);
+}
+
+:where(.vbg-report) .vbg-result-group {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: var(--vbg-space-8);
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+:where(.vbg-report) .vbg-result-group > * {
+  min-width: 0;
+}
+
+/* Three equal peers stay one row on wide layouts and one deliberate stack on narrow layouts. */
+@media (min-width: 801px) {
+  @supports selector(.vbg-stat-strip:has(> :nth-child(3):last-child)) {
+    :where(.vbg-report) :is(.vbg-stat-strip, .vbg-metrics, .vbg-comparison, .vbg-result-group):has(> :nth-child(3):last-child) {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+  }
+}
+
+@media (max-width: 800px) {
+  @supports selector(.vbg-stat-strip:has(> :nth-child(3):last-child)) {
+    :where(.vbg-report) :is(.vbg-stat-strip, .vbg-metrics, .vbg-comparison, .vbg-result-group):has(> :nth-child(3):last-child) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+}
+
+/* Horizontal result peers are one visual group, not a stack of ruled results. */
+:where(.vbg-report) .vbg-result-group > .vbg-result {
+  border-top: 0;
+  padding-block-start: 0;
+}
+
+/*
+ * Keep peer labels, values, and details on shared rows. The fallback reserves
+ * two compact lines for labels in engines without subgrid support.
+ */
+@supports not (grid-template-rows: subgrid) {
+  :where(.vbg-report) :is(
+    .vbg-stat-strip > .vbg-stat > :is(.vbg-stat-label, .vbg-label):first-child,
+    .vbg-metrics > .vbg-metric > :is(.vbg-metric-label, .vbg-label):first-child,
+    .vbg-result-group > .vbg-result > :is(.vbg-result-label, .vbg-label):first-child
+  ) {
+    min-block-size: calc(2 * var(--vbg-leading-compact));
+  }
+}
+
+@supports (grid-template-rows: subgrid) {
+  :where(.vbg-report) :is(.vbg-stat-strip, .vbg-metrics, .vbg-result-group) {
+    row-gap: var(--vbg-space-2);
+  }
+
+  :where(.vbg-report) :is(
+    .vbg-stat-strip > .vbg-stat,
+    .vbg-metrics > .vbg-metric,
+    .vbg-result-group > .vbg-result
+  ) {
+    grid-row: span 3;
+    grid-template-rows: subgrid;
+    row-gap: var(--vbg-space-2);
+    container-type: normal;
+  }
+
+  :where(.vbg-report) :is(
+    .vbg-stat-strip > .vbg-stat,
+    .vbg-metrics > .vbg-metric,
+    .vbg-result-group > .vbg-result
+  ):not(:last-child) {
+    margin-block-end: calc(var(--vbg-space-8) - var(--vbg-space-2));
+  }
+}
+
+/* Frame a flat evidence or table region with a parent .vbg-surface; do not combine the classes on one node. */
+:where(.vbg-report) :where(.vbg-surface, .vbg-evidence, .vbg-calculator) :is(.vbg-surface, .vbg-evidence, .vbg-calculator, .vbg-table-wrap) {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+}
+
+:where(.vbg-report) .vbg-sources {
+  color: var(--vbg-text-secondary);
+  font-size: 0.8125rem;
+  line-height: var(--vbg-leading-caption);
+}
+
+:where(.vbg-report) .vbg-footer {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  column-gap: var(--vbg-space-6);
+  align-items: center;
+  border: 0;
+  padding-block: var(--vbg-space-16) 0;
+  color: var(--vbg-text-secondary);
+  font-size: 0.8125rem;
+  line-height: var(--vbg-leading-caption);
+}
+
+:where(.vbg-report) .vbg-footer > * {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin-block: 0;
+}
+
+:where(.vbg-report) .vbg-footer > .vbg-logo {
+  grid-column: 1;
+  color: var(--vbg-text-primary);
+}
+
+@supports selector(.vbg-footer:has(> :nth-child(2):last-child)) {
+  :where(.vbg-report) .vbg-footer:has(> .vbg-logo:first-child):has(> :nth-child(2):last-child) > :nth-child(2) {
+    grid-column: 8 / -1;
+    justify-self: end;
+    text-align: end;
+  }
+}
+
+:where(.vbg-report) select {
+  background-color: var(--vbg-background-100);
+}
+
+:where(.vbg-report) textarea { min-height: 96px; resize: vertical; }
+
+:where(.vbg-report) details {
+  border-top: 1px solid var(--vbg-border-subtle);
+  padding-block: var(--vbg-space-4);
+}
+
+:where(.vbg-report) summary {
+  font-weight: var(--vbg-weight-medium);
+  cursor: pointer;
+}
+
+:where(.vbg-report) .vbg-visually-hidden {
+  position: absolute !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  clip-path: inset(50%) !important;
+  white-space: nowrap !important;
+}
+
+.vbg-skip-link {
+  position: fixed;
+  inset-block-start: var(--vbg-space-3, 12px);
+  inset-inline-start: var(--vbg-space-3, 12px);
+  z-index: 1000;
+  transform: translateY(calc(-100% - var(--vbg-space-6, 24px)));
+  border-radius: var(--vbg-radius-small, 6px);
+  background: var(--vbg-gray-1000, #000000);
+  color: var(--vbg-background-100, #ffffff);
+  padding: var(--vbg-space-2, 8px) var(--vbg-space-3, 12px);
+  font-family: var(--vbg-font-sans, "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  font-size: 0.875rem;
+  font-weight: var(--vbg-weight-medium, 500);
+  line-height: 1.25rem;
+}
+
+.vbg-skip-link:focus {
+  transform: translateY(0);
+}
+
+@media (min-width: 801px) and (max-width: 900px) {
+  :where(.vbg-report) .vbg-stat-strip[data-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@supports selector(.vbg-stat-strip:has(> .vbg-stat)) {
+  @media (min-width: 801px) and (max-width: 900px) {
+    :where(.vbg-report) .vbg-stat-strip:has(> .vbg-stat:nth-child(4):last-child) {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+}
+
+@media (min-width: 600px) and (max-width: 1000px) {
+  :where(.vbg-report) :is(.vbg-header, .vbg-section, .vbg-footer, .vbg-grid) {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  :where(.vbg-report) .vbg-opening {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+
+  :where(.vbg-report) .vbg-opening[data-layout="split"] > .vbg-opening-claim {
+    grid-column: 1 / span 3;
+  }
+
+  :where(.vbg-report) .vbg-opening[data-layout="split"] > .vbg-opening-proof {
+    grid-column: 4 / -1;
+  }
+
+  :where(.vbg-report) .vbg-opening[data-layout="split"] > .vbg-opening-context {
+    grid-column: 1 / span 3;
+  }
+
+  :where(.vbg-report) .vbg-header > :where(h1, .vbg-title, .vbg-display) {
+    grid-column: 1 / span 5;
+  }
+
+  :where(.vbg-report) .vbg-header > :where(.vbg-summary, .vbg-lede),
+  :where(.vbg-report) .vbg-section > :where(h2, h3, h4, p, ul, ol, dl, blockquote, .vbg-reading) {
+    grid-column: 1 / span 4;
+  }
+
+  :where(.vbg-report) :where(.vbg-span-6, .vbg-span-7, .vbg-span-8, .vbg-span-12) {
+    grid-column: 1 / -1;
+  }
+
+  @supports selector(.vbg-footer:has(> :nth-child(2):last-child)) {
+    :where(.vbg-report) .vbg-footer:has(> .vbg-logo:first-child):has(> :nth-child(2):last-child) > :nth-child(2) {
+      grid-column: 4 / -1;
+    }
+  }
+}
+
+@media (max-width: 599px) {
+  :where(.vbg-report) :is(.vbg-header, .vbg-section, .vbg-footer, .vbg-grid) {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--vbg-space-4);
+  }
+
+  .vbg-report .vbg-grid > * {
+    grid-column: 1 / -1;
+  }
+
+  :where(.vbg-report) .vbg-opening,
+  :where(.vbg-report) .vbg-opening[data-layout="split"],
+  :where(.vbg-report) .vbg-opening[data-layout="stack"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  :where(.vbg-report) .vbg-header > :where(h1, .vbg-title, .vbg-display, .vbg-summary, .vbg-lede),
+  :where(.vbg-report) .vbg-section > :where(h2, h3, h4, p, ul, ol, dl, blockquote, .vbg-reading) {
+    grid-column: 1 / -1;
+  }
+
+  :where(.vbg-report) .vbg-footer > .vbg-logo {
+    grid-column: 1;
+  }
+
+  @supports selector(.vbg-footer:has(> :nth-child(2):last-child)) {
+    :where(.vbg-report) .vbg-footer:has(> .vbg-logo:first-child):has(> :nth-child(2):last-child) > :nth-child(2) {
+      grid-column: 2 / -1;
+    }
+  }
+}
+
+@media (max-width: 800px) {
+  :where(.vbg-report) .vbg-overflow-cue {
+    display: flex;
+  }
+
+  :where(.vbg-report) .vbg-shell {
+    width: 100%;
+    padding-inline-start: calc(var(--vbg-space-4) + env(safe-area-inset-left, 0px));
+    padding-inline-end: calc(var(--vbg-space-4) + env(safe-area-inset-right, 0px));
+    padding-block: var(--vbg-space-10);
+  }
+
+  :where(.vbg-report) .vbg-opening,
+  :where(.vbg-report) .vbg-opening[data-layout="split"],
+  :where(.vbg-report) .vbg-opening[data-layout="stack"] {
+    gap: var(--vbg-space-4);
+  }
+
+  :where(.vbg-report) .vbg-opening > .vbg-opening-claim,
+  :where(.vbg-report) .vbg-opening > .vbg-opening-proof,
+  :where(.vbg-report) .vbg-opening > .vbg-opening-context,
+  :where(.vbg-report) .vbg-opening[data-layout="split"] > .vbg-opening-claim,
+  :where(.vbg-report) .vbg-opening[data-layout="split"] > .vbg-opening-proof,
+  :where(.vbg-report) .vbg-opening[data-layout="split"] > .vbg-opening-context {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  :where(.vbg-report) h1 {
+    font-size: var(--vbg-type-title);
+    line-height: var(--vbg-leading-title);
+  }
+
+  :where(.vbg-report) .vbg-title {
+    font-size: var(--vbg-type-title);
+    line-height: var(--vbg-leading-title);
+  }
+
+  :where(.vbg-report) .vbg-display {
+    font-size: var(--vbg-type-title);
+    line-height: var(--vbg-leading-title);
+  }
+
+  :where(.vbg-report) .vbg-masthead {
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .vbg-report .vbg-masthead > * {
+    grid-column: 1 / -1;
+    grid-row: auto;
+  }
+
+  /* Match the desktop :has() specificity so known regions truly stack. */
+  @supports selector(.vbg-masthead:has(> .vbg-identity)) {
+    :where(.vbg-report) .vbg-masthead:has(> .vbg-identity):has(> .vbg-document-meta) > .vbg-identity,
+    :where(.vbg-report) .vbg-masthead:has(> .vbg-identity):has(> .vbg-document-meta) > .vbg-document-meta {
+      grid-column: 1 / -1;
+      grid-row: auto;
+    }
+  }
+
+  :where(.vbg-report) .vbg-document-meta {
+    justify-content: flex-start;
+  }
+
+  .vbg-report .vbg-split > * {
+    grid-column: 1 / -1;
+  }
+
+  .vbg-report .vbg-split,
+  .vbg-report .vbg-calculator-layout,
+  .vbg-report .vbg-calculator[data-layout="split"],
+  .vbg-report .vbg-result-group,
+  .vbg-report .vbg-next-step {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  @supports selector(.vbg-calculator:has(> .vbg-calculator-inputs)) {
+    :where(.vbg-report) :where(.vbg-calculator, .vbg-calculator-layout):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-areas: none;
+      gap: var(--vbg-space-6);
+    }
+
+    :where(.vbg-report) :where(.vbg-calculator, .vbg-calculator-layout):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-inputs,
+    :where(.vbg-report) :where(.vbg-calculator, .vbg-calculator-layout):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-output {
+      grid-area: auto;
+    }
+
+    :where(.vbg-report) .vbg-calculator:has(> .vbg-result[data-priority="primary"]):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden]))::before {
+      display: none;
+    }
+
+    :where(.vbg-report) .vbg-calculator:has(> .vbg-result[data-priority="primary"]):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) {
+      grid-template-columns: minmax(0, 1fr);
+      grid-template-rows: none;
+      grid-template-areas: none;
+      gap: var(--vbg-space-6);
+    }
+
+    :where(.vbg-report) .vbg-calculator:has(> .vbg-result[data-priority="primary"]):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-result[data-priority="primary"],
+    :where(.vbg-report) .vbg-calculator:has(> .vbg-result[data-priority="primary"]):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-inputs,
+    :where(.vbg-report) .vbg-calculator:has(> .vbg-result[data-priority="primary"]):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-output {
+      grid-area: auto;
+      padding-inline: 0;
+    }
+  }
+
+  :where(.vbg-report) :where(.vbg-calculator-inputs, .vbg-calculator-output) {
+    border-block-start: 0;
+    border-inline-start: 0;
+    padding-block-start: 0;
+    padding-inline-start: 0;
+  }
+
+  :where(.vbg-report) :where(.vbg-calculator, .vbg-calculator-layout):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-output:not(:first-child) {
+    border-block-start: 1px solid var(--vbg-border-subtle);
+    border-inline-start: 0;
+    padding-block-start: var(--vbg-space-6);
+    padding-inline-start: 0;
+  }
+
+  :where(.vbg-report) :where(.vbg-calculator, .vbg-calculator-layout):has(> .vbg-calculator-inputs:not([hidden])):has(> .vbg-calculator-output:not([hidden])) > .vbg-calculator-output:first-child:not(:last-child) {
+    border-block-end: 1px solid var(--vbg-border-subtle);
+    border-inline-start: 0;
+    padding-block-end: var(--vbg-space-6);
+    padding-inline-start: 0;
+  }
+
+  :where(.vbg-report) .vbg-next-step > .vbg-actions {
+    justify-self: start;
+  }
+
+  .vbg-report .vbg-next-step > * {
+    grid-column: 1 / -1;
+  }
+
+  /* Match the desktop exact-pair placement when the grid collapses. */
+  @supports selector(.vbg-next-step:has(> :nth-child(2):last-child)) {
+    :where(.vbg-report) .vbg-next-step:has(> :nth-child(2):last-child) > :first-child,
+    :where(.vbg-report) .vbg-next-step:has(> :nth-child(2):last-child) > :nth-child(2) {
+      grid-column: 1 / -1;
+      grid-row: auto;
+    }
+  }
+
+  :where(.vbg-report) :where(
+    .vbg-surface[data-variant="contained"],
+    .vbg-surface[data-contained="true"],
+    .vbg-calculator[data-variant="contained"],
+    .vbg-calculator[data-contained="true"]
+  ) {
+    padding: var(--vbg-space-4);
+  }
+
+  :where(.vbg-report) .vbg-evidence { padding-block: 0; }
+
+  :where(.vbg-report) :where(.vbg-surface, .vbg-evidence, .vbg-calculator) :is(.vbg-surface, .vbg-evidence, .vbg-calculator, .vbg-table-wrap) {
+    padding: 0;
+  }
+
+  :where(.vbg-report) :where(button, .vbg-button) { min-height: var(--vbg-control-height-touch); }
+
+  :where(.vbg-report) :where(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea) {
+    min-height: var(--vbg-control-height-touch);
+    font-size: 16px;
+  }
+
+  :where(.vbg-report) :where(.vbg-unit-field, input[type="range"]) {
+    min-height: var(--vbg-control-height-touch);
+  }
+
+  :where(.vbg-report) .vbg-unit-field > input:not([type="checkbox"]):not([type="radio"]):not([type="range"]) {
+    min-height: calc(var(--vbg-control-height-touch) - 2px);
+  }
+
+  :where(.vbg-report) .vbg-chart-viewport > .vbg-chart-desktop {
+    display: none;
+  }
+
+  :where(.vbg-report) .vbg-chart-viewport > .vbg-chart-mobile {
+    display: block;
+  }
+
+  :where(.vbg-report) .vbg-chart:not([data-mobile="scroll"]) :where(.vbg-chart-plot, .vbg-chart-viewport > svg) {
+    min-width: 0 !important;
+    max-width: 100%;
+  }
+
+  :where(.vbg-report) .vbg-chart[data-mobile="scroll"] .vbg-chart-viewport > :where(svg, .vbg-chart-plot) {
+    min-width: var(--vbg-chart-min-width) !important;
+    max-width: none;
+  }
+
+  :where(.vbg-report) .vbg-formula {
+    overflow: visible;
+  }
+
+  /* Preserve readable columns locally instead of compressing wide evidence into character-level labels. */
+  :where(.vbg-report) .vbg-table-wrap:is(
+    :not([data-mobile="stack"]),
+    [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+    [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+  ) > table:has(> thead > tr > :nth-child(5)) {
+    min-inline-size: 40rem;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap:is(
+    :not([data-mobile="stack"]),
+    [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+    [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+  ) > table:has(> thead > tr > :nth-child(7)) {
+    min-inline-size: 52rem;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) {
+    overflow: visible;
+    border: 0;
+  }
+
+  /* A successfully stacked table no longer scrolls, so an adjacent cue is stale. */
+  :where(.vbg-report) .vbg-overflow-cue:has(
+    + .vbg-table-wrap[data-mobile="stack"]
+  ):not(:has(
+    + .vbg-table-wrap[data-mobile="stack"] :where(tbody, tfoot) td:not([data-label]),
+    + .vbg-table-wrap[data-mobile="stack"] :where(tbody, tfoot) td[data-label=""]
+  )):not(:has(
+    + .vbg-table-wrap[data-mobile="stack"] tbody > tr:nth-child(6)
+  )),
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) + .vbg-overflow-cue {
+    display: none;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) :where(table, tbody, tfoot, tr, th, td) {
+    display: block;
+    width: 100%;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) caption {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) thead {
+    display: block !important;
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    overflow: hidden !important;
+    clip-path: inset(50%) !important;
+    white-space: nowrap !important;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) :where(tbody, tfoot) tr {
+    border-block: 1px solid var(--vbg-border-subtle);
+    padding: var(--vbg-space-4) 0;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) :where(tbody, tfoot) tr + tr {
+    margin-block-start: -1px;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) tfoot tr {
+    margin-block-start: -1px;
+    border-block-color: var(--vbg-border-strong);
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"][data-variant="comparison"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) tbody tr[data-recommended="true"] {
+    border-color: var(--vbg-border-strong);
+    background: var(--vbg-background-200);
+    padding-inline: var(--vbg-space-3);
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) :where(tbody, tfoot) th {
+    border: 0;
+    padding: 0 0 var(--vbg-space-2);
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) :where(tbody, tfoot) td {
+    display: grid;
+    grid-template-columns: minmax(100px, 0.8fr) minmax(0, 1fr);
+    gap: var(--vbg-space-3);
+    border: 0;
+    padding: var(--vbg-space-2) 0;
+    text-align: start;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) tfoot :where(th, td) {
+    font-weight: var(--vbg-weight-medium);
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"][data-sticky-first="true"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) :where(th, td):first-child {
+    position: static;
+    box-shadow: none;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"][data-sticky-first="true"][data-variant="comparison"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) tbody tr[data-recommended="true"] > :first-child {
+    box-shadow: none;
+  }
+
+  :where(.vbg-report) .vbg-table-wrap[data-mobile="stack"]:not(:has(tbody > tr:nth-child(6))):not(:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""])) :where(tbody, tfoot) td::before {
+    content: attr(data-label);
+    color: var(--vbg-text-secondary);
+    font-weight: var(--vbg-weight-regular);
+    overflow-wrap: break-word;
+    word-break: normal;
+    white-space: normal;
+  }
+
+}
+
+/*
+ * Defensive mobile safety for wide semantic tables. Canonical markup should
+ * still provide its own linked cue, but omitted attributes cannot make five
+ * or more columns visually undiscoverable. Valid stacks and narrower native
+ * tables remain unchanged.
+ */
+@media (max-width: 640px) {
+  @supports selector(.vbg-table-wrap:has(> table > thead > tr > :nth-child(5))) {
+    :where(.vbg-report) .vbg-table-wrap:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(5)) {
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+    }
+
+    :where(.vbg-report) .vbg-table-wrap:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(5)):not(.vbg-overflow-cue + .vbg-table-wrap)::before {
+      content: "Scroll horizontally to see all columns.  \2192";
+      position: sticky;
+      inset-inline-start: 0;
+      z-index: 4;
+      display: block;
+      inline-size: 100cqi;
+      padding-block: var(--vbg-space-2);
+      background: var(--vbg-background-100);
+      color: var(--vbg-text-secondary);
+      font-size: var(--vbg-type-compact);
+      font-weight: var(--vbg-weight-regular);
+      line-height: var(--vbg-leading-compact);
+      white-space: normal;
+    }
+
+    :where(.vbg-report[dir="rtl"]) .vbg-table-wrap:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(5)):not(.vbg-overflow-cue + .vbg-table-wrap)::before {
+      content: "Scroll horizontally to see all columns.  \2190";
+    }
+
+    :where(.vbg-report) .vbg-table-wrap:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(5)) :is(thead, tbody, tfoot) > tr > :first-child {
+      position: sticky;
+      inset-inline-start: 0;
+      z-index: 2;
+      background: var(--vbg-background-100);
+      box-shadow: inset -1px 0 var(--vbg-border-subtle);
+    }
+
+    :where(.vbg-report) .vbg-table-wrap:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(5)) thead > tr > :first-child {
+      z-index: 3;
+      background: var(--vbg-surface-secondary);
+    }
+
+    :where(.vbg-report) .vbg-table-wrap:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(5))[data-variant="comparison"] tbody tr[data-recommended="true"] > :first-child {
+      background: var(--vbg-background-200);
+    }
+
+    /* Replace a trailing authored cue with the source-ordered fallback above. */
+    :where(.vbg-report) .vbg-table-wrap:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(5)) + .vbg-overflow-cue {
+      display: none;
+    }
+  }
+}
+
+/*
+ * A four-column option comparison is wider than a narrow reading track even
+ * though it falls below the general five-column safety threshold. Preserve a
+ * valid authored stack; otherwise guarantee local overflow and expose it only
+ * while the shell is narrower than the 32rem evidence floor.
+ */
+@container vbg-shell (width < 32rem) {
+  @supports selector(.vbg-table-wrap:has(> table > thead > tr > :nth-child(4))) {
+    :where(.vbg-report) .vbg-table-wrap[data-variant="comparison"]:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(4)):not(:has(> table > thead > tr > :nth-child(5))):not(:has(> table > thead [colspan])) {
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+    }
+
+    :where(.vbg-report) .vbg-table-wrap[data-variant="comparison"]:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(4)):not(:has(> table > thead > tr > :nth-child(5))):not(:has(> table > thead [colspan])) > table {
+      min-inline-size: 32rem;
+    }
+
+    :where(.vbg-report) .vbg-table-wrap[data-variant="comparison"]:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(4)):not(:has(> table > thead > tr > :nth-child(5))):not(:has(> table > thead [colspan])):not(.vbg-overflow-cue + .vbg-table-wrap)::before {
+      content: "Scroll horizontally to see all columns.  \2192";
+      position: sticky;
+      inset-inline-start: 0;
+      z-index: 4;
+      display: block;
+      inline-size: 100cqi;
+      padding-block: var(--vbg-space-2);
+      background: var(--vbg-background-100);
+      color: var(--vbg-text-secondary);
+      font-size: var(--vbg-type-compact);
+      font-weight: var(--vbg-weight-regular);
+      line-height: var(--vbg-leading-compact);
+      white-space: normal;
+    }
+
+    :where(.vbg-report[dir="rtl"]) .vbg-table-wrap[data-variant="comparison"]:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(4)):not(:has(> table > thead > tr > :nth-child(5))):not(:has(> table > thead [colspan])):not(.vbg-overflow-cue + .vbg-table-wrap)::before {
+      content: "Scroll horizontally to see all columns.  \2190";
+    }
+
+    :where(.vbg-report) .vbg-table-wrap[data-variant="comparison"]:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(4)):not(:has(> table > thead > tr > :nth-child(5))):not(:has(> table > thead [colspan])) :is(thead, tbody, tfoot) > tr > :first-child {
+      position: sticky;
+      inset-inline-start: 0;
+      z-index: 2;
+      background: var(--vbg-background-100);
+      box-shadow: inset -1px 0 var(--vbg-border-subtle);
+    }
+
+    :where(.vbg-report) .vbg-table-wrap[data-variant="comparison"]:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(4)):not(:has(> table > thead > tr > :nth-child(5))):not(:has(> table > thead [colspan])) thead > tr > :first-child {
+      z-index: 3;
+      background: var(--vbg-surface-secondary);
+    }
+
+    :where(.vbg-report) .vbg-table-wrap[data-variant="comparison"]:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(4)):not(:has(> table > thead > tr > :nth-child(5))):not(:has(> table > thead [colspan])) tbody tr[data-recommended="true"] > :first-child {
+      background: var(--vbg-background-200);
+    }
+
+    :where(.vbg-report) .vbg-table-wrap[data-variant="comparison"]:is(
+      :not([data-mobile="stack"]),
+      [data-mobile="stack"]:has(:where(tbody, tfoot) td:not([data-label]), :where(tbody, tfoot) td[data-label=""]),
+      [data-mobile="stack"]:has(tbody > tr:nth-child(6))
+    ):has(> table > thead > tr > :nth-child(4)):not(:has(> table > thead > tr > :nth-child(5))):not(:has(> table > thead [colspan])) + .vbg-overflow-cue {
+      display: none;
+    }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(.vbg-report *, .vbg-report *::before, .vbg-report *::after) {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+@media (min-width: 600px) and (max-width: 800px) {
+  :where(.vbg-report) .vbg-stat-strip[data-count="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (forced-colors: active) {
+  :where(.vbg-report) :where(.vbg-surface, .vbg-callout, .vbg-table-wrap, .vbg-calculator, .vbg-evidence, .vbg-action, .vbg-decision, .vbg-recommendation, .vbg-next-step, .vbg-band, .vbg-stat-strip, .vbg-unit-field) {
+    border: 1px solid CanvasText;
+  }
+
+  :where(.vbg-report) :where(.vbg-surface, .vbg-evidence, .vbg-calculator) :is(.vbg-surface, .vbg-evidence, .vbg-calculator, .vbg-table-wrap) {
+    border: 0;
+  }
+
+  :where(.vbg-report) .vbg-stat {
+    background: Canvas;
+    outline: 1px solid CanvasText;
+    outline-offset: -1px;
+  }
+
+  :where(.vbg-report) .vbg-band[data-tone="contrast"] {
+    background: Canvas;
+    color: CanvasText;
+  }
+
+  :where(.vbg-report) .vbg-band[data-tone="contrast"] :where(h1, h2, h3, h4, p, a, .vbg-link, .vbg-label, .vbg-meta, .vbg-stat-value) {
+    color: CanvasText;
+  }
+
+  :where(.vbg-report) :where(a, button, input, select, textarea):focus-visible {
+    outline-color: Highlight;
+  }
+
+  :where(.vbg-report) :where(
+    button[aria-pressed="true"],
+    .vbg-button[aria-pressed="true"],
+    button[data-selected="true"],
+    .vbg-button[data-selected="true"],
+    button[data-state="active"],
+    .vbg-button[data-state="active"]
+  ) {
+    border-color: Highlight;
+    background: Highlight;
+    color: HighlightText;
+    forced-color-adjust: none;
+  }
+
+  :where(.vbg-report) input[type="range"]::-webkit-slider-runnable-track {
+    background: CanvasText;
+  }
+
+  :where(.vbg-report) input[type="range"]::-webkit-slider-thumb {
+    border-color: Canvas;
+    background: Highlight;
+  }
+
+  :where(.vbg-report) input[type="range"]::-moz-range-track {
+    background: CanvasText;
+  }
+
+  :where(.vbg-report) input[type="range"]::-moz-range-thumb {
+    border-color: Canvas;
+    background: Highlight;
+  }
+}
+
+/*
+ * Typography modifiers belong after component typography so they remain
+ * composable with any published component class without using !important.
+ */
+:where(.vbg-report) .vbg-mono {
+  font-family: var(--vbg-font-mono);
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+/* vbg-bundle:end */
+</style>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :where([style*="display: grid"], [style*="display:grid"], [style*="display: flex"], [style*="display:flex"]) > * { min-width: 0; }
+  :where(p, h1, h2, h3, h4, li, dd, blockquote, figcaption, td, th) { overflow-wrap: anywhere; }
+  :where(img, svg, video, canvas) { max-width: 100%; height: auto; }
+  .vbg-custom-flow-grid { display: grid; grid-template-columns: minmax(0, 7fr) minmax(0, 5fr); gap: var(--vbg-space-8); align-items: start; }
+  @media (max-width: 900px) { .vbg-custom-flow-grid { grid-template-columns: minmax(0, 1fr); } }
+  .vbg-custom-flow-svg { width: 100%; height: auto; display: block; }
+  .vbg-custom-node { fill: var(--vbg-surface-secondary); stroke: var(--vbg-border-default); }
+  .vbg-custom-node-text { fill: var(--vbg-text-primary); font-size: 12px; font-weight: 600; }
+  .vbg-custom-edge { stroke: var(--vbg-text-secondary); stroke-width: 1.5; fill: none; }
+  .vbg-custom-edge-label { fill: var(--vbg-text-secondary); font-size: 10px; }
+  .vbg-custom-kicker { color: var(--vbg-text-secondary); }
+  .vbg-custom-code { font-family: "Geist Mono", ui-monospace, monospace; font-size: 12px; line-height: 1.6; overflow-x: auto; max-width: 100%; }
+  .vbg-custom-two-col { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--vbg-space-6); align-items: start; }
+  @media (max-width: 900px) { .vbg-custom-two-col { grid-template-columns: minmax(0, 1fr); } }
+  .vbg-custom-watch { border-left: 3px solid var(--vbg-color-warning); padding-left: var(--vbg-space-4); }
+  .vbg-custom-decision-src { color: var(--vbg-text-secondary); font-size: 12px; }
+</style>
+</head>
+<body class="vbg-report">
+<div class="vbg-shell">
+<a class="vbg-skip-link" href="#main">Skip to content</a>
+<header class="vbg-header">
+  <div class="vbg-masthead">
+    <span class="vbg-identity">Allies — Plan Review</span>
+    <div class="vbg-document-meta">
+      <span>ft/gmail-managed-connection → dev</span>
+      <span>2026-09-22 · full route · Markdown is the source of truth</span>
+    </div>
+  </div>
+</header>
+<main id="main">
+
+<section class="vbg-section" id="opening" aria-labelledby="opening-title">
+  <p class="vbg-meta vbg-custom-kicker">Gmail v1 · read + send · generic passthrough, Gmail first</p>
+  <h1 class="vbg-title" id="opening-title">Managed Gmail connection: one OAuth, per-Ally grants, short-lived passthrough</h1>
+  <p class="vbg-lede">Users connect Gmail once through Allies-owned Google OAuth. Each Ally gets an explicit read or send grant. Every execution receives a minutes-long access token and nothing else. The Hermes skill runs unmodified, sends wait for approval, and revocation works at both levels. Calendar stays out of v1 and arrives later as incremental consent.</p>
+  <div class="vbg-stat-strip" role="list" aria-label="Plan at a glance">
+    <div class="vbg-stat" role="listitem"><p class="vbg-stat-label">V1 scope</p><p class="vbg-stat-value">Read + send</p><p class="vbg-stat-detail">Approval-gated dispatch</p></div>
+    <div class="vbg-stat" role="listitem"><p class="vbg-stat-label">Phases</p><p class="vbg-stat-value">6</p><p class="vbg-stat-detail">Cloud → grants → passthrough → approval → revoke → rollout</p></div>
+    <div class="vbg-stat" role="listitem"><p class="vbg-stat-label">Acceptance checks</p><p class="vbg-stat-value">10</p><p class="vbg-stat-detail">OAuth through rollout stop</p></div>
+    <div class="vbg-stat" role="listitem"><p class="vbg-stat-label">New Cloud tables</p><p class="vbg-stat-value">2</p><p class="vbg-stat-detail">Generic secret + grant rows</p></div>
+    <div class="vbg-stat" role="listitem"><p class="vbg-stat-label">Foundry kernel changes</p><p class="vbg-stat-value">0</p><p class="vbg-stat-detail">Reuse only; no provider naming</p></div>
+  </div>
+</section>
+
+<section class="vbg-section" id="flow" aria-labelledby="flow-title">
+  <h2 class="vbg-heading-24" id="flow-title">How a mailbox goes from “connect” to “Ally can read it”</h2>
+  <div class="vbg-custom-flow-grid">
+    <figure class="vbg-chart" aria-labelledby="flow-cap">
+      <div class="vbg-chart-viewport">
+      <svg class="vbg-custom-flow-svg" viewBox="0 0 640 300" role="img" aria-label="Credential flow across seven stages">
+        <defs><marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" /></marker></defs>
+        <g id="n-connect"><title>1. Connect: user approves Allies-owned OAuth, minimal scopes</title><rect class="vbg-custom-node" x="8" y="20" width="120" height="52" rx="6" /><text class="vbg-custom-node-text" x="68" y="42" text-anchor="middle">1 · Connect</text><text class="vbg-custom-edge-label" x="68" y="58" text-anchor="middle">OAuth sheet</text></g>
+        <g id="n-vault"><title>2. Vault: Cloud seals refresh token in one generic tenant-scoped row</title><rect class="vbg-custom-node" x="8" y="120" width="120" height="52" rx="6" /><text class="vbg-custom-node-text" x="68" y="142" text-anchor="middle">2 · Vault</text><text class="vbg-custom-edge-label" x="68" y="158" text-anchor="middle">refresh only</text></g>
+        <g id="n-grant"><title>3. Grant: per-Ally read or send row, generation bumped on change</title><rect class="vbg-custom-node" x="8" y="220" width="120" height="52" rx="6" /><text class="vbg-custom-node-text" x="68" y="242" text-anchor="middle">3 · Grant</text><text class="vbg-custom-edge-label" x="68" y="258" text-anchor="middle">per Ally</text></g>
+        <g id="n-mint"><title>4. Mint: Cloud checks live grant, mints access-only bytes for this execution</title><rect class="vbg-custom-node" x="260" y="20" width="120" height="52" rx="6" /><text class="vbg-custom-node-text" x="320" y="42" text-anchor="middle">4 · Mint</text><text class="vbg-custom-edge-label" x="320" y="58" text-anchor="middle">access only</text></g>
+        <g id="n-inject"><title>5. Inject: runtime writes token file 0600 via existing credential_refs machinery</title><rect class="vbg-custom-node" x="260" y="120" width="120" height="52" rx="6" /><text class="vbg-custom-node-text" x="320" y="142" text-anchor="middle">5 · Inject</text><text class="vbg-custom-edge-label" x="320" y="158" text-anchor="middle">opaque bytes</text></g>
+        <g id="n-skill"><title>6. Skill: unmodified google-workspace skill reads, searches, drafts</title><rect class="vbg-custom-node" x="260" y="220" width="120" height="52" rx="6" /><text class="vbg-custom-node-text" x="320" y="242" text-anchor="middle">6 · Skill</text><text class="vbg-custom-edge-label" x="320" y="258" text-anchor="middle">unmodified</text></g>
+        <g id="n-approve"><title>7. Approve: every send shows a draft; credential expiry maps to retryable or repair_required with a reason code</title><rect class="vbg-custom-node" x="512" y="70" width="120" height="52" rx="6" /><text class="vbg-custom-node-text" x="572" y="92" text-anchor="middle">7 · Approve</text><text class="vbg-custom-edge-label" x="572" y="108" text-anchor="middle">draft first</text></g>
+        <g id="n-revoke"><title>8. Revoke: per-Ally fence by generation; account disconnect deletes refresh, revokes at Google, scrubs files</title><rect class="vbg-custom-node" x="512" y="180" width="120" height="52" rx="6" /><text class="vbg-custom-node-text" x="572" y="202" text-anchor="middle">8 · Revoke</text><text class="vbg-custom-edge-label" x="572" y="218" text-anchor="middle">two levels</text></g>
+        <path class="vbg-custom-edge" d="M128,46 C190,46 190,46 252,46" marker-end="url(#arr)" />
+        <path class="vbg-custom-edge" d="M68,72 C68,96 68,96 68,112" marker-end="url(#arr)" />
+        <path class="vbg-custom-edge" d="M68,172 C68,196 68,196 68,212" marker-end="url(#arr)" />
+        <path class="vbg-custom-edge" d="M128,146 C190,146 190,146 252,146" marker-end="url(#arr)" />
+        <path class="vbg-custom-edge" d="M128,246 C190,246 190,246 252,246" marker-end="url(#arr)" />
+        <path class="vbg-custom-edge" d="M320,72 C320,96 320,96 320,112" marker-end="url(#arr)" />
+        <path class="vbg-custom-edge" d="M320,172 C320,196 320,196 320,212" marker-end="url(#arr)" />
+        <path class="vbg-custom-edge" d="M380,46 C450,46 450,96 504,96" marker-end="url(#arr)" />
+        <path class="vbg-custom-edge" d="M380,246 C450,246 450,206 504,206" marker-end="url(#arr)" />
+      </svg>
+      </div>
+      <figcaption class="vbg-caption" id="flow-cap">Left column is account truth (Cloud), middle is per-execution transport, right is consequence control. Long-lived secrets never leave the left column.</figcaption>
+    </figure>
+    <div>
+      <h3 class="vbg-heading-16">Why this shape</h3>
+      <p>The skill believes it owns a token file; it actually rents it for one execution. That single decision keeps refresh, revoke, and audit in Cloud, keeps Foundry free of OAuth, and makes every later provider the same envelope with a different allowlist.</p>
+      <h3 class="vbg-heading-16">Locked decisions behind it</h3>
+      <ul>
+        <li>V1 is Gmail read + send; Himalaya stays a generic-IMAP fallback, never the managed default. <span class="vbg-custom-decision-src">D1, D5</span></li>
+        <li>Plans live as repo Markdown, Cloud leading; Foundry and Interface arrive as follow-up episodes. <span class="vbg-custom-decision-src">D2, D9</span></li>
+        <li>Minimal scopes (<span class="vbg-mono">gmail.readonly</span> + <span class="vbg-mono">gmail.send</span>); calendar comes later as incremental consent. <span class="vbg-custom-decision-src">D8</span></li>
+        <li>No new event kind: expiry rides existing states with a reason string. <span class="vbg-custom-decision-src">D7</span></li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="vbg-section" id="stories" aria-labelledby="stories-title">
+  <h2 class="vbg-heading-24" id="stories-title">User stories</h2>
+  <div class="vbg-table-wrap">
+  <table>
+    <caption class="vbg-caption">Four stories: connect, grant, approve, disconnect.</caption>
+    <thead><tr><th scope="col">Who</th><th scope="col">Wants</th><th scope="col">So that</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">User</th><td>Connect Gmail once (Integrations page or in-chat) granting only read + send</td><td>Allies can read and send without a Console project</td></tr>
+      <tr><th scope="row">User</th><td>Grant one Ally read-only, another read + send, revoke either</td><td>A noisy Ally loses access without disconnecting the account; in-flight work is fenced, not continued</td></tr>
+      <tr><th scope="row">User</th><td>See every Ally-composed send as a draft for approval first</td><td>Nothing leaves the mailbox on an agent's authority alone</td></tr>
+      <tr><th scope="row">Operator</th><td>Disconnect deletes the vault refresh, revokes at Google, scrubs profile files</td><td>No later execution can use the credential, provably</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="vbg-section" id="scope" aria-labelledby="scope-title">
+  <h2 class="vbg-heading-24" id="scope-title">Scope and assumptions</h2>
+  <div class="vbg-custom-two-col">
+    <div>
+      <h3 class="vbg-heading-16">In scope</h3>
+      <ul>
+        <li>Allies-owned Google OAuth, both entry points, auto-grant to the requesting Ally</li>
+        <li>Per-Ally grants enforced in the Cloud gateway before any Foundry call</li>
+        <li>Access-only mint per execution; opaque injection through existing <span class="vbg-mono">credential_refs</span> machinery</li>
+        <li>Unmodified Hermes skill; expiry maps to existing states + reason code</li>
+        <li>Approval-gated send; two-level revocation; generic contract for later providers</li>
+        <li>BOUNDARY tests 1–6 pass with 3 watchpoints pinned</li>
+      </ul>
+    </div>
+    <div>
+      <h3 class="vbg-heading-16">Out of scope</h3>
+      <ul>
+        <li>Google Calendar (reserved; incremental scopes later)</li>
+        <li>Email-arrival triggers; routines stay schedule-only</li>
+        <li>Himalaya as managed default; multi-account fan-out; sync workers</li>
+        <li>New Foundry event kinds, per-provider vaults, Cloud-held attempt state</li>
+      </ul>
+      <h3 class="vbg-heading-16">Load-bearing assumptions</h3>
+      <ul>
+        <li>Allies-owned verified OAuth client exists before implementation</li>
+        <li>One Gmail account per workspace (second account is a typed conflict)</li>
+        <li>Access TTL ≈ 1h, opaque to Foundry, recorded at mint</li>
+        <li>Foundry continuity gates FND-005–008 remain prerequisites for breadth</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="vbg-section" id="contracts" aria-labelledby="contracts-title">
+  <h2 class="vbg-heading-24" id="contracts-title">Contracts</h2>
+  <p class="vbg-caption">Conventions: Cloud owns product truth, Foundry owns runtime truth, no shared models. Scope strings stay opaque to the kernel. Tokens never appear in logs.</p>
+  <h3 class="vbg-heading-20" id="fn-shapes">Service shapes</h3>
+  <div class="vbg-table-wrap">
+  <table>
+    <caption class="vbg-caption">Seven operations; new Cloud services plus one extended Foundry path.</caption>
+    <thead><tr><th scope="col">Operation</th><th scope="col">Inputs and validation</th><th scope="col">Returns / side effects</th></tr></thead>
+    <tbody>
+      <tr id="row-begin"><th scope="row"><span class="vbg-mono">begin_gmail_connect</span> (Cloud)</th><td>Membership rechecked; entry point integrations or in-chat; ally required iff in-chat</td><td>Short-lived connect session + auth URL; 403 / 409 on conflict</td></tr>
+      <tr id="row-complete"><th scope="row"><span class="vbg-mono">complete_gmail_connect</span> (Cloud)</th><td>Validates state, PKCE, token response; rejects scope shortfall; encrypts refresh</td><td>One generic secret row + audit; 422 scope_insufficient, 409 duplicate, 503 retryable</td></tr>
+      <tr id="row-grant"><th scope="row"><span class="vbg-mono">set_ally_grant</span> (Cloud)</th><td>Level none / read / send (send implies read); grantor capability; Ally in workspace</td><td>Grant row; generation bump; none deletes the row</td></tr>
+      <tr id="row-check"><th scope="row"><span class="vbg-mono">check_gmail_grant</span> (Cloud gateway)</th><td>Runs on every dispatch; reads the live grant row and emits the execution allowlist (send maps to search/get/send/reply, read to search/get, none denies); no requested-tool input</td><td>Allow with generation + allowlist, or typed 403; never dispatches on deny; no state mutation</td></tr>
+      <tr id="row-gate"><th scope="row"><span class="vbg-mono">authorize_tool_call</span> (single provider-neutral gate)</th><td>At each actual tool call: list membership, live generation, and on sends an exact approval-payload match</td><td>Allow, or deny with grant_denied, approval_mismatch, or approval_missing before anything sends</td></tr>
+      <tr id="row-mint"><th scope="row"><span class="vbg-mono">mint_execution_credential</span> (Cloud)</th><td>Requires allow + fresh generation; bounded Google refresh call</td><td>Access-only envelope; redacted audit; retryable or repair_required on failure</td></tr>
+      <tr id="row-materialize"><th scope="row"><span class="vbg-mono">materialize</span> (Foundry, existing path)</th><td>Opaque refs only, validated; resolved to .env 0600</td><td>Existing receipt; unknown refs go repair_required; no OAuth parsing</td></tr>
+      <tr id="row-expiry"><th scope="row"><span class="vbg-mono">map_credential_expiry</span> (shared)</th><td>Non-zero skill exit on expiry</td><td>retryable (race) or repair_required + reason code; no new kind</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <h3 class="vbg-heading-20" id="api-contracts">Transport contracts</h3>
+  <div class="vbg-table-wrap">
+  <table>
+    <caption class="vbg-caption">Interface routes (paths to verify) ride existing Cloud–Foundry envelopes.</caption>
+    <thead><tr><th scope="col">Consumer</th><th scope="col">Call</th><th scope="col">Success</th><th scope="col">Failure and retry</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Interface</th><td><span class="vbg-mono">POST …/integrations/gmail/connect</span></td><td>202 with session id, auth URL, expiry</td><td>400 / 401 / 403 / 409; same key replays</td></tr>
+      <tr><th scope="row">Google redirect</th><td><span class="vbg-mono">GET …/integrations/gmail/callback</span></td><td>302 to Integrations or error sheet</td><td>Bad state rejected; no retry on invalid_grant</td></tr>
+      <tr><th scope="row">Interface</th><td><span class="vbg-mono">POST …/integrations/gmail/grants</span></td><td>200 grant response with generation</td><td>403 / 404 / 422; fencing, never silent overwrite</td></tr>
+      <tr><th scope="row">Interface</th><td><span class="vbg-mono">DELETE …/integrations/gmail</span></td><td>202 scrub queued</td><td>409 still accepts, scrubs async</td></tr>
+      <tr><th scope="row">Cloud → Foundry</th><td><span class="vbg-mono">execution.command</span> + credential envelope</td><td>Bound / retryable / repair_required receipt</td><td>Unknown timeout reconciles by command key</td></tr>
+      <tr><th scope="row">Foundry → Cloud</th><td><span class="vbg-mono">execution.event</span>, allowlisted</td><td>Projected activity; approval round-trip</td><td>Oversize, unknown, or secret-bearing rejected</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <h3 class="vbg-heading-20" id="json-contracts">Representative payloads</h3>
+  <h4 class="vbg-heading-16">OAuth callback (Cloud-internal; tokens never leave Cloud)</h4>
+<pre class="vbg-custom-code"><code>{
+  "schema_version": "v1",
+  "kind": "gmail.oauth_callback",
+  "scope": { "kind": "workspace", "cloud_workspace_id": "ws_..." },
+  "google": {
+    "code": "[redacted: single-use, never logged]",
+    "granted_scopes": [
+      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.send"
+    ]
+  },
+  "result": "connected | scope_insufficient | already_connected | provider_unavailable"
+}</code></pre>
+  <p>Scope shortfall stores nothing and returns 422: enforced at consent time, not discovered later.</p>
+  <h4 class="vbg-heading-16">Grant check (gateway-internal; the wire carries only the envelope)</h4>
+<pre class="vbg-custom-code"><code>{
+  "workspace_id": "ws_...",
+  "ally_id": "ally_...",
+  "grant": { "level": "read", "grant_generation": 7 },
+  "decision": { "allowed": true,
+    "tool_allowlist": ["gmail search", "gmail get"],
+    "reason_code": null }
+}</code></pre>
+  <p>Dispatch emits the allowlist; the gate denies anything absent from it, so a read-only execution has no send path even though the token carries both scopes.</p>
+  <h4 class="vbg-heading-16">Execution credential envelope (Cloud to Foundry; provider-neutral)</h4>
+<pre class="vbg-custom-code"><code>{
+  "schema_version": "v1",
+  "kind": "execution.command",
+  "command_id": "cmd_...",
+  "idempotency_key": "intent_...",
+  "scope": { "kind": "workspace", "cloud_workspace_id": "ws_..." },
+  "cloud": { "ally_id": "ally_...", "conversation_id": "conversation_...",
+             "intent_id": "intent_...", "cloud_binding_id": "binding_..." },
+  "credential": {
+    "ref": "credref_... (opaque; resolved once at materialization)",
+    "expires_at": "2026-09-22T13:00:00Z",
+    "tool_allowlist": ["gmail search", "gmail get"],
+    "grant_generation": 7
+  },
+  "payload": { "kind": "execution_input", "text": "..." },
+  "fingerprint": "canonical-json-sha256:v1:..."
+}</code></pre>
+  <p>Rules: the ref is expiring and bound to one command — use by another command is rejected, retries of the same command resolve idempotently, each execution mints fresh. It resolves to access-only bytes with no <span class="vbg-mono">refresh_token</span>; the Cloud outbox holds the ref only, never bytes. Fresh refs change the seed fingerprint and force a rebuild, so stale bytes die with cleanup. The kernel treats expiry and allowlist as opaque; generation mismatch means fenced. Later providers reuse this envelope unchanged.</p>
+  <h4 class="vbg-heading-16">Approval round-trip for send (existing mirror)</h4>
+<pre class="vbg-custom-code"><code>{ "event_type": "approval.requested",
+  "payload": { "kind": "approval_request", "approval_id": "018f77d8-...",
+    "prompt": "Send to bob@example.com — Subject: Q3 report — [draft preview, ≤16 KiB]" } }
+{ "decision": "approve | reject", "approval_id": "018f77d8-...",
+  "decided_by": "user_...", "idempotency_key": "approval-choice_..." }
+{ "event_type": "execution.terminal",
+  "payload": { "kind": "terminal", "status": "succeeded | failed",
+    "reason": "sent | rejected_by_user | approval_mismatch | gmail_credential_expired | gmail_send_unconfirmed" } }</code></pre>
+  <p>Deadlines reuse Foundry constants (30&nbsp;s acknowledgement, 300&nbsp;s lifetime, 16&nbsp;KiB preview cap). Approval binds an immutable normalized payload hash; the gate denies any post-approval field change, and over-cap payloads are never approved. Expiry mid-attempt becomes retryable or repair_required, never a new event kind. Ambiguous sends enter a repair-path confirmation state with automatic replay blocked and a manual Sent check required before any resend.</p>
+  <h4 class="vbg-heading-16">Injected file (the only secret bytes Hermes ever sees)</h4>
+<pre class="vbg-custom-code"><code>{
+  "type": "authorized_user",
+  "client_id": "&lt;allies-owned client id&gt;",
+  "token": "&lt;short-lived access token&gt;",
+  "expiry": "2026-09-22T13:00:00Z",
+  "scopes": ["https://www.googleapis.com/auth/gmail.readonly",
+             "https://www.googleapis.com/auth/gmail.send"]
+}</code></pre>
+  <p>No <span class="vbg-mono">refresh_token</span> key, no <span class="vbg-mono">client_secret</span>: the skill's refresh branch is dead by construction and its write-back never fires.</p>
+</section>
+
+<section class="vbg-section" id="data" aria-labelledby="data-title">
+  <h2 class="vbg-heading-24" id="data-title">Persisted shapes</h2>
+  <div class="vbg-table-wrap">
+  <table>
+    <caption class="vbg-caption">Two new tables; both generic across future providers.</caption>
+    <thead><tr><th scope="col">Table</th><th scope="col">Key fields</th><th scope="col">Invariants</th></tr></thead>
+    <tbody>
+      <tr id="row-secret"><th scope="row"><span class="vbg-mono">IntegrationSecret</span></th><td>workspace, provider key, account hash, ciphertext, key version, scope set, revoked_at</td><td>Unique per workspace + provider + account; ciphertext holds refresh only, access tokens are never persisted</td></tr>
+      <tr id="row-grant-table"><th scope="row"><span class="vbg-mono">AllyIntegrationGrant</span></th><td>secret, Ally, level (read / send), generation</td><td>Unique per secret + Ally; absence means none; every dispatch re-reads the live row</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p>Vocabularies: <span class="vbg-mono">GrantLevel</span> (read, send; send implies read; none is row absence) and reason-code strings (<span class="vbg-mono">grant_denied_*</span>, <span class="vbg-mono">gmail_credential_expired</span>, <span class="vbg-mono">scope_insufficient</span>, <span class="vbg-mono">refresh_revoked</span>, <span class="vbg-mono">provider_unavailable</span>) riding existing states. Request and response schemas are versioned DTOs carrying no secret bytes and no raw Google identity beyond a truncated hash.</p>
+</section>
+
+<section class="vbg-section" id="ux" aria-labelledby="ux-title">
+  <h2 class="vbg-heading-24" id="ux-title">Interface slice (spec here, built in follow-up episode)</h2>
+  <div class="vbg-table-wrap">
+  <table>
+    <caption class="vbg-caption">Three surfaces; Cloud stays source of truth, Interface keeps only ephemeral view state.</caption>
+    <thead><tr><th scope="col">Surface</th><th scope="col">Behavior</th><th scope="col">Edge handling</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">Integrations Gmail card</th><td>Connect → OAuth redirect → callback landing; states disconnected, connecting, connected, scope_insufficient, error</td><td>Guided reconnect copy on shortfall; capability message on 403</td></tr>
+      <tr><th scope="row">Per-Ally grant rows</th><td>Read / send / none picker, optimistic with rollback on 409 / 422</td><td>Revoke shows “revoking — in-flight runs fenced”; denied capabilities hidden, not greyed out</td></tr>
+      <tr><th scope="row">In-chat connect sheet</th><td>Inline sheet; success auto-grants this Ally at an explicitly picked level, never silent max</td><td>Popup-blocked fallback URL; sheet expiry re-initiates; already-connected jumps to grant picker</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="vbg-section" id="phases" aria-labelledby="phases-title">
+  <h2 class="vbg-heading-24" id="phases-title">Phases and exit criteria</h2>
+  <div class="vbg-table-wrap">
+  <table>
+    <caption class="vbg-caption">Six phases in dependency order; PRs open Cloud first, then Foundry slice, then Interface.</caption>
+    <thead><tr><th scope="col">Phase</th><th scope="col">Goal</th><th scope="col">Exit criteria</th></tr></thead>
+    <tbody>
+      <tr id="row-p1"><th scope="row">1 · Cloud OAuth + generic secret</th><td>Allies-owned connect and callback; one encrypted tenant-scoped row</td><td>Refresh stored with exactly the two v1 scopes; shortfall rejected pre-store; second account is a typed conflict; check + lint pass</td></tr>
+      <tr id="row-p2"><th scope="row">2 · Grants + gateway fence</th><td>Grant CRUD; live-grant read emits the execution allowlist on every dispatch; single neutral gate at each tool call</td><td>Ungranted tool call produces zero Foundry calls; read-only executions cannot reach send; revoke bumps generation; grant logic provably Cloud-side</td></tr>
+      <tr id="row-p3"><th scope="row">3 · Mint + injection</th><td>Access-only mint on expiring command-bound refs; opaque injection; unmodified skill; FND gates + resolution contract as entry prerequisites</td><td>Injected bytes contain no refresh token; outbox holds refs only; same-command retries idempotent, cross-command reuse rejected; write-back never fires in E2E</td></tr>
+      <tr id="row-p4"><th scope="row">4 · Approval-gated send + outcome states</th><td>Draft-first sends with payload-hash binding; ambiguous outcome enters repair-path confirmation, never blind replay</td><td>No send without a prior approval record; post-approval edits denied; forced post-delivery fault yields confirmation state with no auto-resend</td></tr>
+      <tr id="row-p5"><th scope="row">5 · Two-level revocation + scrub</th><td>Grant fence in-flight; disconnect purges, revokes at Google, scrubs files</td><td>Both levels proven; post-disconnect attempts fail closed; machine-replacement continuity holds via vault refresh</td></tr>
+      <tr id="row-p6"><th scope="row">6 · Boundary proof + rollout</th><td>Ticket-test matrix; one global flag gating authorization and credential-use paths; runbook + rollback</td><td>All acceptance green; findings closed; flag-off is a true emergency stop; PRs in dependency order</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="vbg-section" id="acceptance" aria-labelledby="acceptance-title">
+  <h2 class="vbg-heading-24" id="acceptance-title">Acceptance (8 checks)</h2>
+  <ol>
+    <li id="ac-1">OAuth stores exactly read + send; no Console projects; shortfall returns 422 with nothing stored.</li>
+    <li id="ac-2">Per-Ally read / send enforced pre-dispatch via the allowlist and at each tool call via the neutral gate; ungranted calls never reach Foundry; read-only executions cannot reach send; revoke fences in-flight.</li>
+    <li id="ac-3">Per-execution fresh command-bound refs (cross-command reuse rejected, same-command retries idempotent); outbox holds refs, never bytes; refresh, revoke, and audit stay in Cloud; kernel never parses OAuth; injected file has no refresh token; skill checksum proves unmodified.</li>
+    <li id="ac-4">Expiry maps to existing retryable / repair_required + reason; no new event kind in code or fixtures.</li>
+    <li id="ac-5">Every send has a prior approval record binding the exact payload hash; over-cap payloads are never approved; decision replay is idempotent.</li>
+    <li id="ac-6">Both revocation levels proven by test: fenced attempts and scrubbed disconnect.</li>
+    <li id="ac-7">A second provider reuses the secret table and envelope with zero Foundry changes; calendar absent from v1 consent and allowlists.</li>
+    <li id="ac-8">BOUNDARY tests 1–6 pass with all three watchpoints pinned and evidenced.</li>
+    <li id="ac-9">Ambiguous sends enter confirmation state with replay blocked and a manual Sent check before any resend; no exactly-once claims anywhere.</li>
+    <li id="ac-10">Flag-off disables authorization and credential use including active connections: a true emergency stop.</li>
+  </ol>
+</section>
+
+<section class="vbg-section" id="tests" aria-labelledby="tests-title">
+  <h2 class="vbg-heading-24" id="tests-title">Validation</h2>
+  <p>Repo checks: Cloud runs <span class="vbg-mono">make check</span>, <span class="vbg-mono">make lint</span>, <span class="vbg-mono">make test APP=&lt;path&gt;</span>; the Foundry slice runs its equivalents in its own episode. Four named end-to-end proofs are required, not optional:</p>
+  <ol>
+    <li id="e2e-1">Temp-<span class="vbg-mono">HERMES_HOME</span> isolation run of Gmail search on an injected access-only token: refresh branch dead, no token rewrite.</li>
+    <li id="e2e-2">Duplicate-send regression: forced post-delivery fault still delivers exactly once.</li>
+    <li id="e2e-3">Machine-replacement continuity: new volume plus same binding re-materializes and works with no user action.</li>
+    <li id="e2e-4">Revocation at both levels: grant delete fences the attempt; disconnect deletes refresh, revokes at Google, scrubs files, and later attempts fail closed.</li>
+  </ol>
+  <p>Unit and API coverage wraps the grant matrix, reason codes, envelope redaction, generation fencing, scope-shortfall rejection, PKCE and state validation, and idempotent connect, approval, and dispatch replay. A checksum guard keeps the Hermes skill byte-identical.</p>
+</section>
+
+<section class="vbg-section" id="risks" aria-labelledby="risks-title">
+  <h2 class="vbg-heading-24" id="risks-title">Risks, each with a way back</h2>
+  <div class="vbg-table-wrap">
+  <table>
+    <caption class="vbg-caption">Six risks; every row names its rollback before it can be accepted.</caption>
+    <thead><tr><th scope="col">Risk</th><th scope="col">Mitigation</th><th scope="col">Rollback</th></tr></thead>
+    <tbody>
+      <tr id="risk-theft"><th scope="row">Refresh theft widens mailbox access</th><td>One generic encrypted row, tenant-scoped lookups with negative tests, redacted logs, minimal scopes, purge + Google revocation on disconnect</td><td>Rotate key version, force disconnect, re-consent</td></tr>
+      <tr id="risk-inflight"><th scope="row">In-flight send escapes a concurrent revoke</th><td>Generation checked at dispatch and at approval apply; fenced on mismatch; preview states generation</td><td>Revoke plus audit sweep of post-revoke terminal events</td></tr>
+      <tr id="risk-splitbrain"><th scope="row">A refresh token reaches the volume and split-brains the secret</th><td>Omitted by construction, byte-assertion test, skill-frozen guard</td><td>Scrub and re-materialize affected profiles; block mints until assertion passes</td></tr>
+      <tr id="risk-google"><th scope="row">Google verification delays the send scope</th><td>Minimal scopes, honest consent copy, calendar kept out of review</td><td>Read-only launch flag; same envelope, narrower allowlist, no code fork</td></tr>
+      <tr id="risk-dupe"><th scope="row">Retry after delivery sends twice</th><td>Ambiguous outcomes enter a confirmation state on the repair path: replay blocked, outcome shown, manual Sent check before any resend; no exactly-once claims</td><td>Default-deny the send allowlist; reads unaffected</td></tr>
+      <tr id="risk-creep"><th scope="row">Scope creep into calendar, IMAP fallback, sync workers</th><td>Consent, allowlist, and tests assert calendar absence; workers out of scope</td><td>Cut follow-up episodes, not v1 surface</td></tr>
+    </tbody>
+  </table>
+  </div>
+</section>
+
+<section class="vbg-section" id="boundary" aria-labelledby="boundary-title">
+  <h2 class="vbg-heading-24" id="boundary-title">Boundary proof</h2>
+  <div class="vbg-custom-watch">
+    <p>Three watchpoints stay pinned through implementation: grant logic lives only in the Cloud gateway; Cloud persists no attempt or session state for credentials (minting is stateless per execution); scope strings never enter kernel parsing. Evidence is by code location, grep, and test in Phase&nbsp;6.</p>
+  </div>
+  <p>Placement summary: vault, consent, and grants are product truth in the driving cloud; the passthrough envelope is the versioned, cloud-agnostic contract; the kernel handles opaque bytes, approval mirror state, and execution fencing. On-prem consumers implement the same envelope against their own vault with identical kernel behavior.</p>
+</section>
+
+<section class="vbg-section" id="open" aria-labelledby="open-title">
+  <h2 class="vbg-heading-24" id="open-title">Open items for this review</h2>
+  <div class="vbg-table-wrap">
+  <table>
+  <caption class="vbg-caption">Three closed during review, two measured at build, one owned by the follow-up episode.</caption>
+    <thead><tr><th scope="col">Item</th><th scope="col">Resolution</th><th scope="col">Status</th></tr></thead>
+    <tbody>
+      <tr id="open-app"><th scope="row">New Cloud app home</th><td>Dedicated <span class="vbg-mono">integrations</span> app, created as needed (owner decision)</td><td>Closed</td></tr>
+      <tr id="open-routes"><th scope="row">Route paths</th><td>Workspace controller pattern with connect, grants, and disconnect; state-bound callback</td><td>Closed</td></tr>
+      <tr id="open-gateway"><th scope="row">Gateway module for grant check</th><td>Wrap the dispatch call-site on the existing foundry boundary; no new module</td><td>Closed</td></tr>
+      <tr id="open-allowlist"><th scope="row">Allowlist enforcement point</th><td>Mirror the memory-allowlist pattern with opaque strings; single neutral gate at the call boundary</td><td>Closed</td></tr>
+      <tr id="open-flag"><th scope="row">Rollout flag mechanism</th><td>One global flag defaulting on, gating authorization and credential use; a true stop</td><td>Closed</td></tr>
+      <tr id="open-timeouts"><th scope="row">Google timeout and retry numbers</th><td>Bounded proposal recorded; exact values confirmed against measured latency pre-rollout</td><td>Measure at build</td></tr>
+      <tr id="open-ui"><th scope="row">Interface components</th><td>Card, rows, sheet, approval card against the fixed contract</td><td>Follow-up episode</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="vbg-caption">Annotate any row, or queue a prompt: approval of the plan as drawn, changes by section, or answers to specific rows. After this review come adversarial and simplicity passes, then an approval gate before any implementation episode.</p>
+</section>
+
+</main>
+<footer class="vbg-footer">
+  <span>Allies plan review · docs/plans/gmail-managed-connection.md is the source of truth</span>
+  <span>Episode gmail-managed-connection-01 · branch ft/gmail-managed-connection</span>
+</footer>
+</div>
+</body>
+</html>
