@@ -8,7 +8,7 @@ from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
-from uuid import UUID
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.conf import settings
 from pydantic import (
@@ -596,3 +596,39 @@ def activate_workspace(workspace_id: str) -> WorkspaceActivationReceipt:
         return WorkspaceActivationReceipt.model_validate_json(raw)
     except ValueError as exc:
         raise ProvisioningRejected("foundry activation response invalid") from exc
+
+
+_FOUNDRY_PROFILE_NAMESPACE = uuid5(NAMESPACE_URL, "allies-foundry-profile-v1")
+
+
+def foundry_profile_id(binding_id: UUID | str) -> UUID:
+    """Mirror Foundry's profile identity for a provisioned Ally binding."""
+
+    return uuid5(_FOUNDRY_PROFILE_NAMESPACE, str(binding_id))
+
+
+def set_model_binding(profile_id: UUID, binding: Mapping[str, Any]) -> int:
+    raw = _request(
+        method="PUT",
+        path=f"/api/v1/internal/profiles/{profile_id}/model-binding",
+        body=canonical_json_bytes({"profile_id": str(profile_id), **binding}),
+    )
+    return _binding_generation(raw)
+
+
+def clear_model_binding(profile_id: UUID) -> int:
+    raw = _request(
+        method="DELETE",
+        path=f"/api/v1/internal/profiles/{profile_id}/model-binding",
+    )
+    return _binding_generation(raw)
+
+
+def _binding_generation(raw: bytes) -> int:
+    try:
+        generation = json.loads(raw)["generation"]
+    except (ValueError, TypeError, KeyError):
+        raise FoundryGatewayInvalid("foundry binding receipt invalid") from None
+    if type(generation) is not int or generation < 1:
+        raise FoundryGatewayInvalid("foundry binding receipt invalid")
+    return generation

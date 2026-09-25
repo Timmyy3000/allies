@@ -155,6 +155,30 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
             ]
         },
     },
+    "SuccessResponse_ModelKeysResponse_": {
+        "status": "success",
+        "message": "Model keys",
+        "data": {
+            "providers": ["opencode-go", "opencode-zen"],
+            "keys": [
+                {
+                    "provider": "opencode-zen",
+                    "key_hint": "WXYZ",
+                    "connected_at": "2026-09-25T12:00:00+00:00",
+                }
+            ],
+            "allies": [
+                {
+                    "ally_id": "00000000-0000-4000-8000-000000000041",
+                    "source": "own_key",
+                    "provider": "opencode-zen",
+                    "model": "gpt-5.2",
+                    "reasoning": "high",
+                    "status": "connected",
+                }
+            ],
+        },
+    },
     "SuccessResponse_RuntimeIntentResponse_": {
         "status": "success",
         "message": "Runtime intent accepted",

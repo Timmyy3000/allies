@@ -868,8 +868,15 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
     )
     if message_status in _TERMINAL_STATES:
         from chat.services.dispatch import _release_next_locked
+        from model_keys.services import note_execution_outcome
 
         _release_next_locked(conversation, now=timezone.now())
+        note_execution_outcome(
+            ally_id=conversation.ally_id,
+            event_type=envelope.event_type,
+            reason=envelope.payload.get("reason"),
+            message_created_at=message.created_at,
+        )
     return ProjectionResult(
         status="applied",
         event_id=envelope.event_id,

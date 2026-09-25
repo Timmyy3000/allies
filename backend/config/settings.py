@@ -177,6 +177,7 @@ INSTALLED_APPS = [
     "files",
     "activities",
     "integrations",
+    "model_keys",
     "devtools",
 ]
 
@@ -674,6 +675,8 @@ ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN = os.environ.get(
     "ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN", ""
 )
 ALLIES_FOUNDRY_EXECUTION_ENABLED = env_bool("ALLIES_FOUNDRY_EXECUTION_ENABLED", False)
+ALLIES_VAULT_KEYS = os.environ.get("ALLIES_VAULT_KEYS", "")
+ALLIES_CREDENTIAL_BROKER_TOKEN = os.environ.get("ALLIES_CREDENTIAL_BROKER_TOKEN", "")
 ALLIES_ROUTINE_SCHEDULER_ENABLED = env_bool("ALLIES_ROUTINE_SCHEDULER_ENABLED", True)
 ALLIES_ROUTINE_DISPATCH_ENABLED = env_bool("ALLIES_ROUTINE_DISPATCH_ENABLED", True)
 ALLIES_ROUTINE_APPROVAL_ENABLED = env_bool("ALLIES_ROUTINE_APPROVAL_ENABLED", True)
@@ -719,6 +722,11 @@ CELERY_BEAT_SCHEDULE["generate-pending-labels"] = {
 CELERY_BEAT_SCHEDULE["reconcile-due-ally-deletions"] = {
     "task": "allies.reconcile_due_ally_deletions",
     "schedule": 15.0,
+    "options": {"queue": "cloud"},
+}
+CELERY_BEAT_SCHEDULE["sync-model-selections"] = {
+    "task": "model_keys.sync_selections",
+    "schedule": 30.0,
     "options": {"queue": "cloud"},
 }
 CELERY_BEAT_SCHEDULE["dispatch-pending-messages"] = {
@@ -909,6 +917,11 @@ if not DEBUG:
         or any(character.isspace() for character in ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN)
     ):
         missing.append("ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN (at least 32 bytes)")
+    if ALLIES_CREDENTIAL_BROKER_TOKEN and (
+        len(ALLIES_CREDENTIAL_BROKER_TOKEN) < 32
+        or any(character.isspace() for character in ALLIES_CREDENTIAL_BROKER_TOKEN)
+    ):
+        missing.append("ALLIES_CREDENTIAL_BROKER_TOKEN (at least 32 bytes)")
     if (
         (
             ALLIES_TRUST_FORWARDED_PROTO
