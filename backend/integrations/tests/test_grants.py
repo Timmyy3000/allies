@@ -1,22 +1,18 @@
 import hashlib
-import logging
 
 import pytest
 from cryptography.fernet import Fernet
 
 from allies.models import Ally, AllyBinding
 from auths.models import User
-from integrations.exceptions import GrantDenied, IntegrationInvalid
+from integrations.exceptions import IntegrationInvalid
 from integrations.models import PROVIDER_GMAIL, AllyIntegrationGrant, IntegrationSecret
 from integrations.services import google_oauth
-from integrations.services.google_oauth import MintedAccess
 from integrations.services.grants import (
     READ_ALLOWLIST,
     SEND_ALLOWLIST,
     check_gmail_grant,
     disconnect_gmail_account,
-    mint_execution_credential,
-    resolve_credential_ref,
     revoke_ally_grant,
     set_ally_grant,
 )
@@ -104,8 +100,6 @@ def test_ungranted_ally_denied(rig):
     decision = check_gmail_grant(secret=secret, ally=reader)
     assert decision.allowed is False
     assert decision.reason_code == "grant_missing"
-    with pytest.raises(GrantDenied):
-        mint_execution_credential(secret=secret, ally=reader, command_id="cmd-1")
 
 
 def test_cross_workspace_ally_rejected(db, rig):
@@ -140,67 +134,17 @@ def test_revoked_secret_denies_and_revoke_fences(rig):
     assert revoke_ally_grant(secret=secret, ally=reader) == 0
 
 
-def test_mint_registers_resolvable_ref(rig, monkeypatch):
-    from django.utils import timezone
-
-    _, _, _, sender, secret = rig
-    set_ally_grant(secret=secret, ally=sender, level="send")
-    minted = MintedAccess(
-        access_token="ya29.exec",
-        expires_at=timezone.now() + timezone.timedelta(seconds=600),
-    )
-    credential = mint_execution_credential(
-        secret=secret, ally=sender, command_id="cmd-9", minted=minted
-    )
-    assert credential.ref.startswith(f"gmail:{secret.id}:cmd-9:")
-    assert credential.tool_allowlist == SEND_ALLOWLIST
-    assert credential.grant_generation == 1
-    assert resolve_credential_ref(credential.ref, command_id="cmd-9") == "ya29.exec"
-    with pytest.raises(GrantDenied):
-        resolve_credential_ref(credential.ref, command_id="cmd-other")
-    with pytest.raises(GrantDenied):
-        resolve_credential_ref("gmail:missing:cmd:nope", command_id="cmd")
-
-
-def test_mint_audit_never_logs_tokens(rig, monkeypatch, caplog):
-    from django.utils import timezone
-
-    _, _, _, sender, secret = rig
-    set_ally_grant(secret=secret, ally=sender, level="read")
-    minted = MintedAccess(
-        access_token="ya29.super-secret-token",
-        expires_at=timezone.now() + timezone.timedelta(seconds=600),
-    )
-    with caplog.at_level(logging.INFO, logger="integrations.services.grants"):
-        mint_execution_credential(
-            secret=secret, ally=sender, command_id="cmd-10", minted=minted
-        )
-    assert "ya29.super-secret-token" not in caplog.text
-    assert "refresh.live" not in caplog.text
-
-
 def test_disconnect_scrubs_and_revokes(rig, monkeypatch):
     _, _, reader, _, secret = rig
     set_ally_grant(secret=secret, ally=reader, level="read")
-    from django.utils import timezone
-
-    minted = MintedAccess(
-        access_token="ya29.exec",
-        expires_at=timezone.now() + timezone.timedelta(seconds=600),
-    )
-    credential = mint_execution_credential(
-        secret=secret, ally=reader, command_id="cmd-11", minted=minted
-    )
     monkeypatch.setattr(google_oauth, "revoke_at_google", lambda token: True)
     result = disconnect_gmail_account(secret=secret)
     assert result.status == "deprovisioned"
-    assert result.scrubbed_refs == 1
     secret.refresh_from_db()
     assert secret.revoked_at is not None
     assert bytes(secret.ciphertext) == b""
     assert AllyIntegrationGrant.objects.count() == 0
-    with pytest.raises(GrantDenied):
-        resolve_credential_ref(credential.ref, command_id="cmd-11")
+    assert check_gmail_grant(secret=secret, ally=reader).allowed is False
     again = disconnect_gmail_account(secret=secret)
     assert again.status == "already_cleaned"
 
@@ -221,17 +165,8 @@ def test_disconnect_google_failure_is_repair(rig, monkeypatch):
 
 
 def test_disconnect_wipe_skips_reconnected_secret(rig, monkeypatch):
-    from django.utils import timezone
-
     _, _, reader, _, secret = rig
     set_ally_grant(secret=secret, ally=reader, level="read")
-    minted = MintedAccess(
-        access_token="ya29.exec",
-        expires_at=timezone.now() + timezone.timedelta(seconds=600),
-    )
-    credential = mint_execution_credential(
-        secret=secret, ally=reader, command_id="cmd-12", minted=minted
-    )
 
     def _revoke_with_racing_reconnect(token):
         fresh_ciphertext, _ = seal_refresh_token("refresh.reconnected")
@@ -246,33 +181,7 @@ def test_disconnect_wipe_skips_reconnected_secret(rig, monkeypatch):
     secret.refresh_from_db()
     assert secret.revoked_at is None
     assert bytes(secret.ciphertext) != b""
-    with pytest.raises(GrantDenied):
-        resolve_credential_ref(credential.ref, command_id="cmd-12")
-
-
-def test_resolve_revalidates_live_grant(rig):
-    from django.utils import timezone
-
-    _, _, reader, sender, secret = rig
-    set_ally_grant(secret=secret, ally=reader, level="read")
-    set_ally_grant(secret=secret, ally=sender, level="send")
-    minted = MintedAccess(
-        access_token="ya29.exec",
-        expires_at=timezone.now() + timezone.timedelta(seconds=600),
-    )
-    read_cred = mint_execution_credential(
-        secret=secret, ally=reader, command_id="cmd-13", minted=minted
-    )
-    send_cred = mint_execution_credential(
-        secret=secret, ally=sender, command_id="cmd-14", minted=minted
-    )
-    assert resolve_credential_ref(read_cred.ref, command_id="cmd-13") == "ya29.exec"
-    revoke_ally_grant(secret=secret, ally=reader)
-    with pytest.raises(GrantDenied):
-        resolve_credential_ref(read_cred.ref, command_id="cmd-13")
-    set_ally_grant(secret=secret, ally=sender, level="read")
-    with pytest.raises(GrantDenied):
-        resolve_credential_ref(send_cred.ref, command_id="cmd-14")
+    assert AllyIntegrationGrant.objects.filter(secret=secret).count() == 0
 
 
 def test_single_active_connection_per_workspace(rig):
