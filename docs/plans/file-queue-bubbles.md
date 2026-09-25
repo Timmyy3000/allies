@@ -151,6 +151,35 @@ Local verification on the final head: smoke `files.spec.ts` 4/4 desktop and
 4/4 mobile; unit 104 frame/model + 133 workspace + 66 composer/file/transfer;
 `lint:web` 0 errors; `web` typecheck clean.
 
+## No-transient-bubble revision (2026-09-25, implemented)
+
+Owner report: a file message sent while the Ally is thinking still flashes a
+timeline bubble during upload, then settles into the pill. Expected: while the
+message is waiting for acceptance it stays a pill, with upload progress shown
+in the pill.
+
+Root cause: the bubble/pill split keyed only on transfer activity, so any
+uploading message bubbled — including ones queued behind another turn. The
+split is now ownership-based: a queued file message renders as a timeline
+bubble only when it is failed/needs-action (`failed`/`needs_retry`
+preparation, `failed`/`rejected` files), claimed by the runtime, or the
+projection's active message. Everything else waiting — including mid-upload —
+renders as the queue pill. Upload bytes still start immediately after Send
+(no artificial serialization delay); only the presentation waits for
+acceptance.
+
+Pills carry live progress: local pre-admission items resolve exact status
+from the transfer record (`Uploading N%`, `Checking file…`, `Needs
+attention`) via the new `localTransferQueueStatus` helper; admitted cloud
+items without a visible local record fall back to `Uploading…` while
+`preparation` is `uploading` or files are `pending`/`receiving`/`validating`.
+
+Regression lock: new home-smoke test with a claimed head turn (Thinking..)
+plus a slowed upload asserts the uploading file message shows pill text +
+`Uploading`, the head stays a timeline bubble, no timeline bubble ever
+carries the new text, and the upload request fires. Unit coverage for the
+split rule and the status helper included.
+
 ## Adversarial review (non-independent, in-session — original revision)
 
 Independent `codex/sol_review_worker` and generic `reviewer` workers were both
