@@ -31,7 +31,7 @@ def _test_vault_key() -> str:
 
 
 FULL_SCOPES = (
-    "https://www.googleapis.com/auth/gmail.readonly "
+    "https://www.googleapis.com/auth/gmail.modify "
     "https://www.googleapis.com/auth/gmail.send"
 )
 
@@ -256,7 +256,7 @@ def test_complete_rejects_scope_shortfall_and_stores_nothing(
     token = {
         "access_token": "ya29.test",
         "refresh_token": "refresh.test",
-        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+        "scope": "https://www.googleapis.com/auth/gmail.modify",
         "expires_in": 3600,
     }
     monkeypatch.setattr(google_oauth, "urlopen", fake_urlopen_factory(token=token))

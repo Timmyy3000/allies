@@ -14,7 +14,7 @@ from integrations.services import google_oauth
 from workspaces.models import Membership, Workspace
 
 FULL_SCOPES = (
-    "https://www.googleapis.com/auth/gmail.readonly "
+    "https://www.googleapis.com/auth/gmail.modify "
     "https://www.googleapis.com/auth/gmail.send"
 )
 
@@ -195,7 +195,7 @@ def test_callback_scope_shortfall_returns_422(api_account, monkeypatch):
     token = {
         "access_token": "ya29.test",
         "refresh_token": "refresh.test",
-        "scope": "https://www.googleapis.com/auth/gmail.readonly",
+        "scope": "https://www.googleapis.com/auth/gmail.modify",
         "expires_in": 3600,
     }
     monkeypatch.setattr(google_oauth, "urlopen", fake_urlopen(token))
