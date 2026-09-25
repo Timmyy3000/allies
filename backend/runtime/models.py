@@ -375,10 +375,12 @@ class ReadyWorkspaceBundle(models.Model):
             ),
             models.CheckConstraint(
                 condition=(
-                    ~Q(state__in=[
-                        ReadyWorkspaceBundleState.PARKING,
-                        ReadyWorkspaceBundleState.SLEEPING,
-                    ])
+                    ~Q(
+                        state__in=[
+                            ReadyWorkspaceBundleState.PARKING,
+                            ReadyWorkspaceBundleState.SLEEPING,
+                        ]
+                    )
                     | (
                         Q(blank_volume_ref__isnull=False)
                         & Q(ready_at__isnull=False)
@@ -1546,6 +1548,8 @@ class ExecutionEventDelivery(models.Model):
     next_attempt_at = models.DateTimeField()
     safe_error_code = models.CharField(max_length=64, default="", blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
+    # First time Cloud reported this delivery waiting on a missing predecessor.
+    sequence_gap_since = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
