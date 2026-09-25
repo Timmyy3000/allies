@@ -274,7 +274,7 @@ No `refresh_token` key is present, so `google_api.py:189` (`if creds.expired and
 ### Phase 6 — Boundary proof + rollout (lead: Cloud)
 
 - Goal: demonstrate BOUNDARY 6/6 + watchpoints; enable the flag only on proven slice compatibility, with rollback ready.
-- Work items: ticket-test matrix (§Acceptance Criteria); rollout flag `ALLIES_GMAIL_ENABLED` (D11, Phase 1) — prod env False until FND-005–008 + credential-resolution contract + Cloud/Foundry/Interface compatibility are evidenced, then enabled; no per-workspace variant in v1; emergency-stop runbook (flag False → auth/use refusal + in-flight fencing per ADV-005); follow-up repo episodes for Foundry/Interface per D9.
+- Work items: ticket-test matrix (§Acceptance Criteria); rollout flag `ALLIES_GMAIL_ENABLED` (D11, Phase 1) — defaults True in every environment, prod included (feature flags default on); set it False only to switch Gmail off; no per-workspace variant in v1; emergency-stop runbook (flag False → auth/use refusal + in-flight fencing per ADV-005); follow-up repo episodes for Foundry/Interface per D9.
 - Impacted files/systems: `backend/config/settings.py` + docs; no new runtime surface.
 - Exit criteria: all acceptance checks green; plan review findings closed; PRs per repo opened in dependency order (Cloud → Foundry slice → Interface).
 
