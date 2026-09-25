@@ -11,7 +11,7 @@ _HTML required: yes — user requested Lavish review session 2026-09-22; this Ma
 
 ## User Stories
 
-1. As a user, I want to connect my Gmail once (Integrations page or in-chat) via Allies-owned Google OAuth granting only `gmail.readonly` + `gmail.send`, so that my Allies can read and send mail without me running a Console project.
+1. As a user, I want to connect my Gmail once (Integrations page or in-chat) via Allies-owned Google OAuth granting only `gmail.modify` + `gmail.send`, so that my Allies can read and send mail without me running a Console project.
 2. As a user, I want to grant one Ally read-only and another Ally read+send, and revoke either grant, so that a compromised or noisy Ally loses mailbox access without disconnecting my account (in-flight work is fenced, not silently continued).
 3. As a user, I want every Ally-composed send/reply shown to me as a draft for approval before dispatch, so that nothing leaves my mailbox on an agent's authority alone.
 4. As an operator, I want account disconnect to delete the vault refresh token, revoke at Google, and scrub materialized profile files, so that no execution can use the credential afterwards and I can prove it.
@@ -20,7 +20,7 @@ _HTML required: yes — user requested Lavish review session 2026-09-22; this Ma
 
 ### In Scope
 
-- Allies-owned Google OAuth for Gmail v1 with minimal scopes `gmail.readonly` + `gmail.send` (D8); entry points: Integrations page AND in-chat initiation with inline OAuth sheet and auto-grant to the requesting Ally (Req 1).
+- Allies-owned Google OAuth for Gmail v1 with minimal scopes `gmail.modify` + `gmail.send` (D8); entry points: Integrations page AND in-chat initiation with inline OAuth sheet and auto-grant to the requesting Ally (Req 1).
 - Account-level connection + per-Ally grants (`read` vs `send`, explicit, revocable) enforced in the Cloud gateway before Foundry dispatch AND at each Gmail API call inside the execution (Req 2, ADV-001, SIM-001): dispatch holds the whole conversation command (not later skill args, which arrive via `google_api.py:318-420`) and the token carries both scopes — so the pre-dispatch check reads the live grant row and emits the execution's allowed-operation list (level→allowlist, no `requested_tool` input), and at the actual call boundary ONE provider-neutral gate checks that list + current grant generation + (on sends) the approval bound to the exact payload. A read-only or ungranted execution cannot reach send through any tool path.
 - Generic credential passthrough: Cloud mints short-lived ACCESS-only tokens per execution; refresh + revoke + audit stay in Cloud; Foundry/runtime injects opaque bytes at the Hermes profile boundary; kernel never parses OAuth or names the provider; reuse `credential_refs` → profile `.env` machinery (`allies-foundry/runtime/allies_runtime/profile_store.py:1536-1537,1605`) (Req 3).
 - Hermes `google-workspace` skill used UNMODIFIED; injected file carries no `refresh_token` so `get_credentials()` auto-refresh + write-back (`scripts/google_api.py:181-200`) never fires; expiry exits non-zero and maps to existing `retryable`/`repair_required` + reason code, no new event kind (D7, Req 4).
@@ -88,7 +88,7 @@ Representative JSON — OAuth callback handling (Cloud-internal view; tokens nev
   "google": {
     "code": "[redacted: single-use, never logged]",
     "granted_scopes": [
-      "https://www.googleapis.com/auth/gmail.readonly",
+      "https://www.googleapis.com/auth/gmail.modify",
       "https://www.googleapis.com/auth/gmail.send"
     ]
   },
@@ -200,7 +200,7 @@ Injected file form (the ONLY secret bytes Hermes ever sees; skill UNMODIFIED):
   "client_secret": "[not shipped — field absent]",
   "token": "<short-lived access token>",
   "expiry": "2026-09-22T13:00:00Z",
-  "scopes": ["https://www.googleapis.com/auth/gmail.readonly", "https://www.googleapis.com/auth/gmail.send"]
+  "scopes": ["https://www.googleapis.com/auth/gmail.modify", "https://www.googleapis.com/auth/gmail.send"]
 }
 ```
 
@@ -280,7 +280,7 @@ No `refresh_token` key is present, so `google_api.py:189` (`if creds.expired and
 
 ## Acceptance Criteria
 
-1. OAuth: Integrations + in-chat connect store exactly `gmail.readonly + gmail.send`; user Console projects never involved; scope shortfall → `422 scope_insufficient`, nothing stored.
+1. OAuth: Integrations + in-chat connect store exactly `gmail.modify + gmail.send`; user Console projects never involved; scope shortfall → `422 scope_insufficient`, nothing stored.
 2. Grants: per-Ally `read`/`send` enforced in Cloud gateway pre-dispatch AND at each tool call via the execution allowed-operation list + single provider-neutral gate (list + live generation + approval-bound payload on sends); ungranted tool call produces zero Foundry calls and a read-granted execution cannot reach send through any tool path; revoke bumps generation and fences in-flight (`FENCED`, no silent continuation).
 3. Passthrough: per-execution fresh expiring command-bound refs (cross-command reuse rejected, same-command retries idempotent — no global consume-once state); outbox holds refs, never bytes; refresh/revoke/audit stay in Cloud; Foundry kernel never parses OAuth/scopes/names provider (grep + test); injected file has no `refresh_token`; skill UNMODIFIED (checksum/diff guard in test).
 4. Expiry: skill non-zero exit on expiry maps to existing `retryable`/`repair_required` + `reason: gmail_credential_expired`; no new event kind exists in code or fixtures.
