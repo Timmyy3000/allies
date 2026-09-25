@@ -46,13 +46,11 @@ class FakeResponse:
         return False
 
 
-def fake_urlopen_factory(*, token=None, sub="google-sub-1", email="user@gmail.com"):
+def fake_urlopen_factory(*, token=None, email="user@gmail.com"):
     def _fake(request, timeout=None):
         url = request.full_url if hasattr(request, "full_url") else str(request)
         if "oauth2.googleapis.com/token" in url:
             return FakeResponse(token)
-        if "userinfo" in url:
-            return FakeResponse({"sub": sub})
         if "gmail.googleapis.com" in url:
             return FakeResponse({"emailAddress": email})
         if "oauth2.googleapis.com/revoke" in url:
@@ -196,7 +194,7 @@ def test_complete_rejects_scope_shortfall_and_stores_nothing(
 @pytest.mark.django_db
 def test_complete_rejects_second_account(account, gmail_settings, monkeypatch):
     _, workspace, _ = account
-    for index, sub in enumerate(("google-sub-a", "google-sub-b")):
+    for index, email in enumerate(("a@gmail.com", "b@gmail.com")):
         begun = google_oauth.begin_gmail_connect(
             workspace=workspace,
             entry_point="integrations",
@@ -204,12 +202,12 @@ def test_complete_rejects_second_account(account, gmail_settings, monkeypatch):
         )
         token = {
             "access_token": "ya29.test",
-            "refresh_token": f"refresh.{sub}",
+            "refresh_token": f"refresh.{index}",
             "scope": FULL_SCOPES,
             "expires_in": 3600,
         }
         monkeypatch.setattr(
-            google_oauth, "urlopen", fake_urlopen_factory(token=token, sub=sub)
+            google_oauth, "urlopen", fake_urlopen_factory(token=token, email=email)
         )
         if index == 0:
             complete_gmail_connect(
@@ -220,6 +218,97 @@ def test_complete_rejects_second_account(account, gmail_settings, monkeypatch):
                 complete_gmail_connect(
                     state=_state_from_auth_url(begun.auth_url), code="auth-code-4"
                 )
+
+
+@pytest.mark.django_db
+def test_reconnect_after_disconnect_succeeds(account, gmail_settings, monkeypatch):
+    from integrations.services.grants import disconnect_gmail_account
+
+    _, workspace, _ = account
+    begun = google_oauth.begin_gmail_connect(
+        workspace=workspace,
+        entry_point="integrations",
+        idempotency_key="connect-key-reconnect-1",
+    )
+    token = {
+        "access_token": "ya29.test",
+        "refresh_token": "refresh.first",
+        "scope": FULL_SCOPES,
+        "expires_in": 3600,
+    }
+    monkeypatch.setattr(
+        google_oauth, "urlopen", fake_urlopen_factory(token=token, email="a@gmail.com")
+    )
+    first = complete_gmail_connect(
+        state=_state_from_auth_url(begun.auth_url), code="auth-code-7"
+    )
+    disconnect_gmail_account(secret=first.secret)
+
+    begun2 = google_oauth.begin_gmail_connect(
+        workspace=workspace,
+        entry_point="integrations",
+        idempotency_key="connect-key-reconnect-2",
+    )
+    monkeypatch.setattr(
+        google_oauth, "urlopen", fake_urlopen_factory(token=token, email="b@gmail.com")
+    )
+    second = complete_gmail_connect(
+        state=_state_from_auth_url(begun2.auth_url), code="auth-code-8"
+    )
+    assert second.status == "connected"
+    assert second.secret.account_email == "b@gmail.com"
+
+
+@pytest.mark.django_db
+def test_pkce_challenge_and_verifier_roundtrip(account, gmail_settings, monkeypatch):
+    import base64
+    import hashlib
+
+    _, workspace, _ = account
+    begun = google_oauth.begin_gmail_connect(
+        workspace=workspace,
+        entry_point="integrations",
+        idempotency_key="connect-key-pkce-00001",
+    )
+    query = parse_qs(urlparse(begun.auth_url).query)
+    assert query["code_challenge_method"] == ["S256"]
+    challenge = query["code_challenge"][0]
+
+    seen = {}
+
+    def _capture(request, timeout=None):
+        from urllib.parse import parse_qs as _pq
+
+        if request.data:
+            body = _pq(request.data.decode())
+            seen.update({k: v[0] for k, v in body.items()})
+        url = request.full_url
+        if "oauth2.googleapis.com/token" in url:
+            return FakeResponse(
+                {
+                    "access_token": "ya29.test",
+                    "refresh_token": "refresh.test",
+                    "scope": FULL_SCOPES,
+                    "expires_in": 3600,
+                }
+            )
+        if "gmail.googleapis.com" in url:
+            return FakeResponse({"emailAddress": "user@gmail.com"})
+        raise AssertionError(f"unexpected provider call: {url}")
+
+    monkeypatch.setattr(google_oauth, "urlopen", _capture)
+    complete_gmail_connect(
+        state=_state_from_auth_url(begun.auth_url), code="auth-code-pkce"
+    )
+    assert "code_verifier" in seen
+    expected = (
+        base64.urlsafe_b64encode(
+            hashlib.sha256(seen["code_verifier"].encode()).digest()
+        )
+        .rstrip(b"=")
+        .decode()
+    )
+    assert expected == challenge
 
 
 @pytest.mark.django_db

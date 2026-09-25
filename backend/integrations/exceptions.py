@@ -21,10 +21,6 @@ class GrantDenied(IntegrationError):
     code = "grant_denied"
 
 
-class CredentialExpired(IntegrationError):
-    code = "gmail_credential_expired"
-
-
 class RefreshRevoked(IntegrationError):
     code = "refresh_revoked"
 
