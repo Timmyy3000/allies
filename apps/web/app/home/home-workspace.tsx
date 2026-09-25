@@ -87,7 +87,7 @@ import {
   ALLY_DELETION_MAX_POLL_MS,
   AllySettingsDialog,
 } from "./ally-settings-dialog";
-import { FileThumbnail, useConversationFiles } from "./attachments/use-conversation-files";
+import { useConversationFiles } from "./attachments/use-conversation-files";
 import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
 import { AlliesLoading } from "../../components/allies-loading";
 import { RecipesButton } from "./recipes-button";
@@ -2827,8 +2827,31 @@ function ConversationPane({
     const cloudMessage = conversationQueueMessages.find((message) => message.id === id);
     if (cloudMessage) {
       if (!isCloudQueueMessageRemovable(cloudMessage) || !conversation) return;
+      const hasAttachments = Boolean(cloudMessage.files?.length
+        || (cloudMessage.preparation && cloudMessage.preparation !== "none" && cloudMessage.preparation !== "ready"));
       await withQueueMessageLock(queuedMessagesStorageKey, id, async () => {
         try {
+          if (hasAttachments) {
+            const result = await session.runCloudOperation(
+              (signal) => session.client.files.cancel(
+                workspaceId,
+                conversation.id,
+                id,
+                cloudMessage.revision ?? 0,
+                signal,
+              ),
+              { csrf: true },
+            );
+            restoreFileText(result.draft.content);
+            attachments.change([
+              ...result.draft.files.map((f) => ({
+                id: crypto.randomUUID(),
+                name: f.name,
+                size: cloudMessage.files?.find((r) => r.id === f.id)?.size ?? 0,
+              })),
+              ...(fileManager.drafts.get(fileScope) ?? []),
+            ]);
+          }
           const tombstone = await session.runCloudOperation(
             (signal) => session.client.deleteQueuedMessage(workspaceId, conversation.id, id, signal),
             { csrf: true },
@@ -2935,19 +2958,13 @@ function ConversationPane({
   };
 
   const restoreFileText = (content: string) => { const combined = [content, draftRef.current].filter(Boolean).join("\n\n"); draftRef.current = combined; setDraft(combined); void conversationQuery.refetch(); };
-  const renderQueueAttachments = useCallback((files: QueuedAttachmentPreview[]) => (<>
-    {files.slice(0, 3).map((file) => (
-      <FileThumbnail key={file.id} id={file.id} name={file.name} src={file.src} ready={file.ready} workspaceId={workspaceId} allyId={ally.id} />
-    ))}
-    {files.length > 3 ? <span>+{files.length - 3}</span> : null}
-  </>), [workspaceId, ally.id]);
   const frame = <><ConversationFrame settingsHref={`/allies/${encodeURIComponent(ally.id)}/settings`} stateReady={stateReady} sleeping={sleeping} runtimeIntentStatus={runtimeIntentStatus} model={frameModel} actions={frameActions} onOpenSettings={onOpenSettings} canvasRef={messageCanvasRef}
     fileRecovery={attachments.cancelled.map(record => <div className={attachmentStyles.savedDraft} key={record.id} role="group" aria-label="Saved cancelled file message"><span>Saved cancelled message · {record.files.length} files</span><button type="button" onClick={() => { attachments.restoreDraft(record); restoreFileText(record.content); }}>Restore draft</button><button type="button" onClick={() => attachments.discard(record.id)}>Discard saved copy</button></div>)}
     attachments={attachments.tray} onAttach={preparingFiles ? undefined : attachments.open}
     onFilesDrop={preparingFiles ? undefined : attachments.addFiles}
     onFileOpen={attachments.openFile}
     publications={id => attachments.publications(id, assistantReplies.filter(reply => reply.sourceMessageId === id).flatMap(reply => reply.publications ?? []))}
-    renderQueueAttachments={renderQueueAttachments}
+    onQueueAttachmentOpen={(file) => attachments.openFile(file.id)}
     messageAttachments={id => {
       const message = timelineMessages.find(message => message.id === id);
       const local = queuedMessages.find(message => message.id === id);
@@ -3325,15 +3342,21 @@ export function buildQueuedFrameMessages(
   return items;
 }
 
+const ACTIVE_FILE_PREPARATIONS: ReadonlySet<string> = new Set(["uploading", "failed", "needs_retry"]);
+const ACTIVE_FILE_STATES: ReadonlySet<string> = new Set(["pending", "receiving", "validating", "failed", "rejected"]);
+
 export function queuedAttachmentQueueIds(
   timelineMessages: readonly MessageViewModel[],
   activeTransferMessageIds: ReadonlySet<string>,
 ): Set<string> {
-  return new Set(timelineMessages.filter((message) => (
-    (message.files?.length || (message.preparation && message.preparation !== "none"))
-    && isLiveQueuedMessage(message)
-    && !activeTransferMessageIds.has(message.id)
-  )).map((message) => message.id));
+  return new Set(timelineMessages.filter((message) => {
+    if (!message.files?.length && !(message.preparation && message.preparation !== "none")) return false;
+    if (!isLiveQueuedMessage(message)) return false;
+    if (activeTransferMessageIds.has(message.id)) return false;
+    if (message.preparation && ACTIVE_FILE_PREPARATIONS.has(message.preparation)) return false;
+    if (message.files?.some((file) => ACTIVE_FILE_STATES.has(file.state))) return false;
+    return true;
+  }).map((message) => message.id));
 }
 
 function activityStateFromMessage(status: MessageViewModel["status"]): ActivityState {
