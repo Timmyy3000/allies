@@ -1,4 +1,5 @@
 import json
+import re
 import secrets
 from uuid import NAMESPACE_URL, UUID, uuid5
 
@@ -72,7 +73,11 @@ from runtime.services.publications import (
     register_publication,
     upload_publication_file,
 )
-from runtime.services.routine_tools import call_routine_tool, routine_tool_token
+from runtime.services.routine_tools import (
+    call_integration_tool,
+    call_routine_tool,
+    routine_tool_token,
+)
 from runtime.services.routines import (
     accept_routine_dispatch,
     append_runtime_routine_result,
@@ -120,6 +125,7 @@ from .schemas import (
 from .schemas import ProfileProvisioningReceipt as ProfileProvisioningReceiptSchema
 
 _PROFILE_ID_NAMESPACE = uuid5(NAMESPACE_URL, "allies-foundry-profile-v1")
+_INTEGRATION_SLUG = re.compile(r"[a-z][a-z0-9_-]{0,31}")
 
 
 class CloudServiceAuth(HttpBearer):
@@ -147,6 +153,7 @@ def register(api: NinjaExtraAPI) -> None:
                     not isinstance(body, dict)
                     or set(body) != {"call_id", "arguments"}
                     or not isinstance(body["arguments"], dict)
+                    or not isinstance(body["call_id"], str)
                 ):
                     raise ValueError("invalid fields")
                 call_id = UUID(body["call_id"])
@@ -154,6 +161,35 @@ def register(api: NinjaExtraAPI) -> None:
                 raise RuntimeValidationError("invalid routine request") from exc
             status, result = call_routine_tool(
                 _bearer(request), call_id=call_id, arguments=body["arguments"]
+            )
+            return JsonResponse(result, status=status)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.post("/runtime/integrations/tool", auth=None)
+    def integration_tool(request: HttpRequest):
+        try:
+            if len(request.body) > 64 * 1024:
+                raise RuntimeValidationError("integration request too large")
+            try:
+                body = json.loads(request.body)
+                if (
+                    not isinstance(body, dict)
+                    or set(body) != {"call_id", "integration", "arguments"}
+                    or not isinstance(body["arguments"], dict)
+                    or not isinstance(body["call_id"], str)
+                    or not isinstance(body["integration"], str)
+                    or not _INTEGRATION_SLUG.fullmatch(body["integration"])
+                ):
+                    raise ValueError("invalid fields")
+                call_id = UUID(body["call_id"])
+            except (ValueError, TypeError, KeyError) as exc:
+                raise RuntimeValidationError("invalid integration request") from exc
+            status, result = call_integration_tool(
+                _bearer(request),
+                call_id=call_id,
+                integration=body["integration"],
+                arguments=body["arguments"],
             )
             return JsonResponse(result, status=status)
         except RuntimeDomainError as exc:

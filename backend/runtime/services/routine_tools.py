@@ -37,37 +37,61 @@ def routine_tool_token(claim):
 
 
 def call_routine_tool(token: str, *, call_id: UUID, arguments: dict):
+    return _relay_tool(
+        token,
+        {"call_id": str(call_id), "arguments": arguments},
+        path="routines/tool",
+        unavailable="routine_service_unavailable",
+        instruction="Retry the same call identity; do not claim it was saved.",
+    )
+
+
+def call_integration_tool(
+    token: str, *, call_id: UUID, integration: str, arguments: dict
+):
+    """Relay one opaque integration tool call to the Cloud that dispatched it."""
+
+    return _relay_tool(
+        token,
+        {"call_id": str(call_id), "integration": integration, "arguments": arguments},
+        path="integrations/tool",
+        unavailable="integration_service_unavailable",
+        instruction="The outcome is unconfirmed; do not claim it succeeded.",
+        timeout=25,
+    )
+
+
+def _relay_tool(token, fields, *, path, unavailable, instruction, timeout=10):
     try:
         capability = signing.loads(token, salt=_SALT, max_age=86400)
     except (signing.BadSignature, ValueError, TypeError) as exc:
-        raise RuntimeAuthorizationError("routine capability invalid") from exc
+        raise RuntimeAuthorizationError("tool capability invalid") from exc
     with transaction.atomic():
         authorization = _authorize_attempt_mutation(**capability)
         if authorization.status not in {AttemptStatus.LEASED, AttemptStatus.RUNNING}:
-            raise RuntimeAuthorizationError("routine capability inactive")
+            raise RuntimeAuthorizationError("tool capability inactive")
         attempt = Attempt.objects.select_related("execution").get(
             pk=authorization.attempt_id
         )
         execution = attempt.execution
         if not execution.cloud_message_id or not execution.cloud_binding_id:
-            raise RuntimeAuthorizationError("routine capability unavailable")
+            raise RuntimeAuthorizationError("tool capability unavailable")
         body = json.dumps(
             {
                 "message_id": str(execution.cloud_message_id),
                 "binding_id": str(execution.cloud_binding_id),
                 "command_fingerprint": execution.command_fingerprint,
-                "call_id": str(call_id),
-                "arguments": arguments,
+                **fields,
             }
         ).encode()
     if len(body) > _MAX_BYTES:
-        raise RuntimeValidationError("routine request too large")
+        raise RuntimeValidationError("tool request too large")
     origin = _validated_cloud_url(getattr(settings, "ALLIES_CLOUD_URL", None))
     service_token = getattr(settings, "ALLIES_CLOUD_EVENT_SERVICE_TOKEN", None)
     if not origin or not service_token:
-        return 503, {"error": "routine_service_unavailable"}
+        return 503, {"error": unavailable}
     request = Request(
-        f"{origin}/api/v1/internal/foundry/routines/tool",
+        f"{origin}/api/v1/internal/foundry/{path}",
         data=body,
         headers={
             "Authorization": f"Bearer {service_token}",
@@ -77,20 +101,17 @@ def call_routine_tool(token: str, *, call_id: UUID, arguments: dict):
     )
     try:
         try:
-            response = build_opener(_NoRedirect).open(request, timeout=10)
+            response = build_opener(_NoRedirect).open(request, timeout=timeout)
         except HTTPError as exc:
             response = exc
         with response:
             status = response.status
             raw = response.read(_MAX_BYTES + 1)
         if len(raw) > _MAX_BYTES or status not in {200, 403, 409, 413, 422}:
-            return 503, {"error": "routine_service_unavailable"}
+            return 503, {"error": unavailable}
         result = json.loads(raw)
         if not isinstance(result, dict):
-            return 503, {"error": "routine_service_unavailable"}
+            return 503, {"error": unavailable}
         return status, result
     except (URLError, OSError, ValueError):
-        return 503, {
-            "error": "routine_service_unavailable",
-            "instruction": "Retry the same call identity; do not claim it was saved.",
-        }
+        return 503, {"error": unavailable, "instruction": instruction}
