@@ -235,6 +235,13 @@ class ModelBindingRequest(Schema):
     provider: str | None = None
     model: str | None = None
     reasoning: str | None = None
+    key_refs: dict[str, str] | None = None
+
+
+class CredentialResolveRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    reference: str = Field(..., max_length=128)
 
 
 class ProviderKeyRequest(Schema):
