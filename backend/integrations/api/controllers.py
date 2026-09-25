@@ -321,8 +321,9 @@ class GmailCallbackController(ControllerBase):
         code: str = Query(..., min_length=1, max_length=2048),
         state: str = Query(..., min_length=1, max_length=256),
     ):
-        if rejected := _require_origin(request, allow_native_bearer=True):
-            return rejected
+        # Browser navigation returning from Google carries no trusted origin
+        # or CSRF token. The one-time state token plus the session cookie is
+        # the authorization for this single exchange.
         try:
             session = _session(request)
             completed = google_oauth.complete_gmail_connect(state=state, code=code)

@@ -33,8 +33,6 @@ logger = logging.getLogger(__name__)
 READ_ALLOWLIST = ("gmail search", "gmail get")
 SEND_ALLOWLIST = ("gmail search", "gmail get", "gmail send", "gmail reply")
 
-REF_TTL_SECONDS = 15 * 60
-
 
 def _require_enabled() -> None:
     if not gmail_enabled():
@@ -68,14 +66,19 @@ def set_ally_grant(
     if secret.revoked_at is not None:
         raise IntegrationConflict("gmail connection revoked")
     with transaction.atomic():
+        locked_secret = secret.__class__.objects.select_for_update().get(pk=secret.pk)
         grant, created = AllyIntegrationGrant.objects.select_for_update().get_or_create(
-            secret=secret,
+            secret=locked_secret,
             ally=ally,
-            defaults={"level": level, "grant_generation": 1, "created_by": created_by},
+            defaults={
+                "level": level,
+                "grant_generation": locked_secret.generation_epoch,
+                "created_by": created_by,
+            },
         )
         if not created and grant.level != level:
             grant.level = level
-            grant.grant_generation += 1
+            grant.grant_generation = locked_secret.generation_epoch
             if created_by is not None:
                 grant.created_by = created_by
             grant.save(
@@ -87,15 +90,18 @@ def set_ally_grant(
 def revoke_ally_grant(*, secret, ally) -> int:
     _require_enabled()
     with transaction.atomic():
+        locked_secret = secret.__class__.objects.select_for_update().get(pk=secret.pk)
         grant = (
             AllyIntegrationGrant.objects.select_for_update()
-            .filter(secret=secret, ally=ally)
+            .filter(secret=locked_secret, ally=ally)
             .first()
         )
         if grant is None:
             return 0
         generation = grant.grant_generation
         grant.delete()
+        locked_secret.generation_epoch += 1
+        locked_secret.save(update_fields=["generation_epoch"])
     return generation
 
 
@@ -149,7 +155,10 @@ def _register_ref(ref: str, access_token: str, expires_at) -> None:
             del _registry[key]
 
 
-def resolve_credential_ref(ref: str) -> str:
+def resolve_credential_ref(ref: str, *, command_id: str) -> str:
+    parts = ref.split(":")
+    if len(parts) != 4 or parts[0] != "gmail" or parts[2] != command_id:
+        raise GrantDenied("credential reference rejected")
     with _registry_lock:
         entry = _registry.get(ref)
         if entry is None:
@@ -194,11 +203,6 @@ def mint_execution_credential(
     return credential
 
 
-def active_ref_count() -> int:
-    with _registry_lock:
-        return len(_registry)
-
-
 def _scrub_refs_for_secret(secret) -> int:
     prefix = f"gmail:{secret.id}:"
     with _registry_lock:
@@ -221,7 +225,7 @@ def disconnect_gmail_account(*, secret) -> DisconnectResult:
 
     with transaction.atomic():
         locked = secret.__class__.objects.select_for_update().get(pk=secret.pk)
-        if locked.revoked_at is not None:
+        if locked.revoked_at is not None and not bytes(locked.ciphertext):
             return DisconnectResult(status="already_cleaned", scrubbed_refs=0)
         try:
             refresh_token = unseal_refresh_token(
@@ -229,10 +233,9 @@ def disconnect_gmail_account(*, secret) -> DisconnectResult:
             )
         except IntegrationUnavailable:
             refresh_token = ""
-        locked.ciphertext = b""
-        locked.scope_set = []
-        locked.revoked_at = timezone.now()
-        locked.save(update_fields=["ciphertext", "scope_set", "revoked_at"])
+        if locked.revoked_at is None:
+            locked.revoked_at = timezone.now()
+            locked.save(update_fields=["revoked_at"])
         locked.ally_grants.all().delete()
     scrubbed = _scrub_refs_for_secret(locked)
     if refresh_token and not revoke_at_google(refresh_token):
@@ -241,4 +244,9 @@ def disconnect_gmail_account(*, secret) -> DisconnectResult:
             extra={"secret_id": str(locked.id)},
         )
         return DisconnectResult(status="repair_required", scrubbed_refs=scrubbed)
+    with transaction.atomic():
+        wiped = secret.__class__.objects.select_for_update().get(pk=secret.pk)
+        wiped.ciphertext = b""
+        wiped.scope_set = []
+        wiped.save(update_fields=["ciphertext", "scope_set"])
     return DisconnectResult(status="deprovisioned", scrubbed_refs=scrubbed)

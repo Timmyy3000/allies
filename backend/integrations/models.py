@@ -36,6 +36,7 @@ class IntegrationSecret(models.Model):
     ciphertext = models.BinaryField()
     key_version = models.PositiveIntegerField(default=1)
     scope_set = models.JSONField(default=list)
+    generation_epoch = models.PositiveIntegerField(default=1)
     connected_at = models.DateTimeField(auto_now_add=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
 
@@ -44,6 +45,11 @@ class IntegrationSecret(models.Model):
             models.UniqueConstraint(
                 fields=("workspace", "provider_key", "account_ref_hash"),
                 name="integration_secret_workspace_provider_account_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=("workspace", "provider_key"),
+                condition=models.Q(revoked_at__isnull=True),
+                name="integration_secret_one_active_provider_uniq",
             ),
         ]
         indexes = [
