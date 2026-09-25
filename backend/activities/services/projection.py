@@ -666,12 +666,29 @@ def expire_stalled_held_gaps(*, limit: int = 50, now: datetime | None = None) ->
                 pk=message.conversation_id
             )
             message = Message.objects.select_for_update().get(pk=message_id)
+            current = (
+                FoundryEventReceipt.objects.filter(message=message)
+                .order_by("-generation")
+                .values_list("attempt_id", "generation")
+                .first()
+            )
             held = FoundryHeldEvent.objects.filter(message=message)
-            if not held.filter(created_at__lte=cutoff).exists():
-                continue
-            held.delete()
+            current_held = (
+                held.filter(attempt_id=current[0], generation=current[1])
+                if current is not None
+                else held.none()
+            )
+            # Holds left by a superseded attempt can never drain; drop them
+            # without touching the current attempt's turn.
+            held.exclude(pk__in=current_held.values("pk")).filter(
+                created_at__lte=cutoff
+            ).delete()
             if message.status in _TERMINAL_STATES:
+                held.delete()
                 continue
+            if not current_held.filter(created_at__lte=cutoff).exists():
+                continue
+            current_held.delete()
             message.status = MessageLifecycle.FAILED
             message.retry_allowed = True
             message.save(update_fields=("status", "retry_allowed", "updated_at"))
