@@ -258,7 +258,7 @@ test("sends files-only through the real composer and opens a private preview", a
   await select(page);
   expect(fixture.uploads()).toBe(0);
   await page.getByRole("button", { name: "Send message" }).click();
-  const attachment = page.getByRole("button", { name: /notes.txt.*5 B/ });
+  const attachment = page.getByRole("button", { name: "Open notes.txt preview" });
   await expect(attachment).toBeEnabled();
   await attachment.click();
   await expect(
@@ -299,6 +299,6 @@ test("requires retry after upload failure and retains the draft across refresh",
     .poll(() => fixture.requests.some((r) => r.endsWith("/send-files")))
     .toBe(true);
   await expect(
-    page.getByRole("button", { name: /notes.txt.*5 B/ }),
+    page.getByRole("button", { name: "Open notes.txt preview" }),
   ).toBeEnabled();
 });

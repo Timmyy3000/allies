@@ -220,7 +220,7 @@ describe("ConversationFrame", () => {
           id: "local-photo",
           content: "See this",
           attachments: [
-            { id: "file-1", name: "b.png", src: "blob:photo", ready: true },
+            { id: "file-1", name: "b.png", src: "blob:photo", ready: true, local: true },
           ],
         },
       ],
@@ -232,6 +232,33 @@ describe("ConversationFrame", () => {
       onQueueAttachmentOpen={() => undefined}
     />);
     expect(screen.queryByRole("button", { name: /preview/ })).toBeNull();
+  });
+
+  it("does not route local queued files to the cloud preview loader", () => {
+    const queuedModel = {
+      ...model,
+      messages: [],
+      activityGroups: [],
+      queuedMessages: [
+        {
+          id: "local-pdf",
+          content: "See this",
+          attachments: [
+            { id: "local-1", name: "a.pdf", ready: true, local: true },
+          ],
+        },
+      ],
+    };
+    const onOpen = vi.fn();
+    render(<ConversationFrame
+      model={queuedModel}
+      actions={actions}
+      sleeping
+      onQueueAttachmentOpen={onOpen}
+    />);
+    expect(screen.queryByRole("button", { name: "Open a.pdf preview" })).toBeNull();
+    expect(screen.getByText("See this")).toBeTruthy();
+    expect(onOpen).not.toHaveBeenCalled();
   });
 
   it("remeasures the avatar when the centred status label changes width", () => {

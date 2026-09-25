@@ -1697,7 +1697,7 @@ function ConversationPane({
     (fileTransferId) => {
       const transfer = fileManager.find(fileTransferId);
       return transfer
-        ? transfer.files.map((file) => ({ id: file.id, name: file.name, src: file.src, ready: true }))
+        ? transfer.files.map((file) => ({ id: file.id, name: file.name, src: file.src, ready: true, local: true as const }))
         : null;
     },
   );
