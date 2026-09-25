@@ -8,7 +8,7 @@ import hmac
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -631,6 +631,71 @@ def _drain_held_events(envelope: FoundryEventEnvelope, applied_sequence: int) ->
             return
         held.delete()
         applied_sequence = held.attempt_sequence
+
+
+HELD_GAP_TIMEOUT_SECONDS = 15 * 60
+
+
+def expire_stalled_held_gaps(*, limit: int = 50, now: datetime | None = None) -> int:
+    """Fail turns whose held events have waited too long for a lost predecessor.
+
+    A gap that stays open means Foundry will not deliver the missing event, so
+    the turn would otherwise stay in progress forever and block every later
+    turn of the conversation.  The turn fails as retryable and the next turn
+    is released.
+    """
+
+    observed_at = now or timezone.now()
+    cutoff = observed_at - timedelta(seconds=HELD_GAP_TIMEOUT_SECONDS)
+    message_ids = list(
+        FoundryHeldEvent.objects.filter(created_at__lte=cutoff)
+        .values_list("message_id", flat=True)
+        .distinct()[:limit]
+    )
+    expired = 0
+    for message_id in message_ids:
+        with transaction.atomic():
+            message = (
+                Message.objects.select_related("conversation")
+                .filter(pk=message_id)
+                .first()
+            )
+            if message is None:
+                continue
+            conversation = Conversation.objects.select_for_update().get(
+                pk=message.conversation_id
+            )
+            message = Message.objects.select_for_update().get(pk=message_id)
+            held = FoundryHeldEvent.objects.filter(message=message)
+            if not held.filter(created_at__lte=cutoff).exists():
+                continue
+            held.delete()
+            if message.status in _TERMINAL_STATES:
+                continue
+            message.status = MessageLifecycle.FAILED
+            message.retry_allowed = True
+            message.save(update_fields=("status", "retry_allowed", "updated_at"))
+            Approval.objects.filter(
+                message=message, status=ApprovalStatus.PENDING
+            ).update(
+                status=ApprovalStatus.CANCELLED,
+                delivery_state=ApprovalDeliveryState.CANCELLED,
+                delivery_next_attempt_at=None,
+                delivery_lease_expires_at=None,
+                delivery_safe_error_code="execution_terminal",
+                updated_at=observed_at,
+            )
+            logger.warning(
+                "turn failed on stalled foundry sequence gap "
+                "conversation_id=%s message_id=%s",
+                conversation.id,
+                message.id,
+            )
+            from chat.services.dispatch import _release_next_locked
+
+            _release_next_locked(conversation, now=observed_at)
+            expired += 1
+    return expired
 
 
 def _hold_event(
