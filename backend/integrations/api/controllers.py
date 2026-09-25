@@ -287,7 +287,9 @@ class GmailController(ControllerBase):
                 .order_by("-connected_at")
                 .first()
             )
-            if secret is None or secret.revoked_at is not None:
+            if secret is None or (
+                secret.revoked_at is not None and not bytes(secret.ciphertext)
+            ):
                 result_status = "already_cleaned"
             else:
                 result = disconnect_gmail_account(secret=secret)
