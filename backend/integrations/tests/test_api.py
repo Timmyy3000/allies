@@ -219,6 +219,73 @@ def test_callback_scope_shortfall_returns_422(api_account, monkeypatch):
     ALLIES_GMAIL_REDIRECT_URI="https://app.example/callback",
     ALLIES_INTEGRATIONS_VAULT_KEY=Fernet.generate_key().decode(),
 )
+def test_disconnect_repair_retries_through_service(api_account, monkeypatch):
+    user, workspace, _ = api_account
+    client, csrf = _client(user)
+    base = f"/api/v1/workspaces/{workspace.id}/integrations/gmail"
+    begun = client.post(
+        f"{base}/connect",
+        json.dumps({"entry_point": "integrations"}),
+        content_type="application/json",
+        **_headers(csrf, HTTP_IDEMPOTENCY_KEY="r" * 16),
+    )
+    assert begun.status_code == 202
+    state = parse_qs(urlparse(begun.json()["data"]["auth_url"]).query)["state"][0]
+    token = {
+        "access_token": "ya29.test",
+        "refresh_token": "refresh.test",
+        "scope": FULL_SCOPES,
+        "expires_in": 3600,
+    }
+    monkeypatch.setattr(google_oauth, "urlopen", fake_urlopen(token))
+    callback = client.get(
+        f"/api/v1/integrations/gmail/callback?code=auth-code-6&state={state}",
+        **_headers(csrf),
+    )
+    assert callback.status_code == 200
+
+    monkeypatch.setattr(google_oauth, "revoke_at_google", lambda token: False)
+    failed = client.delete(
+        base,
+        json.dumps({"confirm": True}),
+        content_type="application/json",
+        **_headers(csrf),
+    )
+    assert failed.status_code == 409
+    assert failed.json()["data"]["code"] == "repair_required"
+
+    monkeypatch.setattr(google_oauth, "revoke_at_google", lambda token: True)
+    retried = client.delete(
+        base,
+        json.dumps({"confirm": True}),
+        content_type="application/json",
+        **_headers(csrf),
+    )
+    assert retried.status_code == 202
+    assert retried.json()["data"]["status"] == "deprovisioned"
+
+    cleaned = client.delete(
+        base,
+        json.dumps({"confirm": True}),
+        content_type="application/json",
+        **_headers(csrf),
+    )
+    assert cleaned.status_code == 202
+    assert cleaned.json()["data"]["status"] == "already_cleaned"
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
+    ALLIES_AUTH_DIGEST_KEY="d" * 32,
+    ALLIES_AUTH_JWT_KEY="j" * 32,
+    ALLIES_GMAIL_ENABLED=True,
+    ALLIES_GMAIL_CLIENT_ID="test-client-id",
+    ALLIES_GMAIL_CLIENT_SECRET="test-client-secret",
+    ALLIES_GMAIL_REDIRECT_URI="https://app.example/callback",
+    ALLIES_INTEGRATIONS_VAULT_KEY=Fernet.generate_key().decode(),
+)
 def test_outsider_gets_nothing_and_creates_nothing(api_account, monkeypatch):
     from integrations.models import AllyIntegrationGrant, IntegrationSecret
 
