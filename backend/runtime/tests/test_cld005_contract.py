@@ -1391,7 +1391,7 @@ def test_stale_sequence_gap_consumes_attempts(
     settings.ALLIES_CLOUD_EVENT_DELIVERY_ENABLED = True
     _first, second = ordered_deliveries
     ExecutionEventDelivery.objects.filter(pk=second.pk).update(
-        created_at=timezone.now()
+        sequence_gap_since=timezone.now()
         - timedelta(seconds=event_delivery.SEQUENCE_GAP_PATIENCE_SECONDS + 1)
     )
     second_body = bytes(second.envelope_bytes)
@@ -1406,3 +1406,26 @@ def test_stale_sequence_gap_consumes_attempts(
     second.refresh_from_db()
     assert second.delivery_attempts == 1
     assert second.state == "pending"
+
+
+def test_backlog_row_gets_sequence_gap_deferral(
+    ordered_deliveries, settings, monkeypatch
+):
+    settings.ALLIES_CLOUD_EVENT_DELIVERY_ENABLED = True
+    _first, second = ordered_deliveries
+    ExecutionEventDelivery.objects.filter(pk=second.pk).update(
+        created_at=timezone.now() - timedelta(hours=6)
+    )
+    second_body = bytes(second.envelope_bytes)
+    monkeypatch.setattr(
+        event_delivery,
+        "_post_to_cloud",
+        lambda body: (409, "sequence_gap") if body == second_body else (503, ""),
+    )
+
+    publish_pending_event_deliveries()
+
+    second.refresh_from_db()
+    assert second.delivery_attempts == 0
+    assert second.safe_error_code == "sequence_gap"
+    assert second.sequence_gap_since is not None

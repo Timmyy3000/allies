@@ -317,28 +317,48 @@ def _defer_for_sequence_gap(
 ) -> bool:
     """Wait for the missing predecessor without consuming a delivery attempt.
 
-    Returns False once the gap has outlived its patience, so the caller
-    records an ordinary retryable failure instead.
+    Patience runs from the first gap Cloud reported for this delivery, so a
+    backlog row is deferred like a fresh one.  Returns False once the gap has
+    outlived its patience, so the caller records an ordinary retryable failure.
     """
 
     observed_at = now or timezone.now()
-    return bool(
-        ExecutionEventDelivery.objects.filter(
-            pk=claim.delivery_id,
-            state=EventDeliveryState.DELIVERING,
-            delivery_attempts=claim.attempt,
-            repair_cycle=claim.repair_cycle,
-            created_at__gt=observed_at
-            - timedelta(seconds=SEQUENCE_GAP_PATIENCE_SECONDS),
-        ).update(
-            state=EventDeliveryState.PENDING,
-            delivery_attempts=claim.attempt - 1,
-            lease_expires_at=None,
-            next_attempt_at=observed_at + timedelta(seconds=SEQUENCE_GAP_RETRY_SECONDS),
-            safe_error_code="sequence_gap",
-            updated_at=observed_at,
+    with transaction.atomic():
+        row = (
+            ExecutionEventDelivery.objects.select_for_update()
+            .filter(
+                pk=claim.delivery_id,
+                state=EventDeliveryState.DELIVERING,
+                delivery_attempts=claim.attempt,
+                repair_cycle=claim.repair_cycle,
+            )
+            .first()
         )
-    )
+        if row is None:
+            return False
+        gap_since = row.sequence_gap_since or observed_at
+        if observed_at - gap_since > timedelta(seconds=SEQUENCE_GAP_PATIENCE_SECONDS):
+            return False
+        row.state = EventDeliveryState.PENDING
+        row.delivery_attempts = claim.attempt - 1
+        row.lease_expires_at = None
+        row.next_attempt_at = observed_at + timedelta(
+            seconds=SEQUENCE_GAP_RETRY_SECONDS
+        )
+        row.safe_error_code = "sequence_gap"
+        row.sequence_gap_since = gap_since
+        row.save(
+            update_fields=[
+                "state",
+                "delivery_attempts",
+                "lease_expires_at",
+                "next_attempt_at",
+                "safe_error_code",
+                "sequence_gap_since",
+                "updated_at",
+            ]
+        )
+    return True
 
 
 def _wake_attempt_successors(
