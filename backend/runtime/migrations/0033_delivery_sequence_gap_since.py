@@ -6,7 +6,7 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("runtime", "0031_model_binding"),
+        ("runtime", "0032_platform_layer_soul"),
     ]
 
     operations = [
