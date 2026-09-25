@@ -42,12 +42,20 @@ _GMAIL_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _OPERATION = {
     "search": "gmail search",
     "get": "gmail get",
+    "list_labels": "gmail get",
+    "create_label": "gmail organize",
+    "modify": "gmail organize",
     "prepare_send": "gmail send",
     "send": "gmail send",
 }
+# Organising never moves mail toward deletion; trash/spam stay the user's call.
+_BLOCKED_LABELS = {"TRASH", "SPAM"}
 _FIELDS = {
     "search": {"query", "max_results"},
     "get": {"message_id"},
+    "list_labels": set(),
+    "create_label": {"label"},
+    "modify": {"message_ids", "add_labels", "remove_labels"},
     "prepare_send": {"to", "cc", "subject", "body", "thread_id"},
     "send": {"to", "cc", "subject", "body", "thread_id", "confirmation_ref"},
 }
@@ -56,7 +64,15 @@ _FIELDS = {
 class GmailToolRequest(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
 
-    action: Literal["search", "get", "prepare_send", "send"]
+    action: Literal[
+        "search",
+        "get",
+        "list_labels",
+        "create_label",
+        "modify",
+        "prepare_send",
+        "send",
+    ]
     query: str | None = Field(default=None, max_length=512)
     max_results: int | None = Field(default=None, ge=1, le=10)
     message_id: str | None = Field(default=None, pattern=_GMAIL_ID.pattern)
@@ -66,6 +82,10 @@ class GmailToolRequest(BaseModel):
     body: str | None = Field(default=None, max_length=16_384)
     thread_id: str | None = Field(default=None, pattern=_GMAIL_ID.pattern)
     confirmation_ref: str | None = Field(default=None, max_length=36)
+    label: str | None = Field(default=None, min_length=1, max_length=225)
+    message_ids: list[str] | None = Field(default=None, min_length=1, max_length=50)
+    add_labels: list[str] | None = Field(default=None, max_length=20)
+    remove_labels: list[str] | None = Field(default=None, max_length=20)
 
     @model_validator(mode="after")
     def action_fields(self):
@@ -73,6 +93,15 @@ class GmailToolRequest(BaseModel):
             raise ValueError("unexpected fields for this action")
         if self.action == "get" and not self.message_id:
             raise ValueError("message_id is required")
+        if self.action == "create_label" and not self.label:
+            raise ValueError("label is required")
+        if self.action == "modify":
+            if not self.message_ids or not (self.add_labels or self.remove_labels):
+                raise ValueError("message_ids and a label change are required")
+            if any(not _GMAIL_ID.fullmatch(mid) for mid in self.message_ids):
+                raise ValueError("invalid message id")
+            if _BLOCKED_LABELS & {x.upper() for x in self.add_labels or []}:
+                raise ValueError("trash and spam are not allowed")
         if self.action in {"prepare_send", "send"}:
             if not self.to or self.subject is None or self.body is None:
                 raise ValueError("to, subject and body are required")
@@ -172,6 +201,13 @@ def execute_gmail_tool(
         token = refresh_access_token(secret).access_token
         if args.action == "search":
             return 200, _search(token, args.query or "", args.max_results or 10)
+        if args.action == "list_labels":
+            return 200, {"labels": _labels(token)}
+        if args.action == "create_label":
+            label = _gmail(token, "/labels", body={"name": args.label})
+            return 200, {"label_id": label.get("id"), "name": label.get("name")}
+        if args.action == "modify":
+            return _modify(token, args)
         return 200, _get(token, args.message_id)
     except RefreshRevoked:
         return NOT_CONNECTED
@@ -180,6 +216,12 @@ def execute_gmail_tool(
             return _error(
                 422, "gmail_message_not_found", "Search again for the message."
             )
+        if exc.code == 409:
+            return _error(
+                422, "gmail_label_exists", "That label already exists; use it."
+            )
+        if exc.code == 400:
+            return _error(422, "gmail_rejected", "Gmail rejected the request.")
         return 503, {"error": "gmail_unavailable"}
     except (
         IntegrationUnavailable,
@@ -317,7 +359,8 @@ def _gmail(token: str, path: str, *, query: dict | None = None, body=None) -> di
         method="GET" if body is None else "POST",
     )
     with urlopen(request, timeout=GMAIL_TIMEOUT_SECONDS) as response:
-        payload = json.loads(response.read(5_000_001).decode())
+        raw = response.read(5_000_001)
+    payload = json.loads(raw.decode()) if raw else {}
     if not isinstance(payload, dict):
         raise ProviderUnavailable("gmail response invalid")
     return payload
@@ -393,6 +436,43 @@ def _get(token: str, gmail_id: str) -> dict:
     result["body"] = text[:MAX_BODY_CHARS]
     result["truncated"] = len(text) > MAX_BODY_CHARS
     return result
+
+
+def _labels(token: str) -> list[dict]:
+    listing = _gmail(token, "/labels")
+    return [
+        {"id": item.get("id"), "name": item.get("name"), "type": item.get("type")}
+        for item in listing.get("labels", [])
+    ]
+
+
+def _modify(token: str, args: GmailToolRequest) -> tuple[int, dict]:
+    by_name = {item["name"].lower(): item["id"] for item in _labels(token)}
+    known = set(by_name.values())
+
+    def resolve(names):
+        ids = []
+        for name in names or []:
+            label_id = name if name in known else by_name.get(name.lower())
+            if label_id is None:
+                raise LookupError(name)
+            ids.append(label_id)
+        return ids
+
+    try:
+        add, remove = resolve(args.add_labels), resolve(args.remove_labels)
+    except LookupError as missing:
+        return _error(
+            422,
+            "gmail_label_not_found",
+            f"No label named {missing}. Use list_labels, or create_label first.",
+        )
+    _gmail(
+        token,
+        "/messages/batchModify",
+        body={"ids": args.message_ids, "addLabelIds": add, "removeLabelIds": remove},
+    )
+    return 200, {"status": "updated", "message_count": len(args.message_ids)}
 
 
 def _mime(token: str, args: GmailToolRequest) -> str:
