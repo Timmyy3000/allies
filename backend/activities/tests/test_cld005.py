@@ -584,14 +584,13 @@ def test_event_sequence_gaps_are_held_until_the_missing_event_arrives(
     _user, _workspace, _ally, binding, _conversation, message = conversation_records
     second = event_for(message, binding, attempt_sequence=2)
 
-    with caplog.at_level("WARNING", logger="allies.activities"), pytest.raises(
-        ProjectionSequenceGap
+    with (
+        caplog.at_level("WARNING", logger="allies.activities"),
+        pytest.raises(ProjectionSequenceGap),
     ):
         project_foundry_event(second)
     record = next(
-        record
-        for record in caplog.records
-        if record.name == "allies.activities"
+        record for record in caplog.records if record.name == "allies.activities"
     )
     assert record.message_id == str(message.id)
     assert record.expected_sequence == 1
