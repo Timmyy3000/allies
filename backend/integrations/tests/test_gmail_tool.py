@@ -20,7 +20,7 @@ from chat.models import (
 )
 from chat.services.dispatch import _ensure_outbox_locked
 from chat.tests.test_dispatch import dispatch_records  # noqa: F401
-from integrations.exceptions import RefreshRevoked
+from integrations.exceptions import IntegrationUnavailable, RefreshRevoked
 from integrations.models import PROVIDER_GMAIL, IntegrationSecret, IntegrationToolCall
 from integrations.services import gmail_tool
 from integrations.services.google_oauth import MintedAccess
@@ -349,3 +349,21 @@ def test_concurrent_twin_calls_replay_instead_of_failing(gmail):
     )
     assert twin == sent
     assert sum(path == "/messages/send" for path, _, _ in gmail["calls"]) == 1
+
+
+def test_unreadable_vault_is_retryable_and_frees_the_send(gmail, monkeypatch):
+    ref, later = _confirmed(gmail)
+    real = gmail_tool.refresh_access_token
+
+    def unreadable(secret):
+        raise IntegrationUnavailable("integration credential unreadable")
+
+    monkeypatch.setattr(gmail_tool, "refresh_access_token", unreadable)
+    assert run(gmail["turn"], {"action": "search"}) == (
+        503,
+        {"error": "gmail_unavailable"},
+    )
+    arguments = {"action": "send", **DRAFT, "confirmation_ref": ref}
+    assert run(later, arguments)[0] == 503
+    monkeypatch.setattr(gmail_tool, "refresh_access_token", real)
+    assert run(later, arguments)[0] == 200
