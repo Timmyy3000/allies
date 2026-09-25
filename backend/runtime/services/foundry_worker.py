@@ -69,7 +69,8 @@ def _loop_specs() -> tuple[tuple[str, float, Callable[[], object]], ...]:
         (
             "event",
             EVENT_INTERVAL_SECONDS,
-            lambda: publish_pending_event_deliveries(limit=1),
+            # Default batch drains long turns; limit=1 serialized them at ~1/s.
+            lambda: publish_pending_event_deliveries(),
         ),
         (
             "hints",

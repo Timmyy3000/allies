@@ -48,6 +48,24 @@ def test_finite_run_executes_each_fixed_loop_once(quiet_worker, monkeypatch):
     assert sorted(calls) == ["event", "hints", "pool", "power-publication"]
 
 
+def test_event_loop_claims_full_delivery_batch(quiet_worker, monkeypatch):
+    from runtime.services import event_delivery
+
+    seen = {}
+
+    def publish(**kwargs):
+        seen.update(kwargs)
+        return event_delivery.DeliveryReport()
+
+    monkeypatch.setattr(quiet_worker, "publish_pending_event_deliveries", publish)
+    name, _interval, callback = quiet_worker._loop_specs()[0]
+
+    assert name == "event"
+    callback()
+
+    assert seen.get("limit", event_delivery.MAX_DELIVERY_BATCH) > 1
+
+
 def test_response_events_drain_without_waiting_between_successes(quiet_worker):
     from runtime.services.event_delivery import DeliveryReport
 
