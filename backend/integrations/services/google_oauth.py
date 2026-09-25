@@ -85,7 +85,21 @@ def _post_form(url: str, fields: dict[str, str]) -> dict:
             with urlopen(request, timeout=PROVIDER_TIMEOUT_SECONDS) as response:
                 raw = response.read(1_000_001)
             break
-        except (HTTPError, URLError, TimeoutError, OSError) as exc:
+        except HTTPError as exc:
+            try:
+                raw = exc.read(1_000_001)
+                payload = json.loads(raw.decode())
+            except (ValueError, UnicodeDecodeError):
+                payload = None
+            if (
+                isinstance(payload, dict)
+                and exc.code is not None
+                and 400 <= exc.code < 500
+            ):
+                return payload
+            last_error = exc
+            time.sleep(0.2)
+        except (URLError, TimeoutError, OSError) as exc:
             last_error = exc
             time.sleep(0.2)
     else:
@@ -181,6 +195,12 @@ def begin_gmail_connect(
     verifier = secrets.token_urlsafe(64)
     challenge = _code_challenge(verifier)
     if existing is not None and existing.expires_at > now:
+        if str(existing.ally_id or "") != str(ally.id if ally is not None else ""):
+            raise IntegrationInvalid("connect replay targets a different ally")
+        if existing.entry_point != entry_point:
+            raise IntegrationInvalid("connect replay targets a different entry point")
+        if _handshake_grant_level(existing.sealed_handshake) != grant_level:
+            raise IntegrationInvalid("connect replay targets a different grant level")
         replay_handshake = json.dumps(
             {
                 "state": state,
@@ -256,6 +276,18 @@ class GmailConnectComplete:
     auto_grant_ally_id: str | None
     auto_grant_level: str | None
     status: str
+
+
+def peek_connect_workspace_id(*, state: str):
+    state_hash = hashlib.sha256(state.encode()).hexdigest()
+    try:
+        session = GmailConnectSession.objects.get(state_hash=state_hash)
+    except GmailConnectSession.DoesNotExist as exc:
+        raise IntegrationInvalid("unknown connect session") from exc
+    now = timezone.now()
+    if session.consumed_at is not None or session.expires_at <= now:
+        raise IntegrationInvalid("connect session expired")
+    return session.workspace_id
 
 
 @transaction.atomic

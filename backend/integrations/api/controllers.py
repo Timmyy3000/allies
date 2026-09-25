@@ -323,15 +323,18 @@ class GmailCallbackController(ControllerBase):
     ):
         # Browser navigation returning from Google carries no trusted origin
         # or CSRF token. The one-time state token plus the session cookie is
-        # the authorization for this single exchange.
+        # the authorization for this single exchange. Workspace capability is
+        # enforced before any mutation: the pending session resolves the
+        # workspace without consuming it.
         try:
             session = _session(request)
-            completed = google_oauth.complete_gmail_connect(state=state, code=code)
+            workspace_id = google_oauth.peek_connect_workspace_id(state=state)
             require_workspace_capability(
                 user=session.user,
-                workspace_id=completed.secret.workspace_id,
+                workspace_id=workspace_id,
                 capability=Capability.WORKSPACE_WRITE,
             )
+            completed = google_oauth.complete_gmail_connect(state=state, code=code)
             if (
                 completed.auto_grant_ally_id is not None
                 and completed.auto_grant_level is not None

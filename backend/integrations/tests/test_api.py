@@ -113,7 +113,6 @@ def test_status_begin_grant_disconnect_flow(api_account, monkeypatch):
                 "entry_point": "in_chat",
                 "ally_id": str(ally.id),
                 "grant_level": "send",
-                "idempotency_key": "api-connect-key-0001",
             }
         ),
         content_type="application/json",
@@ -187,7 +186,7 @@ def test_callback_scope_shortfall_returns_422(api_account, monkeypatch):
     base = f"/api/v1/workspaces/{workspace.id}/integrations/gmail"
     begun = client.post(
         f"{base}/connect",
-        json.dumps({"entry_point": "integrations", "idempotency_key": "k" * 16}),
+        json.dumps({"entry_point": "integrations"}),
         content_type="application/json",
         **_headers(csrf, HTTP_IDEMPOTENCY_KEY="k" * 16),
     )
@@ -206,3 +205,98 @@ def test_callback_scope_shortfall_returns_422(api_account, monkeypatch):
     )
     assert callback.status_code == 422
     assert callback.json()["data"]["code"] == "scope_insufficient"
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
+    ALLIES_AUTH_DIGEST_KEY="d" * 32,
+    ALLIES_AUTH_JWT_KEY="j" * 32,
+    ALLIES_GMAIL_ENABLED=True,
+    ALLIES_GMAIL_CLIENT_ID="test-client-id",
+    ALLIES_GMAIL_CLIENT_SECRET="test-client-secret",
+    ALLIES_GMAIL_REDIRECT_URI="https://app.example/callback",
+    ALLIES_INTEGRATIONS_VAULT_KEY=Fernet.generate_key().decode(),
+)
+def test_outsider_gets_nothing_and_creates_nothing(api_account, monkeypatch):
+    from integrations.models import AllyIntegrationGrant, IntegrationSecret
+
+    _, workspace, ally = api_account
+    outsider = User.objects.create_user()
+    client, csrf = _client(outsider)
+    base = f"/api/v1/workspaces/{workspace.id}/integrations/gmail"
+
+    assert client.get(base, **_headers(csrf)).status_code == 404
+    begun = client.post(
+        f"{base}/connect",
+        json.dumps({"entry_point": "integrations"}),
+        content_type="application/json",
+        **_headers(csrf, HTTP_IDEMPOTENCY_KEY="o" * 16),
+    )
+    assert begun.status_code == 404
+    denied_grant = client.post(
+        f"{base}/grants",
+        json.dumps({"ally_id": str(ally.id), "level": "read"}),
+        content_type="application/json",
+        **_headers(csrf),
+    )
+    assert denied_grant.status_code == 404
+    denied_delete = client.delete(
+        base,
+        json.dumps({"confirm": True}),
+        content_type="application/json",
+        **_headers(csrf),
+    )
+    assert denied_delete.status_code == 404
+    assert IntegrationSecret.objects.count() == 0
+    assert AllyIntegrationGrant.objects.count() == 0
+    from integrations.models import GmailConnectSession
+
+    assert GmailConnectSession.objects.count() == 0
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
+    ALLIES_AUTH_DIGEST_KEY="d" * 32,
+    ALLIES_AUTH_JWT_KEY="j" * 32,
+    ALLIES_GMAIL_ENABLED=True,
+    ALLIES_GMAIL_CLIENT_ID="test-client-id",
+    ALLIES_GMAIL_CLIENT_SECRET="test-client-secret",
+    ALLIES_GMAIL_REDIRECT_URI="https://app.example/callback",
+    ALLIES_INTEGRATIONS_VAULT_KEY=Fernet.generate_key().decode(),
+)
+def test_callback_checks_capability_before_mutating(api_account, monkeypatch):
+    from integrations.models import GmailConnectSession, IntegrationSecret
+
+    user, workspace, _ = api_account
+    owner_client, owner_csrf = _client(user)
+    base = f"/api/v1/workspaces/{workspace.id}/integrations/gmail"
+    begun = owner_client.post(
+        f"{base}/connect",
+        json.dumps({"entry_point": "integrations"}),
+        content_type="application/json",
+        **_headers(owner_csrf, HTTP_IDEMPOTENCY_KEY="c" * 16),
+    )
+    assert begun.status_code == 202
+    state = parse_qs(urlparse(begun.json()["data"]["auth_url"]).query)["state"][0]
+
+    token = {
+        "access_token": "ya29.test",
+        "refresh_token": "refresh.test",
+        "scope": FULL_SCOPES,
+        "expires_in": 3600,
+    }
+    monkeypatch.setattr(google_oauth, "urlopen", fake_urlopen(token))
+    outsider = User.objects.create_user()
+    outsider_client, outsider_csrf = _client(outsider)
+    denied = outsider_client.get(
+        f"/api/v1/integrations/gmail/callback?code=auth-code-7&state={state}",
+        **_headers(outsider_csrf),
+    )
+    assert denied.status_code == 404
+    assert IntegrationSecret.objects.count() == 0
+    session = GmailConnectSession.objects.get()
+    assert session.consumed_at is None

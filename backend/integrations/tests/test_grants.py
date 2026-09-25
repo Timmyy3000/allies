@@ -220,6 +220,61 @@ def test_disconnect_google_failure_is_repair(rig, monkeypatch):
     assert bytes(secret.ciphertext) == b""
 
 
+def test_disconnect_wipe_skips_reconnected_secret(rig, monkeypatch):
+    from django.utils import timezone
+
+    _, _, reader, _, secret = rig
+    set_ally_grant(secret=secret, ally=reader, level="read")
+    minted = MintedAccess(
+        access_token="ya29.exec",
+        expires_at=timezone.now() + timezone.timedelta(seconds=600),
+    )
+    credential = mint_execution_credential(
+        secret=secret, ally=reader, command_id="cmd-12", minted=minted
+    )
+
+    def _revoke_with_racing_reconnect(token):
+        fresh_ciphertext, _ = seal_refresh_token("refresh.reconnected")
+        IntegrationSecret.objects.filter(pk=secret.pk).update(
+            ciphertext=bytes(fresh_ciphertext), revoked_at=None
+        )
+        return True
+
+    monkeypatch.setattr(google_oauth, "revoke_at_google", _revoke_with_racing_reconnect)
+    result = disconnect_gmail_account(secret=secret)
+    assert result.status == "repair_required"
+    secret.refresh_from_db()
+    assert secret.revoked_at is None
+    assert bytes(secret.ciphertext) != b""
+    with pytest.raises(GrantDenied):
+        resolve_credential_ref(credential.ref, command_id="cmd-12")
+
+
+def test_resolve_revalidates_live_grant(rig):
+    from django.utils import timezone
+
+    _, _, reader, sender, secret = rig
+    set_ally_grant(secret=secret, ally=reader, level="read")
+    set_ally_grant(secret=secret, ally=sender, level="send")
+    minted = MintedAccess(
+        access_token="ya29.exec",
+        expires_at=timezone.now() + timezone.timedelta(seconds=600),
+    )
+    read_cred = mint_execution_credential(
+        secret=secret, ally=reader, command_id="cmd-13", minted=minted
+    )
+    send_cred = mint_execution_credential(
+        secret=secret, ally=sender, command_id="cmd-14", minted=minted
+    )
+    assert resolve_credential_ref(read_cred.ref, command_id="cmd-13") == "ya29.exec"
+    revoke_ally_grant(secret=secret, ally=reader)
+    with pytest.raises(GrantDenied):
+        resolve_credential_ref(read_cred.ref, command_id="cmd-13")
+    set_ally_grant(secret=secret, ally=sender, level="read")
+    with pytest.raises(GrantDenied):
+        resolve_credential_ref(send_cred.ref, command_id="cmd-14")
+
+
 def test_single_active_connection_per_workspace(rig):
     import hashlib
 
