@@ -14,9 +14,13 @@ from activities.exceptions import (
     ProjectionCursorGap,
     ProjectionInvalid,
     ProjectionNotFound,
-    ProjectionSequenceGap,
 )
-from activities.models import Activity, FoundryEventReceipt, ProjectionState
+from activities.models import (
+    Activity,
+    FoundryEventReceipt,
+    FoundryHeldEvent,
+    ProjectionState,
+)
 from activities.services import projection as projection_service
 from activities.services.projection import (
     parse_activity_cursor,
@@ -584,11 +588,11 @@ def test_event_sequence_gaps_are_held_until_the_missing_event_arrives(
     _user, _workspace, _ally, binding, _conversation, message = conversation_records
     second = event_for(message, binding, attempt_sequence=2)
 
-    with (
-        caplog.at_level("WARNING", logger="allies.activities"),
-        pytest.raises(ProjectionSequenceGap),
-    ):
-        project_foundry_event(second)
+    with caplog.at_level("WARNING", logger="allies.activities"):
+        held = project_foundry_event(second)
+    assert held.status == "applied"
+    assert held.held is True
+    assert held.last_contiguous_sequence == 0
     record = next(
         record for record in caplog.records if record.name == "allies.activities"
     )
@@ -601,13 +605,53 @@ def test_event_sequence_gaps_are_held_until_the_missing_event_arrives(
     assert Activity.objects.count() == 0
     assert FoundryEventReceipt.objects.count() == 0
 
+    assert FoundryHeldEvent.objects.count() == 1
+
     first = event_for(message, binding, attempt_sequence=1)
-    project_foundry_event(first)
-    result = project_foundry_event(second)
+    result = project_foundry_event(first)
 
     assert result.status == "applied"
-    assert result.last_contiguous_sequence == 2
     assert list(Activity.objects.values_list("sequence", flat=True)) == [1, 2]
+    assert FoundryEventReceipt.objects.count() == 2
+    assert FoundryHeldEvent.objects.count() == 0
+    assert project_foundry_event(second).status == "duplicate"
+
+
+def test_out_of_order_events_drain_in_sequence(conversation_records):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    events = {
+        sequence: event_for(message, binding, attempt_sequence=sequence)
+        for sequence in range(1, 6)
+    }
+
+    for sequence in (5, 3, 4, 2):
+        assert project_foundry_event(events[sequence]).held is True
+    # A redelivered held event is acknowledged again without a second copy.
+    assert project_foundry_event(events[3]).held is True
+    assert FoundryHeldEvent.objects.count() == 4
+    assert Activity.objects.count() == 0
+
+    project_foundry_event(events[1])
+
+    assert list(
+        FoundryEventReceipt.objects.order_by("attempt_sequence").values_list(
+            "attempt_sequence", flat=True
+        )
+    ) == [1, 2, 3, 4, 5]
+    assert list(
+        Activity.objects.order_by("sequence").values_list("attempt_sequence", flat=True)
+    ) == [1, 2, 3, 4, 5]
+    assert FoundryHeldEvent.objects.count() == 0
+
+
+def test_held_event_sequence_cannot_change_identity(conversation_records):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    project_foundry_event(event_for(message, binding, attempt_sequence=3))
+
+    with pytest.raises(ProjectionConflict):
+        project_foundry_event(
+            event_for(message, binding, attempt_sequence=3, event_id=uuid4())
+        )
 
 
 def test_generation_zero_matches_the_shared_foundry_contract(conversation_records):
@@ -1283,14 +1327,15 @@ def test_foundry_event_conflict_codes_are_stable_and_typed(conversation_records)
     path = "/api/v1/internal/foundry/events"
     headers = {"HTTP_AUTHORIZATION": "Bearer event-secret"}
 
-    gap = client.post(
+    early = event_for(message, binding, attempt_sequence=2)
+    held = client.post(
         path,
-        data=event_for(message, binding, attempt_sequence=2).model_dump_json(),
+        data=early.model_dump_json(),
         content_type="application/json",
         **headers,
     )
-    assert gap.status_code == 409
-    assert gap.json() == {"code": "sequence_gap"}
+    assert held.status_code == 202
+    assert held.json() == {"event_id": str(early.event_id), "status": "applied"}
 
     first = event_for(message, binding, attempt_sequence=1)
     assert (
