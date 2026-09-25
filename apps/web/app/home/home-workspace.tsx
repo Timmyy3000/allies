@@ -1696,9 +1696,11 @@ function ConversationPane({
     messages.some((message) => message.id === activeMessageId),
     (fileTransferId) => {
       const transfer = fileManager.find(fileTransferId);
-      return transfer
-        ? transfer.files.map((file) => ({ id: file.id, name: file.name, src: file.src, ready: true, local: true as const }))
-        : null;
+      if (!transfer) return null;
+      return {
+        files: transfer.files.map((file) => ({ id: file.id, name: file.name, src: file.src, ready: true, local: true as const })),
+        status: localTransferQueueStatus(transfer),
+      };
     },
   );
   const waitingForVisibleResponse = awaitingVisibleResponse && !responseStarted;
@@ -2889,12 +2891,7 @@ function ConversationPane({
     }
   };
   const fileMessageIds = new Set(timelineMessages.filter(message => message.files?.length || message.preparation && message.preparation !== "none").map(message => message.id));
-  const transferMessageIds = new Set(
-    fileManager.snapshot().flatMap((record) => (
-      record.reservation && record.phase !== "ready" && record.phase !== "cancelled" ? [record.reservation.message.id] : []
-    )),
-  );
-  const queuedAttachmentIds = queuedAttachmentQueueIds(timelineMessages, transferMessageIds);
+  const queuedAttachmentIds = queuedAttachmentQueueIds(timelineMessages, activeMessageId);
   const visibleFrameMessages = baseFrameModel.messages.map((message) => immediateMessageIds.has(message.id) || (fileMessageIds.has(message.id) && !queuedAttachmentIds.has(message.id))
     ? { ...message, queued: false, ...(message.queued && fileMessageIds.has(message.id) && !queuedAttachmentIds.has(message.id) && !message.statusLabel ? { statusLabel: "Queued" } : {}) } : message);
   const lastSequence = Math.max(0, ...visibleFrameMessages.map((message) => message.sequence));
@@ -3303,13 +3300,31 @@ function filterAuthoritativeQueueMessages(
   ));
 }
 
+export interface LocalQueuedAttachments {
+  files: QueuedAttachmentPreview[];
+  status: string | null;
+}
+
+export function localTransferQueueStatus(transfer: {
+  phase: string;
+  files: readonly { state: string; progress: number }[];
+}): string | null {
+  if (transfer.phase === "failed") return "Needs attention";
+  if (transfer.phase === "checking") return "Checking file…";
+  if (transfer.phase !== "uploading") return null;
+  if (transfer.files.some((file) => file.state === "validating" || file.state === "receiving")) return "Checking file…";
+  const pending = transfer.files.filter((file) => file.state === "pending");
+  if (!pending.length) return null;
+  return `Uploading ${Math.min(...pending.map((file) => file.progress))}%`;
+}
+
 export function buildQueuedFrameMessages(
   cloudQueue: readonly MessageViewModel[],
   localQueue: readonly QueuedMessage[],
   activeMessageId: string | null,
   activeMessageHasProgress: boolean,
   activeMessageInTimeline = true,
-  resolveLocalFiles?: (fileTransferId: string) => QueuedAttachmentPreview[] | null,
+  resolveLocalFiles?: (fileTransferId: string) => LocalQueuedAttachments | null,
 ): ProductionQueuedMessageModel[] {
   const items: ProductionQueuedMessageModel[] = [];
   for (const message of cloudQueue) {
@@ -3319,7 +3334,7 @@ export function buildQueuedFrameMessages(
       id: message.id,
       content: message.content,
       removable: isCloudQueueMessageRemovable(message),
-      statusLabel: message.id === activeMessageId && !activeMessageHasProgress ? "Queued" : null,
+      statusLabel: cloudQueuedAttachmentStatus(message) ?? (message.id === activeMessageId && !activeMessageHasProgress ? "Queued" : null),
       ...(message.files?.length ? {
         attachments: message.files.map((file) => ({
           id: file.id,
@@ -3330,31 +3345,40 @@ export function buildQueuedFrameMessages(
     });
   }
   for (const message of localQueue) {
-    const attachments = message.fileTransferId ? resolveLocalFiles?.(message.fileTransferId) ?? null : null;
+    const resolved = message.fileTransferId ? resolveLocalFiles?.(message.fileTransferId) ?? null : null;
     items.push({
       id: message.id,
       content: message.content,
       removable: supportsQueueMessageLocks() && message.attemptedAt === undefined,
-      statusLabel: null,
-      ...(attachments ? { attachments } : {}),
+      statusLabel: resolved?.status ?? null,
+      ...(resolved ? { attachments: resolved.files } : {}),
     });
   }
   return items;
 }
 
-const ACTIVE_FILE_PREPARATIONS: ReadonlySet<string> = new Set(["uploading", "failed", "needs_retry"]);
-const ACTIVE_FILE_STATES: ReadonlySet<string> = new Set(["pending", "receiving", "validating", "failed", "rejected"]);
+function cloudQueuedAttachmentStatus(message: MessageViewModel): string | null {
+  if (message.preparation === "uploading"
+    || message.files?.some((file) => file.state === "pending" || file.state === "receiving" || file.state === "validating")) {
+    return "Uploading…";
+  }
+  return null;
+}
+
+const FAILED_FILE_PREPARATIONS: ReadonlySet<string> = new Set(["failed", "needs_retry"]);
+const FAILED_FILE_STATES: ReadonlySet<string> = new Set(["failed", "rejected"]);
 
 export function queuedAttachmentQueueIds(
   timelineMessages: readonly MessageViewModel[],
-  activeTransferMessageIds: ReadonlySet<string>,
+  activeMessageId: string | null,
 ): Set<string> {
   return new Set(timelineMessages.filter((message) => {
     if (!message.files?.length && !(message.preparation && message.preparation !== "none")) return false;
     if (!isLiveQueuedMessage(message)) return false;
-    if (activeTransferMessageIds.has(message.id)) return false;
-    if (message.preparation && ACTIVE_FILE_PREPARATIONS.has(message.preparation)) return false;
-    if (message.files?.some((file) => ACTIVE_FILE_STATES.has(file.state))) return false;
+    if (message.id === activeMessageId) return false;
+    if (message.queueState === "claimed") return false;
+    if (message.preparation && FAILED_FILE_PREPARATIONS.has(message.preparation)) return false;
+    if (message.files?.some((file) => FAILED_FILE_STATES.has(file.state))) return false;
     return true;
   }).map((message) => message.id));
 }

@@ -28,6 +28,7 @@ import {
   buildQueuedFrameMessages,
   HomeWorkspace,
   hasOnboardingExchange,
+  localTransferQueueStatus,
   mergeAssistantReplies,
   projectConversationActivity,
   queuedAttachmentQueueIds,
@@ -3564,12 +3565,34 @@ describe("buildQueuedFrameMessages", () => {
       false,
       true,
       (fileTransferId) => fileTransferId === "11111111-1111-4111-8111-111111111111"
-        ? [{ id: "local-1", name: "c.pdf", src: "blob:c", ready: true }]
+        ? {
+          files: [{ id: "local-1", name: "c.pdf", src: "blob:c", ready: true, local: true as const }],
+          status: "Uploading 42%",
+        }
         : null,
     );
     expect(items.map((item) => item.id)).toEqual(["queued-text", "queued-files"]);
-    expect(items[1]).toMatchObject({ attachments: [{ id: "local-1", name: "c.pdf", src: "blob:c", ready: true }] });
+    expect(items[1]).toMatchObject({
+      attachments: [{ id: "local-1", name: "c.pdf", src: "blob:c", ready: true }],
+      statusLabel: "Uploading 42%",
+    });
+    expect(items[0]).toMatchObject({ statusLabel: null });
     expect(items[0]).not.toHaveProperty("attachments");
+  });
+
+  it("labels uploading cloud file pills when no local transfer is visible", () => {
+    const items = buildQueuedFrameMessages(
+      [cloudMessage({
+        preparation: "uploading",
+        files: [
+          { id: "00000000-0000-4000-8000-000000000001", name: "a.pdf", size: 76600, state: "pending" },
+        ],
+      })],
+      [],
+      null,
+      false,
+    );
+    expect(items[0]).toMatchObject({ statusLabel: "Uploading…" });
   });
 });
 
@@ -3586,22 +3609,23 @@ describe("queuedAttachmentQueueIds", () => {
     ...overrides,
   });
 
-  it("keeps waiting file messages in the queue but not actively transferring ones", () => {
-    expect(queuedAttachmentQueueIds(
-      [fileMessage({ id: "waiting" }), fileMessage({ id: "uploading" }), fileMessage({ id: "sent", status: "completed" })],
-      new Set(["uploading"]),
-    )).toEqual(new Set(["waiting"]));
-  });
-
-  it("keeps preparation-active cloud file messages in the timeline without a local record", () => {
+  it("keeps waiting file messages in the queue, including ones still uploading", () => {
+    const waiting = fileMessage({ id: "waiting" });
     const uploading = fileMessage({
-      id: "cloud-uploading",
+      id: "uploading",
       preparation: "uploading",
       files: [{ id: "00000000-0000-4000-8000-000000000001", name: "a.pdf", size: 76600, state: "pending" }],
     });
+    const sent = fileMessage({ id: "sent", status: "completed" });
+    expect(queuedAttachmentQueueIds([waiting, uploading, sent], null)).toEqual(new Set(["waiting", "uploading"]));
+  });
+
+  it("keeps failed, claimed, and active file messages in the timeline", () => {
     const failed = fileMessage({ id: "cloud-failed", preparation: "failed" });
+    const claimed = fileMessage({ id: "cloud-claimed", preparation: "ready", queueState: "claimed" });
+    const active = fileMessage({ id: "cloud-active", preparation: "ready" });
     const waiting = fileMessage({ id: "cloud-waiting", preparation: "ready" });
-    expect(queuedAttachmentQueueIds([uploading, failed, waiting], new Set())).toEqual(new Set(["cloud-waiting"]));
+    expect(queuedAttachmentQueueIds([failed, claimed, active, waiting], "cloud-active")).toEqual(new Set(["cloud-waiting"]));
   });
 
   it("ignores text-only queued messages", () => {
@@ -3614,6 +3638,22 @@ describe("queuedAttachmentQueueIds", () => {
       queueState: "unclaimed",
       createdAt: "2026-09-06T12:00:00Z",
     };
-    expect(queuedAttachmentQueueIds([textOnly], new Set())).toEqual(new Set());
+    expect(queuedAttachmentQueueIds([textOnly], null)).toEqual(new Set());
+  });
+});
+
+describe("localTransferQueueStatus", () => {
+  it.each([
+    ["uploading", [{ state: "pending", progress: 99 }], "Uploading 99%"],
+    ["uploading", [{ state: "pending", progress: 40 }, { state: "pending", progress: 80 }], "Uploading 40%"],
+    ["uploading", [{ state: "receiving", progress: 50 }], "Checking file…"],
+    ["uploading", [{ state: "validating", progress: 50 }], "Checking file…"],
+    ["uploading", [{ state: "ready", progress: 100 }], null],
+    ["checking", [{ state: "pending", progress: 10 }], "Checking file…"],
+    ["failed", [{ state: "pending", progress: 10 }], "Needs attention"],
+    ["ready", [{ state: "ready", progress: 100 }], null],
+    ["cancelled", [{ state: "pending", progress: 10 }], null],
+  ])("maps %s transfer state to %s", (phase, files, expected) => {
+    expect(localTransferQueueStatus({ phase, files })).toBe(expected);
   });
 });
