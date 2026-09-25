@@ -212,8 +212,7 @@ def registry_json(path, token=None, *, limit=33_554_432):
             connection.close()
 
 
-def inspect_image(reference, source, repository):
-    image, digest = reference.removeprefix("ghcr.io/").split("@")
+def registry_token(image):
     auth = None
     if os.environ.get("GH_TOKEN"):
         credentials = (
@@ -231,12 +230,29 @@ def inspect_image(reference, source, repository):
         isinstance(token, str) and 0 < len(token) < 16_384,
         "Invalid registry authorization response",
     )
+    return "Bearer " + token
+
+
+def registry_manifest(image, digest, token):
+    """Fetch a manifest by digest and verify the bytes match it."""
+    require(isinstance(digest, str) and DIGEST.fullmatch(digest), "Invalid OCI digest")
+    raw, value = registry_json(f"/v2/{image}/manifests/{digest}", token)
+    require(
+        "sha256:" + hashlib.sha256(raw).hexdigest() == digest,
+        "OCI content digest mismatch",
+    )
+    return value
+
+
+def inspect_image(reference, source, repository):
+    image, digest = reference.removeprefix("ghcr.io/").split("@")
+    token = registry_token(image)
 
     def get(kind, wanted):
         require(
             isinstance(wanted, str) and DIGEST.fullmatch(wanted), "Invalid OCI digest"
         )
-        raw, value = registry_json(f"/v2/{image}/{kind}/{wanted}", "Bearer " + token)
+        raw, value = registry_json(f"/v2/{image}/{kind}/{wanted}", token)
         require(
             "sha256:" + hashlib.sha256(raw).hexdigest() == wanted,
             "OCI content digest mismatch",
