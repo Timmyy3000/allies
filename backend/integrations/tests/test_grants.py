@@ -86,7 +86,15 @@ def test_grant_matrix_and_generation(rig):
     assert send_decision.tool_allowlist == SEND_ALLOWLIST
 
     upgraded = set_ally_grant(secret=secret, ally=reader, level="send")
-    assert upgraded.grant_generation == read_decision.grant_generation + 1
+    assert upgraded.grant_generation == read_decision.grant_generation
+
+
+def test_regrant_after_revoke_gets_fresh_generation(rig):
+    _, _, reader, _, secret = rig
+    first = set_ally_grant(secret=secret, ally=reader, level="send")
+    revoke_ally_grant(secret=secret, ally=reader)
+    second = set_ally_grant(secret=secret, ally=reader, level="send")
+    assert second.grant_generation == first.grant_generation + 1
 
 
 def test_ungranted_ally_denied(rig):
@@ -138,7 +146,6 @@ def test_mint_registers_resolvable_ref(rig, monkeypatch):
     minted = MintedAccess(
         access_token="ya29.exec",
         expires_at=timezone.now() + timezone.timedelta(seconds=600),
-        scope_set=[],
     )
     credential = mint_execution_credential(
         secret=secret, ally=sender, command_id="cmd-9", minted=minted
@@ -146,9 +153,11 @@ def test_mint_registers_resolvable_ref(rig, monkeypatch):
     assert credential.ref.startswith(f"gmail:{secret.id}:cmd-9:")
     assert credential.tool_allowlist == SEND_ALLOWLIST
     assert credential.grant_generation == 1
-    assert resolve_credential_ref(credential.ref) == "ya29.exec"
+    assert resolve_credential_ref(credential.ref, command_id="cmd-9") == "ya29.exec"
     with pytest.raises(GrantDenied):
-        resolve_credential_ref("gmail:missing:cmd:nope")
+        resolve_credential_ref(credential.ref, command_id="cmd-other")
+    with pytest.raises(GrantDenied):
+        resolve_credential_ref("gmail:missing:cmd:nope", command_id="cmd")
 
 
 def test_mint_audit_never_logs_tokens(rig, monkeypatch, caplog):
@@ -159,7 +168,6 @@ def test_mint_audit_never_logs_tokens(rig, monkeypatch, caplog):
     minted = MintedAccess(
         access_token="ya29.super-secret-token",
         expires_at=timezone.now() + timezone.timedelta(seconds=600),
-        scope_set=[],
     )
     with caplog.at_level(logging.INFO, logger="integrations.services.grants"):
         mint_execution_credential(
@@ -177,7 +185,6 @@ def test_disconnect_scrubs_and_revokes(rig, monkeypatch):
     minted = MintedAccess(
         access_token="ya29.exec",
         expires_at=timezone.now() + timezone.timedelta(seconds=600),
-        scope_set=[],
     )
     credential = mint_execution_credential(
         secret=secret, ally=reader, command_id="cmd-11", minted=minted
@@ -191,7 +198,7 @@ def test_disconnect_scrubs_and_revokes(rig, monkeypatch):
     assert bytes(secret.ciphertext) == b""
     assert AllyIntegrationGrant.objects.count() == 0
     with pytest.raises(GrantDenied):
-        resolve_credential_ref(credential.ref)
+        resolve_credential_ref(credential.ref, command_id="cmd-11")
     again = disconnect_gmail_account(secret=secret)
     assert again.status == "already_cleaned"
 
@@ -203,3 +210,40 @@ def test_disconnect_google_failure_is_repair(rig, monkeypatch):
     assert result.status == "repair_required"
     secret.refresh_from_db()
     assert secret.revoked_at is not None
+    assert bytes(secret.ciphertext) != b""
+    monkeypatch.setattr(google_oauth, "revoke_at_google", lambda token: True)
+    retry = disconnect_gmail_account(secret=secret)
+    assert retry.status == "deprovisioned"
+    secret.refresh_from_db()
+    assert bytes(secret.ciphertext) == b""
+
+
+def test_single_active_connection_per_workspace(rig):
+    import hashlib
+
+    from django.db import IntegrityError, transaction
+
+    _, workspace, _, _, secret = rig
+    from integrations.services.vault import seal_refresh_token
+
+    ciphertext, version = seal_refresh_token("refresh.other")
+    with (
+        transaction.atomic(),
+        pytest.raises(IntegrityError),
+    ):
+        IntegrationSecret.objects.create(
+            workspace=workspace,
+            provider_key=PROVIDER_GMAIL,
+            account_ref_hash=hashlib.sha256(b"other").hexdigest(),
+            account_email="other@gmail.com",
+            ciphertext=bytes(ciphertext),
+            key_version=version,
+            scope_set=[],
+        )
+    assert (
+        IntegrationSecret.objects.filter(
+            workspace=workspace, provider_key=PROVIDER_GMAIL, revoked_at=None
+        ).count()
+        == 1
+    )
+    assert secret.generation_epoch == 1
