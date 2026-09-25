@@ -55,7 +55,7 @@ class IntegrationSecret(models.Model):
         indexes = [
             models.Index(
                 fields=("workspace", "provider_key"),
-                name="integration_secret_workspace_provider_idx",
+                name="int_secret_ws_provider_idx",
             ),
         ]
 
@@ -124,7 +124,7 @@ class GmailConnectSession(models.Model):
         indexes = [
             models.Index(
                 fields=("workspace", "created_at"),
-                name="gmail_connect_session_workspace_created_idx",
+                name="gmail_conn_ws_created_idx",
             ),
         ]
 
