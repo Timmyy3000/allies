@@ -1,6 +1,5 @@
-import base64
-
 import pytest
+from cryptography.fernet import Fernet
 
 from integrations.exceptions import IntegrationUnavailable
 from integrations.services.vault import (
@@ -10,12 +9,14 @@ from integrations.services.vault import (
     vault_key,
 )
 
-VAULT_KEY_B64 = base64.urlsafe_b64encode(b"v" * 32).decode()
+
+def _test_vault_key() -> str:
+    return Fernet.generate_key().decode()
 
 
 @pytest.mark.django_db
 def test_vault_roundtrip(settings):
-    settings.ALLIES_INTEGRATIONS_VAULT_KEY = VAULT_KEY_B64
+    settings.ALLIES_INTEGRATIONS_VAULT_KEY = _test_vault_key()
     ciphertext, version = seal_refresh_token("refresh-token-abc")
     assert version == VAULT_KEY_CURRENT_VERSION
     assert unseal_refresh_token(ciphertext, key_version=version) == "refresh-token-abc"
@@ -24,7 +25,7 @@ def test_vault_roundtrip(settings):
 
 @pytest.mark.django_db
 def test_vault_unknown_version_fails_closed(settings):
-    settings.ALLIES_INTEGRATIONS_VAULT_KEY = VAULT_KEY_B64
+    settings.ALLIES_INTEGRATIONS_VAULT_KEY = _test_vault_key()
     ciphertext, _ = seal_refresh_token("refresh-token-abc")
     with pytest.raises(IntegrationUnavailable):
         unseal_refresh_token(ciphertext, key_version=999)
@@ -42,7 +43,7 @@ def test_vault_missing_key_fails_closed(settings):
 
 @pytest.mark.django_db
 def test_vault_tampered_ciphertext_fails_closed(settings):
-    settings.ALLIES_INTEGRATIONS_VAULT_KEY = VAULT_KEY_B64
+    settings.ALLIES_INTEGRATIONS_VAULT_KEY = _test_vault_key()
     ciphertext, version = seal_refresh_token("refresh-token-abc")
     tampered = bytearray(bytes(ciphertext))
     tampered[10] ^= 0xFF

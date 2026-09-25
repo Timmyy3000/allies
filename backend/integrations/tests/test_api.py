@@ -1,8 +1,8 @@
-import base64
 import json
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from cryptography.fernet import Fernet
 from django.test import Client, override_settings
 
 from allies.models import Ally, AllyBinding
@@ -13,7 +13,6 @@ from integrations.models import IntegrationSecret
 from integrations.services import google_oauth
 from workspaces.models import Membership, Workspace
 
-VAULT_KEY_B64 = base64.urlsafe_b64encode(b"v" * 32).decode()
 FULL_SCOPES = (
     "https://www.googleapis.com/auth/gmail.readonly "
     "https://www.googleapis.com/auth/gmail.send"
@@ -96,7 +95,7 @@ def _headers(csrf, **extra):
     ALLIES_GMAIL_CLIENT_ID="test-client-id",
     ALLIES_GMAIL_CLIENT_SECRET="test-client-secret",
     ALLIES_GMAIL_REDIRECT_URI="https://app.example/callback",
-    ALLIES_INTEGRATIONS_VAULT_KEY=VAULT_KEY_B64,
+    ALLIES_INTEGRATIONS_VAULT_KEY=Fernet.generate_key().decode(),
 )
 def test_status_begin_grant_disconnect_flow(api_account, monkeypatch):
     user, workspace, ally = api_account
@@ -180,7 +179,7 @@ def test_status_begin_grant_disconnect_flow(api_account, monkeypatch):
     ALLIES_GMAIL_CLIENT_ID="test-client-id",
     ALLIES_GMAIL_CLIENT_SECRET="test-client-secret",
     ALLIES_GMAIL_REDIRECT_URI="https://app.example/callback",
-    ALLIES_INTEGRATIONS_VAULT_KEY=VAULT_KEY_B64,
+    ALLIES_INTEGRATIONS_VAULT_KEY=Fernet.generate_key().decode(),
 )
 def test_callback_scope_shortfall_returns_422(api_account, monkeypatch):
     user, workspace, _ = api_account
