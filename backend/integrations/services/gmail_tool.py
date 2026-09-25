@@ -149,15 +149,9 @@ def execute_gmail_tool(
     digest = hashlib.sha256(
         json.dumps(arguments, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    previous = IntegrationToolCall.objects.filter(
-        message=message, call_id=call_id
-    ).first()
-    if previous is not None:
-        if previous.request_digest != digest:
-            return _error(422, "invalid_gmail_request", "Tool call identity reused.")
-        if previous.response.get("status") == "send_pending":
-            return _unknown_send()
-        return 200, previous.response
+    replayed = _replay(message, call_id, digest)
+    if replayed is not None:
+        return replayed
 
     if not gmail_enabled():
         return NOT_CONNECTED
@@ -202,10 +196,30 @@ def _prepare_send(message, call_id, digest, args) -> tuple[int, dict]:
             "same fields and this confirmation_ref."
         ),
     }
-    IntegrationToolCall.objects.create(
-        message=message, call_id=call_id, request_digest=digest, response=response
-    )
+    try:
+        with transaction.atomic():
+            IntegrationToolCall.objects.create(
+                message=message,
+                call_id=call_id,
+                request_digest=digest,
+                response=response,
+            )
+    except IntegrityError:
+        return _replay(message, call_id, digest)
     return 200, response
+
+
+def _replay(message, call_id, digest) -> tuple[int, dict] | None:
+    stored = IntegrationToolCall.objects.filter(
+        message=message, call_id=call_id
+    ).first()
+    if stored is None:
+        return None
+    if stored.request_digest != digest:
+        return _error(422, "invalid_gmail_request", "Tool call identity reused.")
+    if stored.response.get("status") == "send_pending":
+        return _unknown_send()
+    return 200, stored.response
 
 
 def _send(message, call_id, digest, args, secret) -> tuple[int, dict]:
@@ -232,6 +246,9 @@ def _send(message, call_id, digest, args, secret) -> tuple[int, dict]:
                 consumed_ref=args.confirmation_ref,
             )
     except IntegrityError:
+        twin = _replay(message, call_id, digest)
+        if twin is not None:
+            return twin
         return _error(
             409,
             "confirmation_used",

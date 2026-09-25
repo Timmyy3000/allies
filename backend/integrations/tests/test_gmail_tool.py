@@ -322,3 +322,30 @@ def test_internal_endpoint_auth_and_routing(gmail):
     foreign = post({**body, "binding_id": str(uuid4())}, **auth)
     assert foreign.status_code == 403
     assert foreign.json() == {"error": "integration_unavailable"}
+
+
+def test_concurrent_twin_calls_replay_instead_of_failing(gmail):
+    message = Message.objects.get(pk=gmail["turn"]["message_id"])
+    call_id = uuid4()
+    arguments = {"action": "prepare_send", **DRAFT}
+    first = run(gmail["turn"], arguments, call_id)
+    args = gmail_tool.GmailToolRequest.model_validate(arguments)
+    digest = IntegrationToolCall.objects.get(call_id=call_id).request_digest
+    # The twin lost the race: its pre-check saw nothing, then its insert collides.
+    assert gmail_tool._prepare_send(message, call_id, digest, args) == first
+
+    ref, later = _confirmed(gmail)
+    later_message = Message.objects.get(pk=later["message_id"])
+    send_args = {"action": "send", **DRAFT, "confirmation_ref": ref}
+    send_id = uuid4()
+    sent = run(later, send_args, send_id)
+    record = IntegrationToolCall.objects.get(call_id=send_id)
+    twin = gmail_tool._send(
+        later_message,
+        send_id,
+        record.request_digest,
+        gmail_tool.GmailToolRequest.model_validate(send_args),
+        gmail["secret"],
+    )
+    assert twin == sent
+    assert sum(path == "/messages/send" for path, _, _ in gmail["calls"]) == 1
