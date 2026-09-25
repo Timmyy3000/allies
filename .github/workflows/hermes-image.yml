@@ -11,9 +11,12 @@ on:
       - "scripts/integrations/railway/update_runtime_images.py"
       - "scripts/tests/test_runtime_release.py"
       - "scripts/tests/test_railway_runtime_images.py"
+      - "scripts/runtime_image_cleanup.py"
+      - "scripts/tests/test_runtime_image_cleanup.py"
       - ".github/workflows/hermes-image.yml"
       - ".github/workflows/runtime-publish.yml"
       - ".github/workflows/runtime-promote.yml"
+      - ".github/workflows/storage-cleanup.yml"
       - "Makefile"
 
 permissions:
@@ -44,7 +47,7 @@ jobs:
       - name: Validate runtime release boundaries
         run: |
           uv run --locked --project backend python -m pytest scripts/tests -q
-          uv run --locked --project backend ruff check scripts/runtime_release.py scripts/integrations/railway scripts/tests
+          uv run --locked --project backend ruff check scripts/runtime_release.py scripts/runtime_image_cleanup.py scripts/integrations/railway scripts/tests
 
       - name: Test provider policy boundary
         env:

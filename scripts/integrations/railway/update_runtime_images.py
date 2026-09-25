@@ -67,10 +67,9 @@ def graphql(query, variables):
         connection.close()
 
 
-def update_pair(project, environment, desired, *, request=graphql, sleep=time.sleep):
-    desired = validate_pair(desired)
-    if environment not in ("staging", "production") or desired is None:
-        raise PairUpdateError("Invalid target or image pair")
+def environment_scope(project, environment, *, request=graphql):
+    if environment not in ("staging", "production"):
+        raise PairUpdateError("Invalid target environment")
     environment_name = "prod" if environment == "production" else environment
     data = request(
         "query($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }",
@@ -87,14 +86,31 @@ def update_pair(project, environment, desired, *, request=graphql, sleep=time.sl
         environment_id = str(UUID(matches[0]))
     except (KeyError, TypeError, ValueError, AttributeError) as exc:
         raise PairUpdateError("Expected exactly one target environment") from exc
-    scope = {"projectId": project, "environmentId": environment_id}
+    return {"projectId": project, "environmentId": environment_id}
+
+
+def read_scope_pair(scope, *, request=graphql):
+    result = request(
+        "query($projectId: String!, $environmentId: String!) { variables(projectId: $projectId, environmentId: $environmentId) }",
+        scope,
+    )
+    return validate_pair(result.get("variables"))
+
+
+def read_pair(project, environment, *, request=graphql):
+    """Return the configured pair, or None when the environment has none."""
+    scope = environment_scope(project, environment, request=request)
+    return read_scope_pair(scope, request=request)
+
+
+def update_pair(project, environment, desired, *, request=graphql, sleep=time.sleep):
+    desired = validate_pair(desired)
+    if desired is None:
+        raise PairUpdateError("Invalid target or image pair")
+    scope = environment_scope(project, environment, request=request)
 
     def read_pair():
-        result = request(
-            "query($projectId: String!, $environmentId: String!) { variables(projectId: $projectId, environmentId: $environmentId) }",
-            scope,
-        )
-        return validate_pair(result.get("variables"))
+        return read_scope_pair(scope, request=request)
 
     previous = read_pair()
     current = previous
