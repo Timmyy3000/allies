@@ -199,6 +199,26 @@ COPY smoke_profile_quiescence.py /tmp/allies-smoke-profile-quiescence.py
 RUN PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-profile-quiescence.py \
     && rm -f /tmp/allies-smoke-profile-quiescence.py
 
+# Prompt-compartment refresh gate: replace the frozen session prompt when a
+# prompt layer version changes. A rejected hunk must fail the image build.
+COPY patches/prompt-compartment-refresh.patch /tmp/allies-prompt-compartment-refresh.patch
+RUN cd /opt/hermes \
+    && sed -i 's/\r$//' /tmp/allies-prompt-compartment-refresh.patch \
+    && git apply --check --whitespace=nowarn /tmp/allies-prompt-compartment-refresh.patch \
+    && git apply --whitespace=nowarn /tmp/allies-prompt-compartment-refresh.patch \
+    && rm -f /tmp/allies-prompt-compartment-refresh.patch
+
+# Version stamp for the refresh gate: source SHA plus the full overlay patch
+# set, so any Hermes code or config change retires live session prompts once.
+COPY patches/ /tmp/allies-prompt-version-patches/
+RUN printf '%s:' "${HERMES_SOURCE_SHA}" > /opt/hermes/.allies-prompt-config-version \
+    && sha256sum /tmp/allies-prompt-version-patches/*.patch | sha256sum | cut -d' ' -f1 | tr -d '\n' >> /opt/hermes/.allies-prompt-config-version \
+    && rm -rf /tmp/allies-prompt-version-patches
+
+COPY smoke_prompt_compartment_refresh.py /tmp/allies-smoke-prompt-compartment-refresh.py
+RUN PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-prompt-compartment-refresh.py \
+    && rm -f /tmp/allies-smoke-prompt-compartment-refresh.py
+
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends bubblewrap=0.12.0-1~deb13u1 \
     && rm -rf /var/lib/apt/lists/*
