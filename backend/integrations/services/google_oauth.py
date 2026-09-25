@@ -31,9 +31,9 @@ from ..exceptions import (
 from ..models import PROVIDER_GMAIL, GmailConnectSession, IntegrationSecret
 from .vault import seal_refresh_token, unseal_refresh_token
 
-GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
-GMAIL_V1_SCOPES = (GMAIL_READONLY_SCOPE, GMAIL_SEND_SCOPE)
+GMAIL_V1_SCOPES = (GMAIL_MODIFY_SCOPE, GMAIL_SEND_SCOPE)
 
 GOOGLE_AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
