@@ -1,0 +1,87 @@
+name: Clean Up Old Artifacts and Runtime Images
+
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      delete:
+        description: "Delete for real (otherwise only list what would be deleted)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-cleanup
+  cancel-in-progress: false
+
+env:
+  # Scheduled runs only list until the repository variable STORAGE_CLEANUP_DELETE is "true".
+  DELETE: ${{ github.event_name == 'workflow_dispatch' && inputs.delete || github.event_name == 'schedule' && vars.STORAGE_CLEANUP_DELETE == 'true' }}
+
+jobs:
+  artifacts:
+    name: Delete workflow artifacts older than 7 days
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 10
+    permissions:
+      actions: write
+    steps:
+      - name: Delete old artifacts, keeping the newest 5
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          cutoff=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ)
+          gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq '.artifacts[] | [.id, .created_at, .size_in_bytes, .name] | @tsv' \
+            | sort -t$'\t' -k2,2r | tail -n +6 \
+            | awk -F'\t' -v cutoff="$cutoff" '$2 < cutoff' > old.tsv
+          echo "Old artifacts: $(wc -l < old.tsv), $(awk -F'\t' '{s+=$3} END {printf "%.1f", s/1048576}' old.tsv) MB (delete=$DELETE)" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$DELETE" = true ]; then
+            cut -f1 old.tsv | while read -r id; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$id"
+            done
+          fi
+
+  runtime-images:
+    name: Delete runtime images nothing needs
+    if: github.ref == 'refs/heads/dev'
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 15
+    # Read-only here: reads the live image pair, which needs the production configuration token.
+    environment: foundry / prod
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Plan and apply runtime image cleanup
+        env:
+          GITHUB_TOKEN_FALLBACK: ${{ secrets.GITHUB_TOKEN }}
+          PACKAGE_CLEANUP_TOKEN: ${{ secrets.PACKAGE_CLEANUP_TOKEN }}
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+        run: |
+          set -euo pipefail
+          export GH_TOKEN="${PACKAGE_CLEANUP_TOKEN:-$GITHUB_TOKEN_FALLBACK}"
+          flag=""
+          if [ "$DELETE" = true ]; then flag="--delete"; fi
+          python scripts/runtime_image_cleanup.py $flag | tee plan.json
+          {
+            echo '## Runtime image cleanup'
+            echo '```json'
+            cat plan.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
