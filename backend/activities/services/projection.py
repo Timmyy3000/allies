@@ -8,7 +8,7 @@ import hmac
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from uuid import UUID
 
 from django.conf import settings
@@ -39,6 +39,7 @@ from ..exceptions import (
     ProjectionCursorExpired,
     ProjectionCursorGap,
     ProjectionCursorInvalid,
+    ProjectionError,
     ProjectionInvalid,
     ProjectionNotFound,
     ProjectionSequenceGap,
@@ -49,6 +50,7 @@ from ..models import (
     ApprovalDeliveryState,
     ApprovalStatus,
     FoundryEventReceipt,
+    FoundryHeldEvent,
     ProjectionState,
 )
 from ..presentation import activity_text
@@ -59,6 +61,7 @@ MAX_ACTIVITY_SNAPSHOT = 200
 MAX_ACTIVITIES_PER_MESSAGE = 513
 MAX_ACTIVITIES_PER_CONVERSATION = 8192
 MAX_EVENT_RECEIPTS_PER_MESSAGE = MAX_TERMINAL_SEQUENCE
+MAX_HELD_EVENTS_PER_MESSAGE = 512
 MAX_AGGREGATE_TEXT_BYTES = 64 * 1024
 MAX_CONVERSATION_TEXT_BYTES = 4 * 1024 * 1024
 _TERMINAL_STATES = {
@@ -87,6 +90,7 @@ class ProjectionResult:
     event_id: UUID
     activity: Activity | None = None
     last_contiguous_sequence: int = 0
+    held: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -573,6 +577,191 @@ def _ensure_projection_bounds(
 
 @transaction.atomic
 def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
+    """Apply one validated event, then any held successors it unblocks.
+
+    Foundry may deliver an attempt's events in any order.  An event ahead of
+    the contiguous cursor is accepted and held; it is projected once every
+    earlier sequence has been applied.
+    """
+
+    result = _apply_foundry_event(envelope)
+    if result.status == "applied" and not result.held:
+        _drain_held_events(envelope, result.last_contiguous_sequence)
+    return result
+
+
+def _drain_held_events(envelope: FoundryEventEnvelope, applied_sequence: int) -> None:
+    foundry = envelope.foundry
+    FoundryHeldEvent.objects.filter(
+        message_id=envelope.cloud.message_id,
+        attempt_id=foundry.attempt_id,
+        generation=foundry.generation,
+        attempt_sequence__lte=applied_sequence,
+    ).delete()
+    while True:
+        held = (
+            FoundryHeldEvent.objects.select_for_update()
+            .filter(
+                message_id=envelope.cloud.message_id,
+                attempt_id=foundry.attempt_id,
+                generation=foundry.generation,
+                attempt_sequence=applied_sequence + 1,
+            )
+            .first()
+        )
+        if held is None:
+            return
+        try:
+            with transaction.atomic():
+                _apply_foundry_event(FoundryEventEnvelope.model_validate(held.envelope))
+        except ProjectionSequenceGap:
+            # Still blocked (e.g. a prior turn is open); keep it for a later drain.
+            return
+        except (ProjectionError, ValueError) as exc:
+            held.delete()
+            logger.warning(
+                "held foundry event discarded message_id=%s attempt_id=%s "
+                "generation=%d attempt_sequence=%d error=%s",
+                held.message_id,
+                held.attempt_id,
+                held.generation,
+                held.attempt_sequence,
+                type(exc).__name__,
+            )
+            return
+        held.delete()
+        applied_sequence = held.attempt_sequence
+
+
+HELD_GAP_TIMEOUT_SECONDS = 15 * 60
+
+
+def expire_stalled_held_gaps(*, limit: int = 50, now: datetime | None = None) -> int:
+    """Fail turns whose held events have waited too long for a lost predecessor.
+
+    A gap that stays open means Foundry will not deliver the missing event, so
+    the turn would otherwise stay in progress forever and block every later
+    turn of the conversation.  The turn fails as retryable and the next turn
+    is released.
+    """
+
+    observed_at = now or timezone.now()
+    cutoff = observed_at - timedelta(seconds=HELD_GAP_TIMEOUT_SECONDS)
+    message_ids = list(
+        FoundryHeldEvent.objects.filter(created_at__lte=cutoff)
+        .values_list("message_id", flat=True)
+        .distinct()[:limit]
+    )
+    expired = 0
+    for message_id in message_ids:
+        with transaction.atomic():
+            message = (
+                Message.objects.select_related("conversation")
+                .filter(pk=message_id)
+                .first()
+            )
+            if message is None:
+                continue
+            conversation = Conversation.objects.select_for_update().get(
+                pk=message.conversation_id
+            )
+            message = Message.objects.select_for_update().get(pk=message_id)
+            current = (
+                FoundryEventReceipt.objects.filter(message=message)
+                .order_by("-generation")
+                .values_list("attempt_id", "generation")
+                .first()
+            )
+            held = FoundryHeldEvent.objects.filter(message=message)
+            if current is None:
+                # Nothing projected yet (the first event itself is missing):
+                # the newest held attempt is the current one.
+                current = (
+                    held.order_by("-generation", "-created_at")
+                    .values_list("attempt_id", "generation")
+                    .first()
+                )
+            current_held = (
+                held.filter(attempt_id=current[0], generation=current[1])
+                if current is not None
+                else held.none()
+            )
+            # Holds left by a superseded attempt can never drain; drop them
+            # without touching the current attempt's turn.
+            held.exclude(pk__in=current_held.values("pk")).filter(
+                created_at__lte=cutoff
+            ).delete()
+            if message.status in _TERMINAL_STATES:
+                held.delete()
+                continue
+            if not current_held.filter(created_at__lte=cutoff).exists():
+                continue
+            current_held.delete()
+            message.status = MessageLifecycle.FAILED
+            message.retry_allowed = True
+            message.save(update_fields=("status", "retry_allowed", "updated_at"))
+            Approval.objects.filter(
+                message=message, status=ApprovalStatus.PENDING
+            ).update(
+                status=ApprovalStatus.CANCELLED,
+                delivery_state=ApprovalDeliveryState.CANCELLED,
+                delivery_next_attempt_at=None,
+                delivery_lease_expires_at=None,
+                delivery_safe_error_code="execution_terminal",
+                updated_at=observed_at,
+            )
+            logger.warning(
+                "turn failed on stalled foundry sequence gap "
+                "conversation_id=%s message_id=%s",
+                conversation.id,
+                message.id,
+            )
+            from chat.services.dispatch import _release_next_locked
+
+            _release_next_locked(conversation, now=observed_at)
+            expired += 1
+    return expired
+
+
+def _hold_event(
+    envelope: FoundryEventEnvelope, message: Message, expected_sequence: int
+) -> ProjectionResult:
+    foundry = envelope.foundry
+    attempt_held = FoundryHeldEvent.objects.filter(
+        message=message, attempt_id=foundry.attempt_id, generation=foundry.generation
+    )
+    if (
+        not attempt_held.filter(attempt_sequence=foundry.attempt_sequence).exists()
+        and attempt_held.count() >= MAX_HELD_EVENTS_PER_MESSAGE
+    ):
+        raise ProjectionSequenceGap("held event limit reached")
+    held, _created = FoundryHeldEvent.objects.get_or_create(
+        message=message,
+        attempt_id=foundry.attempt_id,
+        generation=foundry.generation,
+        attempt_sequence=foundry.attempt_sequence,
+        defaults={
+            "event_id": envelope.event_id,
+            "event_fingerprint": envelope.fingerprint,
+            "envelope": envelope.model_dump(mode="json"),
+        },
+    )
+    if (
+        held.event_id != envelope.event_id
+        or held.event_fingerprint != envelope.fingerprint
+    ):
+        raise ProjectionConflict("event sequence conflicts with held event")
+    # Foundry's receipt contract only knows applied/duplicate; a held event is
+    # durably accepted, so it is acknowledged as applied.
+    return ProjectionResult(
+        status="applied",
+        event_id=envelope.event_id,
+        last_contiguous_sequence=expected_sequence - 1,
+        held=True,
+    )
+
+
+def _apply_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
     """Apply one validated event, preserving exact duplicate/no-op semantics."""
 
     message = _message_for_event(envelope)
@@ -702,7 +891,7 @@ def project_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
                 "attempt_sequence": foundry.attempt_sequence,
             },
         )
-        raise ProjectionSequenceGap("event sequence gap")
+        return _hold_event(envelope, message, expected_sequence)
     if foundry.attempt_sequence < expected_sequence:
         raise ProjectionConflict("event sequence is stale")
     if message.status in _TERMINAL_STATES:

@@ -756,6 +756,11 @@ CELERY_BEAT_SCHEDULE["dispatch-pending-approvals"] = {
     "schedule": 15.0,
     "options": {"queue": "cloud"},
 }
+CELERY_BEAT_SCHEDULE["expire-stalled-held-gaps"] = {
+    "task": "activities.expire_stalled_held_gaps",
+    "schedule": 60.0,
+    "options": {"queue": "cloud"},
+}
 if ALLIES_ROUTINE_SCHEDULER_ENABLED:
     CELERY_BEAT_SCHEDULE["admit-due-routine-occurrences"] = {
         "task": "routines.admit_due_occurrences",
