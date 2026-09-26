@@ -509,3 +509,104 @@ def test_workspace_can_acquire_capacity_after_global_saturation(monkeypatch):
     entries.pop("allies:label:global:0")
     assert labels._provider_allowed(workspace_id=workspace_id) is None
     assert len(entries) == 4
+
+
+@pytest.mark.django_db
+def test_settings_update_changes_appearance_under_the_revision_fence(account):
+    ally = make_ally(account)
+    original = (ally.appearance_catalog_version, ally.appearance_key)
+
+    unchanged = labels.update_ally_settings(
+        user=account[0],
+        workspace_id=account[1].id,
+        ally_id=ally.id,
+        label=ally.label,
+        show_label=ally.show_label,
+        settings_revision=0,
+        appearance=original,
+    )
+    assert unchanged.settings_revision == 0
+
+    updated = labels.update_ally_settings(
+        user=account[0],
+        workspace_id=account[1].id,
+        ally_id=ally.id,
+        label=ally.label,
+        show_label=ally.show_label,
+        settings_revision=0,
+        appearance=("v1", "rolly-blue"),
+    )
+    assert (updated.appearance_catalog_version, updated.appearance_key) == (
+        "v1",
+        "rolly-blue",
+    )
+    assert updated.settings_revision == 1
+
+    with pytest.raises(labels.LabelSettingsConflict):
+        labels.update_ally_settings(
+            user=account[0],
+            workspace_id=account[1].id,
+            ally_id=ally.id,
+            label=ally.label,
+            show_label=ally.show_label,
+            settings_revision=0,
+            appearance=("v1", "boxy-red"),
+        )
+    ally.refresh_from_db()
+    assert ally.appearance_key == "rolly-blue"
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
+    ALLIES_AUTH_DIGEST_KEY="d" * 32,
+    ALLIES_AUTH_JWT_KEY="j" * 32,
+)
+def test_settings_patch_accepts_appearance_and_rejects_malformed_shape(account):
+    user, workspace = account
+    ally = make_ally(account)
+    client = Client(enforce_csrf_checks=True)
+    csrf = client.get("/api/v1/auths/csrf", HTTP_HOST="testserver")["X-CSRFToken"]
+    client.cookies[cookie_name("access")] = issue_session(user).access_token
+    headers = {
+        "HTTP_HOST": "testserver",
+        "HTTP_ORIGIN": "http://localhost:3000",
+        "HTTP_X_CSRFTOKEN": csrf,
+    }
+    url = f"/api/v1/workspaces/{workspace.id}/allies/{ally.id}/settings"
+
+    malformed = client.patch(
+        url,
+        json.dumps(
+            {
+                "label": "",
+                "show_label": False,
+                "settings_revision": 0,
+                "appearance": {"catalog_version": "v1", "key": "", "extra": 1},
+            }
+        ),
+        content_type="application/json",
+        **headers,
+    )
+    response = client.patch(
+        url,
+        json.dumps(
+            {
+                "label": "",
+                "show_label": False,
+                "settings_revision": 0,
+                "appearance": {"catalog_version": "v1", "key": "ghosty-purple"},
+            }
+        ),
+        content_type="application/json",
+        **headers,
+    )
+
+    assert malformed.status_code == 422
+    assert response.status_code == 200
+    assert response.json()["data"]["appearance"] == {
+        "catalog_version": "v1",
+        "key": "ghosty-purple",
+    }
+    assert response.json()["data"]["settings_revision"] == 1

@@ -82,6 +82,7 @@ class AllySettingsRequest(Schema):
     label: StrictStr = Field(max_length=80)
     show_label: StrictBool
     settings_revision: StrictInt = Field(ge=0)
+    appearance: AppearanceInput | None = None
 
     @field_validator("label", mode="before")
     @classmethod
