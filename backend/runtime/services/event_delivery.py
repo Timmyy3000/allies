@@ -40,6 +40,12 @@ MAX_RESPONSE_BYTES = 8 * 1024
 REPAIR_DELAY_SECONDS = 300
 MAX_AUTOMATIC_REPAIR_CYCLES = 3
 SLOW_DELIVERY_POST_MS = 3000
+# Cloud answers 409 sequence_gap while an earlier event of the attempt is
+# still in flight; retry soon without spending one of the bounded attempts.
+SEQUENCE_GAP_RETRY_SECONDS = 15
+# Past this age a persistent gap falls back to normal retry accounting so a
+# permanently missing predecessor still exhausts and surfaces for redrive.
+SEQUENCE_GAP_PATIENCE_SECONDS = 30 * 60
 
 logger = logging.getLogger(__name__)
 
@@ -200,6 +206,7 @@ def mark_event_delivery(
         if success:
             row.state = EventDeliveryState.DELIVERED
             row.delivered_at = observed_at
+            row.sequence_gap_since = None
             row.lease_expires_at = None
             row.safe_error_code = ""
         else:
@@ -234,6 +241,7 @@ def mark_event_delivery(
                 "lease_expires_at",
                 "safe_error_code",
                 "next_attempt_at",
+                "sequence_gap_since",
                 "updated_at",
             ]
         )
@@ -259,8 +267,13 @@ def publish_pending_event_deliveries(limit: int = MAX_DELIVERY_BATCH) -> Deliver
             if marked is not None:
                 delivered += 1
                 recovered += int(claim.repair_cycle > 0)
+                _wake_attempt_successors(marked)
             else:
                 deferred += 1
+        elif (
+            status == 409 and code == "sequence_gap" and _defer_for_sequence_gap(claim)
+        ):
+            deferred += 1
         elif status in (401, 403, 404, 422) or (status == 409 and code == "conflict"):
             marked = mark_event_delivery(
                 claim.delivery_id,
@@ -299,6 +312,71 @@ def publish_pending_event_deliveries(limit: int = MAX_DELIVERY_BATCH) -> Deliver
     return DeliveryReport(
         len(claims), delivered, deferred, exhausted, repair_pending, recovered
     )
+
+
+def _defer_for_sequence_gap(
+    claim: EventDeliveryClaim, now: datetime | None = None
+) -> bool:
+    """Wait for the missing predecessor without consuming a delivery attempt.
+
+    Patience runs from the first gap Cloud reported for this delivery, so a
+    backlog row is deferred like a fresh one.  Returns False once the gap has
+    outlived its patience, so the caller records an ordinary retryable failure.
+    """
+
+    observed_at = now or timezone.now()
+    with transaction.atomic():
+        row = (
+            ExecutionEventDelivery.objects.select_for_update()
+            .filter(
+                pk=claim.delivery_id,
+                state=EventDeliveryState.DELIVERING,
+                delivery_attempts=claim.attempt,
+                repair_cycle=claim.repair_cycle,
+            )
+            .first()
+        )
+        if row is None:
+            return False
+        gap_since = row.sequence_gap_since or observed_at
+        if observed_at - gap_since > timedelta(seconds=SEQUENCE_GAP_PATIENCE_SECONDS):
+            return False
+        row.state = EventDeliveryState.PENDING
+        row.delivery_attempts = claim.attempt - 1
+        row.lease_expires_at = None
+        row.next_attempt_at = observed_at + timedelta(
+            seconds=SEQUENCE_GAP_RETRY_SECONDS
+        )
+        row.safe_error_code = "sequence_gap"
+        row.sequence_gap_since = gap_since
+        row.save(
+            update_fields=[
+                "state",
+                "delivery_attempts",
+                "lease_expires_at",
+                "next_attempt_at",
+                "safe_error_code",
+                "sequence_gap_since",
+                "updated_at",
+            ]
+        )
+    return True
+
+
+def _wake_attempt_successors(
+    row: ExecutionEventDelivery, now: datetime | None = None
+) -> None:
+    """Release later events of the attempt that backed off behind this one."""
+
+    observed_at = now or timezone.now()
+    event = row.event
+    ExecutionEventDelivery.objects.filter(
+        event__attempt_id=event.attempt_id,
+        event__sequence__gt=event.sequence,
+        state=EventDeliveryState.PENDING,
+        safe_error_code="sequence_gap",
+        next_attempt_at__gt=observed_at,
+    ).update(next_attempt_at=observed_at, updated_at=observed_at)
 
 
 def redrive_event_deliveries(
@@ -369,6 +447,7 @@ def redrive_event_deliveries(
                 row.next_attempt_at = observed_at
                 row.delivered_at = None
                 row.safe_error_code = "manual_redrive"
+                row.sequence_gap_since = None
                 row.save(
                     update_fields=[
                         "repair_cycle",
@@ -380,6 +459,7 @@ def redrive_event_deliveries(
                         "next_attempt_at",
                         "delivered_at",
                         "safe_error_code",
+                        "sequence_gap_since",
                         "updated_at",
                     ]
                 )
