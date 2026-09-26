@@ -398,8 +398,7 @@ test(`shows a real conversation approval and records the choice in ${colorScheme
   await page.getByRole("button", { name: "Approval needed", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText("Connect your knowledge space")).toBeVisible();
-  await expect(dialog.getByText("Your selected knowledge service")).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Allow Ada to connect your knowledge space?" })).toBeVisible();
   const preview = dialog.locator("pre");
   await expect(preview).not.toBeVisible();
   const disclosure = dialog.getByText("View technical details", { exact: true });
@@ -433,7 +432,7 @@ test(`shows a real conversation approval and records the choice in ${colorScheme
   await page.getByRole("button", { name: "Decision recorded · Waiting for Ally", exact: true }).click();
   await expect(dialog.getByRole("button", { name: "Approve", exact: true })).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: "Reject", exact: true })).toHaveCount(0);
-  await expect(dialog.getByText("Connect your knowledge space")).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Ada asked to connect your knowledge space" })).toBeVisible();
 });
 }
 
