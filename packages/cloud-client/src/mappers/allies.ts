@@ -326,6 +326,10 @@ export const allySettingsInputSchema = z.object({
     .pipe(allyLabelSchema),
   showLabel: z.boolean(),
   settingsRevision: z.number().int().nonnegative(),
+  appearance: z.object({
+    catalogVersion: z.string().min(1).max(32),
+    key: z.string().min(1).max(128),
+  }).strict().optional(),
 }).strict().refine((value) => !value.showLabel || value.label !== "", {
   path: ["showLabel"], message: "Add a label before showing it",
 });

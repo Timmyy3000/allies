@@ -261,6 +261,7 @@ function renderHome(
       showLabel: input.showLabel,
       settingsRevision: input.settingsRevision + 1,
     })),
+    listRoutines: vi.fn(async () => ({ items: [], nextCursor: null })),
     getApprovals: vi.fn(async () => []),
     getAllyConversation: vi.fn(async (_workspaceId: string, selectedId: string) => ({
       id: "00000000-0000-4000-8000-000000000005",
@@ -838,6 +839,7 @@ describe("HomeWorkspace", () => {
     const settingsButton = (await screen.findAllByRole("button", { name: "Mira settings" }))[0];
     fireEvent.click(settingsButton);
     const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit label" }));
     const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
     const showLabel = within(dialog).getByRole("checkbox", { name: /Show label/ }) as HTMLInputElement;
 
@@ -859,8 +861,102 @@ describe("HomeWorkspace", () => {
       { label: "chief of staff", showLabel: true, settingsRevision: 0 },
       expect.any(AbortSignal),
     );
-    expect(await screen.findByText("chief of staff")).toBeTruthy();
+    expect(await within(screen.getByRole("link", { name: /Mira/ })).findByText("chief of staff")).toBeTruthy();
     expect(within(dialog).getByRole("status").textContent).toBe("Settings saved.");
+  });
+
+  it("saves a new look with the current label and revision", async () => {
+    const labelled = { ...ally, appearance: { catalogVersion: "v1", key: "ghosty:ff5800" }, label: "chief of staff", showLabel: true, settingsRevision: 2 };
+    const client = renderHome([labelled], ally.id);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Change look" }));
+    const save = within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Rocky/ }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: "#0d92fd" }));
+    fireEvent.click(save);
+
+    await waitFor(() => expect(client.updateAllySettings).toHaveBeenCalledOnce());
+    expect(client.updateAllySettings.mock.calls[0]?.[2]).toEqual({
+      label: "chief of staff",
+      showLabel: true,
+      settingsRevision: 2,
+      appearance: { catalogVersion: "v1", key: "rocky:0d92fd" },
+    });
+    expect(await within(dialog).findByRole("button", { name: "Edit label" })).toBeTruthy();
+  });
+
+  it("does not overwrite an unrecognized appearance until a look is chosen", async () => {
+    const unknown = { ...ally, appearance: { catalogVersion: "v9", key: "mystery" } };
+    const client = renderHome([unknown], ally.id);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Change look" }));
+    const save = within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Boxy/ }));
+    expect(save.disabled).toBe(false);
+    expect(client.updateAllySettings).not.toHaveBeenCalled();
+  });
+
+  it("discards a cancelled label draft so a look save cannot drop or persist it", async () => {
+    const labelled = { ...ally, appearance: { catalogVersion: "v1", key: "ghosty:ff5800" }, label: "chief of staff", showLabel: true };
+    const client = renderHome([labelled], ally.id);
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit label" }));
+    fireEvent.change(within(dialog).getByRole("textbox", { name: "Label" }), { target: { value: "study partner" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit label" }));
+    expect((within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement).value).toBe("chief of staff");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Change look" }));
+    fireEvent.click(within(dialog).getByRole("radio", { name: "#0d92fd" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(client.updateAllySettings).toHaveBeenCalledOnce());
+    expect(client.updateAllySettings.mock.calls[0]?.[2]).toMatchObject({ label: "chief of staff", showLabel: true });
+  });
+
+  it("previews three routines, expands in place, and opens one in chat", async () => {
+    const routine = (index: number) => ({
+      routineId: `00000000-0000-4000-8000-00000000010${index}`,
+      responsibleAllyId: ally.id,
+      title: `Routine ${index}`,
+      schedule: { kind: "recurring" as const, frequency: "daily" as const, localTime: "08:00:00", timezone: "UTC" },
+      revision: 1,
+      scheduleGeneration: 1,
+      scheduleState: "active" as const,
+      nextRunAt: null,
+      createdAt: "2026-08-20T16:00:00Z",
+      updatedAt: "2026-08-20T16:00:00Z",
+    });
+    const listRoutines = vi.fn(async () => ({ items: [1, 2, 3, 4].map(routine), nextCursor: null }));
+    const getRoutine = vi.fn(() => new Promise(() => undefined));
+    renderHome([ally], ally.id, { listRoutines, getRoutine });
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+
+    expect(await within(dialog).findByText("Routine 3")).toBeTruthy();
+    expect(within(dialog).queryByText("Routine 4")).toBeNull();
+    expect(listRoutines).toHaveBeenCalledWith(account.workspace.id, expect.objectContaining({ allyId: ally.id }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "View all 4 routines" }));
+    fireEvent.click(within(dialog).getByText("Routine 4"));
+
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Mira settings" })).toBeNull());
+    await waitFor(() => expect(getRoutine).toHaveBeenCalledWith(account.workspace.id, routine(4).routineId, expect.anything()));
+  });
+
+  it("offers a retry when routines fail to load", async () => {
+    const listRoutines = vi.fn()
+      .mockRejectedValueOnce({ kind: "server", status: 503 })
+      .mockResolvedValueOnce({ items: [], nextCursor: null });
+    renderHome([ally], ally.id, { listRoutines });
+    fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
+    const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(listRoutines).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(within(dialog).queryByRole("heading", { name: "Routines" })).toBeNull());
   });
 
   it("requires the exact deletion phrase and focuses confirmation before the destructive action", async () => {
@@ -1047,6 +1143,7 @@ describe("HomeWorkspace", () => {
     const client = renderHome([ally], ally.id, { updateAllySettings });
     fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
     const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit label" }));
     const label = within(dialog).getByRole("textbox", { name: "Label" });
     fireEvent.change(label, { target: { value: "new label" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -1080,6 +1177,7 @@ describe("HomeWorkspace", () => {
     const client = renderHome([ally], ally.id, { listAllies, updateAllySettings });
     fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
     const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit label" }));
     const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
     const showLabel = within(dialog).getByRole("checkbox", { name: /Show label/ }) as HTMLInputElement;
     fireEvent.change(label, { target: { value: "chief of staff" } });
@@ -1118,6 +1216,7 @@ describe("HomeWorkspace", () => {
     renderHome([ally], ally.id, { listAllies, updateAllySettings });
     fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
     const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit label" }));
     const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
     fireEvent.change(label, { target: { value: "chief of staff" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Save" }));
@@ -1136,6 +1235,7 @@ describe("HomeWorkspace", () => {
     renderHome([ally], ally.id, { updateAllySettings });
     fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
     const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit label" }));
     const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
     fireEvent.change(label, { target: { value: "chief of staff" } });
     const saveButton = within(dialog).getByRole("button", { name: "Save" }) as HTMLButtonElement;
@@ -1168,6 +1268,7 @@ describe("HomeWorkspace", () => {
     const client = renderHome([ally], ally.id, { listAllies, updateAllySettings });
     fireEvent.click((await screen.findAllByRole("button", { name: "Mira settings" }))[0]);
     const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit label" }));
     const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
     const showLabel = within(dialog).getByRole("checkbox", { name: /Show label/ }) as HTMLInputElement;
     fireEvent.change(label, { target: { value: "chief of staff" } });
@@ -1189,7 +1290,7 @@ describe("HomeWorkspace", () => {
     await waitFor(() => expect(listAllies).toHaveBeenCalledTimes(3));
     const savedAlly = { ...ally, label: "chief of staff", showLabel: true, settingsRevision: 1 };
     await act(async () => resolveSave(savedAlly));
-    await waitFor(() => expect(screen.getByText("chief of staff")).toBeTruthy());
+    await waitFor(() => expect(within(screen.getByRole("link", { name: /Mira/ })).getByText("chief of staff")).toBeTruthy());
     expect(staleSignals[1]?.aborted).toBe(true);
 
     await act(async () => {
@@ -1243,6 +1344,7 @@ describe("HomeWorkspace", () => {
 
     fireEvent.click(screen.getAllByRole("button", { name: "Nova settings" })[0]);
     const dialog = await screen.findByRole("dialog", { name: "Nova settings" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Edit label" }));
     const label = within(dialog).getByRole("textbox", { name: "Label" }) as HTMLInputElement;
     const showLabel = within(dialog).getByRole("checkbox", { name: /Show label/ }) as HTMLInputElement;
     fireEvent.change(label, { target: { value: "chief of staff" } });
