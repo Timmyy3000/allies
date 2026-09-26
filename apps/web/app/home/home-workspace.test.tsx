@@ -2946,7 +2946,70 @@ describe("HomeWorkspace", () => {
     expect(getApproval).toHaveBeenCalledOnce();
   });
 
-  it.each(["error", "mismatch"])("keeps healthy SSE open and grants bounded fallback after companion exhaustion (%s)", async (failure) => {
+  it("skips the companion snapshot while stream events keep arriving", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const acceptedMessage = {
+      id: "00000000-0000-4000-8000-000000000021",
+      sender: "user" as const,
+      content: "Stream without polling",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const getActivities = vi.fn(async () => ({
+      conversationId,
+      activities: [],
+      state: "running" as const,
+      lastContiguousSequence: 0,
+    }));
+    const sendMessage = vi.fn(async () => ({
+      conversationId,
+      message: acceptedMessage,
+      execution: null,
+      replayed: false,
+    }));
+    readActivityStreamMock.mockImplementation(() => ({ close: vi.fn() }));
+    renderHome([ally], ally.id, { getActivities, sendMessage });
+
+    await waitFor(() => expect(getActivities).toHaveBeenCalledOnce());
+    const input = await screen.findByRole("textbox");
+    await waitFor(() => expect((input as HTMLTextAreaElement).disabled).toBe(false));
+    fireEvent.change(input, { target: { value: acceptedMessage.content } });
+    await clickSendMessage();
+    await waitFor(() => expect(readActivityStreamMock).toHaveBeenCalledOnce());
+
+    let companionPoll: (() => void) | undefined;
+    const browserTimers: Window = window;
+    const originalSetInterval = browserTimers.setInterval.bind(browserTimers);
+    const setIntervalSpy = vi.spyOn(browserTimers, "setInterval").mockImplementation((handler, timeout) => {
+      if (timeout === 3_000 && typeof handler === "function") {
+        companionPoll = handler as () => void;
+        return originalSetInterval(() => undefined, 60_000);
+      }
+      return originalSetInterval(handler, timeout);
+    });
+    try {
+      const streamOptions = readActivityStreamMock.mock.calls[0][0] as ActivityStreamOptions;
+      await act(async () => {
+        streamOptions.onOpen?.();
+      });
+      await waitFor(() => expect(companionPoll).toEqual(expect.any(Function)));
+      const readsBefore = getActivities.mock.calls.length;
+      await act(async () => {
+        streamOptions.onEvent({ type: "error", conversationId, code: "keepalive" } as never);
+        companionPoll?.();
+        await Promise.resolve();
+      });
+      expect(getActivities.mock.calls.length).toBe(readsBefore);
+    } finally {
+      cleanup();
+      setIntervalSpy.mockRestore();
+    }
+  });
+
+  it.each(["error", "mismatch"])("keeps healthy SSE open and reconnects the stream after companion exhaustion (%s)", async (failure) => {
     vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");
     vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
     const conversationId = "00000000-0000-4000-8000-000000000005";
@@ -3025,10 +3088,11 @@ describe("HomeWorkspace", () => {
           streamOptions.onEvent({ type: "error", conversationId: "another-conversation", code: "mismatch" });
         }
       });
-      await waitFor(() => expect(getActivities.mock.calls.length).toBeGreaterThan(readsBeforeFallback));
+      // A dropped stream reconnects from its cursor instead of falling back to fast polling.
+      await waitFor(() => expect(readActivityStreamMock).toHaveBeenCalledTimes(2));
+      expect(getActivities.mock.calls.length).toBe(readsBeforeFallback);
       expect(screen.queryByText("Status checking is paused.")).toBeNull();
       expect(screen.queryByText("Live updates paused. Checking again…")).toBeNull();
-      expect(readActivityStreamMock).toHaveBeenCalledOnce();
     } finally {
       cleanup();
       setIntervalSpy.mockRestore();
