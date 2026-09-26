@@ -100,6 +100,9 @@
 }
 .statusContent { display: grid; justify-items: center; gap: 20px; }
 .statusContent p { margin: 0; }
+.statusPending p { animation: status-reveal 240ms ease 1200ms both; }
+@keyframes status-reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .statusPending p { animation: none; } }
 .statusContent button {
   border: 0;
   border-radius: 999px;
