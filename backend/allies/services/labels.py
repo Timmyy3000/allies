@@ -497,6 +497,7 @@ def update_ally_settings(
     label: str,
     show_label: bool,
     settings_revision: int,
+    appearance: tuple[str, str] | None = None,
 ) -> Ally:
     """Persist one Ally settings payload under an owner capability and fence."""
 
@@ -530,17 +531,30 @@ def update_ally_settings(
         if ally.settings_revision != settings_revision:
             raise LabelSettingsConflict("ally settings revision is stale")
         effective_show = bool(show_label and normalized_label)
-        if ally.label == normalized_label and ally.show_label == effective_show:
+        catalog_version, appearance_key = appearance or (
+            ally.appearance_catalog_version,
+            ally.appearance_key,
+        )
+        if (
+            ally.label == normalized_label
+            and ally.show_label == effective_show
+            and ally.appearance_catalog_version == catalog_version
+            and ally.appearance_key == appearance_key
+        ):
             return ally
         if ally.label != normalized_label:
             ally.label_generation_state = LabelGenerationState.COMPLETE
         ally.label = normalized_label
         ally.show_label = effective_show
+        ally.appearance_catalog_version = catalog_version
+        ally.appearance_key = appearance_key
         ally.settings_revision += 1
         ally.save(
             update_fields=(
                 "label",
                 "show_label",
+                "appearance_catalog_version",
+                "appearance_key",
                 "settings_revision",
                 "label_generation_state",
                 "updated_at",
