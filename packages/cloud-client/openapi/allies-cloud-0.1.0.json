@@ -289,6 +289,36 @@
         "title": "AllyDeletionResponse",
         "type": "object"
       },
+      "AllyGrantResponse": {
+        "properties": {
+          "ally_id": {
+            "format": "uuid",
+            "title": "Ally Id",
+            "type": "string"
+          },
+          "grant_generation": {
+            "title": "Grant Generation",
+            "type": "integer"
+          },
+          "level": {
+            "title": "Level",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ally_id",
+          "level",
+          "grant_generation",
+          "updated_at"
+        ],
+        "title": "AllyGrantResponse",
+        "type": "object"
+      },
       "AllyListResponse": {
         "properties": {
           "allies": {
@@ -303,6 +333,75 @@
           "allies"
         ],
         "title": "AllyListResponse",
+        "type": "object"
+      },
+      "AllyModelItem": {
+        "properties": {
+          "ally_id": {
+            "format": "uuid",
+            "title": "Ally Id",
+            "type": "string"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          },
+          "source": {
+            "enum": [
+              "own_key",
+              "org_default"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "pending",
+              "connected",
+              "degraded"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ally_id",
+          "source",
+          "provider",
+          "model",
+          "reasoning",
+          "status"
+        ],
+        "title": "AllyModelItem",
         "type": "object"
       },
       "AllyResponse": {
@@ -388,6 +487,16 @@
       "AllySettingsRequest": {
         "additionalProperties": false,
         "properties": {
+          "appearance": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AppearanceInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "label": {
             "maxLength": 80,
             "title": "Label",
@@ -1005,12 +1114,57 @@
         "title": "AvatarResponse",
         "type": "object"
       },
+      "BeginConnectRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ally_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ally Id"
+          },
+          "entry_point": {
+            "enum": [
+              "integrations",
+              "in_chat"
+            ],
+            "title": "Entry Point",
+            "type": "string"
+          },
+          "grant_level": {
+            "anyOf": [
+              {
+                "enum": [
+                  "read",
+                  "send"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grant Level"
+          }
+        },
+        "required": [
+          "entry_point"
+        ],
+        "title": "BeginConnectRequest",
+        "type": "object"
+      },
       "ClaimInviteRequest": {
         "additionalProperties": false,
         "properties": {
           "code": {
-            "maxLength": 128,
-            "minLength": 1,
+            "maxLength": 8,
+            "minLength": 8,
             "title": "Code",
             "type": "string"
           },
@@ -1038,6 +1192,47 @@
           }
         },
         "title": "ClaimInviteResponse",
+        "type": "object"
+      },
+      "ConnectKeyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "maxLength": 512,
+            "minLength": 16,
+            "title": "Key",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "ConnectKeyRequest",
+        "type": "object"
+      },
+      "ConnectResponse": {
+        "properties": {
+          "auth_url": {
+            "title": "Auth Url",
+            "type": "string"
+          },
+          "connect_session_id": {
+            "format": "uuid",
+            "title": "Connect Session Id",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "title": "Expires At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connect_session_id",
+          "auth_url",
+          "expires_at"
+        ],
+        "title": "ConnectResponse",
         "type": "object"
       },
       "ConversationResponse": {
@@ -1146,6 +1341,60 @@
           "reply"
         ],
         "title": "CreateAllyRequest",
+        "type": "object"
+      },
+      "CredentialResolveRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "reference": {
+            "maxLength": 128,
+            "title": "Reference",
+            "type": "string"
+          },
+          "version": {
+            "const": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "workspace_id": {
+            "maxLength": 64,
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "workspace_id",
+          "reference"
+        ],
+        "title": "CredentialResolveRequest",
+        "type": "object"
+      },
+      "DisconnectRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "title": "Confirm",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "confirm"
+        ],
+        "title": "DisconnectRequest",
+        "type": "object"
+      },
+      "DisconnectResponse": {
+        "properties": {
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "DisconnectResponse",
         "type": "object"
       },
       "DraftFileResponse": {
@@ -1411,6 +1660,47 @@
         "title": "FileRetryRequest",
         "type": "object"
       },
+      "GmailConnectionResponse": {
+        "properties": {
+          "account_email": {
+            "title": "Account Email",
+            "type": "string"
+          },
+          "ally_grants": {
+            "items": {
+              "$ref": "#/components/schemas/AllyGrantResponse"
+            },
+            "title": "Ally Grants",
+            "type": "array"
+          },
+          "connected_at": {
+            "format": "date-time",
+            "title": "Connected At",
+            "type": "string"
+          },
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "scope_set": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Scope Set",
+            "type": "array"
+          }
+        },
+        "required": [
+          "connection_id",
+          "account_email",
+          "scope_set",
+          "connected_at",
+          "ally_grants"
+        ],
+        "title": "GmailConnectionResponse",
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "state": {
@@ -1600,6 +1890,61 @@
           "created_at"
         ],
         "title": "MessageResponse",
+        "type": "object"
+      },
+      "ModelKeyItem": {
+        "properties": {
+          "connected_at": {
+            "title": "Connected At",
+            "type": "string"
+          },
+          "key_hint": {
+            "title": "Key Hint",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "key_hint",
+          "connected_at"
+        ],
+        "title": "ModelKeyItem",
+        "type": "object"
+      },
+      "ModelKeysResponse": {
+        "properties": {
+          "allies": {
+            "items": {
+              "$ref": "#/components/schemas/AllyModelItem"
+            },
+            "title": "Allies",
+            "type": "array"
+          },
+          "keys": {
+            "items": {
+              "$ref": "#/components/schemas/ModelKeyItem"
+            },
+            "title": "Keys",
+            "type": "array"
+          },
+          "providers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Providers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "providers",
+          "keys",
+          "allies"
+        ],
+        "title": "ModelKeysResponse",
         "type": "object"
       },
       "NativeAuthorizationStartResponse": {
@@ -3259,6 +3604,52 @@
         "title": "RuntimeIntentResponse",
         "type": "object"
       },
+      "SelectModelRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "model": {
+            "anyOf": [
+              {
+                "maxLength": 128,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "maxLength": 32,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "enum": [
+                  "high",
+                  "xhigh"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reasoning"
+          }
+        },
+        "title": "SelectModelRequest",
+        "type": "object"
+      },
       "SendFilesRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3334,6 +3725,31 @@
           "expires_at"
         ],
         "title": "SessionResponse",
+        "type": "object"
+      },
+      "SetGrantRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ally_id": {
+            "format": "uuid",
+            "title": "Ally Id",
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "read",
+              "send",
+              "none"
+            ],
+            "title": "Level",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ally_id",
+          "level"
+        ],
+        "title": "SetGrantRequest",
         "type": "object"
       },
       "SuccessResponse_ActivitySnapshotResponse_": {
@@ -3419,6 +3835,39 @@
           "data"
         ],
         "title": "SuccessResponse[AllyDeletionResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_AllyGrantResponse_": {
+        "example": {
+          "data": {
+            "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "grant_generation": 1,
+            "level": "send",
+            "updated_at": "2026-09-25T08:00:00Z"
+          },
+          "message": "Ally gmail grant saved",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/AllyGrantResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[AllyGrantResponse]",
         "type": "object"
       },
       "SuccessResponse_AllyListResponse_": {
@@ -3700,6 +4149,38 @@
         "title": "SuccessResponse[ClaimInviteResponse]",
         "type": "object"
       },
+      "SuccessResponse_ConnectResponse_": {
+        "example": {
+          "data": {
+            "auth_url": "https://accounts.google.com/o/oauth2/v2/auth?...",
+            "connect_session_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d79",
+            "expires_at": "2026-09-25T08:00:00Z"
+          },
+          "message": "Gmail connect started",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ConnectResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[ConnectResponse]",
+        "type": "object"
+      },
       "SuccessResponse_ConversationResponse_": {
         "example": {
           "data": {
@@ -3746,6 +4227,36 @@
           "data"
         ],
         "title": "SuccessResponse[ConversationResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_DisconnectResponse_": {
+        "example": {
+          "data": {
+            "status": "deprovisioned"
+          },
+          "message": "Gmail disconnect accepted",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/DisconnectResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[DisconnectResponse]",
         "type": "object"
       },
       "SuccessResponse_FileCancellationResponse_": {
@@ -3939,6 +4450,50 @@
         "title": "SuccessResponse[FileReservationResponse]",
         "type": "object"
       },
+      "SuccessResponse_GmailConnectionResponse_": {
+        "example": {
+          "data": {
+            "account_email": "user@gmail.com",
+            "ally_grants": [
+              {
+                "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+                "grant_generation": 1,
+                "level": "send",
+                "updated_at": "2026-09-25T08:00:00Z"
+              }
+            ],
+            "connected_at": "2026-09-25T08:00:00Z",
+            "connection_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d80",
+            "scope_set": [
+              "https://www.googleapis.com/auth/gmail.modify",
+              "https://www.googleapis.com/auth/gmail.send"
+            ]
+          },
+          "message": "Gmail connected",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/GmailConnectionResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[GmailConnectionResponse]",
+        "type": "object"
+      },
       "SuccessResponse_HealthResponse_": {
         "example": {
           "data": {
@@ -4096,6 +4651,56 @@
           "data"
         ],
         "title": "SuccessResponse[MessageResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_ModelKeysResponse_": {
+        "example": {
+          "data": {
+            "allies": [
+              {
+                "ally_id": "00000000-0000-4000-8000-000000000041",
+                "model": "gpt-5.2",
+                "provider": "opencode-zen",
+                "reasoning": "high",
+                "source": "own_key",
+                "status": "connected"
+              }
+            ],
+            "keys": [
+              {
+                "connected_at": "2026-09-25T12:00:00+00:00",
+                "key_hint": "WXYZ",
+                "provider": "opencode-zen"
+              }
+            ],
+            "providers": [
+              "opencode-go",
+              "opencode-zen"
+            ]
+          },
+          "message": "Model keys",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/ModelKeysResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[ModelKeysResponse]",
         "type": "object"
       },
       "SuccessResponse_NativeAuthorizationStartResponse_": {
@@ -4432,6 +5037,41 @@
           "data"
         ],
         "title": "SuccessResponse[RuntimeIntentResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_Union_GmailConnectionResponse__NoneType__": {
+        "example": {
+          "data": null,
+          "message": "Gmail connection status",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GmailConnectionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[Union[GmailConnectionResponse, NoneType]]",
         "type": "object"
       },
       "SuccessResponse_UploadFileResponse_": {
@@ -4837,7 +5477,7 @@
   "paths": {
     "/api/v1/allies/{ally_id}/runtime-intents": {
       "post": {
-        "operationId": "runtimeintent_request_c2a564a2",
+        "operationId": "runtimeintent_request_9baa1cc3",
         "parameters": [
           {
             "in": "path",
@@ -4993,7 +5633,7 @@
     },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_547cb048",
+        "operationId": "authentication_callback_174f4c48",
         "parameters": [
           {
             "in": "path",
@@ -5098,7 +5738,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_5fedb2f9",
+        "operationId": "authentication_csrf_4d774188",
         "parameters": [],
         "responses": {
           "204": {
@@ -5128,7 +5768,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_eeb22836",
+        "operationId": "identity_link_b7290a53",
         "parameters": [
           {
             "in": "path",
@@ -5306,7 +5946,7 @@
     "/api/v1/auths/invites/claim": {
       "post": {
         "description": "This browser-only operation requires a trusted Origin or Referer and matching CSRF cookie/header. Claiming an invite records only the normalized email grant; it does not create an account. Responses are never cacheable.",
-        "operationId": "invite_claim_78a1209c",
+        "operationId": "invite_claim_f3f4150f",
         "parameters": [
           {
             "description": "Required and must match a configured trusted frontend origin.",
@@ -5496,7 +6136,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_5e37d214",
+        "operationId": "session_logout_9b76c446",
         "parameters": [],
         "responses": {
           "204": {
@@ -5541,7 +6181,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_e1ed3cc9",
+        "operationId": "profile_me_bde26c80",
         "parameters": [],
         "responses": {
           "200": {
@@ -5598,7 +6238,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_e264872d",
+        "operationId": "avatar_delete_55233a13",
         "parameters": [],
         "responses": {
           "204": {
@@ -5708,7 +6348,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_3eea2f65",
+        "operationId": "avatar_complete_afdba29f",
         "parameters": [
           {
             "in": "path",
@@ -5866,7 +6506,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_5bf9d7a6",
+        "operationId": "avatar_read_b4931ab7",
         "parameters": [],
         "responses": {
           "200": {
@@ -5953,7 +6593,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_262ac3f3",
+        "operationId": "avatar_prepare_e4cadab7",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -6095,7 +6735,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_a28e183a",
+        "operationId": "profile_profile_4adde2af",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -6208,7 +6848,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_6978fe0a",
+        "operationId": "nativeauthentication_callback_8fae222f",
         "parameters": [
           {
             "in": "path",
@@ -6392,7 +7032,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_92c43e0d",
+        "operationId": "nativeauthentication_logout_4c6d8d76",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -6484,7 +7124,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_f79b2b5f",
+        "operationId": "nativeauthentication_sign_in_dc7c3ba3",
         "parameters": [
           {
             "in": "path",
@@ -6588,7 +7228,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_ca82c73d",
+        "operationId": "nativeauthentication_token_2f0ce369",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -6752,7 +7392,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_754bb5db",
+        "operationId": "nativeauthentication_refresh_50651451",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -6915,7 +7555,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_bae16916",
+        "operationId": "session_refresh_950f7dca",
         "parameters": [],
         "responses": {
           "204": {
@@ -7005,7 +7645,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_0e9d67c6",
+        "operationId": "authentication_sign_in_4c423a34",
         "parameters": [
           {
             "in": "path",
@@ -7152,7 +7792,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_2a9c2b84",
+        "operationId": "health_health_e8e3d73a",
         "parameters": [],
         "responses": {
           "200": {
@@ -7202,6 +7842,163 @@
         ]
       }
     },
+    "/api/v1/integrations/gmail/callback": {
+      "get": {
+        "operationId": "gmailcallback_callback_65f35f3b",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "code",
+            "required": true,
+            "schema": {
+              "maxLength": 2048,
+              "minLength": 1,
+              "title": "Code",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "title": "State",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_GmailConnectionResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Callback",
+        "tags": [
+          "Integrations"
+        ]
+      }
+    },
+    "/api/v1/internal/credentials/resolve": {
+      "post": {
+        "operationId": "model_keys_api_register_resolve_credential",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CredentialResolveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Resolve Credential"
+      }
+    },
     "/api/v1/internal/foundry/events": {
       "post": {
         "operationId": "activities_api_register_foundry_event",
@@ -7224,6 +8021,18 @@
           }
         },
         "summary": "Foundry Event"
+      }
+    },
+    "/api/v1/internal/foundry/integrations/tool": {
+      "post": {
+        "operationId": "integrations_api_register_integration_tool",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Integration Tool"
       }
     },
     "/api/v1/internal/foundry/profile-readiness-hints": {
@@ -7294,7 +8103,7 @@
     },
     "/api/v1/internal/v1/accepted-files/{file_id}/content": {
       "get": {
-        "operationId": "acceptedfile_content_babdf868",
+        "operationId": "acceptedfile_content_f2601ea8",
         "parameters": [
           {
             "in": "path",
@@ -7340,7 +8149,7 @@
     },
     "/api/v1/internal/v1/file-publication-retries/claim": {
       "post": {
-        "operationId": "filepublication_claim_292f689b",
+        "operationId": "filepublication_claim_35c68b88",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -7365,7 +8174,7 @@
     },
     "/api/v1/internal/v1/file-publication-retries/due-bindings": {
       "get": {
-        "operationId": "filepublication_due_bindings_212ff012",
+        "operationId": "filepublication_due_bindings_ec91905a",
         "parameters": [
           {
             "in": "query",
@@ -7408,7 +8217,7 @@
     },
     "/api/v1/internal/v1/file-publication-status": {
       "post": {
-        "operationId": "filepublication_status_e1971e29",
+        "operationId": "filepublication_status_16a53a8e",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -7433,7 +8242,7 @@
     },
     "/api/v1/internal/v1/file-publications": {
       "post": {
-        "operationId": "filepublication_reserve_bf923580",
+        "operationId": "filepublication_reserve_1e919697",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -7458,7 +8267,7 @@
     },
     "/api/v1/internal/v1/file-publications/{publication_id}": {
       "get": {
-        "operationId": "filepublication_detail_0737ed84",
+        "operationId": "filepublication_detail_e46253ef",
         "parameters": [
           {
             "in": "path",
@@ -7484,7 +8293,7 @@
     },
     "/api/v1/internal/v1/file-publications/{publication_id}/files/{file_id}/content": {
       "put": {
-        "operationId": "filepublication_upload_04c7cd17",
+        "operationId": "filepublication_upload_712b25cd",
         "parameters": [
           {
             "in": "path",
@@ -7573,7 +8382,7 @@
     },
     "/api/v1/internal/v1/file-publications/{publication_id}/retry-result": {
       "post": {
-        "operationId": "filepublication_retry_result_145be867",
+        "operationId": "filepublication_retry_result_5a2c7176",
         "parameters": [
           {
             "in": "path",
@@ -7610,7 +8419,7 @@
     "/api/v1/onboarding/attempts": {
       "post": {
         "description": "This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.",
-        "operationId": "onboarding_begin_54b24b83",
+        "operationId": "onboarding_begin_0245ccd3",
         "parameters": [
           {
             "description": "Browser-only signal; if present it must be a configured trusted origin.",
@@ -7787,7 +8596,7 @@
     "/api/v1/onboarding/runtime-intents": {
       "post": {
         "description": "This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.",
-        "operationId": "onboarding_runtime_intent_02d24397",
+        "operationId": "onboarding_runtime_intent_add0f95a",
         "parameters": [
           {
             "description": "Stable UUID for repeating one runtime intent.",
@@ -8071,7 +8880,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_e9eab464",
+        "operationId": "waitlist_create_cc0ec004",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -8252,7 +9061,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_f1fd7aef",
+        "operationId": "waitlist_complete_7d68a8c4",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -8422,7 +9231,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_b8490170",
+        "operationId": "workspace_context_be1dcb41",
         "parameters": [
           {
             "in": "path",
@@ -8505,7 +9314,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_9e7c852a",
+        "operationId": "ally_list_b5a6cb32",
         "parameters": [
           {
             "in": "path",
@@ -8582,7 +9391,7 @@
       },
       "post": {
         "description": "Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.",
-        "operationId": "ally_create_299f423d",
+        "operationId": "ally_create_14cbc96b",
         "parameters": [
           {
             "in": "path",
@@ -8818,7 +9627,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_9a02da13",
+        "operationId": "ally_retrieve_76ffc007",
         "parameters": [
           {
             "in": "path",
@@ -8906,7 +9715,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_b5e2bb63",
+        "operationId": "conversation_by_ally_36f5ca41",
         "parameters": [
           {
             "in": "path",
@@ -9037,7 +9846,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/deletion": {
       "get": {
-        "operationId": "ally_deletion_status_4f072319",
+        "operationId": "ally_deletion_status_70832a58",
         "parameters": [
           {
             "in": "path",
@@ -9123,7 +9932,7 @@
         ]
       },
       "post": {
-        "operationId": "ally_delete_4c4ea1d4",
+        "operationId": "ally_delete_2a51b4ce",
         "parameters": [
           {
             "in": "path",
@@ -9276,7 +10085,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}": {
       "get": {
-        "operationId": "privatefile_metadata_8a570617",
+        "operationId": "privatefile_metadata_67c28a4c",
         "parameters": [
           {
             "in": "path",
@@ -9322,7 +10131,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/content": {
       "put": {
-        "operationId": "fileadmission_upload_a5c67b95",
+        "operationId": "fileadmission_upload_5e2282db",
         "parameters": [
           {
             "in": "path",
@@ -9528,7 +10337,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/download": {
       "get": {
-        "operationId": "privatefile_download_b5c0041d",
+        "operationId": "privatefile_download_aafc8d0d",
         "parameters": [
           {
             "in": "path",
@@ -9574,7 +10383,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/preview": {
       "get": {
-        "operationId": "privatefile_preview_0e5519db",
+        "operationId": "privatefile_preview_8d895d82",
         "parameters": [
           {
             "in": "path",
@@ -9620,7 +10429,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/retry": {
       "post": {
-        "operationId": "fileadmission_retry_file_39547ac0",
+        "operationId": "fileadmission_retry_file_29e09a74",
         "parameters": [
           {
             "in": "path",
@@ -9773,7 +10582,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/messages/{message_id}/publications/{publication_id}": {
       "get": {
-        "operationId": "ownerpublication_detail_3a3ca51e",
+        "operationId": "ownerpublication_detail_2b3cc044",
         "parameters": [
           {
             "in": "path",
@@ -9829,7 +10638,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/messages/{message_id}/publications/{publication_id}/retry": {
       "post": {
-        "operationId": "ownerpublication_retry_9ea120f3",
+        "operationId": "ownerpublication_retry_82707e21",
         "parameters": [
           {
             "in": "path",
@@ -9893,9 +10702,122 @@
         ]
       }
     },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/model": {
+      "put": {
+        "operationId": "modelkeys_select_4a6bfa49",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectModelRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ModelKeysResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "summary": "Select",
+        "tags": [
+          "Model keys"
+        ]
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/settings": {
       "patch": {
-        "operationId": "ally_settings_022a3e9b",
+        "operationId": "ally_settings_1dda6aa8",
         "parameters": [
           {
             "in": "path",
@@ -10038,7 +10960,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_1a2050aa",
+        "operationId": "conversation_by_conversation_fd279712",
         "parameters": [
           {
             "in": "path",
@@ -10169,7 +11091,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_bd96d725",
+        "operationId": "activity_snapshot_b3c24b64",
         "parameters": [
           {
             "in": "path",
@@ -10341,7 +11263,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
       "get": {
-        "operationId": "activity_stream_2cdcd100",
+        "operationId": "activity_stream_857cbd56",
         "parameters": [
           {
             "in": "path",
@@ -10395,7 +11317,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals": {
       "get": {
         "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
-        "operationId": "activity_approvals_50035cf4",
+        "operationId": "activity_approvals_67b2804b",
         "parameters": [
           {
             "in": "path",
@@ -10534,7 +11456,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}": {
       "get": {
         "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
-        "operationId": "activity_approval_df27c5e6",
+        "operationId": "activity_approval_5075fd97",
         "parameters": [
           {
             "in": "path",
@@ -10671,7 +11593,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}/decision": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected. The idempotency key must be reused for an exact retry.",
-        "operationId": "activity_decide_249ec736",
+        "operationId": "activity_decide_0ce94e84",
         "parameters": [
           {
             "in": "path",
@@ -10882,7 +11804,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/file-messages": {
       "post": {
-        "operationId": "fileadmission_reserve_71d4a6cc",
+        "operationId": "fileadmission_reserve_f9991649",
         "parameters": [
           {
             "in": "path",
@@ -11052,7 +11974,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_send_c1ae80b2",
+        "operationId": "conversation_send_a5e2ad67",
         "parameters": [
           {
             "in": "path",
@@ -11269,7 +12191,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}": {
       "delete": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_delete_237da1a5",
+        "operationId": "conversation_delete_d65bd657",
         "parameters": [
           {
             "in": "path",
@@ -11432,7 +12354,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/cancel-files": {
       "post": {
-        "operationId": "fileadmission_cancel_files_fa13cd0f",
+        "operationId": "fileadmission_cancel_files_12495c34",
         "parameters": [
           {
             "in": "path",
@@ -11585,7 +12507,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/file-draft": {
       "delete": {
-        "operationId": "fileadmission_discard_draft_34ef4404",
+        "operationId": "fileadmission_discard_draft_9b873ef9",
         "parameters": [
           {
             "in": "path",
@@ -11696,7 +12618,7 @@
         ]
       },
       "get": {
-        "operationId": "fileadmission_get_draft_62665fd8",
+        "operationId": "fileadmission_get_draft_8a88e431",
         "parameters": [
           {
             "in": "path",
@@ -11809,7 +12731,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/files/{file_id}": {
       "delete": {
-        "operationId": "fileadmission_remove_file_0be711c0",
+        "operationId": "fileadmission_remove_file_5b73f17e",
         "parameters": [
           {
             "in": "path",
@@ -11973,7 +12895,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_retry_d5c27bb4",
+        "operationId": "conversation_retry_c774593e",
         "parameters": [
           {
             "in": "path",
@@ -12189,7 +13111,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/send-files": {
       "post": {
-        "operationId": "fileadmission_send_files_9d2bae21",
+        "operationId": "fileadmission_send_files_37a70c9e",
         "parameters": [
           {
             "in": "path",
@@ -12340,9 +13262,825 @@
         ]
       }
     },
+    "/api/v1/workspaces/{workspace_id}/integrations/gmail": {
+      "delete": {
+        "operationId": "gmail_disconnect_06190db3",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisconnectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_DisconnectResponse_"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Disconnect",
+        "tags": [
+          "Integrations"
+        ]
+      },
+      "get": {
+        "operationId": "gmail_status_87c285ca",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Union_GmailConnectionResponse__NoneType__"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "Integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/integrations/gmail/connect": {
+      "post": {
+        "operationId": "gmail_begin_2a08b8f0",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "minLength": 16,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BeginConnectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ConnectResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ConnectResponse_"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Begin",
+        "tags": [
+          "Integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/integrations/gmail/grants": {
+      "post": {
+        "operationId": "gmail_set_grant_48167cac",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetGrantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AllyGrantResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Set Grant",
+        "tags": [
+          "Integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/model-keys": {
+      "get": {
+        "operationId": "modelkeys_status_2f8ad443",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ModelKeysResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          }
+        },
+        "summary": "Status",
+        "tags": [
+          "Model keys"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/model-keys/{provider}": {
+      "delete": {
+        "operationId": "modelkeys_disconnect_c310c27e",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ModelKeysResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          }
+        },
+        "summary": "Disconnect",
+        "tags": [
+          "Model keys"
+        ]
+      },
+      "put": {
+        "operationId": "modelkeys_connect_e7562fc4",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectKeyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_ModelKeysResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Connect",
+        "tags": [
+          "Model keys"
+        ]
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/routines": {
       "get": {
-        "operationId": "routine_list_2042acf9",
+        "operationId": "routine_list_3c6721e8",
         "parameters": [
           {
             "in": "path",
@@ -12481,7 +14219,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/routines/{routine_id}": {
       "get": {
-        "operationId": "routine_detail_3fbcdc8e",
+        "operationId": "routine_detail_1f06a529",
         "parameters": [
           {
             "in": "path",
@@ -12569,7 +14307,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/routines/{routine_id}/approvals/{approval_id}/decision": {
       "post": {
-        "operationId": "routine_decide_approval_a61f44f2",
+        "operationId": "routine_decide_approval_20ff82a2",
         "parameters": [
           {
             "in": "path",
