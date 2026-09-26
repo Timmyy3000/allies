@@ -150,7 +150,7 @@ function AppStatus({
 }) {
   return (
     <main className={styles.statusPage}>
-      <div className={styles.statusContent}>
+      <div className={`${styles.statusContent} ${action ? "" : styles.statusPending}`}>
         <p role="status" aria-live="polite">
           {message}
         </p>
