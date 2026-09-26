@@ -1629,7 +1629,12 @@ async def test_reconcile_hermes_approval_requires_a_status_reader_and_bounded_de
 
 
 @pytest.mark.asyncio
-async def test_worker_forwards_a_long_stream_beyond_legacy_513_event_limit():
+async def test_worker_forwards_a_long_stream_beyond_legacy_513_event_limit(
+    monkeypatch,
+):
+    # Disable delta coalescing so every delta keeps its own event sequence.
+    monkeypatch.setattr(foundry_module, "DELTA_COALESCE_MAX_BYTES", 1)
+
     class LongHermes:
         async def stream_profile_incremental(
             self,
@@ -1683,6 +1688,63 @@ async def test_worker_forwards_a_long_stream_beyond_legacy_513_event_limit():
     assert len(event_calls) == 763
     assert transport.calls[-1][1].endswith("/complete")
     assert transport.calls[-1][3]["sequence"] == 764
+
+
+@pytest.mark.asyncio
+async def test_worker_coalesces_consecutive_text_deltas():
+    class ChattyHermes:
+        async def stream_profile_incremental(
+            self,
+            profile_id,
+            session_id,
+            _message,
+            *,
+            session_key,
+            provider=None,
+            model=None,
+            model_options=None,
+        ):
+            for sequence in range(200):
+                yield HermesEvent(
+                    name="message.delta",
+                    profile_id=profile_id,
+                    session_id=session_id,
+                    run_id="run-chatty",
+                    sequence=sequence + 1,
+                    payload={"text": f"{sequence},"},
+                )
+            yield HermesEvent(
+                name="execution.completed",
+                profile_id=profile_id,
+                session_id=session_id,
+                run_id="run-chatty",
+                sequence=201,
+                payload={"run_id": "run-chatty", "status": "completed"},
+            )
+
+    responses = [CLAIM]
+    responses.extend([{"status": 202, "body": {"event_id": "event", "sequence": 1}}] * 3)
+    responses.append(
+        {"attempt_id": "attempt-1", "status": "succeeded", "receipt_id": "receipt-1"}
+    )
+    foundry, transport = client(*responses)
+    worker = FoundryWorker(foundry, ChattyHermes(), renew_interval=0.1)
+
+    result = await worker.run(max_turns=1)
+
+    assert result[0].status == "succeeded"
+    delta_calls = [
+        call
+        for call in transport.calls
+        if "/events" in call[1] and call[3]["type"] == "message.delta"
+    ]
+    # The first delta goes out alone; the rest arrive within one window.
+    assert [call[3]["payload"]["text"] for call in delta_calls] == [
+        "0,",
+        "".join(f"{sequence}," for sequence in range(1, 200)),
+    ]
+    assert transport.calls[-1][1].endswith("/complete")
+    assert transport.calls[-1][3]["sequence"] == 4
 
 
 @pytest.mark.asyncio
