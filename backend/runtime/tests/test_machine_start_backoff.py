@@ -52,6 +52,18 @@ def test_start_retries_back_off_and_stop_at_deadline(start_context):
     assert provider.inspect_machine_by_id.call_count == 5
 
 
+def test_start_retries_not_ready_machine_in_short_steps(start_context):
+    lifecycle, provider, delays = start_context
+    provider.start_machine.side_effect = [ProviderRetryableError("not ready")] * 4 + [
+        None
+    ]
+
+    lifecycle._start_machine_if_needed("app", "machine", 20)
+
+    assert delays == [0.5, 1.0, 1.0, 2.0]
+    assert provider.start_machine.call_count == 5
+
+
 @pytest.mark.parametrize("header", ["6", "date"])
 def test_start_honors_retry_after(start_context, header):
     lifecycle, provider, delays = start_context
@@ -89,7 +101,7 @@ def test_invalid_retry_after_uses_backoff(start_context, header):
         None,
     ]
     lifecycle._start_machine_if_needed("app", "machine", 10)
-    assert delays == [1]
+    assert delays == [0.5]
 
 
 @pytest.mark.parametrize("state", [MachineState.STARTED, MachineState.UNKNOWN])
@@ -102,7 +114,7 @@ def test_retry_observes_start_in_progress_without_another_start(start_context, s
     provider.start_machine.side_effect = ProviderTimeoutError("uncertain start")
     lifecycle._start_machine_if_needed("app", "machine", 10)
     provider.start_machine.assert_called_once()
-    assert delays == [1]
+    assert delays == [0.5]
 
 
 def test_destroyed_machine_during_retry_is_not_started(start_context):
@@ -151,4 +163,4 @@ def test_jitter_adds_bounded_delay(start_context, monkeypatch):
     monkeypatch.setattr("runtime.services.workspaces.random.random", lambda: 0.5)
     provider.start_machine.side_effect = [ProviderRetryableError("retry"), None]
     lifecycle._start_machine_if_needed("app", "machine", 10)
-    assert delays == [1.125]
+    assert delays == [0.5625]

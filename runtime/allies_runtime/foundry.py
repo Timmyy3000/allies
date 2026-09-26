@@ -18,7 +18,8 @@ import time
 import urllib.error
 import urllib.request
 from collections.abc import AsyncIterator, Callable, Mapping
-from dataclasses import dataclass, field
+from contextlib import suppress
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, UUID, uuid4, uuid5
@@ -1735,6 +1736,147 @@ async def _close_stream(stream: Any) -> None:
             return
 
 
+DELTA_COALESCE_SECONDS = 0.15
+DELTA_COALESCE_MAX_BYTES = 4 * 1024
+_STREAM_TIMEOUT = object()
+_STREAM_END = object()
+
+
+class _CoalescedStream:
+    """Merge consecutive text deltas so each one does not cost a Foundry POST.
+
+    Deltas arriving within ``window`` seconds of the first buffered one are
+    joined into a single ``message.delta``; any other event, the byte cap, the
+    window or the end of the stream flushes the buffer first, so ordering is
+    unchanged. Closing cancels the in-flight read before closing the inner
+    stream, so the inner stream is never read and closed concurrently.
+    """
+
+    def __init__(
+        self,
+        inner: Any,
+        *,
+        window: float | None = None,
+        max_bytes: int | None = None,
+    ) -> None:
+        self._inner = inner
+        self._iterator = inner.__aiter__()
+        self._window = DELTA_COALESCE_SECONDS if window is None else window
+        self._max_bytes = DELTA_COALESCE_MAX_BYTES if max_bytes is None else max_bytes
+        self._pending: asyncio.Task[Any] | None = None
+        self._buffer: list[HermesEvent] = []
+        self._buffer_bytes = 0
+        self._deadline = 0.0
+        self._held: HermesEvent | None = None
+        self._error: BaseException | None = None
+        self._done = False
+        self._first_delta_sent = False
+
+    def __aiter__(self) -> _CoalescedStream:
+        return self
+
+    @staticmethod
+    def _delta_text(event: Any) -> str | None:
+        if (
+            isinstance(event, HermesEvent)
+            and event.name == "message.delta"
+            and set(event.payload) == {"text"}
+            and isinstance(event.payload["text"], str)
+        ):
+            return event.payload["text"]
+        return None
+
+    def _flush(self) -> HermesEvent:
+        first = self._buffer[0]
+        text = "".join(event.payload["text"] for event in self._buffer)
+        self._buffer = []
+        self._buffer_bytes = 0
+        if text == first.payload["text"]:
+            return first
+        return replace(first, payload={"text": text})
+
+    async def _next(self, timeout: float | None) -> Any:
+        if self._pending is None:
+            self._pending = asyncio.ensure_future(self._iterator.__anext__())
+        task = self._pending
+        done, _ = await asyncio.wait({task}, timeout=timeout)
+        if not done:
+            return _STREAM_TIMEOUT
+        if self._pending is task:
+            self._pending = None
+        if task.cancelled():
+            # aclose() cancelled the read from another task; treat it as the end.
+            return _STREAM_END
+        try:
+            return task.result()
+        except StopAsyncIteration:
+            return _STREAM_END
+
+    async def __anext__(self) -> Any:
+        if self._held is not None:
+            event, self._held = self._held, None
+            return event
+        while True:
+            if self._done:
+                if self._buffer:
+                    return self._flush()
+                if self._error is not None:
+                    error, self._error = self._error, None
+                    raise error
+                raise StopAsyncIteration
+            timeout = (
+                max(0.0, self._deadline - time.monotonic()) if self._buffer else None
+            )
+            try:
+                event = await self._next(timeout)
+            except Exception as error:  # noqa: BLE001 - re-raised after the flush
+                self._done = True
+                self._error = error
+                continue
+            if event is _STREAM_TIMEOUT:
+                return self._flush()
+            if event is _STREAM_END:
+                self._done = True
+                continue
+            text = self._delta_text(event)
+            if text is not None and not self._first_delta_sent:
+                # The first text goes out at once so time-to-first-token is unchanged.
+                self._first_delta_sent = True
+                return event
+            if text is not None:
+                size = len(text.encode("utf-8"))
+                first = self._buffer[0] if self._buffer else None
+                if first is None or (
+                    first.session_id == event.session_id
+                    and first.run_id == event.run_id
+                    and first.profile_id == event.profile_id
+                    and self._buffer_bytes + size <= self._max_bytes
+                ):
+                    if first is None:
+                        self._deadline = time.monotonic() + self._window
+                    self._buffer.append(event)
+                    self._buffer_bytes += size
+                    continue
+                flushed = self._flush()
+                self._buffer = [event]
+                self._buffer_bytes = size
+                self._deadline = time.monotonic() + self._window
+                return flushed
+            if self._buffer:
+                self._held = event
+                return self._flush()
+            return event
+
+    async def aclose(self) -> None:
+        self._done = True
+        pending, self._pending = self._pending, None
+        if pending is not None:
+            pending.cancel()
+            with suppress(BaseException):
+                await pending
+        await _close_stream(self._inner)
+
+
 def _validate_sequence(sequence: int, maximum: int, label: str) -> None:
     if (
         isinstance(sequence, bool)
@@ -2452,6 +2594,7 @@ class FoundryWorker:
                 routine_tool_token=claim.routine_tool_token,
                 model_options=claim.model_options,
             )
+            stream = _CoalescedStream(stream)
             stream_ref[0] = stream
             if renewal is None:
                 renewal = asyncio.create_task(self._renew_loop(claim, stream, lost))

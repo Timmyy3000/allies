@@ -55,6 +55,7 @@ from runtime.providers import (
     ProviderInvalidConfigurationError,
     ProviderNotFoundError,
     ProviderOwnershipError,
+    ProviderRateLimitError,
     ProviderRetryableError,
     ProviderTerminalError,
     ProviderTimeoutError,
@@ -81,7 +82,10 @@ PHASE_DEADLINE_SECONDS = 120
 MAX_ATTEMPTS = 5
 BACKOFF_SECONDS = (0.5, 1.0, 2.0, 4.0)
 STOP_POLL_SECONDS = 0.05
-START_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
+# A freshly created Machine usually rejects start for a few seconds; short
+# steps catch readiness sooner than doubling (the deadline still bounds it).
+START_BACKOFF_SECONDS = (0.5, 1.0, 1.0, 2.0)
+START_RATE_LIMIT_BACKOFF_SECONDS = (1.0, 2.0, 4.0, 8.0)
 HEALTH_POLL_SECONDS = 1.0
 REQUIRED_CONTAINERS = frozenset(("hermes", "allies-runtime"))
 
@@ -1182,9 +1186,12 @@ class WorkspaceLifecycle:
                 ):
                     self.provider.start_machine(app_name, machine_id)
             except ProviderRetryableError as exc:
-                delay = START_BACKOFF_SECONDS[
-                    min(attempt, len(START_BACKOFF_SECONDS) - 1)
-                ]
+                schedule = (
+                    START_RATE_LIMIT_BACKOFF_SECONDS
+                    if isinstance(exc, ProviderRateLimitError)
+                    else START_BACKOFF_SECONDS
+                )
+                delay = schedule[min(attempt, len(schedule) - 1)]
                 attempt += 1
                 if self.jitter:
                     delay += random.random() * delay * 0.25
