@@ -113,18 +113,11 @@ const statusText = {
   outcome_unknown: "Decision recorded; Ally outcome could not be confirmed",
 };
 
-function fallbackExplanation(pending: boolean) {
-  return pending ? {
-    action: "Your Ally is requesting permission to perform an action.",
-    target: "Review the technical details below for the exact request.",
-    consequence: "Approving lets the request proceed; rejecting stops it.",
-    reason: "Your Ally is waiting for your decision before continuing.",
-  } : {
-    action: "This action required your permission.",
-    target: "Review the technical details below for the exact request.",
-    consequence: "Check the status below for this request's outcome.",
-    reason: "This request is no longer awaiting your decision.",
-  } as const;
+export function approvalQuestion(allyName: string, action: string | undefined, pending: boolean) {
+  const summary = action?.trim().replace(/[.?!]+$/, "");
+  if (!summary) return pending ? `Allow ${allyName} to perform this action?` : "Approval details";
+  const clause = summary.charAt(0).toLowerCase() + summary.slice(1);
+  return pending ? `Allow ${allyName} to ${clause}?` : `${allyName} asked to ${clause}`;
 }
 
 const actionKindText = {
@@ -135,7 +128,7 @@ const actionKindText = {
 
 function ApprovalBadge() {
   return <svg viewBox="0 0 24 24" aria-hidden="true">
-    <path opacity=".4" d="M10.75 2.45c.69-.59 1.82-.59 2.52 0l1.58 1.36c.3.26.86.47 1.26.47h1.7c1.06 0 1.93.87 1.93 1.93v1.7c0 .39.21.96.47 1.26l1.36 1.58c.59.69.59 1.82 0 2.52l-1.36 1.58c-.26.3-.47.86-.47 1.26v1.7c0 1.06-.87 1.93-1.93 1.93h-1.7c-.39 0-.96.21-1.26.47l-1.58 1.36c-.69.59-1.82.59-2.52 0l-1.58-1.36c-.3-.26-.86-.47-1.26-.47H6.18c-1.06 0-1.93-.87-1.93-1.93V16.1c0-.39-.21-.95-.46-1.25l-1.35-1.59c-.58-.69-.58-1.81 0-2.5l1.35-1.59c.25-.3.46-.86.46-1.25V6.2c0-1.06.87-1.93 1.93-1.93h1.73c.3 0 .96-.21 1.26-.47l1.58-1.35Z" fill="#f5d308" />
+    <path d="M10.75 2.45c.69-.59 1.82-.59 2.52 0l1.58 1.36c.3.26.86.47 1.26.47h1.7c1.06 0 1.93.87 1.93 1.93v1.7c0 .39.21.96.47 1.26l1.36 1.58c.59.69.59 1.82 0 2.52l-1.36 1.58c-.26.3-.47.86-.47 1.26v1.7c0 1.06-.87 1.93-1.93 1.93h-1.7c-.39 0-.96.21-1.26.47l-1.58 1.36c-.69.59-1.82.59-2.52 0l-1.58-1.36c-.3-.26-.86-.47-1.26-.47H6.18c-1.06 0-1.93-.87-1.93-1.93V16.1c0-.39-.21-.95-.46-1.25l-1.35-1.59c-.58-.69-.58-1.81 0-2.5l1.35-1.59c.25-.3.46-.86.46-1.25V6.2c0-1.06.87-1.93 1.93-1.93h1.73c.3 0 .96-.21 1.26-.47l1.58-1.35Z" fill="#f5d308" />
     <path d="M10.79 15.171a.75.75 0 0 1-.53-.22l-2.42-2.42a.754.754 0 0 1 0-1.06c.29-.29.77-.29 1.06 0l1.89 1.89 4.3-4.3c.29-.29.77-.29 1.06 0 .29.29.29.77 0 1.06l-4.83 4.83a.75.75 0 0 1-.53.22Z" fill="#fff" />
   </svg>;
 }
@@ -406,16 +399,9 @@ function ApprovalDialog({ client, workspaceId, conversationId, approvalId, summa
       setBusy(false);
     }
   };
-  const explanation = data?.explanation ?? fallbackExplanation(status === "pending");
   return <BottomSheet modal onClose={onClose} labelledBy="approval-title" className={styles.approvalModal} style={{ "--chat-accent": accent } as CSSProperties} headerContent={<span className={styles.approvalBadge}><ApprovalBadge /></span>}>
-    <h2 id="approval-title" className={styles.frameSheetQuestion}>{status === "pending" ? `Allow ${allyName} to perform this action?` : "Approval details"}</h2>
+    <h2 id="approval-title" className={styles.frameSheetQuestion}>{approvalQuestion(allyName, data?.explanation?.action, status === "pending")}</h2>
     {!data ? <p role="status">{detail.isError ? "Could not load this approval." : "Loading approval…"}</p> : <>
-      <dl className={styles.approvalExplanation}>
-        <div><dt>Action</dt><dd>{explanation.action}</dd></div>
-        <div><dt>Target</dt><dd>{explanation.target}</dd></div>
-        <div><dt>Consequence</dt><dd>{explanation.consequence}</dd></div>
-        <div><dt>Reason</dt><dd>{explanation.reason}</dd></div>
-      </dl>
       <details className={styles.approvalDetails}>
         <summary>View technical details</summary>
         <div className={styles.approvalPreview}>
