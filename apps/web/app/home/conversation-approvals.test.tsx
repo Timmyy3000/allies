@@ -4,7 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ApprovalDetail } from "@allies/cloud-client";
-import { ConversationApprovalSlot, ConversationApprovals, approvalStatusAt, mergeApprovalSummaries, pruneDecisionIntents, type ApprovalClient } from "./conversation-approvals";
+import { ConversationApprovalSlot, ConversationApprovals, approvalQuestion, approvalStatusAt, mergeApprovalSummaries, pruneDecisionIntents, type ApprovalClient } from "./conversation-approvals";
 
 const approval: ApprovalDetail = {
   id: "e9cfec70-9140-4e08-8ba7-42c6edce5142",
@@ -33,6 +33,12 @@ function setup(overrides: Partial<ApprovalClient> = {}, canApprove = true, child
 }
 
 describe("conversation approvals", () => {
+  it("phrases the approval question from the explanation summary", () => {
+    expect(approvalQuestion("Shaka", "Run a command that will load a page and parse the output.", true)).toBe("Allow Shaka to run a command that will load a page and parse the output?");
+    expect(approvalQuestion("Shaka", "  ", true)).toBe("Allow Shaka to perform this action?");
+    expect(approvalQuestion("Shaka", "Use the GitHub credentials", false)).toBe("Shaka asked to use the GitHub credentials");
+  });
+
   it("does not let stale activity regress a hydrated terminal approval", () => {
     expect(mergeApprovalSummaries(
       [{ ...approval, status: "approved" }],
@@ -138,7 +144,7 @@ describe("conversation approvals", () => {
     const client = setup();
     fireEvent.click(await screen.findByRole("button", { name: "Approval needed" }));
     await screen.findByText(approval.actionPreview);
-    expect(screen.getByText("Your Ally is requesting permission to perform an action.")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Allow Shaka to perform this action?" })).toBeTruthy();
     const technical = screen.getByText("View technical details", { exact: true }).closest("details");
     expect(technical?.open).toBe(false);
     fireEvent.click(screen.getByText("View technical details", { exact: true }));
