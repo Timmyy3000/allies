@@ -2733,6 +2733,19 @@ function ConversationPane({
   }, [timelineSignature]);
 
   useEffect(() => {
+    const canvas = messageCanvasRef.current;
+    const content = canvas?.firstElementChild;
+    if (!canvas || !content || typeof ResizeObserver === "undefined") return;
+    // Late layout (activity groups, markdown, media, fonts) must not push a pinned conversation around.
+    const observer = new ResizeObserver(() => {
+      const restorePending = ENABLE_SCROLL_RESTORE && scrollAnchorKey && restoredScrollRef.current !== scrollAnchorKey;
+      if (followLatestRef.current && !restorePending) canvas.scrollTop = canvas.scrollHeight;
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [ENABLE_SCROLL_RESTORE, conversationId, scrollAnchorKey]);
+
+  useEffect(() => {
     if (!ENABLE_SCROLL_RESTORE || !scrollAnchorKey || !conversationQuery.isSuccess) return;
     if (restoredScrollRef.current === scrollAnchorKey) return;
     const frame = window.requestAnimationFrame(() => {
