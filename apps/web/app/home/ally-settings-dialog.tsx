@@ -1,15 +1,19 @@
 "use client";
 
-import type { AllyDeletionViewModel, AllyViewModel } from "@allies/cloud-client";
+import type { AllyDeletionViewModel, AllySettingsInput, AllyViewModel, RoutineDiscoveryPage } from "@allies/cloud-client";
 import { isCloudError } from "@allies/cloud-client";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
+import { AllyAvatar, ALLY_SHAPES, type AllyShape } from "../../components/ally-avatar";
+import { allyAppearanceKey, resolveAllyAppearance, type ResolvedAllyAppearance } from "../../lib/allies/appearance";
 import { useSession } from "../../lib/session/session-context";
 import { alliesQueryKey } from "../../lib/allies/query-keys";
+import { WAITLIST_APPEARANCE_CATALOG_VERSION, WAITLIST_COLORS } from "../../lib/waitlist/catalog";
 
-import { BottomSheet } from "./conversation-frame-primitives";
+import { formatRoutineSchedule } from "./conversation-frame";
+import { BottomSheet, RoutineCard } from "./conversation-frame-primitives";
 import frameStyles from "./conversation-frame.module.css";
 import styles from "./ally-settings-dialog.module.css";
 
@@ -18,12 +22,16 @@ type SettingsDraft = {
   showLabel: boolean;
 };
 
+type ProfilePanel = "profile" | "label" | "look";
 type DeletionState = "active" | "pending" | "repair_required";
 type DeletionView = "settings" | "confirming" | "submitting" | "pending" | "repair_required";
 
 export const ALLY_DELETION_INITIAL_POLL_MS = 2_000;
 export const ALLY_DELETION_MAX_POLL_MS = 30_000;
 export const ALLY_DELETION_MAX_POLL_DURATION_MS = 10 * 60 * 1_000;
+const PROFILE_ROUTINE_PREVIEW = 3;
+const DEFAULT_LOOK: ResolvedAllyAppearance = { shape: "ghosty", color: WAITLIST_COLORS[0] };
+const SHAPE_NAMES: Record<AllyShape, string> = { boxy: "Boxy", ghosty: "Ghosty", rocky: "Rocky", rolly: "Rolly" };
 
 function normalizeLabel(value: string): string {
   return value.trim().replace(/\s+/gu, " ");
@@ -49,13 +57,13 @@ function labelError(label: string): string | null {
   return [2, 3].includes(normalized.split(" ").length) ? null : "Use two or three words.";
 }
 
-function saveError(error: unknown): string {
+function saveError(error: unknown, subject: "label" | "look"): string {
   if (isCloudError(error)) {
     if (error.kind === "conflict" || error.status === 409) {
       return "This Ally changed elsewhere. We refreshed its settings. Review your draft and save again.";
     }
     if (error.kind === "validation" || error.status === 422 || error.kind === "bad-request") {
-      return "Check the label and try again.";
+      return `Check the ${subject} and try again.`;
     }
     if (error.kind === "unauthorized" || error.status === 401) {
       return "Your session has ended. Sign in again to continue.";
@@ -124,6 +132,7 @@ export function AllySettingsDialog({
   onSaved,
   onDeletionStatus,
   onRefreshDeletion,
+  onOpenRoutine,
 }: {
   ally: AllyViewModel;
   workspaceId: string;
@@ -131,12 +140,20 @@ export function AllySettingsDialog({
   onSaved: (ally: AllyViewModel) => void;
   onDeletionStatus: (status: AllyDeletionViewModel) => void;
   onRefreshDeletion: () => Promise<AllyDeletionViewModel>;
+  onOpenRoutine: (routineId: string) => void;
 }) {
   const reducedMotion = useReducedMotion();
   const session = useSession();
   const queryClient = useQueryClient();
   const initial = settingsFor(ally);
   const [draft, setDraft] = useState<SettingsDraft>(initial);
+  const [panel, setPanel] = useState<ProfilePanel>("profile");
+  const currentAppearance = resolveAllyAppearance(ally);
+  const [lookDraft, setLook] = useState<ResolvedAllyAppearance | null>(null);
+  const look = lookDraft ?? currentAppearance ?? DEFAULT_LOOK;
+  const lookChanged = lookDraft !== null
+    && (currentAppearance === null || allyAppearanceKey(lookDraft) !== allyAppearanceKey(currentAppearance));
+  const [routinesExpanded, setRoutinesExpanded] = useState(false);
   const dirtyRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -194,9 +211,40 @@ export function AllySettingsDialog({
     setStatus(null);
   };
 
+  const routinesQuery = useQuery({
+    queryKey: [...alliesQueryKey(workspaceId), ally.id, "profile-routines"],
+    queryFn: ({ signal }) => session.runCloudOperation(
+      (operationSignal) => session.client.listRoutines(workspaceId, { allyId: ally.id, signal: operationSignal }),
+      { signal },
+    ),
+    retry: false,
+  });
+
+  const openPanel = (next: ProfilePanel) => {
+    setError(null);
+    setStatus(null);
+    if (next === "look") setLook(null);
+    if (panel === "label" && next !== "label") {
+      dirtyRef.current = false;
+      setDraft(remoteDraftRef.current);
+    }
+    setPanel(next);
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (savingRef.current) return;
+    if (panel === "look") {
+      if (!lookChanged) return;
+      const remote = remoteDraftRef.current;
+      await persist({
+        label: remote.label,
+        showLabel: remote.showLabel,
+        appearance: { catalogVersion: WAITLIST_APPEARANCE_CATALOG_VERSION, key: allyAppearanceKey(look) },
+      }, "look");
+      return;
+    }
+    if (panel !== "label") return;
     const label = normalizeLabel(draft.label);
     const validationError = labelError(draft.label);
     if (validationError) {
@@ -208,7 +256,10 @@ export function AllySettingsDialog({
       setError("Add a label before showing it.");
       return;
     }
+    await persist({ label, showLabel: Boolean(draft.showLabel && label) }, "label");
+  };
 
+  const persist = async (input: Omit<AllySettingsInput, "settingsRevision">, subject: "label" | "look") => {
     savingRef.current = true;
     setSaving(true);
     setError(null);
@@ -220,8 +271,7 @@ export function AllySettingsDialog({
       await queryClient.cancelQueries({ queryKey: allyQueryKey, exact: true });
       const updated = await session.runCloudOperation(
         (signal) => session.client.updateAllySettings(workspaceId, ally.id, {
-          label,
-          showLabel: Boolean(draft.showLabel && label),
+          ...input,
           settingsRevision: remoteRevisionRef.current,
         }, signal),
         { csrf: true, retryTransient: false, signal: controller.signal },
@@ -235,6 +285,7 @@ export function AllySettingsDialog({
       setDraft(next);
       setStatus("Settings saved.");
       onSaved(updated);
+      if (mountedRef.current) setPanel("profile");
     } catch (caught) {
       const conflict = isCloudError(caught) && (caught.kind === "conflict" || caught.status === 409);
       let conflictRefreshed = false;
@@ -260,7 +311,7 @@ export function AllySettingsDialog({
       setStatus(null);
       setError(conflict && !conflictRefreshed
         ? "This Ally changed elsewhere. We couldn't refresh its current settings. Your draft is still here; try again when you're ready."
-        : saveError(caught));
+        : saveError(caught, subject));
     } finally {
       if (saveControllerRef.current === controller) saveControllerRef.current = null;
       savingRef.current = false;
@@ -375,7 +426,7 @@ export function AllySettingsDialog({
   return (
     <BottomSheet
       modal
-      title={`${ally.name} settings`}
+      title={panel === "label" ? "Edit label" : panel === "look" ? "Change look" : `${ally.name} settings`}
       onClose={onClose}
       labelledBy="ally-settings-title"
       className={styles.settingsOverlay}
@@ -383,7 +434,61 @@ export function AllySettingsDialog({
     >
       <form className={styles.settingsContent} onSubmit={currentDeletionView === "confirming" ? handleDelete : handleSubmit} noValidate>
         <motion.div key={currentDeletionView} className={styles.settingsView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .16 }}>
-        {currentDeletionView === "settings" ? (
+        {currentDeletionView === "settings" && panel === "profile" ? (
+          <>
+            <div className={styles.profileIdentity}>
+              <button type="button" className={styles.profileAvatar} aria-label="Change look" onClick={() => openPanel("look")} disabled={saving}>
+                {currentAppearance ? (
+                  <AllyAvatar shape={currentAppearance.shape} color={currentAppearance.color} size={96} label="" />
+                ) : <span className={styles.profileAvatarFallback} aria-hidden="true">?</span>}
+                <span className={styles.profileAvatarBadge} aria-hidden="true"><PaletteIcon /></span>
+              </button>
+              <h3>{ally.name}</h3>
+              <button type="button" className={styles.profileLabelPill} aria-label="Edit label" onClick={() => openPanel("label")} disabled={saving}>
+                <span>{initial.label || "Add a label"}</span>
+                <PencilIcon />
+              </button>
+            </div>
+            <section className={styles.profileSection} aria-labelledby="ally-about-title">
+              <h4 id="ally-about-title">About</h4>
+              <div className={styles.profileList}>
+                <details className={styles.profileDisclosure}>
+                  <summary>Job</summary>
+                  <p>{ally.job}</p>
+                </details>
+                <details className={styles.profileDisclosure}>
+                  <summary>Personality</summary>
+                  <p>{ally.personality}</p>
+                </details>
+              </div>
+            </section>
+            <ProfileRoutines
+              query={routinesQuery}
+              expanded={routinesExpanded}
+              onExpand={() => setRoutinesExpanded(true)}
+              onOpenRoutine={onOpenRoutine}
+            />
+            <div className={styles.profileList}>
+              <button
+                ref={deleteTriggerRef}
+                type="button"
+                className={styles.profileDeleteRow}
+                onClick={() => {
+                  setDeletionView("confirming");
+                  setDeletionStatusCheckAvailable(false);
+                  setDeletionErrorMessage(null);
+                }}
+                disabled={saving}
+              >
+                Delete Ally
+              </button>
+            </div>
+            <div className={styles.settingsMessages} aria-live="polite">
+              {error ? <p id="ally-settings-error" role="alert">{error}</p> : null}
+              {status ? <p role="status">{status}</p> : null}
+            </div>
+          </>
+        ) : currentDeletionView === "settings" && panel === "label" ? (
           <>
             <div className={styles.settingsField}>
               <label htmlFor="ally-label">Label</label>
@@ -396,10 +501,9 @@ export function AllySettingsDialog({
                 maxLength={80}
                 autoComplete="off"
                 aria-invalid={Boolean(error && !status)}
-                aria-describedby={error ? "ally-label-help ally-settings-error" : "ally-label-help"}
+                aria-describedby={error ? "ally-settings-error" : undefined}
                 onChange={(event) => updateDraft({ ...draft, label: event.target.value })}
               />
-              <span id="ally-label-help" className={styles.settingsHelp}>Use two or three words, up to 80 characters.</span>
             </div>
             <label className={styles.settingsToggle}>
               <input
@@ -407,38 +511,57 @@ export function AllySettingsDialog({
                 checked={draft.showLabel}
                 disabled={saving || !normalizeLabel(draft.label)}
                 onChange={(event) => updateDraft({ ...draft, showLabel: event.target.checked })}
-                aria-describedby="ally-show-label-help"
               />
-              <span>
-                <strong>Show label</strong>
-                <small id="ally-show-label-help">Display this label beneath the Ally&apos;s name in your roster.</small>
-              </span>
+              <span><strong>Show label</strong></span>
             </label>
-            <section className={styles.deleteSection} aria-labelledby="ally-delete-title">
-              <h3 id="ally-delete-title">Delete Ally</h3>
-              <p>Permanently remove this Ally and its conversations, files, and memory.</p>
-              <button
-                ref={deleteTriggerRef}
-                type="button"
-                className={styles.deleteButton}
-                onClick={() => {
-                  setDeletionView("confirming");
-                  setDeletionStatusCheckAvailable(false);
-                  setDeletionErrorMessage(null);
-                }}
-                disabled={saving}
-              >
-                Delete Ally
-              </button>
-            </section>
             <div className={styles.settingsMessages} aria-live="polite">
               {error ? <p id="ally-settings-error" role="alert">{error}</p> : null}
               {status ? <p role="status">{status}</p> : null}
             </div>
             <div className={frameStyles.frameSheetActions}>
-              <button type="button" className={frameStyles.frameNeutralAction} onClick={onClose} disabled={saving}>Cancel</button>
-              <button type="submit" className={frameStyles.frameAccentAction} disabled={saving}>
-                <motion.span key={saving ? "saving" : status ? "saved" : "save"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: reducedMotion ? 0 : .12 }}>{saving ? "Saving…" : status ? "Saved ✓" : "Save"}</motion.span>
+              <button type="button" className={frameStyles.frameNeutralAction} onClick={() => openPanel("profile")} disabled={saving}>Cancel</button>
+              <button type="submit" className={frameStyles.frameAccentAction} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+            </div>
+          </>
+        ) : currentDeletionView === "settings" ? (
+          <>
+            <div className={styles.lookPreview}>
+              <AllyAvatar shape={look.shape} color={look.color} size={120} label="" />
+            </div>
+            <fieldset className={styles.lookGroup} disabled={saving}>
+              <legend>Shape</legend>
+              <div className={styles.lookShapes}>
+                {ALLY_SHAPES.map((shape) => (
+                  <label key={shape} className={styles.lookShape}>
+                    <input type="radio" name="ally-shape" value={shape} checked={look.shape === shape} onChange={() => setLook({ ...look, shape })} />
+                    <AllyAvatar shape={shape} color={look.color} size={52} label="" motion="reduced" />
+                    <span>{SHAPE_NAMES[shape]}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <fieldset className={styles.lookGroup} disabled={saving}>
+              <legend>Colour</legend>
+              <div className={styles.lookColours}>
+                {WAITLIST_COLORS.map((color) => (
+                  <label key={color} className={styles.lookColour} style={{ background: color }}>
+                    <input type="radio" name="ally-colour" value={color} aria-label={color} checked={look.color === color} onChange={() => setLook({ ...look, color })} />
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+            <div className={styles.settingsMessages} aria-live="polite">
+              {error ? <p id="ally-settings-error" role="alert">{error}</p> : null}
+              {status ? <p role="status">{status}</p> : null}
+            </div>
+            <div className={frameStyles.frameSheetActions}>
+              <button type="button" className={frameStyles.frameNeutralAction} onClick={() => openPanel("profile")} disabled={saving}>Cancel</button>
+              <button
+                type="submit"
+                className={frameStyles.frameAccentAction}
+                disabled={saving || !lookChanged}
+              >
+                {saving ? "Saving…" : "Save"}
               </button>
             </div>
           </>
@@ -497,4 +620,65 @@ export function AllySettingsDialog({
       </form>
     </BottomSheet>
   );
+}
+
+function ProfileRoutines({
+  query,
+  expanded,
+  onExpand,
+  onOpenRoutine,
+}: {
+  query: UseQueryResult<RoutineDiscoveryPage>;
+  expanded: boolean;
+  onExpand: () => void;
+  onOpenRoutine: (routineId: string) => void;
+}) {
+  if (query.isPending) {
+    return (
+      <section className={styles.profileSection} aria-labelledby="ally-routines-title" aria-busy="true">
+        <h4 id="ally-routines-title">Routines</h4>
+        <div className={styles.routineSkeleton} />
+      </section>
+    );
+  }
+  if (query.isError) {
+    return (
+      <section className={styles.profileSection} aria-labelledby="ally-routines-title">
+        <h4 id="ally-routines-title">Routines</h4>
+        <p className={styles.profileInlineError}>
+          We couldn&apos;t load routines.{" "}
+          <button type="button" onClick={() => void query.refetch()}>Try again</button>
+        </p>
+      </section>
+    );
+  }
+  const routines = query.data.items;
+  if (routines.length === 0) return null;
+  const visible = expanded ? routines : routines.slice(0, PROFILE_ROUTINE_PREVIEW);
+  return (
+    <section className={styles.profileSection} aria-labelledby="ally-routines-title">
+      <h4 id="ally-routines-title">Routines</h4>
+      <div className={styles.profileRoutines}>
+        {visible.map((routine) => (
+          <RoutineCard
+            key={routine.routineId}
+            name={routine.title}
+            schedule={routine.scheduleState === "paused" ? "Paused" : formatRoutineSchedule(routine.schedule, false)}
+            onOpen={() => onOpenRoutine(routine.routineId)}
+          />
+        ))}
+      </div>
+      {!expanded && routines.length > PROFILE_ROUTINE_PREVIEW ? (
+        <button type="button" className={styles.profileViewAll} onClick={onExpand}>View all {routines.length} routines</button>
+      ) : null}
+    </section>
+  );
+}
+
+function PaletteIcon() {
+  return <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"><path d="M8 2a6 6 0 1 0 0 12c.8 0 1.2-.6 1.2-1.2 0-.8-.6-1-.6-1.8 0-.7.5-1.2 1.2-1.2H11a3 3 0 0 0 3-3C14 4.3 11.3 2 8 2Z" /><circle cx="5" cy="7" r=".6" fill="currentColor" /><circle cx="7.5" cy="4.8" r=".6" fill="currentColor" /><circle cx="10.5" cy="5.6" r=".6" fill="currentColor" /></svg>;
+}
+
+function PencilIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3Z" /></svg>;
 }

@@ -57,6 +57,24 @@ describe("ally label settings", () => {
     expect(fetch).toHaveBeenCalledTimes(1);
   });
 
+  it("sends an optional appearance change with the settings PATCH", async () => {
+    const fetch = vi.fn(async (request: Request) => {
+      expect(await request.json()).toEqual({
+        label: "chief of staff", show_label: true, settings_revision: 2,
+        appearance: { catalog_version: "v1", key: "circle:0D92FD" },
+      });
+      return Response.json({ status: "success", message: "Saved", data: {
+        ...ally, appearance: { catalog_version: "v1", key: "circle:0D92FD" },
+        label: "chief of staff", show_label: true, settings_revision: 3,
+      } });
+    });
+    const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch: fetch as typeof globalThis.fetch });
+    await expect(client.updateAllySettings(workspaceId, allyId, {
+      ...settings, appearance: { catalogVersion: "v1", key: "circle:0D92FD" },
+    })).resolves.toMatchObject({ settingsRevision: 3 });
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     { ...settings, label: "" },
     { ...settings, label: "manager" },

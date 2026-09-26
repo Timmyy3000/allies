@@ -34,7 +34,8 @@ import Onboarding from "../(onboarding)/_components";
 import OnboardingDrawer from "../(onboarding)/_components/onboarding-drawer";
 import { hasOnboardingResumePending } from "../(onboarding)/_store/onboarding-resume";
 import { OnboardingStateProvider } from "../(onboarding)/_store/onboarding-store";
-import { AllyAvatar, ALLY_SHAPES, type AllyShape } from "../../components/ally-avatar";
+import { AllyAvatar, type AllyShape } from "../../components/ally-avatar";
+import { resolveAllyAppearance } from "../../lib/allies/appearance";
 import { currentAccountQueryOptions } from "../../lib/account/account-query";
 import { AuthenticatedAllyFlowProvider } from "../../lib/allies/authenticated-onboarding-flow";
 import { alliesQueryOptions, conversationQueryKey } from "../../lib/allies/queries";
@@ -59,10 +60,6 @@ import {
 } from "../../lib/env";
 import { useSession } from "../../lib/session/session-context";
 import { InstallInvitation } from "../../lib/pwa/pwa-install";
-import {
-  WAITLIST_APPEARANCE_CATALOG_VERSION,
-  WAITLIST_COLORS,
-} from "../../lib/waitlist/catalog";
 
 import {
   buildRoutineActionIdempotencyKey,
@@ -430,6 +427,7 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   const isDesktopDashboard = !isMobileHome;
   const [createOverlayOpen, setCreateOverlayOpen] = useState(false);
   const [settingsAllyId, setSettingsAllyId] = useState<string | null>(null);
+  const [routineOpenRequest, setRoutineOpenRequest] = useState<RoutineOpenRequest | null>(null);
   const [dismissedCreateRoute, setDismissedCreateRoute] = useState(false);
   const [acceptedHandoff, setAcceptedHandoff] = useState<AcceptedOnboardingHandoff | null>(null);
   const [handoffReleased, setHandoffReleased] = useState(false);
@@ -788,6 +786,8 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
       ally={conversationAlly}
       isAllySuppressed={isAllySuppressed}
       onOpenSettings={() => openAllySettings(conversationAlly.id)}
+      routineOpenRequest={routineOpenRequest?.allyId === conversationAlly.id ? routineOpenRequest : null}
+      onRoutineOpenRequestHandled={() => setRoutineOpenRequest(null)}
       onActivity={() => recordAllyActivity(conversationAlly.id)}
       stateReady={sleepClock !== null && Boolean(allyPreviews.get(conversationAlly.id)) && !allyPreviews.get(conversationAlly.id)?.isPending}
       sleeping={isAllySleeping(conversationAlly, allyPreviews.get(conversationAlly.id)?.latestMessage ?? null, sleepClock, recentActivityByAlly[conversationAlly.id])}
@@ -964,6 +964,11 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
           onSaved={replaceAlly}
           onDeletionStatus={applyAllyDeletionStatus}
           onRefreshDeletion={() => refreshAllyDeletion(settingsAlly.id)}
+          onOpenRoutine={(routineId) => {
+            setSettingsAllyId(null);
+            setRoutineOpenRequest({ allyId: settingsAlly.id, routineId });
+            if (selectedAllyId !== settingsAlly.id) router.push(`/home/${encodeURIComponent(settingsAlly.id)}`);
+          }}
         />
       ) : null}
       {createOverlay}
@@ -972,17 +977,9 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   );
 }
 
-type ResolvedAllyAppearance = { shape: AllyShape; color: string };
+export { resolveAllyAppearance };
 
-export function resolveAllyAppearance(ally: AllyViewModel): ResolvedAllyAppearance | null {
-  if (ally.appearance.catalogVersion !== WAITLIST_APPEARANCE_CATALOG_VERSION) return null;
-  const [rawShape, rawColor, ...extra] = ally.appearance.key.split(":");
-  if (extra.length > 0 || !ALLY_SHAPES.includes(rawShape as AllyShape)) return null;
-  const color = WAITLIST_COLORS.find(
-    (candidate) => candidate.slice(1) === rawColor?.toLowerCase(),
-  );
-  return color ? { shape: rawShape as AllyShape, color } : null;
-}
+type RoutineOpenRequest = { allyId: string; routineId: string };
 
 function AllyIdentityAvatar({
   ally,
@@ -1132,6 +1129,8 @@ function ConversationPane({
   ally,
   isAllySuppressed,
   onOpenSettings,
+  routineOpenRequest,
+  onRoutineOpenRequestHandled,
   onActivity,
   workspaceRefreshError,
   onRetryWorkspace,
@@ -1148,6 +1147,8 @@ function ConversationPane({
   ally: AllyViewModel;
   isAllySuppressed: (allyId: string) => boolean;
   onOpenSettings?: () => void;
+  routineOpenRequest: RoutineOpenRequest | null;
+  onRoutineOpenRequestHandled: () => void;
   onActivity: () => void;
   sleeping: boolean;
   stateReady: boolean;
@@ -1198,6 +1199,11 @@ function ConversationPane({
   const [immediateMessageIds, setImmediateMessageIds] = useState<ReadonlySet<string>>(() => new Set());
   const [draft, setDraft] = useState("");
   const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
+  const [seenRoutineOpenRequest, setSeenRoutineOpenRequest] = useState<RoutineOpenRequest | null>(null);
+  if (routineOpenRequest !== seenRoutineOpenRequest) {
+    setSeenRoutineOpenRequest(routineOpenRequest);
+    if (routineOpenRequest) setSelectedRoutineId(routineOpenRequest.routineId);
+  }
   const [routineActionState, setRoutineActionState] = useState<ProductionRoutineActionState | null>(null);
   const routineActionEvidenceRef = useRef<string | null>(null);
   const draftRef = useRef("");
@@ -3005,7 +3011,10 @@ function ConversationPane({
         setSelectedRoutineId(routineId);
       }
     },
-    onCloseRoutine: () => setSelectedRoutineId(null),
+    onCloseRoutine: () => {
+      setSelectedRoutineId(null);
+      onRoutineOpenRequestHandled();
+    },
     onRetryRoutineDetail: () => void routineDetailQuery.refetch(),
     onRoutineAction: sendRoutineAction,
     onScroll: (event) => {

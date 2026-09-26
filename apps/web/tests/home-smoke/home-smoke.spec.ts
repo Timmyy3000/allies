@@ -780,8 +780,9 @@ test("edits an Ally label, opts into roster display, and persists hiding it", as
   await page.getByRole("link", { name: /Ada/ }).click();
   const settingsButton = page.getByRole("button", { name: "Ada settings", exact: true });
   await settingsButton.click();
-  const dialog = page.getByRole("dialog", { name: "Ada settings" });
-  await expect(dialog).toBeVisible();
+  const dialog = page.getByRole("dialog");
+  await expect(page.getByRole("dialog", { name: "Ada settings" })).toBeVisible();
+  await dialog.getByRole("button", { name: "Edit label" }).click();
   await expect(dialog.getByLabel("Label", { exact: true })).toHaveValue("chief of staff");
   await expect(dialog.getByRole("checkbox", { name: /Show label/ })).not.toBeChecked();
   await dialog.getByRole("button", { name: "Close", exact: true }).focus();
@@ -801,6 +802,7 @@ test("edits an Ally label, opts into roster display, and persists hiding it", as
   await expect(page.getByRole("link", { name: /Ada/ }).getByText("calendar manager", { exact: true })).toBeVisible();
   await page.getByRole("link", { name: /Ada/ }).click();
   await settingsButton.click();
+  await dialog.getByRole("button", { name: "Edit label" }).click();
   await dialog.getByRole("checkbox", { name: /Show label/ }).uncheck();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog.getByRole("status")).toHaveText("Settings saved.");

@@ -650,7 +650,7 @@ function routineProjectionStatus(item: NonNullable<ProductionConversationFrameMo
   return formatRoutineToken(item.status);
 }
 
-function formatRoutineSchedule(schedule: NonNullable<ProductionConversationFrameModel["routineItems"]>[number]["schedule"], includeTimezone = true): string {
+export function formatRoutineSchedule(schedule: NonNullable<ProductionConversationFrameModel["routineItems"]>[number]["schedule"], includeTimezone = true): string {
   const timezone = includeTimezone ? ` · ${schedule.timezone}` : "";
   if (schedule.kind === "once") {
     const date = new Date(`${schedule.localAt}Z`);

@@ -74,8 +74,7 @@
   opacity: 0.7;
 }
 
-.settingsHelp,
-.settingsToggle small {
+.settingsHelp {
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 17px;
@@ -124,7 +123,6 @@
   color: #c84f3f;
 }
 
-.deleteSection,
 .deleteWarning,
 .deleteStatus {
   display: flex;
@@ -133,13 +131,6 @@
   padding-top: 6px;
 }
 
-.deleteSection {
-  margin-top: 4px;
-  padding-top: 18px;
-  border-top: 1px solid var(--divider);
-}
-
-.deleteSection h3,
 .deleteWarning h3,
 .deleteStatus h3 {
   margin: 0;
@@ -148,7 +139,6 @@
   line-height: 22px;
 }
 
-.deleteSection p,
 .deleteWarning p,
 .deleteStatus p {
   margin: 0;
@@ -237,5 +227,316 @@
 
   .deleteButton {
     border-color: #f09a8a;
+  }
+}
+
+.profileIdentity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 0 4px;
+}
+
+.profileIdentity h3 {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 28px;
+}
+
+.profileAvatar {
+  position: relative;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.profileAvatarFallback {
+  display: grid;
+  width: 96px;
+  height: 96px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  font-size: 28px;
+}
+
+.profileAvatarBadge {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 3px solid var(--surface);
+  border-radius: 50%;
+  background: #f3f3f3;
+  color: #121212;
+}
+
+.profileAvatarBadge svg,
+.profileLabelPill svg {
+  width: 16px;
+  height: 16px;
+}
+
+.profileLabelPill {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 60px;
+  background: #f3f3f3;
+  color: #757575;
+  font: inherit;
+  font-size: 15px;
+  cursor: pointer;
+}
+
+.profileSection {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.profileSection h4 {
+  margin: 0;
+  padding: 0 4px;
+  color: #757575;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.profileList {
+  overflow: hidden;
+  border-radius: 20px;
+  background: #f7f7f7;
+}
+
+.profileDisclosure + .profileDisclosure {
+  border-top: 1px solid rgb(18 18 18 / 6%);
+}
+
+.profileDisclosure summary {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  font-size: 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.profileDisclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.profileDisclosure summary::after {
+  width: 8px;
+  height: 8px;
+  border-right: 1.5px solid #a0a0a0;
+  border-bottom: 1.5px solid #a0a0a0;
+  content: "";
+  transform: rotate(45deg);
+  transition: transform 0.16s ease;
+}
+
+.profileDisclosure[open] summary::after {
+  transform: rotate(-135deg);
+}
+
+.profileDisclosure p {
+  margin: 0;
+  padding: 0 18px 16px;
+  color: #757575;
+  font-size: 15px;
+  line-height: 22px;
+  white-space: pre-wrap;
+}
+
+.profileRoutines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.profileViewAll,
+.profileInlineError button {
+  align-self: flex-start;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: #ff5800;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.profileInlineError {
+  margin: 0;
+  padding: 0 4px;
+  color: #757575;
+  font-size: 14px;
+}
+
+.routineSkeleton {
+  height: 56px;
+  border-radius: 20px;
+  background: #f7f7f7;
+  animation: routinePulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes routinePulse {
+  to {
+    opacity: 0.55;
+  }
+}
+
+.profileDeleteRow {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 18px;
+  border: 0;
+  background: transparent;
+  color: #c84f3f;
+  font: inherit;
+  font-size: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.profileAvatar:focus-visible,
+.profileLabelPill:focus-visible,
+.profileDisclosure summary:focus-visible,
+.profileViewAll:focus-visible,
+.profileDeleteRow:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 2px;
+}
+
+.lookPreview {
+  display: flex;
+  justify-content: center;
+  padding: 8px 0;
+}
+
+.lookGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.lookGroup legend {
+  margin-bottom: 10px;
+  padding: 0 4px;
+  color: #757575;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.lookShapes {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.lookShape {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 0;
+  border: 2px solid transparent;
+  border-radius: 20px;
+  background: #f7f7f7;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.lookShape:has(input:checked) {
+  border-color: #121212;
+}
+
+.lookShape input,
+.lookColour input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.lookColours {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0 4px;
+}
+
+.lookColour {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.lookColour:has(input:checked) {
+  box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px #121212;
+}
+
+.lookShape:has(input:focus-visible),
+.lookColour:has(input:focus-visible) {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .routineSkeleton,
+  .profileDisclosure summary::after {
+    animation: none;
+    transition: none;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .profileList,
+  .lookShape,
+  .routineSkeleton {
+    background: rgb(255 255 255 / 6%);
+  }
+
+  .profileLabelPill,
+  .profileAvatarBadge {
+    background: rgb(255 255 255 / 10%);
+    color: var(--text-primary);
+  }
+
+  .lookShape:has(input:checked) {
+    border-color: var(--text-primary);
+  }
+
+  .profileDeleteRow {
+    color: #f09a8a;
+  }
+}
+
+@media (min-width: 768px) {
+  .settingsOverlay > section {
+    width: min(calc(100% - 48px), 600px);
+    max-width: none;
+  }
+
+  .settingsContent {
+    height: min(640px, calc(100dvh - 180px));
   }
 }

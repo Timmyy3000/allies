@@ -708,6 +708,9 @@ export function createCloudClient(options: CloudClientOptions) {
             label: settings.label,
             show_label: settings.showLabel,
             settings_revision: settings.settingsRevision,
+            ...(settings.appearance
+              ? { appearance: { catalog_version: settings.appearance.catalogVersion, key: settings.appearance.key } }
+              : {}),
           },
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
