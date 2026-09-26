@@ -206,6 +206,7 @@ def mark_event_delivery(
         if success:
             row.state = EventDeliveryState.DELIVERED
             row.delivered_at = observed_at
+            row.sequence_gap_since = None
             row.lease_expires_at = None
             row.safe_error_code = ""
         else:
@@ -240,6 +241,7 @@ def mark_event_delivery(
                 "lease_expires_at",
                 "safe_error_code",
                 "next_attempt_at",
+                "sequence_gap_since",
                 "updated_at",
             ]
         )
@@ -445,6 +447,7 @@ def redrive_event_deliveries(
                 row.next_attempt_at = observed_at
                 row.delivered_at = None
                 row.safe_error_code = "manual_redrive"
+                row.sequence_gap_since = None
                 row.save(
                     update_fields=[
                         "repair_cycle",
@@ -456,6 +459,7 @@ def redrive_event_deliveries(
                         "next_attempt_at",
                         "delivered_at",
                         "safe_error_code",
+                        "sequence_gap_since",
                         "updated_at",
                     ]
                 )

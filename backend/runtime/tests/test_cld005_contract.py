@@ -1029,6 +1029,9 @@ def test_event_delivery_manual_redrive_is_dry_run_then_fences_old_claim(
     delivery.refresh_from_db()
     assert delivery.state == "exhausted"
     assert delivery.envelope_bytes == b""
+    ExecutionEventDelivery.objects.filter(pk=delivery.pk).update(
+        sequence_gap_since=timezone.now() - timedelta(hours=1)
+    )
 
     output = StringIO()
     call_command(
@@ -1036,6 +1039,7 @@ def test_event_delivery_manual_redrive_is_dry_run_then_fences_old_claim(
     )
     assert "redriven 1" in output.getvalue()
     delivery.refresh_from_db()
+    assert delivery.sequence_gap_since is None
     assert delivery.state == "pending"
     assert delivery.repair_cycle == 1
     assert delivery.delivery_attempts == 0
