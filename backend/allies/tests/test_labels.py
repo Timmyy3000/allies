@@ -557,6 +557,47 @@ def test_settings_update_changes_appearance_under_the_revision_fence(account):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "appearance",
+    [("   ", "rolly-blue"), ("v1", "   "), ("v" * 33, "rolly-blue"), ("v1", "k" * 129)],
+)
+def test_settings_update_rejects_appearance_outside_the_creation_contract(
+    account, appearance
+):
+    ally = make_ally(account)
+    with pytest.raises(labels.LabelValidationError):
+        labels.update_ally_settings(
+            user=account[0],
+            workspace_id=account[1].id,
+            ally_id=ally.id,
+            label=ally.label,
+            show_label=ally.show_label,
+            settings_revision=0,
+            appearance=appearance,
+        )
+    ally.refresh_from_db()
+    assert ally.settings_revision == 0
+
+
+@pytest.mark.django_db
+def test_settings_update_strips_appearance_like_creation(account):
+    ally = make_ally(account)
+    updated = labels.update_ally_settings(
+        user=account[0],
+        workspace_id=account[1].id,
+        ally_id=ally.id,
+        label=ally.label,
+        show_label=ally.show_label,
+        settings_revision=0,
+        appearance=(" v1 ", " rolly-blue "),
+    )
+    assert (updated.appearance_catalog_version, updated.appearance_key) == (
+        "v1",
+        "rolly-blue",
+    )
+
+
+@pytest.mark.django_db
 @override_settings(
     ALLOWED_HOSTS=["testserver"],
     CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
