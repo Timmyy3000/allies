@@ -15,6 +15,7 @@ import { getWebEnvironment } from "../lib/env";
 import { useSession } from "../lib/session/session-context";
 import { WaitlistFlowProvider } from "../lib/waitlist/flow";
 import { OnboardingHandoffScreen } from "../lib/allies/onboarding-handoff-screen";
+import statusStyles from "./app/app.module.css";
 
 
 const subscribeToResume = (notify: () => void) => {
@@ -112,17 +113,10 @@ function LogoutRecovery() {
 
 function HomeResumeStatus({ message }: { message: string }) {
   return (
-    <main
-      style={{
-        minHeight: "100svh",
-        display: "grid",
-        placeItems: "center",
-        padding: 24,
-        color: "var(--text-primary)",
-        fontFamily: "var(--font-open-runde), sans-serif",
-      }}
-    >
-      <p role="status" aria-live="polite">{message}</p>
+    <main className={statusStyles.statusPage}>
+      <div className={`${statusStyles.statusContent} ${statusStyles.statusPending}`}>
+        <p role="status" aria-live="polite">{message}</p>
+      </div>
     </main>
   );
 }
