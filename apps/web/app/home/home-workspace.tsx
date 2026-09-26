@@ -102,6 +102,8 @@ const ALLY_LIMIT_MESSAGE = "You can have up to 10 Allies for now.";
 
 const ACTIVITY_INTERVAL_MS = 500;
 const DURABLE_REPLY_SNAPSHOT_INTERVAL_MS = 3_000;
+const STREAM_RECONNECT_BASE_MS = 500;
+const STREAM_RECONNECT_MAX_ATTEMPTS = 5;
 const QUEUE_SNAPSHOT_INTERVAL_MS = 3_000;
 const IDLE_CONVERSATION_SNAPSHOT_INTERVAL_MS = 10_000;
 const ERROR_CONVERSATION_SNAPSHOT_INTERVAL_MS = 30_000;
@@ -1224,6 +1226,11 @@ function ConversationPane({
   const [awaitingVisibleResponse, setAwaitingVisibleResponse] = useState(false);
   const [pollingSettled, setPollingSettled] = useState(false);
   const [streamConnected, setStreamConnected] = useState(false);
+  // Polling is only a fallback for when SSE is disabled or keeps failing to reconnect.
+  const [streamFallback, setStreamFallback] = useState(false);
+  const [streamRetry, setStreamRetry] = useState(0);
+  const streamRetryCountRef = useRef(0);
+  const lastStreamEventAtRef = useRef(0);
   const [pollBudgetReached, setPollBudgetReached] = useState(false);
   const [projection, setProjection] = useState<ActivityProjection>(EMPTY_ACTIVITY_PROJECTION);
   const [activityPresentation, setActivityPresentation] = useState<ActivityPresentationState>(
@@ -1363,7 +1370,9 @@ function ConversationPane({
     enabled: !isAllySuppressed(ally.id) && !isAllyDeleting(ally),
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    refetchInterval: (query) => query.state.error
+    refetchInterval: (query) => streamConnected
+      ? false
+      : query.state.error
       ? ERROR_CONVERSATION_SNAPSHOT_INTERVAL_MS
       : query.state.data?.queue && query.state.data.queue.length > 0
         ? QUEUE_SNAPSHOT_INTERVAL_MS
@@ -1705,6 +1714,9 @@ function ConversationPane({
   );
   const waitingForVisibleResponse = awaitingVisibleResponse && !responseStarted;
   const shouldPoll = activeTurn || waitingForVisibleResponse || (!pollingSettled && persistedTurnActive);
+  const activityStreamAvailable = Boolean(getWebEnvironment().cloudApiUrl) && getActivitySseEnabled();
+  const pollingActive = shouldPoll
+    && (streamConnected || !activityStreamAvailable || streamFallback || !activeTurn);
   const activityPollInterval = streamConnected
     ? DURABLE_REPLY_SNAPSHOT_INTERVAL_MS
     : ACTIVITY_INTERVAL_MS;
@@ -2375,6 +2387,11 @@ function ConversationPane({
       || !mountedRef.current
     ) return;
     const companionSnapshot = streamConnected;
+    // While connected, the snapshot is only a stall watchdog: skip it while events keep arriving.
+    if (
+      companionSnapshot
+      && Date.now() - lastStreamEventAtRef.current < DURABLE_REPLY_SNAPSHOT_INTERVAL_MS
+    ) return;
     if (pollCountRef.current >= ACTIVITY_POLL_LIMIT) {
       if (!pollBudgetReached) setPollBudgetReached(true);
       if (!companionSnapshot) {
@@ -2557,12 +2574,23 @@ function ConversationPane({
     const generationAtOpen = turnGenerationRef.current;
     let streamEndedNormally = false;
     let fallbackStarted = false;
+    let reconnectTimer: number | undefined;
     const startPollingFallback = () => {
       if (fallbackStarted) return;
       fallbackStarted = true;
+      setStreamConnected(false);
       pollCountRef.current = 0;
       setPollBudgetReached(false);
-      setStreamConnected(false);
+      // The stream resumes from its cursor, so reconnecting loses nothing; poll only as a last resort.
+      if (streamRetryCountRef.current < STREAM_RECONNECT_MAX_ATTEMPTS) {
+        const delay = STREAM_RECONNECT_BASE_MS * 2 ** streamRetryCountRef.current;
+        streamRetryCountRef.current += 1;
+        reconnectTimer = window.setTimeout(() => {
+          if (mountedRef.current) setStreamRetry((current) => current + 1);
+        }, delay);
+        return;
+      }
+      setStreamFallback(true);
     };
     const stream = readActivityStream({
       baseUrl,
@@ -2574,12 +2602,15 @@ function ConversationPane({
       signal: controller.signal,
       onOpen: () => {
         if (!mountedRef.current) return;
+        streamRetryCountRef.current = 0;
+        setStreamFallback(false);
         setStreamConnected(true);
         setActivityError(null);
         activityRequestRef.current?.abort();
       },
       onEvent: (event) => {
         if (!mountedRef.current) return;
+        lastStreamEventAtRef.current = Date.now();
         if ("conversationId" in event && event.conversationId !== targetConversationId) {
           controller.abort();
           startPollingFallback();
@@ -2656,6 +2687,7 @@ function ConversationPane({
     });
     activityStreamRef.current = stream;
     return () => {
+      window.clearTimeout(reconnectTimer);
       controller.abort();
       stream.close();
       if (activityStreamRef.current === stream) activityStreamRef.current = null;
@@ -2672,11 +2704,12 @@ function ConversationPane({
     preserveLatestConversationWindow,
     queryClient,
     presentActivity,
+    streamRetry,
     workspaceId,
   ]);
 
   useEffect(() => {
-    if (!shouldPoll) {
+    if (!pollingActive) {
       activityRequestRef.current?.abort();
       return;
     }
@@ -2685,7 +2718,7 @@ function ConversationPane({
       window.clearInterval(interval);
       activityRequestRef.current?.abort();
     };
-  }, [activityPollInterval, checkActivity, shouldPoll]);
+  }, [activityPollInterval, checkActivity, pollingActive]);
 
   useEffect(() => {
     if (!followLatestRef.current) return;
