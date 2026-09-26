@@ -63,6 +63,7 @@ type ConversationLayoutProps = {
   editable?: boolean;
   headerMode?: 'standard' | 'onboarding';
   onBack: () => void;
+  onOpenSettings?: () => void;
   onChangeDraft: (value: string) => void;
   onComposerHeightChange: (height: number) => void;
   onFocus?: () => void;
@@ -88,6 +89,7 @@ export function ConversationLayout({
   focusComposer = false,
   headerMode = 'standard',
   onBack,
+  onOpenSettings,
   onChangeDraft,
   onComposerHeightChange,
   onContentSizeChange,
@@ -123,7 +125,7 @@ export function ConversationLayout({
     <View style={[styles.root, { backgroundColor: theme.appBackground }]}>
       <SafeAreaView edges={['top', 'bottom']} style={styles.safeArea}>
         <View style={styles.content}>
-          <ConversationHeader active={active} ally={ally} mode={headerMode} onBack={onBack} />
+          <ConversationHeader active={active} ally={ally} mode={headerMode} onBack={onBack} onOpenSettings={onOpenSettings} />
           <KeyboardChatScrollView
             contentContainerStyle={[styles.messagesContent, contentContainerStyle]}
             extraContentPadding={composerExtraPadding}
@@ -183,7 +185,7 @@ export function ConversationLayout({
   );
 }
 
-function ConversationHeader({ active, ally, mode, onBack }: { active: boolean; ally: ConversationAlly; mode: 'standard' | 'onboarding'; onBack: () => void }) {
+function ConversationHeader({ active, ally, mode, onBack, onOpenSettings }: { active: boolean; ally: ConversationAlly; mode: 'standard' | 'onboarding'; onBack: () => void; onOpenSettings?: () => void }) {
   const theme = useTheme();
   const backButton = <OnboardingBackButton accessibilityLabel="Back to Allies" onBack={onBack} />;
 
@@ -198,9 +200,9 @@ function ConversationHeader({ active, ally, mode, onBack }: { active: boolean; a
         <OnboardingAllyPreview accessibilityLabel={`${ally.name} Ally`} artworkScale={0.86} color={ally.color} identity={ally.shape} size={40} state={active ? 'thinking' : 'idle'} />
         <Text numberOfLines={1} style={[styles.headerName, { color: theme.primaryText }]}>{ally.name}</Text>
       </View>
-      <View accessibilityLabel="Ally settings" accessible style={[styles.headerButton, { backgroundColor: theme.controlSurface }]}>
+      <Pressable accessibilityLabel={`${ally.name} settings`} accessibilityRole="button" disabled={!onOpenSettings} hitSlop={8} onPress={onOpenSettings} style={[styles.headerButton, { backgroundColor: theme.controlSurface }]}>
         <SettingsIcon color={theme.icon} />
-      </View>
+      </Pressable>
     </View>
   );
 }
