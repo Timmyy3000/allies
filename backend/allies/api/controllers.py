@@ -413,6 +413,11 @@ class AllyController(ControllerBase):
                 label=payload.label,
                 show_label=payload.show_label,
                 settings_revision=payload.settings_revision,
+                appearance=(
+                    (payload.appearance.catalog_version, payload.appearance.key)
+                    if payload.appearance
+                    else None
+                ),
             )
         except SessionInvalid:
             return error_json("session_invalid", "session invalid", 401)
