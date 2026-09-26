@@ -80,6 +80,7 @@ export default function AllyConversationRoute() {
 
 function AllyConversationScreen({ allyId, onBack }: { allyId: string; onBack: () => void }) {
   const theme = useTheme();
+  const router = useRouter();
   const session = useNativeSession();
   const focused = useIsFocused();
   const appState = useNativeAppState();
@@ -702,6 +703,7 @@ function AllyConversationScreen({ allyId, onBack }: { allyId: string; onBack: ()
       draft={draft}
       editable={!pendingMessage && !sending && !deletingId}
       onBack={onBack}
+      onOpenSettings={() => router.push(`/allies/${allyId}/profile` as never)}
       onChangeDraft={(value) => {
         setDraft(value);
         observeEdit(value);
