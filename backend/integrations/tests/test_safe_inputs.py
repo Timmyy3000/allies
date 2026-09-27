@@ -191,6 +191,23 @@ def test_browser_open_reuses_profile_and_closes_previous(turn, monkeypatch):
     assert browser.open_sessions(ally=ally).count() == 1
 
 
+def test_browser_uses_the_configured_proxy_country(turn, monkeypatch, settings):
+    _, ally, _ = turn
+    bodies = []
+
+    def api(method, path, body=None):
+        bodies.append((path, body))
+        return {"id": "p", "cdpUrl": "wss://cdp"}
+
+    monkeypatch.setattr(browser, "_api", api)
+    settings.BROWSER_USE_PROXY_COUNTRY = "de"
+    browser.open_browser(ally)
+    settings.BROWSER_USE_PROXY_COUNTRY = ""
+    browser.open_browser(ally)
+    created = [body for path, body in bodies if path == "/browsers"]
+    assert [b["proxyCountryCode"] for b in created] == ["de", None]
+
+
 def test_failed_open_keeps_the_working_browser(turn, monkeypatch):
     _, ally, _ = turn
     _fake_browser_use(monkeypatch)
