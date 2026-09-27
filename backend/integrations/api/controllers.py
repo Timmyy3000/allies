@@ -146,8 +146,6 @@ class GmailController(ControllerBase):
         },
     )
     def status(self, request: HttpRequest, workspace_id: CanonicalUUID):
-        if rejected := _require_origin(request, allow_native_bearer=True):
-            return rejected
         try:
             session = _session(request)
             require_workspace_capability(

@@ -417,3 +417,48 @@ def test_settings_grant_is_scoped_to_the_workspace(turn):
     )
     with pytest.raises(Ally.DoesNotExist):
         safe_inputs.grant_access(workspace.id, item.id, stranger.id)
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
+    ALLIES_AUTH_DIGEST_KEY="d" * 32,
+    ALLIES_AUTH_JWT_KEY="j" * 32,
+)
+def test_reads_need_a_session_but_not_csrf(turn):
+    workspace, ally, _ = turn
+    _login(workspace)
+    SafeInputRequest.objects.create(
+        workspace=workspace, ally=ally, name="Shop", website="shop.com"
+    )
+    BrowserSession.objects.create(
+        workspace=workspace,
+        ally=ally,
+        live_url="https://live",
+        expires_at=timezone.now() + timedelta(minutes=5),
+    )
+    owner = Membership.objects.filter(workspace=workspace).first().user
+    client, _ = _client(owner)
+    listed = client.get(
+        f"/api/v1/workspaces/{workspace.id}/safe-inputs",
+        HTTP_HOST="testserver",
+        HTTP_ORIGIN="http://localhost:3000",
+    )
+    assert listed.status_code == 200
+    assert [row["name"] for row in listed.json()["data"]] == ["Amazon"]
+    for path in ("/safe-input-requests", f"/allies/{ally.id}/browser-session"):
+        read = client.get(
+            f"/api/v1/workspaces/{workspace.id}{path}",
+            HTTP_HOST="testserver",
+            HTTP_ORIGIN="http://localhost:3000",
+        )
+        assert read.status_code == 200, (path, read.json())
+    changed = client.patch(
+        f"/api/v1/workspaces/{workspace.id}/safe-inputs/{SafeInput.objects.get().id}",
+        json.dumps({"name": "X"}),
+        content_type="application/json",
+        HTTP_HOST="testserver",
+        HTTP_ORIGIN="http://localhost:3000",
+    )
+    assert changed.json()["data"]["code"] == "csrf_rejected"
