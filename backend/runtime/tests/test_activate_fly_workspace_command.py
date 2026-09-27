@@ -333,7 +333,8 @@ def test_fresh_activation_stays_pending_until_runtime_readiness_receipt(
         provider.last_machine_spec.cpus,
         provider.last_machine_spec.memory_mb,
     ) == ("shared", 2, 2048)
-    assert provider.volume.size_gb == 10
+    assert provider.volume.size_gb == 3
+    assert provider.last_machine_spec.mount.size_limit_gb == 20
     runtime = next(
         c for c in provider.last_machine_spec.containers if c.name == "allies-runtime"
     )

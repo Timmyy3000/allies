@@ -40,12 +40,13 @@ READY_WORKSPACE_POOL_CONFIG_VERSION=2
 WORKSPACE_CPU_KIND=shared
 WORKSPACE_CPUS=2
 WORKSPACE_MEMORY_MB=2048
-WORKSPACE_VOLUME_SIZE_GB=10
+WORKSPACE_VOLUME_SIZE_GB=3
+WORKSPACE_VOLUME_SIZE_LIMIT_GB=20
 ALLIES_RUNTIME_IDLE_STOP_ENABLED=true
 ALLIES_RUNTIME_KEEP_WARM_SECONDS=1800
 ```
 
-Capacity defaults are 2 shared CPUs, 2048 MB memory and 10 GB volumes for the
+Capacity defaults are 2 shared CPUs, 2048 MB memory and 3 GB volumes that grow up to 20 GB for the
 deployed activation and replacement paths. Existing larger volumes are adopted
 without shrinking. Undersized existing volumes require explicit operator
 growth; changing configuration does not resize a bound volume or machine.

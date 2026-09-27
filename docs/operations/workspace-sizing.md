@@ -7,7 +7,8 @@ settings. Apply matching values to the API and background workers:
 WORKSPACE_CPU_KIND=shared
 WORKSPACE_CPUS=2
 WORKSPACE_MEMORY_MB=2048
-WORKSPACE_VOLUME_SIZE_GB=10
+WORKSPACE_VOLUME_SIZE_GB=3
+WORKSPACE_VOLUME_SIZE_LIMIT_GB=20
 ALLIES_RUNTIME_KEEP_WARM_SECONDS=1800
 ```
 
@@ -16,6 +17,11 @@ The CPU count is bounded to 1–16, memory to 1–131072 MB, volume size to
 1–1000 GB, and CPU kind to shared or performance. The provider must support
 the selected combination. Standalone lifecycle specs retain previous defaults
 for existing callers; supply explicit values when using them directly.
+
+New Machines ask Fly to grow their Volume in place by 1 GB whenever it is 80%
+full, up to `WORKSPACE_VOLUME_SIZE_LIMIT_GB` (at least the starting size). A
+Volume can grow but never shrink, so start small and let Allies that need more
+space get it.
 
 Changing these settings does not resize an already-bound machine or volume.
 New activation and replacement specs use the configured compute shape.

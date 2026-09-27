@@ -24,6 +24,9 @@ def test_workspace_sizing_reaches_machine_payload_and_provider_observation():
     spec = workspace.machine_spec(uuid4(), "vol-01", 1, uuid4())
     assert (spec.cpu_kind, spec.cpus, spec.memory_mb) == ("shared", 2, 2048)
     assert workspace.volume_spec(uuid4()).size_gb == 10
+    assert spec.mount.size_limit_gb is None
+    growing = replace(workspace, volume_size_gb=3, volume_size_limit_gb=20)
+    assert growing.machine_spec(uuid4(), "vol-01", 1, uuid4()).mount.size_limit_gb == 20
     raw = fixture("machines.json")[0]
     raw["config"]["guest"] = {"cpu_kind": "shared", "cpus": 2, "memory_mb": 2048}
     fake = FakeFlyTransport([TransportResponse(200, raw)])

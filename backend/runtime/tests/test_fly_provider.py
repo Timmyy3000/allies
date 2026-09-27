@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 from uuid import UUID
 
@@ -238,6 +239,27 @@ def test_provider_context_correlates_non_deterministic_call_shapes(monkeypatch):
 
     assert len(events) == 2
     assert all(event["workspace_id"].startswith("id_") for event in events)
+
+
+def test_machine_payload_asks_fly_to_grow_a_limited_volume():
+    fake = FakeFlyTransport([TransportResponse(200, fixture("machines.json")[0])])
+    spec = replace(machine_spec(), mount=VolumeMount("vol-01", size_limit_gb=20))
+    provider(fake).create_machine(spec)
+    assert fake.calls[0].json_body["config"]["mounts"] == [
+        {
+            "volume": "vol-01",
+            "path": "/opt/data",
+            "extend_threshold_percent": 80,
+            "add_size_gb": 1,
+            "size_gb_limit": 20,
+        }
+    ]
+
+
+@pytest.mark.parametrize("limit", [0, -1, True, "20"])
+def test_volume_mount_rejects_invalid_size_limit(limit):
+    with pytest.raises(ValueError):
+        VolumeMount("vol-01", size_limit_gb=limit)
 
 
 def test_machine_payload_has_two_containers_private_mount_and_opaque_ref_only():
