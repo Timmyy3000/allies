@@ -98,9 +98,16 @@ def test_service_forwards_only_workspace_intent_receipt_and_key(
 
 
 @pytest.mark.django_db
+def test_new_workspaces_wake_early_by_default(account):
+    assert account[1].runtime_intent_mode == RuntimeIntentMode.COMPOSING
+
+
+@pytest.mark.django_db
 @override_settings(ALLIES_RUNTIME_INTENT_ENABLED=True)
 def test_service_policy_off_suppresses_rate_limit_and_gateway(account, monkeypatch):
     user, workspace, ally = account
+    workspace.runtime_intent_mode = RuntimeIntentMode.OFF
+    workspace.save(update_fields=("runtime_intent_mode", "updated_at"))
     monkeypatch.setattr(
         "allies.services.runtime_intents.check_rate_limit",
         lambda **_kwargs: pytest.fail("disabled intent was rate limited"),

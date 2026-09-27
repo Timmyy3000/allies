@@ -46,7 +46,7 @@ class Workspace(models.Model):
     runtime_intent_mode = models.CharField(
         max_length=16,
         choices=RuntimeIntentMode.choices,
-        default=RuntimeIntentMode.OFF,
+        default=RuntimeIntentMode.COMPOSING,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
