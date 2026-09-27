@@ -17,6 +17,48 @@ describe("useComposingRuntimeIntent", () => {
     expect(result.current.status).toBe("ready");
   });
 
+  it("keeps asking with the same key while waking and shows ready when Foundry does", async () => {
+    vi.useFakeTimers();
+    try {
+      const answers = ["waking", "rate_limited", "waking", "ready"] as const;
+      let asked = 0;
+      const keys: string[] = [];
+      const request = vi.fn<RuntimeIntentRequester>(async (_ally, _at, key) => {
+        keys.push(key);
+        return { status: answers[Math.min(asked++, 3)] };
+      });
+      const { result } = renderHook(() => useComposingRuntimeIntent("ally-1", request));
+      act(() => result.current.observeEdit("hello"));
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(result.current.status).toBe("waking");
+      await act(async () => { await vi.advanceTimersByTimeAsync(2_000); });
+      expect(result.current.status).toBe("waking");
+      await act(async () => { await vi.advanceTimersByTimeAsync(4_000); });
+      expect(result.current.status).toBe("ready");
+      expect(new Set(keys).size).toBe(1);
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(request).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops asking after the wake limit", async () => {
+    vi.useFakeTimers();
+    try {
+      const request = vi.fn<RuntimeIntentRequester>(async () => ({ status: "waking" as const }));
+      const { result } = renderHook(() => useComposingRuntimeIntent("ally-1", request));
+      act(() => result.current.observeEdit("hello"));
+      await act(async () => { await vi.advanceTimersByTimeAsync(120_000); });
+      const calls = request.mock.calls.length;
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(request.mock.calls.length).toBe(calls);
+      expect(calls).toBeLessThanOrEqual(47);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("ignores late readiness from the previous Ally", async () => {
     let resolveOld!: (value: { status: "ready" }) => void;
     const request = vi.fn<RuntimeIntentRequester>((id) => id === "ally-1"

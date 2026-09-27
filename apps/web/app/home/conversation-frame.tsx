@@ -42,7 +42,8 @@ import {
 } from "./conversation-frame-primitives";
 import styles from "./conversation-frame.module.css";
 
-export const WAKE_HINT_TIMEOUT_MS = 30_000;
+// Safety net only: the composing intent now polls until Foundry reports ready.
+export const WAKE_HINT_TIMEOUT_MS = 90_000;
 
 export interface ConversationFrameProps {
   settingsHref?: string;
