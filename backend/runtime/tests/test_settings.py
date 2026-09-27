@@ -149,6 +149,21 @@ def test_profile_provisioning_defaults_to_hermes_openai_api_provider():
     assert result.stdout.splitlines()[-2] == "openai-api"
 
 
+def test_profile_provisioning_defaults_to_openrouter_gpt6():
+    result = run_settings_probe(
+        DJANGO_DEBUG="true",
+        probe=(
+            "import config.settings as settings\n"
+            "print(settings.PROFILE_PROVISIONING_MODEL)\n"
+            "print(settings.PROFILE_PROVISIONING_BASE_URL)\n"
+        ),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.splitlines()[-2] == "openai/gpt-6-luna"
+    assert result.stdout.splitlines()[-1] == "https://openrouter.ai/api/v1"
+
+
 def test_runtime_reasoning_effort_defaults_to_xhigh_and_accepts_high():
     default = run_settings_probe(DJANGO_DEBUG="true")
     high = run_settings_probe(

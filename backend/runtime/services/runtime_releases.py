@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import logging
@@ -194,6 +195,7 @@ def reconcile_workspace_release(
     target = workspace.release_target
     try:
         store = secret_store or FlyCliSecretStore()
+        _restage_provider_key(store, workspace.fly_app_ref)
         operation_id = UUID(target["credential_id"])
         generation = target["source_generation"] + 1
         credential = RuntimeCredential.objects.filter(pk=operation_id).first()
@@ -256,6 +258,20 @@ def reconcile_workspace_release(
             activation_claim_expires_at=None,
         )
         raise
+
+
+def _restage_provider_key(store, app_ref: str) -> None:
+    """Re-stage the provider key from the current environment, when present.
+
+    Fly app secrets persist across wakes and machine replacements, so a
+    rotated provider key only reaches workspaces when explicitly
+    re-staged. Absent in local dev: keep the existing secret untouched.
+    """
+    key = os.environ.get("PROFILE_PROVISIONING_API_KEY", "").strip()
+    if not key:
+        return
+    encoded = base64.b64encode(key.encode("utf-8")).decode("ascii")
+    store.stage(app_ref, "ALLIES_FND008_OPENAI_KEY", encoded)
 
 
 @transaction.atomic
