@@ -10,6 +10,7 @@ from django.utils import timezone
 
 from allies.models import Ally
 from auths.models import User
+from chat.models import Message
 from chat.tests.test_dispatch import dispatch_records  # noqa: F401
 from common.vault import seal_secret
 from integrations.exceptions import IntegrationInvalid
@@ -191,21 +192,14 @@ def test_browser_open_reuses_profile_and_closes_previous(turn, monkeypatch):
     assert browser.open_sessions(ally=ally).count() == 1
 
 
-def test_browser_uses_the_configured_proxy_country(turn, monkeypatch, settings):
+def test_browser_proxies_through_the_users_country(turn, monkeypatch):
     _, ally, _ = turn
-    bodies = []
-
-    def api(method, path, body=None):
-        bodies.append((path, body))
-        return {"id": "p", "cdpUrl": "wss://cdp"}
-
-    monkeypatch.setattr(browser, "_api", api)
-    settings.BROWSER_USE_PROXY_COUNTRY = "de"
-    browser.open_browser(ally)
-    settings.BROWSER_USE_PROXY_COUNTRY = ""
-    browser.open_browser(ally)
-    created = [body for path, body in bodies if path == "/browsers"]
-    assert [b["proxyCountryCode"] for b in created] == ["de", None]
+    assert browser.proxy_country(ally) is None
+    for zone in ("Europe/Berlin", "Europe/London"):
+        Message.objects.filter(conversation__ally=ally).update(client_timezone=zone)
+        assert browser.proxy_country(ally) == {"Europe/Berlin": "de"}.get(zone, "uk")
+    Message.objects.filter(conversation__ally=ally).update(client_timezone="Mars/Base")
+    assert browser.proxy_country(ally) is None
 
 
 def test_failed_open_keeps_the_working_browser(turn, monkeypatch):
