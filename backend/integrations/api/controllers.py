@@ -6,14 +6,16 @@ never cached. Secrets and tokens never appear in responses.
 """
 
 from typing import Annotated
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 from django.db import DatabaseError
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from ninja import Header, Query
 from ninja_extra import ControllerBase, api_controller, http_delete, http_get, http_post
 
 from allies.models import Ally
 from auths.api.common import (
+    _request_origin,
     _require_origin,
     _session,
     error_json,
@@ -21,7 +23,8 @@ from auths.api.common import (
     success_json,
 )
 from auths.api.schemas import SuccessResponse
-from auths.exceptions import SessionInvalid, WorkspaceAccessDenied
+from auths.exceptions import InvalidRedirect, SessionInvalid, WorkspaceAccessDenied
+from auths.services.flows import _safe_redirect
 from common.uuids import CanonicalUUID
 from integrations.api.schemas import (
     AllyGrantResponse,
@@ -88,6 +91,27 @@ def _connection_response(secret: IntegrationSecret) -> GmailConnectionResponse:
         connected_at=secret.connected_at,
         ally_grants=grants,
     )
+
+
+def _redirect_with(target: str, **params: str) -> HttpResponse:
+    parsed = urlsplit(target)
+    extra = urlencode(params)
+    query = f"{parsed.query}&{extra}" if parsed.query else extra
+    response = HttpResponse(status=303)
+    response["Location"] = urlunsplit(
+        (parsed.scheme, parsed.netloc, parsed.path, query, parsed.fragment)
+    )
+    response["Referrer-Policy"] = "no-referrer"
+    return response
+
+
+def _error_code(response) -> str:
+    import json
+
+    try:
+        return json.loads(response.content)["data"]["code"]
+    except (ValueError, KeyError, TypeError):
+        return "internal_error"
 
 
 def _read_error(exc: Exception):
@@ -167,6 +191,14 @@ class GmailController(ControllerBase):
                 workspace_id=workspace_id,
                 capability=Capability.WORKSPACE_WRITE,
             )
+            return_to = None
+            if payload.return_to is not None:
+                try:
+                    return_to = _safe_redirect(
+                        payload.return_to, _request_origin(request)
+                    )
+                except InvalidRedirect as exc:
+                    raise IntegrationInvalid("return target is invalid") from exc
             ally = None
             if payload.entry_point == "in_chat":
                 if payload.ally_id is None:
@@ -178,6 +210,7 @@ class GmailController(ControllerBase):
                 ally=ally,
                 grant_level=payload.grant_level,
                 idempotency_key=idempotency_key,
+                return_to=return_to,
             )
         except Exception as exc:
             response = _read_error(exc)
@@ -314,15 +347,25 @@ class GmailCallbackController(ControllerBase):
         "/callback",
         response={
             200: SuccessResponse[GmailConnectionResponse],
+            303: None,
             **error_responses(401, 404, 409, 422, 503, 500),
         },
     )
     def callback(
         self,
         request: HttpRequest,
-        code: str = Query(..., min_length=1, max_length=2048),
-        state: str = Query(..., min_length=1, max_length=256),
+        code: str = Query("", max_length=2048),
+        state: str = Query("", max_length=256),
+        error: str = Query("", max_length=64),
     ):
+        # Interface clients that sent return_to get a redirect back with the
+        # outcome, like sign-in; older clients keep the JSON response.
+        return_to = google_oauth.connect_return_to(state=state)
+        if error or not code or not state:
+            reason = "access_denied" if error == "access_denied" else "validation_error"
+            if return_to:
+                return _redirect_with(return_to, gmail_error=reason)
+            return error_json(reason, "gmail connect was not completed", 422)
         # Browser navigation returning from Google carries no trusted origin
         # or CSRF token. The one-time state token plus the session cookie is
         # the authorization for this single exchange. Workspace capability is
@@ -354,6 +397,10 @@ class GmailCallbackController(ControllerBase):
         except Exception as exc:
             response = _read_error(exc)
             if response is not None:
+                if return_to:
+                    return _redirect_with(return_to, gmail_error=_error_code(response))
                 return response
             raise
+        if return_to:
+            return _redirect_with(return_to, gmail="connected")
         return success_json(data, "Gmail connected")
