@@ -165,6 +165,7 @@ def begin_gmail_connect(
     ally=None,
     grant_level: str | None = None,
     idempotency_key: str,
+    return_to: str | None = None,
 ) -> GmailConnectBegin:
     if not gmail_enabled():
         raise IntegrationUnavailable("gmail integration disabled")
@@ -209,6 +210,7 @@ def begin_gmail_connect(
                 "ally_id": str(existing.ally_id) if existing.ally_id else None,
                 "grant_level": _handshake_grant_level(existing.sealed_handshake),
                 "entry_point": existing.entry_point,
+                "return_to": return_to,
             }
         )
         replay_sealed, _ = seal_refresh_token(replay_handshake)
@@ -229,6 +231,7 @@ def begin_gmail_connect(
             "ally_id": str(ally.id) if ally is not None else None,
             "grant_level": grant_level,
             "entry_point": entry_point,
+            "return_to": return_to,
         }
     )
     ciphertext, _ = seal_refresh_token(handshake)
@@ -276,6 +279,18 @@ class GmailConnectComplete:
     auto_grant_ally_id: str | None
     auto_grant_level: str | None
     status: str
+
+
+def connect_return_to(*, state: str) -> str | None:
+    """Return the validated Interface URL recorded when this connect began."""
+
+    if not state:
+        return None
+    state_hash = hashlib.sha256(state.encode()).hexdigest()
+    session = GmailConnectSession.objects.filter(state_hash=state_hash).first()
+    if session is None:
+        return None
+    return _handshake_field(session.sealed_handshake, "return_to")
 
 
 def peek_connect_workspace_id(*, state: str):
