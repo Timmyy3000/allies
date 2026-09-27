@@ -78,8 +78,8 @@ ACTIVITY_LABELS = {
     "write_file": ("Writing a file", "Wrote a file"),
     "publish_files": ("Publishing file", "Published file"),
     "patch": ("Editing a file", "Edited a file"),
-    "terminal": ("Working", "Finished an activity"),
-    "execute_code": ("Working", "Finished an activity"),
+    "terminal": ("Running a command", "Ran a command"),
+    "execute_code": ("Running code", "Ran code"),
     "image_generate": ("Creating an image", "Created an image"),
     "video_generate": ("Creating a video", "Created a video"),
     "text_to_speech": ("Creating audio", "Created audio"),
@@ -109,20 +109,55 @@ ACTIVITY_LABELS = {
     "routine_delete": ("Deleting a routine", "Deleted a routine"),
     "routine_result": ("Checking a routine result", "Checked a routine result"),
     "delegate_task": ("Coordinating delegated work", "Finished delegated work"),
+    "browser_view": ("Looking at a webpage", "Looked at a webpage"),
+    "process": ("Checking a running task", "Checked a running task"),
+    "smart_home": ("Working with your smart home", "Worked with your smart home"),
+    "tool_lookup": ("Finding the right tool", "Found the right tool"),
+    "gmail_read": ("Reading your email", "Read your email"),
+    "gmail_send": ("Sending an email", "Sent an email"),
+    "gmail_organise": ("Organising your email", "Organised your email"),
+    "safe_input_check": ("Checking your Safe inputs", "Checked your Safe inputs"),
+    "safe_input_request": ("Asking for a login", "Asked for a login"),
+    "safe_input_fill": (
+        "Signing in with your Safe input",
+        "Signed in with your Safe input",
+    ),
+    "approval_request": ("Asking for your approval", "Asked for your approval"),
     "unknown": ("Working", "Finished an activity"),
 }
 
 
-def activity_text(kind: str, outcome: str | None) -> str:
+# Labels that name what the activity was about; "{}" is the Foundry-bounded subject.
+SUBJECT_LABELS = {
+    "web_search": ("Searching the web for “{}”", "Searched the web for “{}”"),
+    "web_extract": ("Reading {}", "Read {}"),
+    "browser_navigate": ("Visiting {}", "Visited {}"),
+    "browser_interact": ("Using {}", "Used {}"),
+    "browser_view": ("Looking at {}", "Looked at {}"),
+    "search_files": ("Searching files for “{}”", "Searched files for “{}”"),
+    "read_file": ("Reading {}", "Read {}"),
+    "write_file": ("Writing {}", "Wrote {}"),
+    "patch": ("Editing {}", "Edited {}"),
+    "skill_view": ("Checking the {} skill", "Checked the {} skill"),
+    "safe_input_request": ("Asking for your {} login", "Asked for your {} login"),
+    "safe_input_check": ("Checking your {} login", "Checked your {} login"),
+}
+
+
+def activity_text(kind: str, outcome: str | None, subject: str | None = None) -> str:
     active, completed = ACTIVITY_LABELS.get(kind, ACTIVITY_LABELS["unknown"])
+    if subject and kind in SUBJECT_LABELS:
+        active, completed = (
+            template.format(subject) for template in SUBJECT_LABELS[kind]
+        )
     if outcome == "completed":
         return completed
     if outcome == "failed":
         if kind == "publish_files":
             return "Couldn't publish file"
-        return f"Could not finish {active.lower()}"
+        return f"Could not finish {active[0].lower()}{active[1:]}"
     if outcome == "stopped":
-        return f"Stopped while {active.lower()}"
+        return f"Stopped while {active[0].lower()}{active[1:]}"
     return active
 
 
