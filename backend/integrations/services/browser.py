@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 import logging
 from datetime import timedelta
+from functools import cache
+from importlib import resources
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
@@ -19,6 +21,7 @@ from django.db import transaction
 from django.utils import timezone
 from websockets.sync.client import connect
 
+from chat.models import Message, MessageSender
 from workspaces.models import Workspace
 
 from ..models import AllyBrowser, BrowserSession
@@ -50,6 +53,29 @@ def _api(method: str, path: str, body: dict | None = None) -> dict:
     except (HTTPError, URLError, OSError) as exc:
         raise BrowserUnavailable(f"browser use {method} {path} failed") from exc
     return json.loads(raw) if raw else {}
+
+
+@cache
+def _zone_countries() -> dict[str, str]:
+    table = resources.files("tzdata.zoneinfo").joinpath("zone.tab").read_text()
+    rows = (line.split("	") for line in table.splitlines() if line[:1] != "#")
+    return {row[2]: row[0].lower() for row in rows if len(row) > 2}
+
+
+def proxy_country(ally) -> str | None:
+    """Country of the user's latest timezone, so sites see a nearby visitor.
+
+    Browser Use otherwise proxies every browser through the US.
+    """
+    zone = (
+        Message.objects.filter(conversation__ally=ally, sender=MessageSender.USER)
+        .exclude(client_timezone="")
+        .order_by("-created_at")
+        .values_list("client_timezone", flat=True)
+        .first()
+    )
+    country = _zone_countries().get(zone or "")
+    return "uk" if country == "gb" else country
 
 
 def open_sessions(**filters):
@@ -95,9 +121,7 @@ def open_browser(ally) -> dict:
             {
                 "profileId": browser.profile_id,
                 "timeout": SESSION_MINUTES,
-                # Browser Use defaults to a US proxy, which slows every page load.
-                "proxyCountryCode": getattr(settings, "BROWSER_USE_PROXY_COUNTRY", "")
-                or None,
+                "proxyCountryCode": proxy_country(ally),
             },
         )
         session.browser_use_id = created["id"]
