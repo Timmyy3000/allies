@@ -14,6 +14,7 @@ import { useSession } from "../../lib/session/session-context";
 import { alliesQueryKey } from "../../lib/allies/query-keys";
 import { WAITLIST_APPEARANCE_CATALOG_VERSION, WAITLIST_COLORS } from "../../lib/waitlist/catalog";
 
+import { AllySafeInputs } from "./ally-safe-inputs";
 import { AllyAccess } from "./ally-access";
 import { formatRoutineSchedule } from "./conversation-frame";
 import { BottomSheet, readableAccentForeground } from "./conversation-frame-primitives";
@@ -502,6 +503,7 @@ export function AllySettingsDialog({
             />
             <div style={{ "--access-accent": accent } as CSSProperties}>
               <AllyAccess workspaceId={workspaceId} allyId={ally.id} returned={gmailReturn} />
+              <AllySafeInputs workspaceId={workspaceId} ally={ally} />
             </div>
             <div className={styles.profileList}>
               <button
