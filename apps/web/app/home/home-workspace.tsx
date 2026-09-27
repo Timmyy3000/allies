@@ -2633,22 +2633,31 @@ function ConversationPane({
           const eventIsActive = (!currentActiveMessageId || event.activity.messageId === currentActiveMessageId)
             && (currentActiveMessageOrdinal === null
               || event.activity.conversationTurnOrdinal === currentActiveMessageOrdinal);
-          if (!eventIsActive) return;
-          if (event.activity.kind === "assistant_delta" && event.activity.text.trim()) {
+          if (eventIsActive && event.activity.kind === "assistant_delta" && event.activity.text.trim()) {
             responseStartedRef.current = true;
             setAwaitingVisibleResponse(false);
           }
-          setProjection((current) => projectConversationActivity(current, {
+          const streamSnapshot = {
             conversationId: targetConversationId,
-            activeMessageId: currentActiveMessageId ?? event.activity.messageId,
             activities: [event.activity],
-            state: event.activity.state,
             lastContiguousSequence: event.activity.sequence,
             lastContiguousActivitySequence: event.activity.sequence,
             resumeCursor: event.cursor,
             nextCursor: null,
             latestSequence: event.activity.sequence,
-          }, conversationMessagesRef.current));
+          };
+          // The stream never resends an event, so out-of-scope ones must still fill the sequence.
+          setProjection((current) => eventIsActive
+            ? projectConversationActivity(current, {
+              ...streamSnapshot,
+              activeMessageId: currentActiveMessageId ?? event.activity.messageId,
+              state: event.activity.state,
+            }, conversationMessagesRef.current)
+            : projectActivitySnapshot(current, {
+              ...streamSnapshot,
+              activeMessageId: current.activeMessageId,
+              state: current.state,
+            }));
           presentActivity(targetConversationId, event.activity);
           const replayState = activityReplayRef.current;
           if (replayState?.conversationId === targetConversationId) {

@@ -3323,6 +3323,122 @@ describe("HomeWorkspace", () => {
     expect(await screen.findByText("Some response text arrived out of order.")).toBeTruthy();
   });
 
+  it("hides pending activity text once the turn has a completed durable reply", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const messageId = "00000000-0000-4000-8000-000000000015";
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [{
+          id: messageId,
+          sender: "user" as const,
+          content: "A question with a complete answer",
+          sequence: 2,
+          status: "completed" as const,
+          createdAt: "2026-08-20T16:01:00Z",
+        }],
+        nextCursor: null,
+      })),
+      getActivities: vi.fn(async () => ({
+        conversationId,
+        activities: [{
+          id: "00000000-0000-4000-8000-000000000017",
+          messageId,
+          sequence: 3,
+          conversationTurnOrdinal: 2,
+          kind: "assistant_delta" as const,
+          text: "Stranded delta text",
+          state: "completed" as const,
+          createdAt: "2026-08-20T16:01:02Z",
+        }],
+        assistantReply: {
+          id: "00000000-0000-4000-8000-000000000019",
+          sourceMessageId: messageId,
+          conversationTurnOrdinal: 2,
+          content: "The complete durable answer.",
+          status: "completed" as const,
+          hasFullPrefix: true,
+          createdAt: "2026-08-20T16:01:01Z",
+          updatedAt: "2026-08-20T16:01:03Z",
+        },
+        state: "completed" as const,
+        lastContiguousSequence: 3,
+      })),
+    });
+
+    expect(await screen.findByText("The complete durable answer.")).toBeTruthy();
+    expect(screen.queryByText("Stranded delta text")).toBeNull();
+    expect(screen.queryByText("Some response text arrived out of order.")).toBeNull();
+  });
+
+  it("keeps projecting the active reply after the stream delivers another turn's activity", async () => {
+    vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "stream");
+    vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const acceptedMessage = {
+      id: "00000000-0000-4000-8000-000000000018",
+      sender: "user" as const,
+      content: "Show my pending payments",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const sendMessage = vi.fn(async () => ({
+      conversationId,
+      message: acceptedMessage,
+      execution: null,
+      replayed: false,
+    }));
+    readActivityStreamMock.mockImplementation(() => ({ close: vi.fn() }));
+    renderHome([ally], ally.id, { sendMessage });
+
+    const input = await screen.findByRole("textbox");
+    fireEvent.change(input, { target: { value: acceptedMessage.content } });
+    await clickSendMessage();
+    await waitFor(() => expect(readActivityStreamMock).toHaveBeenCalledOnce());
+
+    const stream = readActivityStreamMock.mock.calls[0][0] as ActivityStreamOptions;
+    await act(async () => {
+      stream.onOpen?.();
+      stream.onEvent({
+        type: "activity",
+        conversationId,
+        cursor: "cursor-1",
+        activity: {
+          id: "00000000-0000-4000-8000-000000000021",
+          messageId: "00000000-0000-4000-8000-000000000006",
+          sequence: 1,
+          conversationTurnOrdinal: 1,
+          kind: "assistant_delta",
+          text: "Earlier turn tail",
+          state: "completed",
+          createdAt: "2026-08-20T16:01:01Z",
+        },
+      });
+      stream.onEvent({
+        type: "activity",
+        conversationId,
+        cursor: "cursor-2",
+        activity: {
+          id: "00000000-0000-4000-8000-000000000022",
+          messageId: acceptedMessage.id,
+          sequence: 2,
+          conversationTurnOrdinal: acceptedMessage.sequence,
+          kind: "assistant_delta",
+          text: "Your pending payments total €55.50.",
+          state: "running",
+          createdAt: "2026-08-20T16:01:02Z",
+        },
+      });
+    });
+
+    await waitFor(() => expect(
+      screen.getByTestId("activity-reply-2").textContent,
+    ).toContain("Your pending payments total €55.50."));
+  });
+
   it("aborts an in-flight activity request when the thread unmounts", async () => {
     let resolveActivity: ((value: unknown) => void) | undefined;
     let activitySignal: AbortSignal | undefined;
