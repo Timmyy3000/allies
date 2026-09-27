@@ -3098,7 +3098,7 @@ function ConversationPane({
     liveUpdatesConnected={streamConnected}
   >
     {frame}
-    <SafeInputLayer workspaceId={workspaceId} allyId={ally.id} allyName={ally.name} accent={allyAccent} />
+    <SafeInputLayer workspaceId={workspaceId} allyId={ally.id} allyName={ally.name} accent={allyAccent} shape={resolvedAppearance.shape} />
   </ConversationApprovals>;
 }
 
