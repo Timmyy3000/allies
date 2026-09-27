@@ -334,7 +334,6 @@ export function ActivityDisclosure({
   onToggle,
   className = "",
   ongoing = false,
-  lockOpen = false,
 }: {
   label: string;
   entries: readonly ActivityDisclosureEntry[];
@@ -342,7 +341,6 @@ export function ActivityDisclosure({
   open?: boolean;
   onToggle?: (open: boolean) => void;
   className?: string;
-  lockOpen?: boolean;
 }) {
   const disclosureRef = useRef<HTMLDetailsElement>(null);
   return (
@@ -357,7 +355,7 @@ export function ActivityDisclosure({
         if (expanded) window.requestAnimationFrame(() => disclosureRef.current?.scrollIntoView({ block: "nearest", behavior: window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }));
       }}
     >
-      <summary onClick={(event) => { if (lockOpen) event.preventDefault(); }}>
+      <summary>
         <span role={ongoing ? "status" : undefined} aria-live={ongoing ? "polite" : undefined} aria-atomic={ongoing ? true : undefined} aria-label={ongoing ? label : undefined}>
           <span key={label} className={styles.frameActivityLabel}>
             {ongoing ? <ShinyText color="var(--chat-accent)">{label}</ShinyText> : label}
