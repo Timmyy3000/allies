@@ -353,29 +353,23 @@ def test_direct_inspection_schedules_retry_from_persisted_state(
             scanner_clean=False,
         )
 
-    assert inspect_file(file_id=file.id, inspector=inspector) == 1
-    file.refresh_from_db()
-    assert file.state == FileState.VALIDATING
-    assert file.inspection_attempts == 1
-    assert queued == [(file.id, 5)]
-    assert inspect_file(file_id=file.id, inspector=inspector) == 0
+    delays = [5, 15, 30, 60, 120]
+    for attempt, _delay in enumerate(delays, start=1):
+        assert inspect_file(file_id=file.id, inspector=inspector) == 1
+        file.refresh_from_db()
+        assert file.state == FileState.VALIDATING
+        assert file.inspection_attempts == attempt
+        assert queued == [(file.id, delay) for delay in delays[:attempt]]
+        assert inspect_file(file_id=file.id, inspector=inspector) == 0
+        FileVersion.objects.filter(pk=file.id).update(
+            inspection_due_at=timezone.now() - timedelta(seconds=1)
+        )
 
-    FileVersion.objects.filter(pk=file.id).update(
-        inspection_due_at=timezone.now() - timedelta(seconds=1)
-    )
-    assert inspect_file(file_id=file.id, inspector=inspector) == 1
-    file.refresh_from_db()
-    assert file.inspection_attempts == 2
-    assert queued == [(file.id, 5), (file.id, 30)]
-
-    FileVersion.objects.filter(pk=file.id).update(
-        inspection_due_at=timezone.now() - timedelta(seconds=1)
-    )
     assert inspect_file(file_id=file.id, inspector=inspector) == 1
     file.refresh_from_db()
     assert file.state == FileState.REJECTED
-    assert file.inspection_attempts == 3
-    assert queued == [(file.id, 5), (file.id, 30)]
+    assert file.inspection_attempts == len(delays) + 1
+    assert queued == [(file.id, delay) for delay in delays]
     assert inspect_file(file_id=file.id, inspector=inspector) == 0
 
 

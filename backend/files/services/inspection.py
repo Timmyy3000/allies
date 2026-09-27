@@ -20,7 +20,8 @@ from files.services.preparation import reconcile_file_message
 from files.services.publication import reconcile_publication
 from files.storage import get_file_store
 
-_RETRY_DELAYS = (5, 30)
+# Spans a cold start of the serverless scanner, which sleeps when idle.
+_RETRY_DELAYS = (5, 15, 30, 60, 120)
 _LEASE_SECONDS = 240
 InspectionRunner = Callable[..., FileInspection]
 
@@ -133,7 +134,7 @@ def _retry(*, file: FileVersion, code: str) -> None:
             return
         attempts = current.inspection_attempts + 1
         retry_delay = None
-        if attempts >= 3:
+        if attempts > len(_RETRY_DELAYS):
             current.state = FileState.REJECTED
             current.cleanup_after = timezone.now() + timedelta(hours=24)
             current.inspection_due_at = None
