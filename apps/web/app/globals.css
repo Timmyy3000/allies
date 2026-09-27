@@ -1915,3 +1915,27 @@ textarea::placeholder {
 .onboarding-step-heading h1 {
   overflow-wrap: anywhere;
 }
+
+/* Thin accent scrollbars everywhere, like the chat. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--chat-accent, var(--text-muted)) 70%, transparent) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--chat-accent, var(--text-muted)) 70%, transparent);
+}
+
+::-webkit-scrollbar-button {
+  display: none;
+}

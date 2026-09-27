@@ -2,7 +2,7 @@
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const useSessionMock = vi.hoisted(() => vi.fn());
 vi.mock("../../lib/session/session-context", () => ({ useSession: useSessionMock }));
@@ -36,6 +36,13 @@ afterEach(() => {
 });
 
 describe("SafeInputLayer", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
+    });
+  });
+
   it("saves a requested login without showing it back, then confirms", async () => {
     const resolveSafeInputRequest = vi.fn(async () => undefined);
     renderLayer({ listSafeInputRequests: vi.fn(async () => [request("new")]), resolveSafeInputRequest });
@@ -78,5 +85,21 @@ describe("SafeInputLayer", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Watch Sally's browser" }));
     expect(screen.getByText("You can watch. Only Sally can use this browser.")).toBeTruthy();
     expect(screen.getByTitle("Sally's browser").getAttribute("tabindex")).toBe("-1");
+  });
+
+  it("moves the floating browser when dragged, without opening it", async () => {
+    renderLayer({
+      listSafeInputRequests: vi.fn(async () => []),
+      getAllyBrowserSession: vi.fn(async () => ({ liveUrl: "https://live.browser-use.com/x", expiresAt: "2026-09-27T10:20:00Z" })),
+    });
+    // jsdom has no PointerEvent, so pointer events would lose their coordinates.
+    vi.stubGlobal("PointerEvent", MouseEvent);
+    const pip = await screen.findByRole("button", { name: "Watch Sally's browser" });
+    fireEvent.pointerDown(pip, { clientX: 300, clientY: 500, pointerId: 1 });
+    fireEvent.pointerMove(pip, { clientX: 200, clientY: 400, pointerId: 1 });
+    fireEvent.click(pip);
+    expect(pip.style.right).toBe("116px");
+    expect(pip.style.bottom).toBe("196px");
+    expect(screen.queryByRole("dialog")).toBeNull();
   });
 });

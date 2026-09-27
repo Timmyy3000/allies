@@ -1,60 +1,95 @@
+/* DSN-011 in Pencil. The browser follows the app theme; Safe input sheets are always dark. */
+
 .scrim {
   position: fixed;
   inset: 0;
   z-index: 60;
   display: grid;
   place-items: end center;
+  padding: 8px;
   background: rgb(0 0 0 / 0.32);
   animation: fade 0.2s ease-out;
 }
 
 .safeMode {
-  background: rgb(8 8 10 / 0.9);
+  background: rgb(0 0 0 / 0.85);
   animation-duration: 0.25s;
 }
 
 .sheet {
+  display: grid;
   width: min(100%, 440px);
-  max-height: 92dvh;
+  max-height: calc(100dvh - 16px);
   overflow: auto;
-  padding: 20px 20px calc(20px + env(safe-area-inset-bottom));
-  border-radius: 24px 24px 0 0;
-  background: #16161a;
-  color: #f4f4f5;
+  padding: 20px 20px calc(24px + env(safe-area-inset-bottom));
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 32px;
+  background: #141414;
+  color: #fff;
+  font-family: var(--font-open-runde), sans-serif;
   animation: rise 0.25s ease-out;
 }
 
+.sheet form {
+  display: grid;
+}
+
 .light {
-  background: #fff;
-  color: #18181b;
+  border-color: var(--divider);
+  background: var(--panel);
+  color: var(--text-primary);
 }
 
 .sheet h2 {
-  margin: 12px 0 6px;
+  margin: 10px 0 10px;
   font-size: 22px;
+  font-weight: 700;
   line-height: 1.2;
 }
 
 .lead {
-  margin: 0 0 16px;
-  color: color-mix(in srgb, currentColor 72%, transparent);
+  margin: 0 0 20px;
+  color: #8a8a8a;
+  font-size: 14px;
+  font-weight: 500;
   line-height: 1.4;
+}
+
+.light .lead {
+  color: var(--text-secondary);
 }
 
 .sheetHead {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  margin-bottom: 20px;
+}
+
+.avatarRing {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 999px;
+  background: rgb(255 255 255 / 0.06);
+}
+
+.chipRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 6px 4px 10px;
+  padding: 5px 10px;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.1);
-  font-size: 13px;
+  background: rgb(18 194 91 / 0.12);
+  color: #3ddc84;
+  font-size: 12px;
   font-weight: 600;
 }
 
@@ -62,30 +97,32 @@
 .iconButton {
   display: grid;
   place-items: center;
-  width: 28px;
-  height: 28px;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   border: 0;
   border-radius: 999px;
-  background: rgb(255 255 255 / 0.12);
+  background: rgb(255 255 255 / 0.08);
   color: inherit;
-  font-weight: 600;
+  font: inherit;
+  font-weight: 700;
   cursor: pointer;
 }
 
 .help {
-  width: 20px;
-  height: 20px;
-  font-size: 12px;
+  width: 24px;
+  height: 24px;
+  font-size: 13px;
 }
 
 .light .iconButton {
-  background: rgb(0 0 0 / 0.06);
+  background: var(--surface);
 }
 
 .fields {
   display: grid;
-  gap: 10px;
-  margin: 0 0 16px;
+  gap: 12px;
+  margin: 0 0 20px;
   padding: 0;
   border: 0;
 }
@@ -93,36 +130,55 @@
 .fields label {
   display: grid;
   gap: 6px;
-  color: rgb(255 255 255 / 0.72);
+  color: #8a8a8a;
   font-size: 13px;
+  font-weight: 600;
 }
 
 .fields input {
   width: 100%;
-  padding: 12px 14px;
-  border: 1px solid rgb(255 255 255 / 0.12);
-  border-radius: 12px;
-  background: rgb(255 255 255 / 0.06);
+  height: 48px;
+  padding: 0 16px;
+  border: 1px solid rgb(255 255 255 / 0.08);
+  border-radius: 16px;
+  background: #1e1e1e;
   color: #fff;
   font: inherit;
   font-size: 16px;
+  font-weight: 500;
+}
+
+.fields input::placeholder {
+  color: #5c5c5c;
+}
+
+.fields input:focus-visible {
+  border-color: var(--safe-accent, #fd304f);
+  outline: none;
 }
 
 .primary,
 .secondary {
   width: 100%;
-  padding: 14px;
+  height: 52px;
   border: 0;
   border-radius: 999px;
-  background: var(--safe-accent, #4f46e5);
+  background: var(--safe-accent, #fd304f);
   color: #fff;
   font: inherit;
+  font-size: 17px;
   font-weight: 600;
   cursor: pointer;
 }
 
+/* Save stays muted until every field is filled, as in the design. */
+.sheet form:invalid .primary {
+  background: rgb(255 255 255 / 0.2);
+  color: rgb(255 255 255 / 0.4);
+}
+
 .secondary {
-  background: rgb(0 0 0 / 0.06);
+  background: var(--surface);
   color: inherit;
 }
 
@@ -147,6 +203,8 @@
   gap: 10px;
   margin: 0 0 20px;
   padding-left: 18px;
+  color: #c4c4c4;
+  font-size: 14px;
   line-height: 1.4;
 }
 
@@ -163,14 +221,14 @@
   place-items: center;
   width: 56px;
   height: 56px;
-  border: 3px solid #22c55e;
+  border: 3px solid #3ddc84;
   border-radius: 999px;
-  color: #22c55e;
+  color: #3ddc84;
   font-size: 24px;
 }
 
 .saved small {
-  color: rgb(255 255 255 / 0.7);
+  color: #8a8a8a;
 }
 
 .siteCard {
@@ -180,13 +238,12 @@
   margin-bottom: 16px;
   padding: 12px;
   border-radius: 16px;
-  background: rgb(0 0 0 / 0.04);
+  background: var(--surface);
 }
 
-.siteCard small,
-.browserHead small {
+.siteCard small {
   display: block;
-  color: color-mix(in srgb, currentColor 60%, transparent);
+  color: var(--text-secondary);
 }
 
 .siteMark {
@@ -195,30 +252,62 @@
   width: 36px;
   height: 36px;
   border-radius: 10px;
-  background: #18181b;
-  color: #fff;
+  background: var(--text-primary);
+  color: var(--panel);
   font-weight: 700;
 }
 
+/* Floating picture-in-picture browser: drag to move, tap to expand. */
 .pip {
   position: fixed;
-  right: 16px;
-  bottom: 96px;
   z-index: 50;
-  width: 168px;
+  display: flex;
+  flex-direction: column;
+  width: 148px;
+  height: 212px;
   padding: 0;
   overflow: hidden;
-  border: 1px solid rgb(0 0 0 / 0.08);
-  border-radius: 16px;
-  background: #fff;
-  box-shadow: 0 12px 32px rgb(0 0 0 / 0.18);
-  cursor: pointer;
+  border: 1px solid var(--divider);
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--text-primary);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.2);
+  font-family: var(--font-open-runde), sans-serif;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.pip:active {
+  cursor: grabbing;
+}
+
+.pipBar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px;
+  color: var(--text-secondary);
+}
+
+.pipTitle {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-primary);
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .pipFrame {
+  position: relative;
   display: block;
-  height: 104px;
+  flex: 1;
   overflow: hidden;
+  background: var(--surface);
   pointer-events: none;
 }
 
@@ -230,51 +319,80 @@
   transform-origin: 0 0;
 }
 
-.pipLabel {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
-  font-weight: 600;
-}
-
 .live {
   display: inline-block;
+  flex: none;
   width: 7px;
   height: 7px;
   border-radius: 999px;
-  background: #22c55e;
+  background: #12c25b;
 }
 
 .browserExpanded {
-  width: min(100%, 960px);
-  height: min(92dvh, 760px);
   display: grid;
   grid-template-rows: auto 1fr auto;
+  gap: 16px;
+  width: min(100%, 960px);
+  height: min(calc(100dvh - 16px), 820px);
+  padding: 16px 16px calc(12px + env(safe-area-inset-bottom));
   overflow: hidden;
-  border-radius: 24px 24px 0 0;
-  background: #fff;
+  border: 1px solid var(--divider);
+  border-radius: 32px;
+  background: var(--canvas);
+  color: var(--text-primary);
+  font-family: var(--font-open-runde), sans-serif;
   animation: rise 0.25s ease-out;
 }
 
 .browserHead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 14px 16px;
+  gap: 10px;
 }
 
-.browserHead .iconButton {
-  background: rgb(0 0 0 / 0.06);
+.browserWho {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+}
+
+.browserWho strong {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.browserWho small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.minimize {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
 }
 
 .browserFrame {
   position: relative;
-  background: #f4f4f5;
+  overflow: hidden;
+  border: 1px solid var(--divider);
+  border-radius: 20px;
+  background: var(--surface);
 }
 
 .browserFrame iframe {
+  display: block;
   width: 100%;
   height: 100%;
   border: 0;
@@ -287,10 +405,10 @@
 
 .caption {
   margin: 0;
-  padding: 12px 16px;
-  color: #71717a;
+  padding: 0 4px;
+  color: var(--text-muted);
   font-size: 13px;
-  text-align: center;
+  font-weight: 500;
 }
 
 @media (min-width: 768px) {
@@ -298,17 +416,9 @@
     place-items: center;
   }
 
-  .sheet,
-  .browserExpanded {
-    border-radius: 24px;
-  }
-
   .pip {
     width: 240px;
-  }
-
-  .pipFrame {
-    height: 150px;
+    height: 180px;
   }
 }
 

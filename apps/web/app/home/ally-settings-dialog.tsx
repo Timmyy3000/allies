@@ -501,7 +501,7 @@ export function AllySettingsDialog({
                 openPanel("routine");
               }}
             />
-            <div style={{ "--access-accent": accent } as CSSProperties}>
+            <div className={styles.profileSections} style={{ "--access-accent": accent } as CSSProperties}>
               <AllyAccess workspaceId={workspaceId} allyId={ally.id} returned={gmailReturn} />
               <AllySafeInputs workspaceId={workspaceId} ally={ally} />
             </div>
