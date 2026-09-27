@@ -6,6 +6,20 @@ import { isCloudError, normalizeCloudError, type CloudError } from "./errors";
 import { parsePublicCloudUrl } from "./environment";
 import { toAccountViewModel, type AccountViewModel } from "./mappers/account";
 import {
+  gmailAllyGrantSchema,
+  gmailConnectionSchema,
+  gmailConnectResponseSchema,
+  gmailGrantLevelSchema,
+  gmailReturnToSchema,
+  toGmailAllyGrant,
+  toGmailConnection,
+  toGmailConnectSession,
+  type GmailAllyGrant,
+  type GmailConnection,
+  type GmailConnectSession,
+  type GmailGrantLevel,
+} from "./mappers/gmail";
+import {
   activitySnapshotResponseSchema,
   allyLabelSchema,
   allyListResponseSchema,
@@ -715,6 +729,70 @@ export function createCloudClient(options: CloudClientOptions) {
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => toAllyViewModel(successEnvelope(savedAllySettingsSchema).parse(data).data),
+        [200],
+      );
+    },
+
+    async getGmailConnection(workspaceId: string, signal?: AbortSignal): Promise<GmailConnection | null> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/integrations/gmail", {
+          params: { path: { workspace_id: workspace } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => {
+          const connection = successEnvelope(gmailConnectionSchema.nullable()).parse(data).data;
+          return connection ? toGmailConnection(connection) : null;
+        },
+        [200],
+      );
+    },
+
+    async beginGmailConnect(
+      workspaceId: string,
+      input: { allyId: string; grantLevel: Exclude<GmailGrantLevel, "none">; returnTo: string },
+      idempotencyKey: string,
+      signal?: AbortSignal,
+    ): Promise<GmailConnectSession> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const allyId = parseCanonicalUuid(input.allyId);
+      const grantLevel = parseInput(gmailGrantLevelSchema, input.grantLevel);
+      const returnTo = parseInput(gmailReturnToSchema, input.returnTo);
+      const key = parseIdempotencyKey(idempotencyKey);
+      return unwrap(
+        api.POST("/api/v1/workspaces/{workspace_id}/integrations/gmail/connect", {
+          params: { path: { workspace_id: workspace }, header: { "Idempotency-Key": key } },
+          body: { entry_point: "in_chat", ally_id: allyId, grant_level: grantLevel, return_to: returnTo },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toGmailConnectSession(successEnvelope(gmailConnectResponseSchema).parse(data).data),
+        [200, 202],
+      );
+    },
+
+    async setGmailGrant(
+      workspaceId: string,
+      allyId: string,
+      level: GmailGrantLevel,
+      signal?: AbortSignal,
+    ): Promise<GmailAllyGrant> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const ally = parseCanonicalUuid(allyId);
+      const parsedLevel = parseInput(z.enum(["read", "send", "none"]), level);
+      return unwrap(
+        api.POST("/api/v1/workspaces/{workspace_id}/integrations/gmail/grants", {
+          params: { path: { workspace_id: workspace } },
+          body: { ally_id: ally, level: parsedLevel },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => {
+          const grant = toGmailAllyGrant(successEnvelope(gmailAllyGrantSchema).parse(data).data);
+          if (grant.allyId !== ally) throw { kind: "contract" } satisfies CloudError;
+          return grant;
+        },
         [200],
       );
     },

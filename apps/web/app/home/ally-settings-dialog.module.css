@@ -828,3 +828,128 @@
     color: #f09a8a;
   }
 }
+
+.accessRow {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  gap: 14px;
+  padding: 0 20px 0 16px;
+  cursor: pointer;
+}
+
+.accessLogo {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  box-sizing: border-box;
+  padding: 9px;
+  border: 1px solid rgb(18 18 18 / 8%);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.accessCopy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.accessCopy strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.accessCopy small {
+  overflow: hidden;
+  color: #757575;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accessConnect {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 60px;
+  background: #ff5800;
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.accessSwitch {
+  position: relative;
+  width: 52px;
+  height: 32px;
+  flex: 0 0 52px;
+  margin: 0;
+  border-radius: 60px;
+  background: #e5e5e5;
+  appearance: none;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.accessSwitch::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 20%);
+  content: "";
+  transition: transform 0.16s ease;
+}
+
+.accessSwitch:checked {
+  background: var(--access-accent, #ff5800);
+}
+
+.accessSwitch:checked::after {
+  transform: translateX(20px);
+}
+
+.accessSwitch:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.accessNotice {
+  margin: 0;
+  padding: 0 4px;
+  color: #12803a;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.accessSwitch:focus-visible,
+.accessConnect:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .accessSwitch,
+  .accessSwitch::after {
+    transition: none;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .accessSwitch {
+    background: rgb(255 255 255 / 18%);
+  }
+
+  .accessNotice {
+    color: #6fdc8c;
+  }
+}
