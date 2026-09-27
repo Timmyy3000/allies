@@ -17,6 +17,7 @@ dependencies = [
     "psycopg[binary]>=3.2,<4",
     "pyjwt>=2.10,<3",
     "redis>=5,<7",
+    "websockets>=15,<16",
     "whitenoise>=6.9,<7",
 ]
 
