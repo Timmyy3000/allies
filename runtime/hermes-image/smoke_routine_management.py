@@ -23,7 +23,11 @@ def main():
     names = {item["function"]["name"] for item in definitions}
     assert "allies_routines" in names and "cronjob" not in names, names
     assert "allies_gmail" in names, names
-    definition = next(item["function"] for item in definitions if item["function"]["name"] == "allies_routines")
+    definition = next(
+        item["function"]
+        for item in definitions
+        if item["function"]["name"] == "allies_routines"
+    )
     assert definition["description"]
     assert definition["parameters"]["required"] == ["action"]
     observed = []
@@ -76,6 +80,17 @@ def main():
         assert json.loads(result)["status"] == "saved", result
         assert observed[-1]["integration"] == "gmail", observed[-1]
         assert observed[-1]["arguments"] == {"action": "search", "query": "x"}
+        result = handle_function_call(
+            "tool_call",
+            {"name": "allies_safe_inputs", "arguments": {"action": "list"}},
+            task_id="smoke",
+            tool_call_id="call_smoke_safe_inputs",
+            enabled_tools=["tool_call", "tool_search", "tool_describe"],
+            enabled_toolsets=["allies-safe-inputs"],
+            disabled_toolsets=["cronjob"],
+        )
+        assert json.loads(result)["status"] == "saved", result
+        assert observed[-1]["integration"] == "safe_inputs", observed[-1]
     finally:
         context.reset(token)
         server.shutdown()
@@ -83,6 +98,11 @@ def main():
         thread.join()
     assert "unavailable" in registry.dispatch("allies_routines", {"action": "list"})
     assert "unavailable" in registry.dispatch("allies_gmail", {"action": "search"})
+    assert registry.get_entry("allies_ask_approval") is not None
+    from tools.browser_tool import _get_cloud_provider
+
+    provider = _get_cloud_provider()
+    assert provider is not None and provider.display_name == "Allies browser", provider
     print("Hermes routine management discovery, dispatch and isolation: PASS")
 
 
