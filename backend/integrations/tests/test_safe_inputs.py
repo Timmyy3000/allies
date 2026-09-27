@@ -313,7 +313,44 @@ def test_fill_passes_values_as_arguments(turn, monkeypatch, outcome, expected):
     fill_call = next(p for m, p in FakeCdp.sent if m == "Runtime.callFunctionOn")
     assert SECRETS[1] not in fill_call["functionDeclaration"]
     assert fill_call["arguments"][1:] == [{"value": s} for s in SECRETS]
-    assert FakeCdp.sent[0][0] == "Page.reload"
+    # No reload: it would close login pop-ups the Ally opened.
+    assert all(m != "Page.reload" for m, _ in FakeCdp.sent)
+
+
+@pytest.mark.parametrize(("field", "value"), [("username", 0), ("password", 1)])
+def test_fill_types_one_value_into_the_focused_field(turn, monkeypatch, field, value):
+    workspace, ally, _ = turn
+    _fake_browser_use(monkeypatch)
+    monkeypatch.setattr(browser, "Cdp", FakeCdp)
+    monkeypatch.setattr(safe_inputs.time, "sleep", lambda s: None)
+    FakeCdp.outcome, FakeCdp.sent = "filled", []
+    item = _login(workspace)
+    SafeInputGrant.objects.create(safe_input=item, ally=ally)
+    browser.open_browser(ally)
+
+    result = _tool(turn, action="fill", safe_input_id=str(item.id), field=field)
+    assert result[1] == {"status": "filled"}
+    fill_call = next(p for m, p in FakeCdp.sent if m == "Runtime.callFunctionOn")
+    assert fill_call["arguments"] == [
+        {"value": "amazon.com"},
+        {"value": field},
+        {"value": SECRETS[value]},
+    ]
+    # Only the requested value leaves the vault for this call.
+    assert SECRETS[1 - value] not in json.dumps(fill_call)
+    keys = [p["type"] for m, p in FakeCdp.sent if m == "Input.dispatchKeyEvent"]
+    assert keys == ["keyDown", "keyUp"]
+    assert SECRETS[value] not in json.dumps(result)
+
+
+def test_fill_rejects_unknown_field(turn, monkeypatch):
+    workspace, ally, _ = turn
+    _fake_browser_use(monkeypatch)
+    item = _login(workspace)
+    SafeInputGrant.objects.create(safe_input=item, ally=ally)
+    browser.open_browser(ally)
+    status, body = _tool(turn, action="fill", safe_input_id=str(item.id), field="otp")
+    assert status == 422 and body["error"] == "invalid_request"
 
 
 @pytest.mark.django_db
