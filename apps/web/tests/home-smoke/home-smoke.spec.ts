@@ -167,6 +167,9 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
         run_id: "00000000-0000-4000-8000-000000000026", result_id: "00000000-0000-4000-8000-000000000025", result_insertion: "inserted", text: "**AI is great**", references: [],
       }] : [])] } } : payload });
     }
+    if (url.pathname === `/api/v1/workspaces/${workspaceId}/integrations/gmail`) {
+      return route.fulfill({ status: 200, headers, json: success(null) });
+    }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/routines`) {
       return route.fulfill({ status: 200, headers, json: success({
         items: withRoutine ? [{
@@ -790,6 +793,10 @@ test("shows the Ally profile with routines and opens each profile sheet", async 
   const dialog = page.getByRole("dialog", { name: "Ada settings" });
   await expect(dialog.getByText("1 active")).toBeVisible();
   await expect(dialog.getByRole("button", { name: /Morning check/ })).toBeVisible();
+  await expect(dialog.getByRole("heading", { name: "Access" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Connect" })).toBeVisible();
+  await dialog.getByRole("heading", { name: "Access" }).scrollIntoViewIfNeeded();
+  await page.screenshot({ path: testInfo.outputPath("access.png") });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("profile.png") });
 

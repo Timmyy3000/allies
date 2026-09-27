@@ -106,3 +106,5 @@ export { mergeConversationMessageCopies } from "./message-queue";
 export { validateSelectedFiles, FILE_EXTENSIONS, MAX_FILE_BYTES, MAX_MESSAGE_FILE_BYTES } from "./files";
 export type { FileManifest, MessageFile, FilePublication, FileReservation, FileMetadata } from "./files";
 export type { components, operations, paths } from "./generated/openapi";
+export type { GmailAllyGrant, GmailConnection, GmailConnectSession, GmailGrantLevel } from "./mappers/gmail";
+export { parseGoogleAuthUrl } from "./mappers/gmail";
