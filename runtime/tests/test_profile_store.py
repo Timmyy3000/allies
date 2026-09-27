@@ -1985,6 +1985,88 @@ def test_profile_store_accessors_default_factory_overrides_and_inspection(
     assert naive_receipt.status is ProfileCleanupStatus.DEPROVISIONED
 
 
+@pytest.mark.parametrize(
+    ("provider", "model", "env_name", "reference"),
+    [
+        ("opencode-zen", "gpt-5.2", "OPENCODE_ZEN_API_KEY", "vault://tenant/zen"),
+        ("opencode-go", "glm-5", "OPENCODE_GO_API_KEY", "vault://tenant/go"),
+    ],
+)
+def test_opencode_subscription_seed_materializes_keyed_env(
+    tmp_path, provider, model, env_name, reference
+):
+    secret = f"tenant-shared-{provider}-secret"
+    seed = ProfileSeed(
+        foundry_profile_id=PROFILE_ID,
+        ally_name="Aster",
+        personality="Keep this text exactly.\n",
+        provider=provider,
+        model=model,
+        first_chat_instruction="Start by greeting the Ally.",
+        credential_refs={env_name: reference},
+        lifecycle_epoch=4,
+        materialized_generation="machine-1",
+        operation_id="provision-1",
+    )
+    store = ProfileStore(
+        tmp_path / "volume",
+        api_key_factory=lambda: "profile-local-key-0123456789",
+        credential_resolver={reference: secret},
+    )
+    receipt = store.materialize(seed)
+    assert receipt.status is ProfileProvisionStatus.CREATED
+    profile = profile_path(store, seed)
+    assert f"{env_name}={secret}\n" in (profile / ".env").read_text(encoding="utf-8")
+    config_text = (profile / "config.yaml").read_text(encoding="utf-8")
+    assert f'provider: "{provider}"' in config_text
+    assert secret not in config_text
+    if os.name != "nt":
+        assert (profile / ".env").stat().st_mode & 0o777 == 0o600
+    assert secret not in json.dumps(receipt.to_dict())
+
+
+def test_opencode_tenant_ref_is_shared_across_profiles_without_leaking(tmp_path):
+    reference = "vault://tenant/zen"
+    secret = "tenant-shared-opencode-zen-secret"
+    first = ProfileSeed(
+        foundry_profile_id=PROFILE_ID,
+        ally_name="Aster",
+        personality="Keep this text exactly.\n",
+        provider="opencode-zen",
+        model="gpt-5.2",
+        first_chat_instruction="Start by greeting the Ally.",
+        credential_refs={"OPENCODE_ZEN_API_KEY": reference},
+        lifecycle_epoch=4,
+        materialized_generation="machine-1",
+        operation_id="provision-1",
+    )
+    second = ProfileSeed(
+        foundry_profile_id=OTHER_PROFILE_ID,
+        ally_name="Bram",
+        personality="Keep this text exactly.\n",
+        provider="opencode-zen",
+        model="gpt-5.2",
+        first_chat_instruction="Start by greeting the Ally.",
+        credential_refs={"OPENCODE_ZEN_API_KEY": reference},
+        lifecycle_epoch=4,
+        materialized_generation="machine-1",
+        operation_id="provision-2",
+    )
+    store = ProfileStore(
+        tmp_path / "volume",
+        api_key_factory=lambda: "profile-local-key-0123456789",
+        credential_resolver={reference: secret},
+    )
+    store.materialize(first)
+    store.materialize(second)
+    for seed in (first, second):
+        env_text = (profile_path(store, seed) / ".env").read_text(encoding="utf-8")
+        assert f"OPENCODE_ZEN_API_KEY={secret}\n" in env_text
+    assert store.read_api_key(first.hermes_profile_key or "") == (
+        "profile-local-key-0123456789"
+    )
+
+
 def test_apply_binding_rewrites_live_keys_with_generation_fence(tmp_path):
     store = ProfileStore(
         tmp_path / "volume",
