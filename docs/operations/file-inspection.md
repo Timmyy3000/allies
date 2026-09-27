@@ -68,8 +68,10 @@ must check that token, its deadline, the generation, and the write fence after
 storage I/O. A stale worker cannot promote or reject a replacement generation.
 
 Durable uploads notify a file-specific inspection task only after their database
-transaction commits. Retryable failures persist their 5- or 30-second due time
-before publishing the next notification. Notifications use a short, non-retrying
+transaction commits. Retryable failures persist their 5, 15, 30, 60, or
+120-second due time before publishing the next notification. The roughly
+four-minute window covers a cold start of the serverless scanner, which sleeps
+when idle and refreshes its definitions on wake. Notifications use a short, non-retrying
 broker connection and may be lost without losing work: the bounded 30-second
 due-file sweep remains the recovery path for broker failure, worker restarts,
 and expired leases. Duplicate, early, leased, terminal, and missing-file tasks
