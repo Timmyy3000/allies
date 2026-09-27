@@ -962,7 +962,8 @@ describe("HomeWorkspace", () => {
     }));
     renderHome([ally], ally.id, { getGmailConnection });
     const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
-    expect(await within(dialog).findByText("Gmail connected")).toBeTruthy();
+    expect(await within(dialog).findByText("me@example.com")).toBeTruthy();
+    expect(within(dialog).queryByText("Gmail connected")).toBeNull();
     expect(within(dialog).getByText("me@example.com")).toBeTruthy();
     await waitFor(() => expect(replace).toHaveBeenCalledWith(`/home/${ally.id}`));
     window.history.replaceState(null, "", "/");

@@ -59,7 +59,8 @@ describe("AllyAccess", () => {
 
   it("confirms a completed connection and explains a failed one on return", async () => {
     renderAccess({ getGmailConnection: vi.fn(async () => connection("read")) }, { status: "connected" });
-    expect((await screen.findByRole("status")).textContent).toBe("Gmail connected");
+    expect(await screen.findByText("me@example.com")).toBeTruthy();
+    expect(screen.queryByRole("status")).toBeNull();
     cleanup();
     renderAccess({ getGmailConnection: vi.fn(async () => null) }, { status: "failed", message: "Gmail wasn't connected." });
     expect((await screen.findByRole("alert")).textContent).toBe("Gmail wasn't connected.");
