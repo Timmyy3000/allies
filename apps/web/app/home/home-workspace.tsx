@@ -2430,12 +2430,12 @@ function ConversationPane({
       && Date.now() - lastStreamEventAtRef.current < DURABLE_REPLY_SNAPSHOT_INTERVAL_MS
     ) return;
     if (pollCountRef.current >= ACTIVITY_POLL_LIMIT) {
+      // A live stream is still the source of truth, so only a polling fallback gives up.
+      if (companionSnapshot) return;
       if (!pollBudgetReached) setPollBudgetReached(true);
-      if (!companionSnapshot) {
-        setActiveTurn(false);
-        setAwaitingVisibleResponse(false);
-        setPollingSettled(true);
-      }
+      setActiveTurn(false);
+      setAwaitingVisibleResponse(false);
+      setPollingSettled(true);
       return;
     }
     activityRequestRef.current?.abort();
@@ -2653,6 +2653,7 @@ function ConversationPane({
       onEvent: (event) => {
         if (!mountedRef.current) return;
         lastStreamEventAtRef.current = Date.now();
+        pollCountRef.current = 0;
         if ("conversationId" in event && event.conversationId !== targetConversationId) {
           controller.abort();
           startPollingFallback();
