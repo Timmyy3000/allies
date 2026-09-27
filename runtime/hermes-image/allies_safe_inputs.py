@@ -12,9 +12,14 @@ INSTRUCTION = (
     "If you need a login you do not have, call request_access with its id, or "
     "request_new with a name and website when none exists; the user answers in "
     "Allies and this call waits for them. Never ask the user to type a password "
-    "in chat. To sign in, open the site's login page in the browser, then call "
-    "fill with the safe_input_id; Allies types the values and submits the form. "
-    "If fill returns domain_mismatch, you are on the wrong site: stop and tell the user."
+    "in chat. To sign in, open the site's login form in the browser (accept any "
+    "cookie banner, open the login pop-up), click the username or email field, "
+    "then call fill with the safe_input_id and field=username; Allies types it "
+    "and presses Enter. Logins that ask for the password on a later step: click "
+    "the password field once it appears and call fill with field=password. You "
+    "never see the values. no_field or ambiguous_field means click the right "
+    "field first and retry. If fill returns domain_mismatch, you are on the "
+    "wrong site: stop and tell the user."
 )
 SCHEMA = {
     "type": "function",
@@ -34,6 +39,7 @@ SCHEMA = {
                 "request_id": {"type": "string", "maxLength": 36},
                 "name": {"type": "string", "maxLength": 80},
                 "website": {"type": "string", "maxLength": 253},
+                "field": {"type": "string", "enum": ["username", "password"]},
             },
         },
     },
