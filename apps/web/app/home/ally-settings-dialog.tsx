@@ -3,16 +3,18 @@
 import type { AllyDeletionViewModel, AllySettingsInput, AllyViewModel, RoutineDiscoveryDetail, RoutineDiscoveryPage } from "@allies/cloud-client";
 import { isCloudError } from "@allies/cloud-client";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
 import { AllyAvatar } from "../../components/ally-avatar";
 import { AllyLookPicker } from "../../components/ally-look-picker";
 import { allyAppearanceKey, resolveAllyAppearance, type ResolvedAllyAppearance } from "../../lib/allies/appearance";
+import type { GmailReturn } from "../../lib/integrations/gmail-connect";
 import { useSession } from "../../lib/session/session-context";
 import { alliesQueryKey } from "../../lib/allies/query-keys";
 import { WAITLIST_APPEARANCE_CATALOG_VERSION, WAITLIST_COLORS } from "../../lib/waitlist/catalog";
 
+import { AllyAccess } from "./ally-access";
 import { formatRoutineSchedule } from "./conversation-frame";
 import { BottomSheet, readableAccentForeground } from "./conversation-frame-primitives";
 import frameStyles from "./conversation-frame.module.css";
@@ -134,6 +136,7 @@ export function AllySettingsDialog({
   onDeletionStatus,
   onRefreshDeletion,
   onOpenRoutine,
+  gmailReturn = null,
 }: {
   ally: AllyViewModel;
   workspaceId: string;
@@ -142,6 +145,7 @@ export function AllySettingsDialog({
   onDeletionStatus: (status: AllyDeletionViewModel) => void;
   onRefreshDeletion: () => Promise<AllyDeletionViewModel>;
   onOpenRoutine: (routineId: string) => void;
+  gmailReturn?: GmailReturn | null;
 }) {
   const reducedMotion = useReducedMotion();
   const session = useSession();
@@ -496,6 +500,9 @@ export function AllySettingsDialog({
                 openPanel("routine");
               }}
             />
+            <div style={{ "--access-accent": accent } as CSSProperties}>
+              <AllyAccess workspaceId={workspaceId} allyId={ally.id} returned={gmailReturn} />
+            </div>
             <div className={styles.profileList}>
               <button
                 ref={deleteTriggerRef}
