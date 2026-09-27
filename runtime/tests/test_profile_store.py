@@ -2065,3 +2065,33 @@ def test_apply_binding_fails_closed_without_touching_live_files(tmp_path):
         key, generation=3, key_refs={"OPENCODE_ZEN_API_KEY": "vault://tenant/zen"}
     )
     assert incomplete.status is BindingApplyStatus.REPAIR_REQUIRED
+
+
+def test_existing_profile_picks_up_a_rotated_provider_key(tmp_path):
+    secrets = {"vault://tenant/openai": PROFILE_SECRET}
+    store, seed = make_store(tmp_path, resolver=secrets), make_seed()
+    assert store.materialize(seed).status is ProfileProvisionStatus.CREATED
+    env = profile_path(store, seed) / ".env"
+    secrets["vault://tenant/openai"] = "sk-or-rotated-provider-key"
+
+    assert store.materialize(seed).status is ProfileProvisionStatus.EXISTING
+
+    lines = env.read_text(encoding="utf-8").splitlines()
+    assert "OPENAI_API_KEY=sk-or-rotated-provider-key" in lines
+    assert lines[0] == "API_SERVER_KEY=profile-local-key-0123456789"
+    assert env.stat().st_mode & 0o777 == 0o600 or os.name == "nt"
+
+
+def test_bound_profile_env_is_left_to_the_binding(tmp_path):
+    secrets = {"vault://tenant/openai": PROFILE_SECRET}
+    store, seed = make_store(tmp_path, resolver=secrets), make_seed()
+    store.materialize(seed)
+    profile = profile_path(store, seed)
+    (profile / profile_store_module.BINDING_SIDECAR_NAME).write_text(
+        '{"generation": 1}', encoding="utf-8"
+    )
+    before = (profile / ".env").read_bytes()
+    secrets["vault://tenant/openai"] = "sk-or-rotated-provider-key"
+
+    assert store.materialize(seed).status is ProfileProvisionStatus.EXISTING
+    assert (profile / ".env").read_bytes() == before
