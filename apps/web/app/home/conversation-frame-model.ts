@@ -385,6 +385,10 @@ export function buildProductionConversationFrameModel(
     ? []
     : (input.projection.pendingActivities ?? [])
       .filter((activity) => activity.kind === "assistant_delta" && activity.text.trim())
+      .filter((activity) => !hasDurableReply(input.messages, assistantReplies, {
+        messageId: activity.messageId,
+        turnOrdinal: activity.conversationTurnOrdinal,
+      }))
       .map((activity) => activity.text);
   const turns = accessBlocked
     ? []
@@ -592,10 +596,18 @@ function hasDurableSuccess(
   assistantReplies: readonly AssistantReplyViewModel[],
   message: MessageViewModel,
 ): boolean {
-  return hasLegacyAssistantReply(messages, { messageId: message.id, turnOrdinal: message.sequence })
+  return hasDurableReply(messages, assistantReplies, { messageId: message.id, turnOrdinal: message.sequence });
+}
+
+function hasDurableReply(
+  messages: readonly MessageViewModel[],
+  assistantReplies: readonly AssistantReplyViewModel[],
+  turn: { messageId: string; turnOrdinal: number },
+): boolean {
+  return hasLegacyAssistantReply(messages, turn)
     || assistantReplies.some((reply) => (
-      reply.sourceMessageId === message.id
-      && reply.conversationTurnOrdinal === message.sequence
+      reply.sourceMessageId === turn.messageId
+      && reply.conversationTurnOrdinal === turn.turnOrdinal
       && reply.hasFullPrefix
       && reply.status === "completed"
     ));
