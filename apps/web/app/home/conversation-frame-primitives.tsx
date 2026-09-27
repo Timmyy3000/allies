@@ -938,6 +938,7 @@ export function BottomSheet({
   modal = false,
   hideHeader = false,
   closeDisabled = false,
+  onEscape,
 }: {
   title?: string;
   headerContent?: ReactNode;
@@ -949,6 +950,7 @@ export function BottomSheet({
   modal?: boolean;
   hideHeader?: boolean;
   closeDisabled?: boolean;
+  onEscape?: () => boolean;
 }) {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const sheetRef = useRef<HTMLElement>(null);
@@ -1015,7 +1017,7 @@ export function BottomSheet({
         {children}
       </section>
   );
-  return modal ? <dialog ref={dialogRef} style={style} className={`${styles.frameOverlay} ${styles.frameNativeSheet} ${className}`} aria-labelledby={label} onCancel={(event) => { event.preventDefault(); void handleClose(); }}>{content}</dialog>
+  return modal ? <dialog ref={dialogRef} style={style} className={`${styles.frameOverlay} ${styles.frameNativeSheet} ${className}`} aria-labelledby={label} onCancel={(event) => { event.preventDefault(); if (onEscape?.()) return; void handleClose(); }}>{content}</dialog>
     : <div className={`${styles.frameOverlay} ${className}`} style={style} role="presentation">{content}</div>;
 }
 
