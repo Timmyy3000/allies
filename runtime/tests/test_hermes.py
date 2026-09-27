@@ -1518,6 +1518,33 @@ def test_publication_activity_preserves_kind_identity_and_outcome(failed):
     assert completion.payload["status"] == ("failed" if failed else "completed")
 
 
+@pytest.mark.parametrize(
+    ("subject", "forwarded"),
+    [
+        ("wg-gesucht.de", "wg-gesucht.de"),
+        (" padded", None),
+        ("x" * 81, None),
+        ("a\nb", None),
+        (7, None),
+    ],
+)
+def test_activity_subject_is_forwarded_only_when_bounded(subject, forwarded):
+    stream = _running_activity_stream()
+    payload = {
+        "session_id": "s1",
+        "run_id": "r1",
+        "tool_name": "browser_navigate",
+        "tool_call_id": "nav-call",
+        "activity_subject": subject,
+    }
+    start = stream._normalize_event("tool.started", payload)
+    completion = stream._normalize_event(
+        "tool.completed", {**payload, "is_error": False}
+    )
+    assert start.payload.get("activity_subject") == forwarded
+    assert completion.payload.get("activity_subject") == forwarded
+
+
 def test_producer_activity_kinds_and_aliases_match_contract_fixture():
     activity_contract_path = (
         Path(__file__).resolve().parents[2]
