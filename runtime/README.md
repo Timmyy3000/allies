@@ -94,7 +94,7 @@ claim without this optional field keeps the legacy request body. Invalid
 present values fail before the Hermes request. The managed request value
 intentionally takes precedence for the turn; profile settings remain stored
 and are not rewritten or rematerialized. Session creation continues to use
-the profile's existing model, currently `gpt-5.6-luna`.
+the profile's existing model, currently `openai/gpt-6-luna` via OpenRouter.
 
 After a compatible `allies-runtime` image is adopted, changing the Foundry
 setting and reloading Foundry processes updates later turns without rebuilding

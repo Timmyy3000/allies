@@ -2,7 +2,8 @@ import json
 from pathlib import Path
 from string import Template
 
-from test_profile_store import make_seed, make_store, profile_path
+import yaml
+from test_profile_store import _openrouter_seed, make_seed, make_store, profile_path
 
 from allies_runtime.profile_store import MANIFEST_NAME, ProfileProvisionStatus
 from allies_runtime.soul_upgrade import (
@@ -81,3 +82,35 @@ def test_missing_manifest_fingerprint_is_not_a_soul_upgrade(tmp_path):
 
     assert receipt.status is ProfileProvisionStatus.CONFLICT
     assert (profile / "SOUL.md").read_text(encoding="utf-8") == "custom soul"
+
+
+def test_volume_predating_soul_and_model_switches_upgrades_both(tmp_path):
+    store = make_store(tmp_path)
+    seed = _openrouter_seed(personality=NEW_SOUL)
+    assert store.materialize(seed).status is ProfileProvisionStatus.CREATED
+    profile = profile_path(store, seed)
+    (profile / "SOUL.md").write_text(OLD_SOUL, encoding="utf-8")
+    manifest_path = profile / MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_fingerprint"] = seed.legacy_soul_seed.legacy_model_fingerprint
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    config_path = profile / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["model"] = {
+        "provider": "openai-api",
+        "default": "gpt-5.6-luna",
+        "base_url": "https://api.openai.com/v1",
+    }
+    config_path.write_text(yaml.safe_dump(config, sort_keys=False), encoding="utf-8")
+
+    receipt = store.materialize(seed)
+
+    assert receipt.status is ProfileProvisionStatus.EXISTING
+    assert (profile / "SOUL.md").read_text(encoding="utf-8") == NEW_SOUL
+    upgraded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert upgraded["seed_fingerprint"] == seed.fingerprint
+    assert yaml.safe_load(config_path.read_text(encoding="utf-8"))["model"] == {
+        "provider": "openai-api",
+        "default": "openai/gpt-6-luna",
+        "base_url": "https://openrouter.ai/api/v1",
+    }
