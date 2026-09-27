@@ -70,15 +70,16 @@ function allyIdFromParam(value: string | string[] | undefined): string | null {
 }
 
 export default function AllyConversationRoute() {
-  const { allyId: rawAllyId } = useLocalSearchParams<{ allyId?: string }>();
+  const { allyId: rawAllyId, prefill: rawPrefill } = useLocalSearchParams<{ allyId?: string; prefill?: string }>();
   const allyId = allyIdFromParam(rawAllyId);
   const router = useRouter();
 
   if (!allyId) return <ConversationState message="That Ally link is not valid." onBack={() => router.replace('/allies' as never)} />;
-  return <AllyConversationScreen allyId={allyId} onBack={() => router.replace('/allies' as never)} />;
+  const prefill = (Array.isArray(rawPrefill) ? rawPrefill[0] : rawPrefill)?.slice(0, 500) || null;
+  return <AllyConversationScreen allyId={allyId} prefill={prefill} onBack={() => router.replace('/allies' as never)} />;
 }
 
-function AllyConversationScreen({ allyId, onBack }: { allyId: string; onBack: () => void }) {
+function AllyConversationScreen({ allyId, prefill, onBack }: { allyId: string; prefill: string | null; onBack: () => void }) {
   const theme = useTheme();
   const router = useRouter();
   const session = useNativeSession();
@@ -93,11 +94,18 @@ function AllyConversationScreen({ allyId, onBack }: { allyId: string; onBack: ()
   const canRequest = session.status === 'signed-in'
     && Boolean(workspaceId && session.accountClient && session.adapter);
   const conversationKey = useMemo(() => allyKeys.conversation(workspaceId, allyId), [allyId, workspaceId]);
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState(prefill ?? '');
   const [composerHeight, setComposerHeight] = useState(48);
   const [sending, setSending] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [pendingMessage, setPendingMessage] = useState<PendingMessageCommand | null>(null);
+  const [appliedPrefill, setAppliedPrefill] = useState(prefill);
+  const [deferredPrefill, setDeferredPrefill] = useState<string | null>(null);
+  if (prefill !== appliedPrefill) {
+    setAppliedPrefill(prefill);
+    if (prefill && pendingMessage) setDeferredPrefill(prefill);
+    else if (prefill) setDraft(prefill);
+  }
   const [pendingLoaded, setPendingLoaded] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [projection, setProjection] = useState(EMPTY_ACTIVITY_PROJECTION);
@@ -170,6 +178,11 @@ function AllyConversationScreen({ allyId, onBack }: { allyId: string; onBack: ()
     refetchOnWindowFocus: false,
   });
   const conversationId = conversationQuery.data?.pages[0]?.id ?? null;
+  const [deferredPrefillConversationId, setDeferredPrefillConversationId] = useState(conversationId);
+  if (conversationId !== deferredPrefillConversationId) {
+    setDeferredPrefillConversationId(conversationId);
+    if (deferredPrefillConversationId !== null) setDeferredPrefill(null);
+  }
   const newestConversationMessages = [
     ...(conversationQuery.data?.pages[0]?.messages ?? []),
     ...(conversationQuery.data?.pages[0]?.queue ?? []),
@@ -364,6 +377,7 @@ function AllyConversationScreen({ allyId, onBack }: { allyId: string; onBack: ()
     setPendingMessage(null);
     setPendingLoaded(false);
     setDraft('');
+    setDeferredPrefill(null);
     reconciliationControllerRef.current?.abort();
     reconciliationControllerRef.current = null;
     foregroundReconciliationRef.current = null;
@@ -414,7 +428,11 @@ function AllyConversationScreen({ allyId, onBack }: { allyId: string; onBack: ()
     void pendingCommandStore.readMessage(conversationId, session.account.userId, session.account.workspace.id).then((command) => {
       if (!mounted || sessionIdentityRef.current !== readIdentity) return;
       setPendingMessage(command);
-      if (command) setDraft(command.content);
+      if (command) {
+        // A saved unsent message must be retried first; offer the prefill after it goes through.
+        if (prefill) setDeferredPrefill(prefill);
+        setDraft(command.content);
+      }
       setPendingLoaded(true);
     }).catch(() => {
       if (mounted && sessionIdentityRef.current === readIdentity) {
@@ -424,7 +442,7 @@ function AllyConversationScreen({ allyId, onBack }: { allyId: string; onBack: ()
     return () => {
       mounted = false;
     };
-  }, [conversationId, session.account, session.status, sessionIdentity]);
+  }, [conversationId, prefill, session.account, session.status, sessionIdentity]);
 
   const messages = (() => {
     try {
@@ -480,7 +498,8 @@ function AllyConversationScreen({ allyId, onBack }: { allyId: string; onBack: ()
     await pendingCommandStore.deleteMessage(conversationId, idempotencyKey);
     if (!isCurrentMessageOperation(operation)) return false;
     setPendingMessage(null);
-    setDraft('');
+    setDraft(deferredPrefill ?? '');
+    setDeferredPrefill(null);
     const nextState = activityStateForMessage(acceptance.message.status);
     setProjection((current) => ({ ...current, state: nextState }));
     const executionActive = isMessageExecutionActive(acceptance.message.status);
@@ -497,7 +516,7 @@ function AllyConversationScreen({ allyId, onBack }: { allyId: string; onBack: ()
     if (!isCurrentMessageOperation(operation)) return false;
     if (cacheConflict) setSendError('Your message was sent. Refresh to reconcile the conversation.');
     return true;
-  }, [conversationId, conversationKey, isCurrentMessageOperation, queryClient, refetchActivity, refreshNewestConversation]);
+  }, [conversationId, conversationKey, deferredPrefill, isCurrentMessageOperation, queryClient, refetchActivity, refreshNewestConversation]);
 
   const send = async () => {
     if (!canSend || !conversationId || !session.account || !session.accountClient || !session.adapter) return;

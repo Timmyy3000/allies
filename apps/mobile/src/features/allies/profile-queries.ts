@@ -1,4 +1,4 @@
-import type { AllySettingsInput, AllyViewModel, CloudError, RoutineDiscoveryPage } from '@allies/cloud-client';
+import type { AllySettingsInput, AllyViewModel, CloudError, RoutineDiscoveryDetail, RoutineDiscoveryPage } from '@allies/cloud-client';
 import { useMutation, useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 
 import { useNativeSession } from '@/lib/session/session-context';
@@ -18,6 +18,20 @@ export function useAllyRoutines(allyId: string): UseQueryResult<RoutineDiscovery
     queryFn: ({ signal }) => {
       if (!session.accountClient || !session.adapter) return Promise.reject(accountUnavailable());
       return session.adapter.withRefresh(() => session.accountClient!.listRoutines(workspaceId, { allyId, signal }));
+    },
+    retry: false,
+  });
+}
+
+export function useAllyRoutine(allyId: string, routineId: string | null): UseQueryResult<RoutineDiscoveryDetail, CloudError> {
+  const session = useNativeSession();
+  const workspaceId = session.account?.workspace.id ?? '';
+  return useQuery({
+    queryKey: [...allyKeys.detail(workspaceId, allyId), 'routine', routineId ?? 'none'],
+    enabled: session.status === 'signed-in' && Boolean(routineId && workspaceId && session.accountClient && session.adapter),
+    queryFn: ({ signal }) => {
+      if (!routineId || !session.accountClient || !session.adapter) return Promise.reject(accountUnavailable());
+      return session.adapter.withRefresh(() => session.accountClient!.getRoutine(workspaceId, routineId, signal));
     },
     retry: false,
   });
