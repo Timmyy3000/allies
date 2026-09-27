@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import json
 import logging
-import time
 from datetime import timedelta
 from uuid import UUID
 
@@ -79,12 +78,6 @@ _FILL_FOCUSED = """function (website, field, value) {
   el.dispatchEvent(new Event("input", {bubbles: true}));
   el.dispatchEvent(new Event("change", {bubbles: true}));
   return "filled";
-}"""
-
-_CLEAR = """function (username, password) {
-  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
-  for (const el of document.querySelectorAll("input"))
-    if (el.value && (el.value === username || el.value === password)) setter.call(el, "");
 }"""
 
 
@@ -252,14 +245,9 @@ def fill(ally, safe_input_id: UUID, field: str | None = None) -> dict:
                             },
                             session=page,
                         )
-            # Field-by-field logins stay on the page while the Ally continues, so
-            # clearing would empty the fields before the site reads them.
-            if outcome == "filled" and field is None:
-                time.sleep(3)
-                try:
-                    _call(cdp, page, _CLEAR, values["username"], values["password"])
-                except ValueError:
-                    pass  # The page navigated away, which is the usual success path.
+            # No clearing afterwards: sites copy the typed values into later
+            # steps (WG-Gesucht's password step reads the email field), and a
+            # clear would empty them before the site submits.
     except (browser.BrowserUnavailable, ValueError, OSError, KeyError, StopIteration):
         outcome = "failed"
     status, _, page_host = outcome.partition(":")
