@@ -98,8 +98,13 @@ def test_provider_keeps_turn_context_for_reaper_close(turn, monkeypatch):
             {"status": "closed"},
         ],
     )
-    session = provider.BrowserUseBrowserProvider().create_session("task")
+    session = provider.BrowserUseBrowserProvider().create_session(
+        "allies-s-" + "a" * 64
+    )
     assert session["bb_session_id"] == "b1" and session["cdp_url"] == "wss://cdp"
+    # agent-browser puts its socket at /tmp/agent-browser-<name>/default.sock,
+    # which Linux caps at 103 bytes.
+    assert len(f"/tmp/agent-browser-{session['session_name']}/default.sock") <= 103
 
     routines.context.set(None)  # reaper thread: no turn context
     assert provider.BrowserUseBrowserProvider().close_session("b1") is True

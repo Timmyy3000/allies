@@ -43,7 +43,9 @@ class BrowserUseBrowserProvider(BrowserProvider):
         with _lock:
             _opened[result["session_id"]] = current
         return {
-            "session_name": f"hermes_{task_id}_{uuid.uuid4().hex[:8]}",
+            # Allies task ids are ~73 chars; a name built from them overflows
+            # the 103-byte Unix socket path agent-browser derives from it.
+            "session_name": f"h_{uuid.uuid4().hex[:10]}",
             "bb_session_id": result["session_id"],
             "cdp_url": result["cdp_url"],
             "expires_at": result.get("expires_at"),
