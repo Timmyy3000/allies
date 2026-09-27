@@ -3265,7 +3265,7 @@ describe("HomeWorkspace", () => {
       });
       expect(getActivities.mock.calls.length).toBeGreaterThanOrEqual(241);
       expect(closeStream).not.toHaveBeenCalled();
-      expect(screen.getByText("Status checking is paused.")).toBeTruthy();
+      expect(screen.queryByText("Status checking is paused.")).toBeNull();
       expect(screen.getByRole("status", { name: "Thinking" })).toBeTruthy();
       const readsBeforeFallback = getActivities.mock.calls.length;
       const streamOptions = readActivityStreamMock.mock.calls[0][0] as ActivityStreamOptions;
