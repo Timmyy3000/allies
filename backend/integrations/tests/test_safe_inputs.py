@@ -340,6 +340,8 @@ def test_fill_types_one_value_into_the_focused_field(turn, monkeypatch, field, v
     assert SECRETS[1 - value] not in json.dumps(fill_call)
     keys = [p["type"] for m, p in FakeCdp.sent if m == "Input.dispatchKeyEvent"]
     assert keys == ["keyDown", "keyUp"]
+    # The value must stay for later steps: exactly one page call, no clearing.
+    assert sum(m == "Runtime.callFunctionOn" for m, _ in FakeCdp.sent) == 1
     assert SECRETS[value] not in json.dumps(result)
 
 

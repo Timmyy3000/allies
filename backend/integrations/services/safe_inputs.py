@@ -252,7 +252,9 @@ def fill(ally, safe_input_id: UUID, field: str | None = None) -> dict:
                             },
                             session=page,
                         )
-            if outcome == "filled":
+            # Field-by-field logins stay on the page while the Ally continues, so
+            # clearing would empty the fields before the site reads them.
+            if outcome == "filled" and field is None:
                 time.sleep(3)
                 try:
                     _call(cdp, page, _CLEAR, values["username"], values["password"])
