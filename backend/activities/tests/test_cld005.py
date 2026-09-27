@@ -92,6 +92,69 @@ def test_publication_activity_projects_truthful_labels(
     assert completed.activity_id == started.activity_id
 
 
+@pytest.mark.parametrize(
+    ("kind", "subject", "started_text", "done_text"),
+    [
+        (
+            "web_search",
+            "rooms in berlin",
+            "Searching the web for “rooms in berlin”",
+            "Searched the web for “rooms in berlin”",
+        ),
+        (
+            "browser_navigate",
+            "wg-gesucht.de",
+            "Visiting wg-gesucht.de",
+            "Visited wg-gesucht.de",
+        ),
+        (
+            "safe_input_request",
+            "wg-gesucht.de",
+            "Asking for your wg-gesucht.de login",
+            "Asked for your wg-gesucht.de login",
+        ),
+        ("gmail_send", None, "Sending an email", "Sent an email"),
+        ("terminal", None, "Running a command", "Ran a command"),
+    ],
+)
+def test_activity_labels_name_what_happened(
+    conversation_records, kind, subject, started_text, done_text
+):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    identity = {"activity_id": "activity-" + "c" * 32, "activity_kind": kind}
+    if subject:
+        identity["activity_subject"] = subject
+    started = project_foundry_event(
+        event_for(message, binding, event_type="activity.started", payload=identity)
+    ).activity
+    completed = project_foundry_event(
+        event_for(
+            message,
+            binding,
+            event_type="activity.completed",
+            attempt_sequence=2,
+            payload={**identity, "status": "completed"},
+        )
+    ).activity
+    assert (started.text, completed.text) == (started_text, done_text)
+
+
+@pytest.mark.parametrize("subject", ["", " padded", "x" * 81, "line\nbreak", 7])
+def test_activity_subject_is_bounded(conversation_records, subject):
+    _user, _workspace, _ally, binding, _conversation, message = conversation_records
+    with pytest.raises(ValueError):
+        event_for(
+            message,
+            binding,
+            event_type="activity.started",
+            payload={
+                "activity_id": "activity-" + "a" * 32,
+                "activity_kind": "web_search",
+                "activity_subject": subject,
+            },
+        )
+
+
 @pytest.mark.parametrize("outcome", ["completed", "failed", "stopped"])
 def test_rich_activity_identity_outcomes_and_conflicts(conversation_records, outcome):
     user, workspace, _ally, binding, conversation, message = conversation_records
