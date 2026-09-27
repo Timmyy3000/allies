@@ -2120,6 +2120,14 @@ class ProfileStore:
                     ),
                 )
         try:
+            self._refresh_seed_credentials(profile, seed)
+        except (ProfileStoreError, OSError, UnicodeError, ValueError):
+            return self._receipt(
+                seed,
+                ProfileProvisionStatus.REPAIR_REQUIRED,
+                repair_code="credential_refresh_failed",
+            )
+        try:
             self._clean_owned_first_chat_block(seed, profile / "SOUL.md")
         except ProfileStoreError:
             return self._receipt(
@@ -2135,6 +2143,32 @@ class ProfileStore:
             generation=stored_generation,
             receipt_id=stored_receipt,
         )
+
+    def _refresh_seed_credentials(self, profile: Path, seed: ProfileSeed) -> None:
+        """Rewrite stale seed credential lines so rotated keys reach the profile."""
+
+        # A model binding owns the whole .env once applied; leave it alone.
+        if (profile / BINDING_SIDECAR_NAME).exists():
+            return
+        lines = _read_profile_env(profile).decode("utf-8").splitlines()
+        wanted = {
+            name: self._resolve_credential(reference)
+            for name, reference in seed.credential_refs.items()
+        }
+        updated = []
+        for line in lines:
+            name, separator, _value = line.partition("=")
+            if separator and name in wanted:
+                updated.append(f"{name}={wanted.pop(name)}")
+            else:
+                updated.append(line)
+        updated.extend(f"{name}={value}" for name, value in wanted.items())
+        if updated != lines:
+            self._write_bytes_atomic(
+                profile / ".env",
+                ("\n".join(updated) + "\n").encode("utf-8"),
+                mode=0o600,
+            )
 
     def _clean_owned_first_chat_block(
         self, seed: ProfileSeed, path: Path
