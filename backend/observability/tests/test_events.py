@@ -47,6 +47,18 @@ def test_event_is_allowlisted_and_redacts_sensitive_text(monkeypatch):
     assert "token=secret" not in json.dumps(event)
 
 
+def test_event_redacts_opencode_subscription_refs(monkeypatch):
+    monkeypatch.setenv("ALLIES_OBSERVABILITY_DIGEST_KEY", "test-digest-key")
+
+    event = build_event(
+        "runtime.operation.failed",
+        request_id="req_zen",
+        message="materialize profile with OPENCODE_ZEN_API_KEY=vault://tenant/zen",
+    )
+
+    assert "vault://tenant/zen" not in json.dumps(event)
+
+
 def test_tenant_identifier_is_omitted_without_digest_key(monkeypatch):
     monkeypatch.delenv("ALLIES_OBSERVABILITY_DIGEST_KEY", raising=False)
     monkeypatch.delenv("DJANGO_SECRET_KEY", raising=False)
