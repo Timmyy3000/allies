@@ -555,12 +555,12 @@
   scrollbar-color: var(--chat-accent) transparent;
 }
 
-.frameAssistantMessage [data-streamdown="table-wrapper"] button {
+.frameAssistantMessage [data-streamdown="table-wrapper"] button:not([data-streamdown="link"]) {
   color: var(--text-secondary);
   border-radius: 6px;
 }
 
-.frameAssistantMessage [data-streamdown="table-wrapper"] button:hover {
+.frameAssistantMessage [data-streamdown="table-wrapper"] button:not([data-streamdown="link"]):hover {
   color: var(--text-primary);
   background: var(--surface);
 }
