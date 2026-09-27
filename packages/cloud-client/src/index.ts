@@ -108,3 +108,4 @@ export type { FileManifest, MessageFile, FilePublication, FileReservation, FileM
 export type { components, operations, paths } from "./generated/openapi";
 export type { GmailAllyGrant, GmailConnection, GmailConnectSession, GmailGrantLevel } from "./mappers/gmail";
 export { parseGoogleAuthUrl } from "./mappers/gmail";
+export type { AllyBrowserSession, SafeInput, SafeInputRequest, SafeInputValues } from "./mappers/safe-inputs";

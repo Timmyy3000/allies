@@ -87,6 +87,7 @@ import {
   AllySettingsDialog,
 } from "./ally-settings-dialog";
 import { useConversationFiles } from "./attachments/use-conversation-files";
+import { SafeInputLayer } from "./safe-input-layer";
 import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
 import { AlliesLoading } from "../../components/allies-loading";
 import { RecipesButton } from "./recipes-button";
@@ -3089,6 +3090,7 @@ function ConversationPane({
     liveUpdatesConnected={streamConnected}
   >
     {frame}
+    <SafeInputLayer workspaceId={workspaceId} allyId={ally.id} allyName={ally.name} accent={allyAccent} />
   </ConversationApprovals>;
 }
 
