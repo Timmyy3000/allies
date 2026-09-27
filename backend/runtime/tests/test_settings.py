@@ -555,11 +555,11 @@ def test_workspace_capacity_defaults_and_idle_window(monkeypatch):
         "PROBE",
         "import config.settings as s; print(s.WORKSPACE_CPU_KIND, s.WORKSPACE_CPUS, "
         "s.WORKSPACE_MEMORY_MB, s.WORKSPACE_VOLUME_SIZE_GB, "
-        "s.ALLIES_RUNTIME_KEEP_WARM_SECONDS)",
+        "s.WORKSPACE_VOLUME_SIZE_LIMIT_GB, s.ALLIES_RUNTIME_KEEP_WARM_SECONDS)",
     )
     result = run_settings_probe(DJANGO_DEBUG="true")
     assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "shared 2 2048 10 1800"
+    assert result.stdout.strip() == "shared 2 2048 3 20 1800"
 
 
 @pytest.mark.parametrize(
@@ -569,6 +569,8 @@ def test_workspace_capacity_defaults_and_idle_window(monkeypatch):
         {"WORKSPACE_CPUS": "17"},
         {"WORKSPACE_MEMORY_MB": "-1"},
         {"WORKSPACE_VOLUME_SIZE_GB": "0"},
+        {"WORKSPACE_VOLUME_SIZE_LIMIT_GB": "0"},
+        {"WORKSPACE_VOLUME_SIZE_GB": "30", "WORKSPACE_VOLUME_SIZE_LIMIT_GB": "20"},
         {"WORKSPACE_CPU_KIND": "unknown"},
     ],
 )

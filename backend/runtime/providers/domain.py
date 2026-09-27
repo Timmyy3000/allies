@@ -155,6 +155,8 @@ class VolumeMount:
     volume_id: str
     path: str = "/opt/data"
     read_only: bool = False
+    # When set, Fly grows the Volume in place up to this size as it fills.
+    size_limit_gb: int | None = None
 
     def __post_init__(self) -> None:
         _identifier(self.volume_id, "mount volume id")
@@ -163,6 +165,10 @@ class VolumeMount:
             raise ValueError("mount path must be absolute")
         if type(self.read_only) is not bool:
             raise ValueError("mount read_only must be a boolean")
+        if self.size_limit_gb is not None and (
+            type(self.size_limit_gb) is not int or self.size_limit_gb <= 0
+        ):
+            raise ValueError("mount size_limit_gb must be a positive integer")
 
 
 @dataclass(frozen=True, slots=True)

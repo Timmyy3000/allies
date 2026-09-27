@@ -30,6 +30,7 @@ from .domain import (
     MachineSpec,
     MachineState,
     OwnershipMetadata,
+    VolumeMount,
     VolumeRecord,
     VolumeSpec,
 )
@@ -53,6 +54,8 @@ _OWNER_MARKER = "allies_owner"
 _OWNER_VALUE = "foundry"
 _EXPECTED_CONTAINERS = frozenset(("hermes", "allies-runtime"))
 _DETERMINISTIC_APP_RE = re.compile(r"^allies-ws-([0-9a-f]{32})$")
+VOLUME_EXTEND_THRESHOLD_PERCENT = 80
+VOLUME_EXTEND_STEP_GB = 1
 
 
 def _workspace_id_from_value(value: object, *, depth: int = 0) -> UUID | str | None:
@@ -607,16 +610,7 @@ class FlyProvider:
             "skip_service_registration": True,
             "config": {
                 "containers": containers,
-                "mounts": [
-                    {
-                        "volume": spec.mount.volume_id,
-                        # Fly's multi-container Machines contract uses
-                        # ``path`` for the guest mount.  Keep this translation
-                        # at the provider boundary; lifecycle remains unaware
-                        # of the wire spelling.
-                        "path": spec.mount.path,
-                    }
-                ],
+                "mounts": [_mount_config(spec.mount)],
                 # An explicit empty list makes the no-public-service
                 # invariant testable and cannot accidentally inherit routes.
                 "services": [],
@@ -944,6 +938,21 @@ def _machine_record(
         cpus=cpus if type(cpus) is int and cpus > 0 else None,
         memory_mb=memory_mb if type(memory_mb) is int and memory_mb > 0 else None,
     )
+
+
+def _mount_config(mount: VolumeMount) -> dict[str, Any]:
+    # Fly's multi-container Machines contract uses ``path`` for the guest
+    # mount; keep that wire spelling at the provider boundary.
+    config: dict[str, Any] = {"volume": mount.volume_id, "path": mount.path}
+    if mount.size_limit_gb is not None:
+        config.update(
+            {
+                "extend_threshold_percent": VOLUME_EXTEND_THRESHOLD_PERCENT,
+                "add_size_gb": VOLUME_EXTEND_STEP_GB,
+                "size_gb_limit": mount.size_limit_gb,
+            }
+        )
+    return config
 
 
 def _volume_id_from_config(config: Mapping[str, Any]) -> str | None:

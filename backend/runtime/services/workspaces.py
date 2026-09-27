@@ -173,6 +173,7 @@ class WorkspaceSpec:
     foundry_runtime_credential_ref: OpaqueReference | str | None = None
     foundry_runtime_credential_secret_name: str | None = None
     volume_size_gb: int = 1
+    volume_size_limit_gb: int | None = None
     filesystem: str = "ext4"
     containers: tuple[ContainerSpec, ...] | None = None
     cpu_kind: str = "shared"
@@ -241,7 +242,7 @@ class WorkspaceSpec:
             name=names.machine(generation),
             region=self.region,
             containers=containers,
-            mount=VolumeMount(volume_id),
+            mount=VolumeMount(volume_id, size_limit_gb=self.volume_size_limit_gb),
             ownership=OwnershipMetadata(workspace_id, operation_id, generation),
             runtime_credential_ref=self.runtime_credential_ref,
             foundry_origin=self.foundry_origin,
