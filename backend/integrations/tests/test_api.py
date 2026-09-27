@@ -367,3 +367,128 @@ def test_callback_checks_capability_before_mutating(api_account, monkeypatch):
     assert IntegrationSecret.objects.count() == 0
     session = GmailConnectSession.objects.get()
     assert session.consumed_at is None
+
+
+GMAIL_TEST_SETTINGS = {
+    "ALLOWED_HOSTS": ["testserver"],
+    "CSRF_TRUSTED_ORIGINS": ["http://localhost:3000"],
+    "ALLIES_AUTH_DIGEST_KEY": "d" * 32,
+    "ALLIES_AUTH_JWT_KEY": "j" * 32,
+    "ALLIES_GMAIL_ENABLED": True,
+    "ALLIES_GMAIL_CLIENT_ID": "test-client-id",
+    "ALLIES_GMAIL_CLIENT_SECRET": "test-client-secret",
+    "ALLIES_GMAIL_REDIRECT_URI": "https://cloud.example/api/v1/integrations/gmail/callback",
+    "ALLIES_INTEGRATIONS_VAULT_KEY": Fernet.generate_key().decode(),
+}
+
+
+def _begin_with_return(client, csrf, workspace, ally, return_to, key):
+    return client.post(
+        f"/api/v1/workspaces/{workspace.id}/integrations/gmail/connect",
+        json.dumps(
+            {
+                "entry_point": "in_chat",
+                "ally_id": str(ally.id),
+                "grant_level": "read",
+                "return_to": return_to,
+            }
+        ),
+        content_type="application/json",
+        **_headers(csrf, HTTP_IDEMPOTENCY_KEY=key),
+    )
+
+
+@pytest.mark.django_db
+@override_settings(**GMAIL_TEST_SETTINGS)
+def test_callback_redirects_to_the_interface_that_began_connect(
+    api_account, monkeypatch
+):
+    user, workspace, ally = api_account
+    client, csrf = _client(user)
+    begun = _begin_with_return(
+        client, csrf, workspace, ally, f"/home/{ally.id}", "redirect-key-00001"
+    )
+    assert begun.status_code == 202
+    state = parse_qs(urlparse(begun.json()["data"]["auth_url"]).query)["state"][0]
+    token = {
+        "access_token": "ya29.test",
+        "refresh_token": "refresh.test",
+        "scope": FULL_SCOPES,
+        "expires_in": 3600,
+    }
+    monkeypatch.setattr(google_oauth, "urlopen", fake_urlopen(token))
+
+    callback = client.get(
+        f"/api/v1/integrations/gmail/callback?code=auth-code-1&state={state}",
+        HTTP_HOST="testserver",
+    )
+
+    assert callback.status_code == 303
+    assert (
+        callback["Location"] == f"http://localhost:3000/home/{ally.id}?gmail=connected"
+    )
+    assert callback["Referrer-Policy"] == "no-referrer"
+    assert IntegrationSecret.objects.get().ally_grants.get().level == "read"
+
+
+@pytest.mark.django_db
+@override_settings(**GMAIL_TEST_SETTINGS)
+def test_callback_redirects_errors_and_cancelled_consent(api_account, monkeypatch):
+    user, workspace, ally = api_account
+    client, csrf = _client(user)
+    begun = _begin_with_return(
+        client, csrf, workspace, ally, f"/home/{ally.id}", "redirect-key-00002"
+    )
+    state = parse_qs(urlparse(begun.json()["data"]["auth_url"]).query)["state"][0]
+
+    cancelled = client.get(
+        f"/api/v1/integrations/gmail/callback?error=access_denied&state={state}",
+        HTTP_HOST="testserver",
+    )
+    assert cancelled.status_code == 303
+    assert cancelled["Location"].endswith("?gmail_error=access_denied")
+
+    token = {
+        "access_token": "ya29.test",
+        "refresh_token": "refresh.test",
+        "scope": "https://www.googleapis.com/auth/gmail.modify",
+        "expires_in": 3600,
+    }
+    monkeypatch.setattr(google_oauth, "urlopen", fake_urlopen(token))
+    short = client.get(
+        f"/api/v1/integrations/gmail/callback?code=auth-code-2&state={state}",
+        HTTP_HOST="testserver",
+    )
+    assert short.status_code == 303
+    assert short["Location"].endswith("?gmail_error=scope_insufficient")
+    assert not IntegrationSecret.objects.exists()
+
+
+@pytest.mark.django_db
+@override_settings(**GMAIL_TEST_SETTINGS)
+@pytest.mark.parametrize(
+    "return_to",
+    ["https://evil.example/home", "//evil.example/home", "home", r"/home\evil"],
+)
+def test_connect_rejects_return_targets_outside_the_trusted_origin(
+    api_account, return_to
+):
+    user, workspace, ally = api_account
+    client, csrf = _client(user)
+    begun = _begin_with_return(
+        client, csrf, workspace, ally, return_to, "redirect-key-00003"
+    )
+    assert begun.status_code == 422
+
+
+@pytest.mark.django_db
+@override_settings(**GMAIL_TEST_SETTINGS)
+def test_unknown_state_keeps_the_json_error(api_account):
+    user, _, _ = api_account
+    client, _ = _client(user)
+    response = client.get(
+        "/api/v1/integrations/gmail/callback?code=abc&state=unknown-state",
+        HTTP_HOST="testserver",
+    )
+    assert response.status_code == 422
+    assert response.json()["data"]["code"] == "validation_error"
