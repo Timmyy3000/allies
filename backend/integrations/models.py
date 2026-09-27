@@ -155,3 +155,83 @@ class IntegrationToolCall(models.Model):
                 fields=("consumed_ref",), name="integration_tool_ref_uniq"
             ),
         ]
+
+
+class SafeInput(models.Model):
+    """A user-entered login; ``sealed`` is vault ciphertext of username and password."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        "workspaces.Workspace", on_delete=models.CASCADE, related_name="safe_inputs"
+    )
+    name = models.CharField(max_length=80)
+    website = models.CharField(max_length=253)
+    sealed = models.BinaryField()
+    created_by = models.ForeignKey(
+        "auths.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self) -> str:
+        return str(self.id)
+
+
+class SafeInputGrant(models.Model):
+    safe_input = models.ForeignKey(
+        SafeInput, on_delete=models.CASCADE, related_name="grants"
+    )
+    ally = models.ForeignKey(
+        "allies.Ally", on_delete=models.CASCADE, related_name="safe_input_grants"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=("safe_input", "ally"), name="safe_input_grant_uniq"
+            ),
+        ]
+
+
+class SafeInputRequest(models.Model):
+    PENDING, SAVED, ALLOWED, DENIED = "pending", "saved", "allowed", "denied"
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        "workspaces.Workspace", on_delete=models.CASCADE, related_name="+"
+    )
+    ally = models.ForeignKey("allies.Ally", on_delete=models.CASCADE, related_name="+")
+    safe_input = models.ForeignKey(
+        SafeInput, null=True, blank=True, on_delete=models.CASCADE, related_name="+"
+    )
+    name = models.CharField(max_length=80)
+    website = models.CharField(max_length=253)
+    status = models.CharField(max_length=8, default=PENDING)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class AllyBrowser(models.Model):
+    ally = models.OneToOneField(
+        "allies.Ally", on_delete=models.CASCADE, related_name="browser"
+    )
+    profile_id = models.CharField(max_length=64, blank=True, default="")
+    pending_clear_sites = models.JSONField(default=list)
+
+
+class BrowserSession(models.Model):
+    """One Browser Use session; also the usage record for billing."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(
+        "workspaces.Workspace", on_delete=models.CASCADE, related_name="+"
+    )
+    ally = models.ForeignKey(
+        "allies.Ally", on_delete=models.CASCADE, related_name="browser_sessions"
+    )
+    browser_use_id = models.CharField(max_length=64, blank=True, default="")
+    cdp_url = models.TextField(blank=True, default="")
+    live_url = models.TextField(blank=True, default="")
+    started_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    ended_at = models.DateTimeField(null=True, blank=True)

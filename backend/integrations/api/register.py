@@ -9,9 +9,19 @@ from pydantic import BaseModel, ConfigDict, ValidationError
 
 from auths.exceptions import WorkspaceAccessDenied
 from integrations.api.controllers import GmailCallbackController, GmailController
+from integrations.api.safe_inputs import SafeInputController
 from integrations.services.gmail_tool import execute_gmail_tool
+from integrations.services.safe_inputs import (
+    execute_browser_tool,
+    execute_safe_input_tool,
+)
 
 _MAX_TOOL_BYTES = 64 * 1024
+_TOOLS = {
+    "gmail": execute_gmail_tool,
+    "safe_inputs": execute_safe_input_tool,
+    "browser": execute_browser_tool,
+}
 
 
 def _foundry_token_valid(request: HttpRequest) -> bool:
@@ -34,7 +44,9 @@ class IntegrationToolEnvelope(BaseModel):
 
 
 def register(api: NinjaExtraAPI) -> None:
-    api.register_controllers(GmailController, GmailCallbackController)
+    api.register_controllers(
+        GmailController, GmailCallbackController, SafeInputController
+    )
 
     @api.post("/internal/foundry/integrations/tool", auth=_foundry_token_valid)
     def integration_tool(request: HttpRequest):
@@ -48,11 +60,12 @@ def register(api: NinjaExtraAPI) -> None:
             payload = IntegrationToolEnvelope.model_validate_json(request.body)
         except ValidationError:
             return JsonResponse({"error": "invalid_request"}, status=422)
-        if payload.integration != "gmail":
+        handler = _TOOLS.get(payload.integration)
+        if handler is None:
             return JsonResponse({"error": "integration_unsupported"}, status=422)
         fields = payload.model_dump(exclude={"integration"})
         try:
-            status, result = execute_gmail_tool(**fields)
+            status, result = handler(**fields)
         except (ObjectDoesNotExist, PermissionError, WorkspaceAccessDenied):
             return JsonResponse({"error": "integration_unavailable"}, status=403)
         return JsonResponse(result, status=status)

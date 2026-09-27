@@ -25,14 +25,11 @@ from uuid import UUID, uuid4
 from django.db import IntegrityError, transaction
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
-from chat.models import DispatchOutbox, Message
-from workspaces.capabilities import Capability
-from workspaces.services.access import require_workspace_capability
-
 from ..exceptions import IntegrationUnavailable, ProviderUnavailable, RefreshRevoked
 from ..models import PROVIDER_GMAIL, IntegrationSecret, IntegrationToolCall
 from .google_oauth import gmail_enabled, refresh_access_token
 from .grants import check_gmail_grant
+from .turns import resolve_tool_turn
 
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 GMAIL_TIMEOUT_SECONDS = 8
@@ -159,21 +156,9 @@ def execute_gmail_tool(
             "invalid_gmail_request",
             "Check the action and its fields; ask the user for anything missing.",
         )
-    message = Message.objects.select_related(
-        "conversation__ally__workspace__owner", "conversation__ally__binding"
-    ).get(pk=message_id, sender="user", origin="send", deleted_at__isnull=True)
+    message = resolve_tool_turn(message_id, binding_id, command_fingerprint)
     ally = message.conversation.ally
     workspace = ally.workspace
-    if ally.binding.id != binding_id or not workspace.is_active:
-        raise PermissionError("gmail tool binding unavailable")
-    require_workspace_capability(
-        user=workspace.owner,
-        workspace_id=workspace.id,
-        capability=Capability.WORKSPACE_WRITE,
-    )
-    outbox = DispatchOutbox.objects.get(message=message)
-    if not command_fingerprint or outbox.command_fingerprint != command_fingerprint:
-        raise PermissionError("gmail tool dispatch unavailable")
 
     digest = hashlib.sha256(
         json.dumps(arguments, sort_keys=True, separators=(",", ":")).encode()
