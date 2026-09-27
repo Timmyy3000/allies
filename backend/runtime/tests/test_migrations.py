@@ -547,3 +547,176 @@ def test_profile_soul_migration_adopts_platform_layer_template(tmp_path):
         check=False,
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+MODEL_MIGRATION_PROBE = r"""
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sys
+import uuid
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+import django
+
+django.setup()
+
+from django.db import connections
+from django.db.migrations.executor import MigrationExecutor
+
+MIGRATION_FROM = ("runtime", "0033_delivery_sequence_gap_since")
+MIGRATION_TO = ("runtime", "0034_profile_default_model_openrouter")
+database_path = sys.argv[1]
+connections.databases["default"]["NAME"] = database_path
+connections["default"].settings_dict["NAME"] = database_path
+connection = connections["default"]
+
+
+def migrate(target):
+    MigrationExecutor(connection).migrate([target])
+
+
+def models_at(target):
+    apps = MigrationExecutor(connection).loader.project_state([target]).apps
+    return apps.get_model("runtime", "Workspace"), apps.get_model("runtime", "RuntimeProfile")
+
+
+def fingerprint(profile_id, key, ally_ref, seed, model, base_url):
+    canonical = {
+        "schema_version": seed["version"],
+        "foundry_profile_id": str(profile_id),
+        "hermes_profile_key": key,
+        "identity": {"ally_name": ally_ref},
+        "personality": seed["personality"],
+        "first_chat_version": seed["first_chat_instruction_version"],
+        "first_chat_instruction": seed["first_chat_instruction"],
+        "model": {"provider": "openai-api", "default": model, "base_url": base_url},
+        "credential_refs": {"OPENAI_API_KEY": "file:///run/secrets/openai-api-key"},
+        "memory": {
+            "provider": "allies_mnemosyne",
+            "mode": "narrow_tools",
+            "policy_version": "allies-mnemosyne-v1",
+            "tools": ["mnemosyne_recall"],
+            "profile_isolation": True,
+            "sync_roles": [],
+        },
+        "compression": {"threshold_tokens": 100_000},
+    }
+    encoded = json.dumps(canonical, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(b"allies-profile-seed-v2\0" + encoded).hexdigest()
+
+
+migrate(MIGRATION_FROM)
+workspace_model, profile_model = models_at(MIGRATION_FROM)
+workspace = workspace_model.objects.create(
+    id=uuid.uuid4(),
+    tenant_ref="model-migration",
+    fly_app_ref="app-model",
+    volume_ref="volume-model",
+    machine_ref="machine-model",
+    machine_generation=2,
+)
+profile_id = uuid.UUID("00000000-0000-0000-0000-000000000003")
+key = "ally-v1-00000000000000000000000000000003"
+seed = {
+    "version": 1,
+    "personality": "p",
+    "provider": "openai-api",
+    "model": "gpt-5.6-luna",
+    "base_url": "https://api.openai.com/v1",
+    "first_chat_instruction": "i",
+    "first_chat_instruction_version": 1,
+    "credential_refs": {"OPENAI_API_KEY": "file:///run/secrets/openai-api-key"},
+    "memory_provider": "allies_mnemosyne",
+    "memory_mode": "narrow_tools",
+    "memory_policy_version": "allies-mnemosyne-v1",
+    "memory_tool_allowlist": ["mnemosyne_recall"],
+    "memory_profile_isolation": True,
+    "memory_sync_roles": [],
+    "compression_threshold_tokens": 100_000,
+}
+legacy = fingerprint(
+    profile_id, key, "ally-c", seed, "gpt-5.6-luna", "https://api.openai.com/v1"
+)
+custom_id = uuid.UUID("00000000-0000-0000-0000-000000000004")
+custom_seed = dict(seed, model="custom-model")
+profile_model.objects.create(
+    id=profile_id,
+    workspace=workspace,
+    ally_ref="ally-c",
+    hermes_profile_key=key,
+    lifecycle_state="active",
+    seed_payload=seed,
+    seed_fingerprint=legacy,
+    materialized_generation=2,
+    materialization_operation_id=uuid.uuid4(),
+    materialization_request_digest="c" * 64,
+    materialization_receipt_id=uuid.uuid4(),
+    materialization_result_code="created",
+)
+profile_model.objects.create(
+    id=custom_id,
+    workspace=workspace,
+    ally_ref="ally-d",
+    hermes_profile_key="ally-v1-00000000000000000000000000000004",
+    lifecycle_state="active",
+    seed_payload=custom_seed,
+    seed_fingerprint="0" * 64,
+    materialized_generation=2,
+    materialization_operation_id=uuid.uuid4(),
+    materialization_request_digest="d" * 64,
+    materialization_receipt_id=uuid.uuid4(),
+    materialization_result_code="created",
+)
+
+migrate(MIGRATION_TO)
+_, upgraded_model = models_at(MIGRATION_TO)
+profile = upgraded_model.objects.get(pk=profile_id)
+assert profile.seed_payload["model"] == "openai/gpt-6-luna"
+assert profile.seed_payload["base_url"] == "https://openrouter.ai/api/v1"
+assert profile.seed_payload["provider"] == "openai-api"
+assert profile.seed_fingerprint != legacy
+assert profile.seed_fingerprint == fingerprint(
+    profile_id,
+    key,
+    "ally-c",
+    profile.seed_payload,
+    "openai/gpt-6-luna",
+    "https://openrouter.ai/api/v1",
+)
+assert profile.materialized_generation == 0
+assert profile.materialization_operation_id is None
+assert profile.lifecycle_state == "active"
+
+custom = upgraded_model.objects.get(pk=custom_id)
+assert custom.seed_payload["model"] == "custom-model"
+assert custom.seed_fingerprint == "0" * 64
+assert custom.materialized_generation == 2
+
+migrate(MIGRATION_TO)
+profile = upgraded_model.objects.get(pk=profile_id)
+assert profile.seed_payload["model"] == "openai/gpt-6-luna"
+assert profile.materialized_generation == 0
+
+migrate(MIGRATION_FROM)
+_, rolled_back_model = models_at(MIGRATION_FROM)
+profile = rolled_back_model.objects.get(pk=profile_id)
+assert profile.seed_payload["model"] == "gpt-5.6-luna"
+assert profile.seed_payload["base_url"] == "https://api.openai.com/v1"
+assert profile.seed_fingerprint == legacy
+assert profile.materialized_generation == 0
+"""
+
+
+def test_profile_default_model_migration_switches_and_restores(tmp_path):
+    database_path = tmp_path / "model.sqlite3"
+    result = subprocess.run(
+        [sys.executable, "-c", MODEL_MIGRATION_PROBE, str(database_path)],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout

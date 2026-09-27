@@ -172,6 +172,27 @@ def test_wake_replaces_both_images_preserves_volume_and_gates_readiness(release_
     assert is_runtime_ready(workspace)
 
 
+def test_wake_replacement_restages_provider_key_from_env(
+    release_setup, monkeypatch
+):
+    workspace, provider, store = release_setup
+    monkeypatch.setenv("PROFILE_PROVISIONING_API_KEY", "rotated-provider-key")
+    assert wake(workspace, provider).awaiting_readiness == 1
+    key_stages = [
+        (app, name)
+        for app, name in store.staged
+        if name == "ALLIES_FND008_OPENAI_KEY"
+    ]
+    assert key_stages == [(workspace.fly_app_ref, "ALLIES_FND008_OPENAI_KEY")]
+
+
+def test_wake_replacement_skips_provider_key_without_env(release_setup, monkeypatch):
+    workspace, provider, store = release_setup
+    monkeypatch.delenv("PROFILE_PROVISIONING_API_KEY", raising=False)
+    assert wake(workspace, provider).awaiting_readiness == 1
+    assert all(name != "ALLIES_FND008_OPENAI_KEY" for _, name in store.staged)
+
+
 @pytest.mark.parametrize("container", ["hermes", "allies-runtime"])
 def test_either_changed_image_triggers_replacement(
     release_setup, monkeypatch, container

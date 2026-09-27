@@ -322,10 +322,10 @@ PROFILE_PROVISIONING_PROVIDER = env_profile_text(
     max_length=128,  # gitleaks:allow - provider identifier, not a credential
 )
 PROFILE_PROVISIONING_MODEL = env_profile_text(
-    "PROFILE_PROVISIONING_MODEL", "gpt-5.6-luna", max_length=255
+    "PROFILE_PROVISIONING_MODEL", "openai/gpt-6-luna", max_length=255
 )
 PROFILE_PROVISIONING_BASE_URL = env_profile_text(
-    "PROFILE_PROVISIONING_BASE_URL", "https://api.openai.com/v1", max_length=512
+    "PROFILE_PROVISIONING_BASE_URL", "https://openrouter.ai/api/v1", max_length=512
 )
 if not re.fullmatch(
     r"[a-z][a-z0-9+.-]{1,31}://[^\s]{1,507}",
