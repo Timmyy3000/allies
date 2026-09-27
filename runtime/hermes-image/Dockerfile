@@ -178,6 +178,9 @@ COPY plugins/routines/ /opt/hermes/plugins/routines/
 COPY allies_routines.py /opt/hermes/tools/allies_routines.py
 COPY plugins/gmail/ /opt/hermes/plugins/gmail/
 COPY allies_gmail.py /opt/hermes/tools/allies_gmail.py
+COPY plugins/safe-inputs/ /opt/hermes/plugins/safe-inputs/
+COPY allies_safe_inputs.py /opt/hermes/tools/allies_safe_inputs.py
+COPY allies_browser_provider.py /opt/hermes/plugins/browser/browser_use/provider.py
 COPY patches/routine-management-tool.patch /tmp/allies-routine-management-tool.patch
 RUN cd /opt/hermes \
     && sed -i 's/\r$//' /tmp/allies-routine-management-tool.patch \

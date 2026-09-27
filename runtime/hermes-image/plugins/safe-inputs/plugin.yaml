@@ -1,0 +1,8 @@
+name: allies-safe-inputs
+version: 0.1.0
+description: Use logins saved in Allies without seeing them, and ask the user to approve actions
+author: Allies
+kind: backend
+provides_tools:
+  - allies_safe_inputs
+  - allies_ask_approval
