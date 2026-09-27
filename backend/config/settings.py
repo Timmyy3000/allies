@@ -1071,3 +1071,5 @@ if not DEBUG:
         raise ImproperlyConfigured(
             "Unsafe AUTH-001 production configuration: " + ", ".join(missing)
         )
+
+BROWSER_USE_API_KEY = os.environ.get("BROWSER_USE_API_KEY", "")
