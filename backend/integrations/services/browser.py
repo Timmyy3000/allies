@@ -92,7 +92,13 @@ def open_browser(ally) -> dict:
         created = _api(
             "POST",
             "/browsers",
-            {"profileId": browser.profile_id, "timeout": SESSION_MINUTES},
+            {
+                "profileId": browser.profile_id,
+                "timeout": SESSION_MINUTES,
+                # Browser Use defaults to a US proxy, which slows every page load.
+                "proxyCountryCode": getattr(settings, "BROWSER_USE_PROXY_COUNTRY", "")
+                or None,
+            },
         )
         session.browser_use_id = created["id"]
         session.cdp_url = created["cdpUrl"]

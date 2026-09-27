@@ -1073,3 +1073,5 @@ if not DEBUG:
         )
 
 BROWSER_USE_API_KEY = os.environ.get("BROWSER_USE_API_KEY", "")
+# Residential proxy country for Ally browsers; empty disables the proxy.
+BROWSER_USE_PROXY_COUNTRY = os.environ.get("BROWSER_USE_PROXY_COUNTRY", "de")
