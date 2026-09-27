@@ -29,6 +29,19 @@ function newIdempotencyKey(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+export const WAKE_POLL_INTERVAL_MS = 2_000;
+export const WAKE_POLL_LIMIT_MS = 90_000;
+
+function wait(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal.addEventListener("abort", () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
+}
+
 export function useComposingRuntimeIntent(
   allyId: string,
   requestIntent: RuntimeIntentRequester,
@@ -70,14 +83,28 @@ export function useComposingRuntimeIntent(
     setStatus("requesting");
 
     try {
-      void requestIntent(
-        allyId,
-        request.occurredAt,
-        request.idempotencyKey,
-        controller.signal,
-      ).then((result) => {
-        if (!controller.signal.aborted) setStatus(result.status);
-      }).catch(() => {
+      void (async () => {
+        const startedAt = Date.now();
+        let result = await requestIntent(allyId, request.occurredAt, request.idempotencyKey, controller.signal);
+        if (controller.signal.aborted) return;
+        setStatus(result.status);
+        // Repeating the same intent returns its current outcome, so poll until Foundry reports the machine ready.
+        while (
+          (result.status === "waking" || result.status === "rate_limited")
+          && Date.now() - startedAt < WAKE_POLL_LIMIT_MS
+        ) {
+          await wait(WAKE_POLL_INTERVAL_MS, controller.signal);
+          if (controller.signal.aborted) return;
+          try {
+            result = await requestIntent(allyId, request.occurredAt, request.idempotencyKey, controller.signal);
+          } catch {
+            if (controller.signal.aborted) return;
+            continue;
+          }
+          if (controller.signal.aborted) return;
+          if (result.status !== "rate_limited") setStatus(result.status);
+        }
+      })().catch(() => {
         if (!controller.signal.aborted) setStatus("failed");
       });
     } catch {
