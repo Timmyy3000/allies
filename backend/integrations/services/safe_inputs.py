@@ -53,6 +53,34 @@ _FILL = """function (website, username, password) {
   return "filled";
 }"""
 
+# Types one value into the input the Ally focused (or the only fitting one). The Ally drives the page
+# (pop-ups, multi-step logins); Cloud only decides that a password goes into
+# a password input and nothing goes to a foreign domain.
+_FILL_FOCUSED = """function (website, field, value) {
+  const host = location.hostname.toLowerCase();
+  if (location.protocol !== "https:" || !(host === website || host.endsWith("." + website)))
+    return "domain_mismatch:" + host;
+  const fits = (i) => i instanceof HTMLInputElement && !i.disabled && !i.readOnly
+    && (field === "password" ? i.type === "password" : ["text", "email", "tel"].includes(i.type));
+  let el = document.activeElement;
+  while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+  if (!fits(el)) {
+    // Nothing suitable focused: use the one visible field that fits, if unambiguous.
+    const named = (i) => field === "password" || i.type === "email"
+      || /user|mail|login/i.test(i.name + " " + i.id + " " + i.autocomplete);
+    const found = [...document.querySelectorAll("input")].filter(
+      (i) => fits(i) && i.offsetParent !== null && named(i));
+    if (found.length !== 1) return found.length ? "ambiguous_field" : "no_field";
+    el = found[0];
+    el.focus();
+  }
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
+  setter.call(el, value);
+  el.dispatchEvent(new Event("input", {bubbles: true}));
+  el.dispatchEvent(new Event("change", {bubbles: true}));
+  return "filled";
+}"""
+
 _CLEAR = """function (username, password) {
   const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set;
   for (const el of document.querySelectorAll("input"))
@@ -138,7 +166,11 @@ def execute_safe_input_tool(
                 result |= _metadata(request.safe_input)
             return 200, result
         if action == "fill":
-            return 200, fill(ally, UUID(str(arguments.get("safe_input_id"))))
+            return 200, fill(
+                ally,
+                UUID(str(arguments.get("safe_input_id"))),
+                arguments.get("field") or None,
+            )
     except (SafeInput.DoesNotExist, SafeInputRequest.DoesNotExist, ValueError):
         return 404, {"error": "not_found"}
     except IntegrationInvalid as exc:
@@ -173,7 +205,9 @@ def execute_browser_tool(
     return 422, {"error": "invalid_request"}
 
 
-def fill(ally, safe_input_id: UUID) -> dict:
+def fill(ally, safe_input_id: UUID, field: str | None = None) -> dict:
+    if field not in {None, "username", "password"}:
+        raise IntegrationInvalid("field must be username or password")
     grant = (
         SafeInputGrant.objects.select_related("safe_input")
         .filter(ally=ally, safe_input_id=safe_input_id)
@@ -186,23 +220,38 @@ def fill(ally, safe_input_id: UUID) -> dict:
     if session is None or not session.cdp_url:
         return {"status": "no_browser"}
     values = json.loads(unseal_secret(item.sealed))
+    # No reload first: many logins live in pop-ups that a reload closes. An
+    # Ally-injected script could observe the fill; see the accepted limits in
+    # the browser-and-safe-inputs spec (SEC-001).
     try:
         with browser.Cdp(session.cdp_url) as cdp:
             page = cdp.page()
-            # Reloading drops any script the Ally injected before asking to fill.
-            cdp.call("Page.reload", {"ignoreCache": True}, session=page)
-            for _ in range(20):
-                time.sleep(0.5)
-                state = cdp.call(
-                    "Runtime.evaluate",
-                    {"expression": "document.readyState", "returnByValue": True},
-                    session=page,
+            if field is None:
+                outcome = _call(
+                    cdp,
+                    page,
+                    _FILL,
+                    item.website,
+                    values["username"],
+                    values["password"],
                 )
-                if state["result"].get("value") == "complete":
-                    break
-            outcome = _call(
-                cdp, page, _FILL, item.website, values["username"], values["password"]
-            )
+            else:
+                outcome = _call(
+                    cdp, page, _FILL_FOCUSED, item.website, field, values[field]
+                )
+                if outcome == "filled":
+                    # A trusted Enter submits the way a person would, form or not.
+                    for kind in ("keyDown", "keyUp"):
+                        cdp.call(
+                            "Input.dispatchKeyEvent",
+                            {
+                                "type": kind,
+                                "key": "Enter",
+                                "code": "Enter",
+                                "windowsVirtualKeyCode": 13,
+                            },
+                            session=page,
+                        )
             if outcome == "filled":
                 time.sleep(3)
                 try:
@@ -213,10 +262,11 @@ def fill(ally, safe_input_id: UUID) -> dict:
         outcome = "failed"
     status, _, page_host = outcome.partition(":")
     logger.info(
-        "safe_input.fill ally=%s safe_input=%s site=%s outcome=%s",
+        "safe_input.fill ally=%s safe_input=%s site=%s field=%s outcome=%s",
         ally.id,
         item.id,
         item.website,
+        field or "both",
         status,
     )
     result = {"status": status}
