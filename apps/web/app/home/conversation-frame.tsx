@@ -42,6 +42,8 @@ import {
 } from "./conversation-frame-primitives";
 import styles from "./conversation-frame.module.css";
 
+export const WAKE_HINT_TIMEOUT_MS = 30_000;
+
 export interface ConversationFrameProps {
   settingsHref?: string;
   model: ProductionConversationFrameModel;
@@ -91,9 +93,17 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
   if (wakeEvidence.intent !== runtimeIntentStatus || wakeEvidence.completedReplyKey !== completedReplyKey || wakeEvidence.confirmed !== wakeConfirmed || wakeEvidence.invalidated !== invalidated) {
     setWakeEvidence({ intent: runtimeIntentStatus, completedReplyKey, confirmed: wakeConfirmed, invalidated });
   }
-  const wakePending = !confirmedWork && !wakeConfirmed && (invalidated || model.gettingReady || runtimeIntentStatus === "requesting" || runtimeIntentStatus === "waking");
-  const wakeUnconfirmed = !confirmedWork && !wakeConfirmed && !sleeping && (runtimeIntentStatus === "failed" || runtimeIntentStatus === "rate_limited" || runtimeIntentStatus === "first_provision_required" || runtimeIntentStatus === "disabled");
-  const waking = !confirmedWork && !wakeConfirmed && (runtimeIntentStatus === "requesting" || runtimeIntentStatus === "waking" || model.gettingReady || (!sleeping && (wakePending || wakeUnconfirmed)));
+  const [staleIntent, setStaleIntent] = useState<ProductionRuntimeIntentStatus>(null);
+  useEffect(() => {
+    if (sleeping || model.gettingReady || (runtimeIntentStatus !== "requesting" && runtimeIntentStatus !== "waking" && runtimeIntentStatus !== "failed" && runtimeIntentStatus !== "rate_limited" && runtimeIntentStatus !== "first_provision_required" && runtimeIntentStatus !== "disabled")) return;
+    const timer = window.setTimeout(() => setStaleIntent(runtimeIntentStatus), WAKE_HINT_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [runtimeIntentStatus, sleeping, model.gettingReady]);
+  const hintExpired = staleIntent !== null && staleIntent === runtimeIntentStatus && !sleeping && !model.gettingReady && !confirmedWork && !receivedReply;
+  const wakeConfirmedWithHint = wakeConfirmed || (!invalidated && hintExpired);
+  const wakePending = !confirmedWork && !wakeConfirmedWithHint && (invalidated || model.gettingReady || runtimeIntentStatus === "requesting" || runtimeIntentStatus === "waking");
+  const wakeUnconfirmed = !confirmedWork && !wakeConfirmedWithHint && !sleeping && (runtimeIntentStatus === "failed" || runtimeIntentStatus === "rate_limited" || runtimeIntentStatus === "first_provision_required" || runtimeIntentStatus === "disabled");
+  const waking = !confirmedWork && !wakeConfirmedWithHint && (runtimeIntentStatus === "requesting" || runtimeIntentStatus === "waking" || model.gettingReady || (!sleeping && (wakePending || wakeUnconfirmed)));
   const docked = sleeping && !waking;
   const actorState = docked ? "sleeping" : confirmedWork ? "thinking" : "idle";
   const statusText = sleeping ? `${model.ally.name} is asleep` : `${model.ally.name} is waking up`;
