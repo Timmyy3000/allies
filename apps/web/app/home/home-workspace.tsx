@@ -1267,6 +1267,8 @@ function ConversationPane({
   const streamRetryCountRef = useRef(0);
   const lastStreamEventAtRef = useRef(0);
   const [pollBudgetReached, setPollBudgetReached] = useState(false);
+  // The poll budget bounds stalls, not long turns: new activity resets it.
+  const polledProgressRef = useRef<{ conversationId: string; sequence: number } | null>(null);
   const [projection, setProjection] = useState<ActivityProjection>(EMPTY_ACTIVITY_PROJECTION);
   const [activityPresentation, setActivityPresentation] = useState<ActivityPresentationState>(
     EMPTY_ACTIVITY_PRESENTATION,
@@ -2458,6 +2460,11 @@ function ConversationPane({
           });
       if (controller.signal.aborted || !mountedRef.current) return;
       if (!snapshot) return;
+      const progress = polledProgressRef.current;
+      if (progress?.conversationId !== conversationId || snapshot.lastContiguousSequence > progress.sequence) {
+        if (progress?.conversationId === conversationId) pollCountRef.current = 0;
+        polledProgressRef.current = { conversationId, sequence: snapshot.lastContiguousSequence };
+      }
       const currentActiveMessageId = activeMessageIdRef.current;
       const snapshotOwnsActiveMessage = snapshotCanOwnActiveMessage(
         currentActiveMessageId,

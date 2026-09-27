@@ -800,8 +800,7 @@ function ActivityGroup({ group, ongoing = false, responseInProgress = false, rep
       label={ongoing ? replying ? "Replying…" : current ? activityText(current, true) : "Thinking…" : `${group.entries.length} ${group.entries.length === 1 ? "activity" : "activities"}`}
       ongoing={ongoing}
       open={disclosure.open}
-      lockOpen={responseInProgress}
-      onToggle={(open) => setDisclosure((current) => current.open === open || current.responseInProgress && !open ? current : { ...current, open })}
+      onToggle={(open) => setDisclosure((current) => current.open === open ? current : { ...current, open })}
       entries={group.entries.map((entry) => ({
         id: entry.id,
         text: activityText(entry),

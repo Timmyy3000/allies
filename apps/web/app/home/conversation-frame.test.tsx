@@ -619,7 +619,7 @@ describe("ConversationFrame", () => {
     expect(disclosure?.textContent).toContain("Searching for citysubs");
   });
 
-  it("opens and locks active history, then collapses it only when the response finishes", () => {
+  it("opens active history, lets the user collapse it, and collapses it when the response finishes", () => {
     const entry = { ...model.activityGroups[0].entries[0], activityId: "call-a", activityAttemptId: "attempt-a", activityKind: "web_search" };
     const active: ProductionConversationFrameModel = {
       ...model, messages: [model.messages[0]], showThinkingState: true, activityState: "running",
@@ -631,10 +631,10 @@ describe("ConversationFrame", () => {
     expect(details.querySelectorAll(".shiny-text")).toHaveLength(1);
     expect(details.querySelector("summary .shiny-text")?.textContent).toBe(entry.text);
     expect(details.querySelector('[class*="frameActivityEntries"] .shiny-text')).toBeNull();
-    fireEvent.click(details.querySelector("summary")!);
-    expect(details.open).toBe(true);
     view.rerender(<ConversationFrame model={{ ...active, activityState: "awaiting_action" }} actions={actions} />);
     expect(view.container.querySelector("details")?.open).toBe(true);
+    act(() => { details.open = false; fireEvent(details, new Event("toggle")); });
+    expect(view.container.querySelector("details")?.open).toBe(false);
     view.rerender(<ConversationFrame model={{ ...active, showThinkingState: false, activityState: "completed" }} actions={actions} />);
     const history = view.container.querySelector("details")!;
     expect(history.open).toBe(false);
