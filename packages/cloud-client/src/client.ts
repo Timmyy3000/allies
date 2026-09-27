@@ -58,6 +58,18 @@ import {
 import { csrfTokenSchema, externalHttpsUrlSchema, type CloudCsrfToken } from "./schemas";
 import { createControlledFetch } from "./transport";
 import { createFileClient } from "./files";
+import {
+  browserSessionSchema,
+  safeInputRequestSchema,
+  safeInputSchema,
+  toAllyBrowserSession,
+  toSafeInput,
+  toSafeInputRequest,
+  type AllyBrowserSession,
+  type SafeInput,
+  type SafeInputRequest,
+  type SafeInputValues,
+} from "./mappers/safe-inputs";
 import { approvalSummarySchema, approvalDetailSchema, toApprovalSummary, toApprovalDetail, type ApprovalDecision } from "./mappers/approvals";
 import { canonicalRoutineUuidSchema } from "./routines";
 import {
@@ -795,6 +807,123 @@ export function createCloudClient(options: CloudClientOptions) {
         },
         [200],
       );
+    },
+
+    async listSafeInputs(workspaceId: string, signal?: AbortSignal): Promise<SafeInput[]> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/safe-inputs", {
+          params: { path: { workspace_id: workspace } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => successEnvelope(z.array(safeInputSchema)).parse(data).data.map(toSafeInput),
+        [200],
+      );
+    },
+
+    async listSafeInputRequests(workspaceId: string, allyId: string, signal?: AbortSignal): Promise<SafeInputRequest[]> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const ally = parseCanonicalUuid(allyId);
+      return unwrap(
+        api.GET("/api/v1/workspaces/{workspace_id}/safe-input-requests", {
+          params: { path: { workspace_id: workspace }, query: { ally_id: ally } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => successEnvelope(z.array(safeInputRequestSchema)).parse(data).data.map(toSafeInputRequest),
+        [200],
+      );
+    },
+
+    async resolveSafeInputRequest(
+      workspaceId: string,
+      requestId: string,
+      decision: "allow" | "deny",
+      values: SafeInputValues = {},
+      signal?: AbortSignal,
+    ): Promise<void> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const request = parseCanonicalUuid(requestId);
+      await unwrap(
+        api.POST("/api/v1/workspaces/{workspace_id}/safe-input-requests/{request_id}", {
+          params: { path: { workspace_id: workspace, request_id: request } },
+          body: { decision, ...values },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        () => undefined,
+        [200],
+      );
+    },
+
+    async updateSafeInput(workspaceId: string, safeInputId: string, values: SafeInputValues, signal?: AbortSignal): Promise<void> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const id = parseCanonicalUuid(safeInputId);
+      await unwrap(
+        api.PATCH("/api/v1/workspaces/{workspace_id}/safe-inputs/{safe_input_id}", {
+          params: { path: { workspace_id: workspace, safe_input_id: id } },
+          body: values,
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        () => undefined,
+        [200],
+      );
+    },
+
+    async deleteSafeInput(workspaceId: string, safeInputId: string, signal?: AbortSignal): Promise<void> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const id = parseCanonicalUuid(safeInputId);
+      await unwrap(
+        api.DELETE("/api/v1/workspaces/{workspace_id}/safe-inputs/{safe_input_id}", {
+          params: { path: { workspace_id: workspace, safe_input_id: id } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        () => undefined,
+        [200],
+      );
+    },
+
+    async setSafeInputAccess(workspaceId: string, safeInputId: string, allyId: string, enabled: boolean, signal?: AbortSignal): Promise<void> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const id = parseCanonicalUuid(safeInputId);
+      const ally = parseCanonicalUuid(allyId);
+      await unwrap(
+        (enabled
+          ? api.POST("/api/v1/workspaces/{workspace_id}/safe-inputs/{safe_input_id}/grants", {
+            params: { path: { workspace_id: workspace, safe_input_id: id } },
+            body: { ally_id: ally },
+            signal: normalizeRequestSignal(signal),
+          })
+          : api.DELETE("/api/v1/workspaces/{workspace_id}/safe-inputs/{safe_input_id}/grants/{ally_id}", {
+            params: { path: { workspace_id: workspace, safe_input_id: id, ally_id: ally } },
+            signal: normalizeRequestSignal(signal),
+          })) as Promise<ApiResult>,
+        () => undefined,
+        [200],
+      );
+    },
+
+    async getAllyBrowserSession(workspaceId: string, allyId: string, signal?: AbortSignal): Promise<AllyBrowserSession | null> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const ally = parseCanonicalUuid(allyId);
+      try {
+        return await unwrap(
+          api.GET("/api/v1/workspaces/{workspace_id}/allies/{ally_id}/browser-session", {
+            params: { path: { workspace_id: workspace, ally_id: ally } },
+            signal: normalizeRequestSignal(signal),
+          }) as Promise<ApiResult>,
+          (data) => toAllyBrowserSession(successEnvelope(browserSessionSchema).parse(data).data),
+          [200],
+        );
+      } catch (error) {
+        if (isCloudError(error) && (error.kind === "not-found" || error.status === 404)) return null;
+        throw error;
+      }
     },
 
     async requestAllyDeletion(

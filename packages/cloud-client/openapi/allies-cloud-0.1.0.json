@@ -1714,6 +1714,20 @@
         "title": "GmailConnectionResponse",
         "type": "object"
       },
+      "GrantIn": {
+        "properties": {
+          "ally_id": {
+            "format": "uuid",
+            "title": "Ally Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ally_id"
+        ],
+        "title": "GrantIn",
+        "type": "object"
+      },
       "HealthResponse": {
         "properties": {
           "state": {
@@ -2512,6 +2526,71 @@
           }
         },
         "title": "RedirectRequest",
+        "type": "object"
+      },
+      "RequestDecision": {
+        "properties": {
+          "decision": {
+            "enum": [
+              "allow",
+              "deny"
+            ],
+            "title": "Decision",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "website": {
+            "anyOf": [
+              {
+                "maxLength": 253,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "RequestDecision",
         "type": "object"
       },
       "ReservedFileResponse": {
@@ -3615,6 +3694,60 @@
           "status"
         ],
         "title": "RuntimeIntentResponse",
+        "type": "object"
+      },
+      "SafeInputValues": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 80,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          },
+          "username": {
+            "anyOf": [
+              {
+                "maxLength": 512,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Username"
+          },
+          "website": {
+            "anyOf": [
+              {
+                "maxLength": 253,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website"
+          }
+        },
+        "title": "SafeInputValues",
         "type": "object"
       },
       "SelectModelRequest": {
@@ -5490,7 +5623,7 @@
   "paths": {
     "/api/v1/allies/{ally_id}/runtime-intents": {
       "post": {
-        "operationId": "runtimeintent_request_6b010a32",
+        "operationId": "runtimeintent_request_0ff4c3b3",
         "parameters": [
           {
             "in": "path",
@@ -5646,7 +5779,7 @@
     },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_c7473a51",
+        "operationId": "authentication_callback_b1ab8d35",
         "parameters": [
           {
             "in": "path",
@@ -5751,7 +5884,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_4a0843e2",
+        "operationId": "authentication_csrf_75cf0a38",
         "parameters": [],
         "responses": {
           "204": {
@@ -5781,7 +5914,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_a614e593",
+        "operationId": "identity_link_557d91ec",
         "parameters": [
           {
             "in": "path",
@@ -5959,7 +6092,7 @@
     "/api/v1/auths/invites/claim": {
       "post": {
         "description": "This browser-only operation requires a trusted Origin or Referer and matching CSRF cookie/header. Claiming an invite records only the normalized email grant; it does not create an account. Responses are never cacheable.",
-        "operationId": "invite_claim_f987699c",
+        "operationId": "invite_claim_98611148",
         "parameters": [
           {
             "description": "Required and must match a configured trusted frontend origin.",
@@ -6149,7 +6282,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_29d75376",
+        "operationId": "session_logout_2675e866",
         "parameters": [],
         "responses": {
           "204": {
@@ -6194,7 +6327,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_ec6d8bf0",
+        "operationId": "profile_me_e7614c47",
         "parameters": [],
         "responses": {
           "200": {
@@ -6251,7 +6384,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_d2eccf33",
+        "operationId": "avatar_delete_10d59a2c",
         "parameters": [],
         "responses": {
           "204": {
@@ -6361,7 +6494,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_03746c4b",
+        "operationId": "avatar_complete_6d7c2f18",
         "parameters": [
           {
             "in": "path",
@@ -6519,7 +6652,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_78d3b62b",
+        "operationId": "avatar_read_6b41ba37",
         "parameters": [],
         "responses": {
           "200": {
@@ -6606,7 +6739,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_07429bea",
+        "operationId": "avatar_prepare_2e05cc7b",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -6748,7 +6881,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_1669ffbc",
+        "operationId": "profile_profile_2cf10786",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -6861,7 +6994,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_0add695a",
+        "operationId": "nativeauthentication_callback_0ff26ed2",
         "parameters": [
           {
             "in": "path",
@@ -7045,7 +7178,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_35033227",
+        "operationId": "nativeauthentication_logout_cc7deb09",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -7137,7 +7270,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_c43d9aca",
+        "operationId": "nativeauthentication_sign_in_ff8074fd",
         "parameters": [
           {
             "in": "path",
@@ -7241,7 +7374,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_984cec72",
+        "operationId": "nativeauthentication_token_848f06c4",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -7405,7 +7538,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_cbf52ab7",
+        "operationId": "nativeauthentication_refresh_a236749f",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -7568,7 +7701,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_6b9a8173",
+        "operationId": "session_refresh_285fadfc",
         "parameters": [],
         "responses": {
           "204": {
@@ -7658,7 +7791,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_559379a1",
+        "operationId": "authentication_sign_in_8b9d2d04",
         "parameters": [
           {
             "in": "path",
@@ -7805,7 +7938,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_0d9611a8",
+        "operationId": "health_health_94b7b60b",
         "parameters": [],
         "responses": {
           "200": {
@@ -7857,7 +7990,7 @@
     },
     "/api/v1/integrations/gmail/callback": {
       "get": {
-        "operationId": "gmailcallback_callback_db42e47a",
+        "operationId": "gmailcallback_callback_9e89cacb",
         "parameters": [
           {
             "in": "query",
@@ -8130,7 +8263,7 @@
     },
     "/api/v1/internal/v1/accepted-files/{file_id}/content": {
       "get": {
-        "operationId": "acceptedfile_content_4a1a7b3f",
+        "operationId": "acceptedfile_content_3bdc96cb",
         "parameters": [
           {
             "in": "path",
@@ -8176,7 +8309,7 @@
     },
     "/api/v1/internal/v1/file-publication-retries/claim": {
       "post": {
-        "operationId": "filepublication_claim_68e3871f",
+        "operationId": "filepublication_claim_34f6854b",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -8201,7 +8334,7 @@
     },
     "/api/v1/internal/v1/file-publication-retries/due-bindings": {
       "get": {
-        "operationId": "filepublication_due_bindings_02166dc0",
+        "operationId": "filepublication_due_bindings_2e50bd48",
         "parameters": [
           {
             "in": "query",
@@ -8244,7 +8377,7 @@
     },
     "/api/v1/internal/v1/file-publication-status": {
       "post": {
-        "operationId": "filepublication_status_40246096",
+        "operationId": "filepublication_status_028ba936",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -8269,7 +8402,7 @@
     },
     "/api/v1/internal/v1/file-publications": {
       "post": {
-        "operationId": "filepublication_reserve_de1bca13",
+        "operationId": "filepublication_reserve_bede0792",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -8294,7 +8427,7 @@
     },
     "/api/v1/internal/v1/file-publications/{publication_id}": {
       "get": {
-        "operationId": "filepublication_detail_b03de3d2",
+        "operationId": "filepublication_detail_07088f9e",
         "parameters": [
           {
             "in": "path",
@@ -8320,7 +8453,7 @@
     },
     "/api/v1/internal/v1/file-publications/{publication_id}/files/{file_id}/content": {
       "put": {
-        "operationId": "filepublication_upload_c675392f",
+        "operationId": "filepublication_upload_c3797ee7",
         "parameters": [
           {
             "in": "path",
@@ -8409,7 +8542,7 @@
     },
     "/api/v1/internal/v1/file-publications/{publication_id}/retry-result": {
       "post": {
-        "operationId": "filepublication_retry_result_389afbc1",
+        "operationId": "filepublication_retry_result_49096494",
         "parameters": [
           {
             "in": "path",
@@ -8446,7 +8579,7 @@
     "/api/v1/onboarding/attempts": {
       "post": {
         "description": "This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.",
-        "operationId": "onboarding_begin_27513de1",
+        "operationId": "onboarding_begin_d36de1b0",
         "parameters": [
           {
             "description": "Browser-only signal; if present it must be a configured trusted origin.",
@@ -8623,7 +8756,7 @@
     "/api/v1/onboarding/runtime-intents": {
       "post": {
         "description": "This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.",
-        "operationId": "onboarding_runtime_intent_fc401499",
+        "operationId": "onboarding_runtime_intent_683a3503",
         "parameters": [
           {
             "description": "Stable UUID for repeating one runtime intent.",
@@ -8907,7 +9040,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_a3c03fc4",
+        "operationId": "waitlist_create_7ee087ef",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -9088,7 +9221,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_4e3db11f",
+        "operationId": "waitlist_complete_210da904",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -9258,7 +9391,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_f1b7f875",
+        "operationId": "workspace_context_9ff91bbe",
         "parameters": [
           {
             "in": "path",
@@ -9341,7 +9474,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_4c076b65",
+        "operationId": "ally_list_c9831741",
         "parameters": [
           {
             "in": "path",
@@ -9418,7 +9551,7 @@
       },
       "post": {
         "description": "Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.",
-        "operationId": "ally_create_2a838564",
+        "operationId": "ally_create_b47cf947",
         "parameters": [
           {
             "in": "path",
@@ -9654,7 +9787,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_cb891b51",
+        "operationId": "ally_retrieve_db52803a",
         "parameters": [
           {
             "in": "path",
@@ -9740,9 +9873,45 @@
         ]
       }
     },
+    "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/browser-session": {
+      "get": {
+        "operationId": "safeinput_browser_session_6773ee6e",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Browser Session",
+        "tags": [
+          "Safe inputs"
+        ]
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_ce4f7857",
+        "operationId": "conversation_by_ally_af024901",
         "parameters": [
           {
             "in": "path",
@@ -9873,7 +10042,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/deletion": {
       "get": {
-        "operationId": "ally_deletion_status_c9390ea1",
+        "operationId": "ally_deletion_status_9f39b571",
         "parameters": [
           {
             "in": "path",
@@ -9959,7 +10128,7 @@
         ]
       },
       "post": {
-        "operationId": "ally_delete_3396716c",
+        "operationId": "ally_delete_b682a5b6",
         "parameters": [
           {
             "in": "path",
@@ -10112,7 +10281,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}": {
       "get": {
-        "operationId": "privatefile_metadata_226a6b76",
+        "operationId": "privatefile_metadata_acb40463",
         "parameters": [
           {
             "in": "path",
@@ -10158,7 +10327,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/content": {
       "put": {
-        "operationId": "fileadmission_upload_a6b88368",
+        "operationId": "fileadmission_upload_0c68185e",
         "parameters": [
           {
             "in": "path",
@@ -10364,7 +10533,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/download": {
       "get": {
-        "operationId": "privatefile_download_bea92cfe",
+        "operationId": "privatefile_download_9f73dbce",
         "parameters": [
           {
             "in": "path",
@@ -10410,7 +10579,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/preview": {
       "get": {
-        "operationId": "privatefile_preview_02e64746",
+        "operationId": "privatefile_preview_e508289d",
         "parameters": [
           {
             "in": "path",
@@ -10456,7 +10625,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/retry": {
       "post": {
-        "operationId": "fileadmission_retry_file_c4658571",
+        "operationId": "fileadmission_retry_file_da3c3aa3",
         "parameters": [
           {
             "in": "path",
@@ -10609,7 +10778,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/messages/{message_id}/publications/{publication_id}": {
       "get": {
-        "operationId": "ownerpublication_detail_c5a398b1",
+        "operationId": "ownerpublication_detail_7d751186",
         "parameters": [
           {
             "in": "path",
@@ -10665,7 +10834,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/messages/{message_id}/publications/{publication_id}/retry": {
       "post": {
-        "operationId": "ownerpublication_retry_f48465a9",
+        "operationId": "ownerpublication_retry_a7bb3de2",
         "parameters": [
           {
             "in": "path",
@@ -10731,7 +10900,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/model": {
       "put": {
-        "operationId": "modelkeys_select_1b0bda6e",
+        "operationId": "modelkeys_select_d0eb1584",
         "parameters": [
           {
             "in": "path",
@@ -10844,7 +11013,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/settings": {
       "patch": {
-        "operationId": "ally_settings_66dc02d3",
+        "operationId": "ally_settings_6e35f911",
         "parameters": [
           {
             "in": "path",
@@ -10987,7 +11156,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_179e06d4",
+        "operationId": "conversation_by_conversation_dfecd8a8",
         "parameters": [
           {
             "in": "path",
@@ -11118,7 +11287,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_35bb402c",
+        "operationId": "activity_snapshot_f28e0ea2",
         "parameters": [
           {
             "in": "path",
@@ -11290,7 +11459,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
       "get": {
-        "operationId": "activity_stream_415fa215",
+        "operationId": "activity_stream_c23d9a68",
         "parameters": [
           {
             "in": "path",
@@ -11344,7 +11513,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals": {
       "get": {
         "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
-        "operationId": "activity_approvals_df85b410",
+        "operationId": "activity_approvals_38473597",
         "parameters": [
           {
             "in": "path",
@@ -11483,7 +11652,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}": {
       "get": {
         "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
-        "operationId": "activity_approval_f828e038",
+        "operationId": "activity_approval_e7019182",
         "parameters": [
           {
             "in": "path",
@@ -11620,7 +11789,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}/decision": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected. The idempotency key must be reused for an exact retry.",
-        "operationId": "activity_decide_aa900538",
+        "operationId": "activity_decide_94f261ae",
         "parameters": [
           {
             "in": "path",
@@ -11831,7 +12000,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/file-messages": {
       "post": {
-        "operationId": "fileadmission_reserve_dfb01733",
+        "operationId": "fileadmission_reserve_5d25ec2b",
         "parameters": [
           {
             "in": "path",
@@ -12001,7 +12170,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_send_68797cc7",
+        "operationId": "conversation_send_2552591e",
         "parameters": [
           {
             "in": "path",
@@ -12218,7 +12387,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}": {
       "delete": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_delete_35a38d86",
+        "operationId": "conversation_delete_058d1a5f",
         "parameters": [
           {
             "in": "path",
@@ -12381,7 +12550,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/cancel-files": {
       "post": {
-        "operationId": "fileadmission_cancel_files_99927591",
+        "operationId": "fileadmission_cancel_files_599d38b3",
         "parameters": [
           {
             "in": "path",
@@ -12534,7 +12703,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/file-draft": {
       "delete": {
-        "operationId": "fileadmission_discard_draft_216cc001",
+        "operationId": "fileadmission_discard_draft_64fff96d",
         "parameters": [
           {
             "in": "path",
@@ -12645,7 +12814,7 @@
         ]
       },
       "get": {
-        "operationId": "fileadmission_get_draft_028a18e7",
+        "operationId": "fileadmission_get_draft_4afe0649",
         "parameters": [
           {
             "in": "path",
@@ -12758,7 +12927,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/files/{file_id}": {
       "delete": {
-        "operationId": "fileadmission_remove_file_c29c70b6",
+        "operationId": "fileadmission_remove_file_cad087e4",
         "parameters": [
           {
             "in": "path",
@@ -12922,7 +13091,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_retry_09309118",
+        "operationId": "conversation_retry_c59cdc09",
         "parameters": [
           {
             "in": "path",
@@ -13138,7 +13307,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/send-files": {
       "post": {
-        "operationId": "fileadmission_send_files_abb6882f",
+        "operationId": "fileadmission_send_files_be1e0fa6",
         "parameters": [
           {
             "in": "path",
@@ -13291,7 +13460,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/integrations/gmail": {
       "delete": {
-        "operationId": "gmail_disconnect_fd94cecb",
+        "operationId": "gmail_disconnect_83c73f23",
         "parameters": [
           {
             "in": "path",
@@ -13437,7 +13606,7 @@
         ]
       },
       "get": {
-        "operationId": "gmail_status_d2c5f51f",
+        "operationId": "gmail_status_7b35b7f8",
         "parameters": [
           {
             "in": "path",
@@ -13530,7 +13699,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/integrations/gmail/connect": {
       "post": {
-        "operationId": "gmail_begin_ee2335b0",
+        "operationId": "gmail_begin_16910797",
         "parameters": [
           {
             "in": "path",
@@ -13699,7 +13868,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/integrations/gmail/grants": {
       "post": {
-        "operationId": "gmail_set_grant_578cd630",
+        "operationId": "gmail_set_grant_7e11c8dc",
         "parameters": [
           {
             "in": "path",
@@ -13847,7 +14016,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/model-keys": {
       "get": {
-        "operationId": "modelkeys_status_f3323d64",
+        "operationId": "modelkeys_status_f08d03f7",
         "parameters": [
           {
             "in": "path",
@@ -13910,7 +14079,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/model-keys/{provider}": {
       "delete": {
-        "operationId": "modelkeys_disconnect_fb3ba9ac",
+        "operationId": "modelkeys_disconnect_9453351e",
         "parameters": [
           {
             "in": "path",
@@ -13995,7 +14164,7 @@
         ]
       },
       "put": {
-        "operationId": "modelkeys_connect_68e79dc5",
+        "operationId": "modelkeys_connect_c3a6cd87",
         "parameters": [
           {
             "in": "path",
@@ -14107,7 +14276,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/routines": {
       "get": {
-        "operationId": "routine_list_8d8f6a09",
+        "operationId": "routine_list_51b3ea0c",
         "parameters": [
           {
             "in": "path",
@@ -14246,7 +14415,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/routines/{routine_id}": {
       "get": {
-        "operationId": "routine_detail_a8a869b7",
+        "operationId": "routine_detail_48723e54",
         "parameters": [
           {
             "in": "path",
@@ -14334,7 +14503,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/routines/{routine_id}/approvals/{approval_id}/decision": {
       "post": {
-        "operationId": "routine_decide_approval_703200f6",
+        "operationId": "routine_decide_approval_3155972c",
         "parameters": [
           {
             "in": "path",
@@ -14505,6 +14674,293 @@
         "summary": "Decide Approval",
         "tags": [
           "Routines"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/safe-input-requests": {
+      "get": {
+        "operationId": "safeinput_list_requests_aae3c86c",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ally_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ally Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "List Requests",
+        "tags": [
+          "Safe inputs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/safe-input-requests/{request_id}": {
+      "post": {
+        "operationId": "safeinput_resolve_request_99129e05",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestDecision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Resolve Request",
+        "tags": [
+          "Safe inputs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/safe-inputs": {
+      "get": {
+        "operationId": "safeinput_list_safe_inputs_50cd17f3",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "List Safe Inputs",
+        "tags": [
+          "Safe inputs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/safe-inputs/{safe_input_id}": {
+      "delete": {
+        "operationId": "safeinput_delete_safe_input_6ad0f7f5",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "safe_input_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Safe Input Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Delete Safe Input",
+        "tags": [
+          "Safe inputs"
+        ]
+      },
+      "patch": {
+        "operationId": "safeinput_update_safe_input_c2ac0a65",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "safe_input_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Safe Input Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SafeInputValues"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Update Safe Input",
+        "tags": [
+          "Safe inputs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/safe-inputs/{safe_input_id}/grants": {
+      "post": {
+        "operationId": "safeinput_grant_access_80354ec9",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "safe_input_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Safe Input Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GrantIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Grant Access",
+        "tags": [
+          "Safe inputs"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/safe-inputs/{safe_input_id}/grants/{ally_id}": {
+      "delete": {
+        "operationId": "safeinput_revoke_grant_4931ddd8",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "safe_input_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Safe Input Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "ally_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Ally Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        },
+        "summary": "Revoke Grant",
+        "tags": [
+          "Safe inputs"
         ]
       }
     }
