@@ -46,6 +46,11 @@ vi.mock('@/components/ui/primary-button', () => ({
   PrimaryButton: ({ label, onPress, disabled }: any) => createElement('button', { onClick: onPress, disabled }, label),
 }));
 vi.mock('@/features/onboarding/onboarding-ally-preview', () => ({ OnboardingAllyPreview: () => null }));
+vi.mock('@/features/onboarding/onboarding-look-screen', () => ({
+  OnboardingLookScreen: ({ onShapeChange, onColorChange }: any) => createElement('div', null,
+    createElement('button', { onClick: () => onShapeChange('rocky') }, 'Choose rocky'),
+    createElement('button', { onClick: () => onColorChange('#0D92FD') }, 'Select #0D92FD')),
+}));
 vi.mock('@/features/onboarding/onboarding-header', () => ({
   OnboardingBackButton: ({ onBack, accessibilityLabel }: any) => createElement('button', { onClick: onBack, 'aria-label': accessibilityLabel }),
 }));
@@ -65,6 +70,8 @@ const ally = {
   label: 'chief of staff', showLabel: true, settingsRevision: 4,
 } as never;
 
+const onDeleteRoutineInChat = vi.fn();
+
 function renderProfile(client: Record<string, unknown>) {
   harness.session.value = {
     status: 'signed-in',
@@ -73,7 +80,7 @@ function renderProfile(client: Record<string, unknown>) {
     adapter: { withRefresh: (operation: () => Promise<unknown>) => operation() },
   };
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  render(createElement(QueryClientProvider, { client: queryClient }, createElement(AllyProfileScreen, { ally, onBack: vi.fn() })));
+  render(createElement(QueryClientProvider, { client: queryClient }, createElement(AllyProfileScreen, { ally, onBack: vi.fn(), onDeleteRoutineInChat })));
 }
 
 const routine = (index: number) => ({
@@ -85,13 +92,19 @@ const routine = (index: number) => ({
 afterEach(cleanup);
 
 describe('AllyProfileScreen', () => {
-  it('shows three routines and expands the rest', async () => {
-    renderProfile({ listRoutines: vi.fn(async () => ({ items: [1, 2, 3, 4].map(routine), nextCursor: null })) });
+  it('shows three routines, expands the rest, and opens one in a sheet', async () => {
+    const getRoutine = vi.fn(async () => ({ ...routine(4), executionPrompt: 'Check the menu.', mainConversationId: 'c' }));
+    renderProfile({ listRoutines: vi.fn(async () => ({ items: [1, 2, 3, 4].map(routine), nextCursor: null })), getRoutine });
     expect(await screen.findByText('Routine 3')).toBeTruthy();
+    expect(screen.getByText('4 active')).toBeTruthy();
     expect(screen.queryByText('Routine 4')).toBeNull();
     expect(screen.getAllByText('08:00 every day')).toHaveLength(3);
     fireEvent.click(screen.getByText('View all 4 routines'));
-    expect(screen.getByText('Routine 4')).toBeTruthy();
+    fireEvent.click(screen.getByText('Routine 4'));
+    expect(await screen.findByText('Check the menu.')).toBeTruthy();
+    expect(screen.getByText('What Mira does')).toBeTruthy();
+    fireEvent.click(screen.getByText('Delete in chat ↗'));
+    expect(onDeleteRoutineInChat).toHaveBeenCalledWith('Routine 4');
   });
 
   it('hides routines when there are none', async () => {
@@ -105,9 +118,10 @@ describe('AllyProfileScreen', () => {
     const updateAllySettings = vi.fn(async () => ally);
     renderProfile({ listRoutines: vi.fn(async () => ({ items: [], nextCursor: null })), updateAllySettings });
     fireEvent.click(screen.getByLabelText('Change look'));
-    fireEvent.click(screen.getByLabelText('Rocky'));
-    fireEvent.click(screen.getByLabelText('#0D92FD'));
-    fireEvent.click(screen.getByText('Save'));
+    expect(screen.getByText('How should Mira look?')).toBeTruthy();
+    fireEvent.click(screen.getByText('Choose rocky'));
+    fireEvent.click(screen.getByText('Select #0D92FD'));
+    fireEvent.click(screen.getByText('Use this look'));
     await waitFor(() => expect(updateAllySettings).toHaveBeenCalledWith(workspaceId, allyId, {
       label: 'chief of staff', showLabel: true, settingsRevision: 4,
       appearance: { catalogVersion: 'v1', key: 'rocky:0d92fd' },
@@ -118,6 +132,7 @@ describe('AllyProfileScreen', () => {
     const updateAllySettings = vi.fn().mockRejectedValue({ kind: 'conflict', status: 409 });
     renderProfile({ listRoutines: vi.fn(async () => ({ items: [], nextCursor: null })), updateAllySettings });
     fireEvent.click(screen.getByLabelText('Edit label'));
+    expect(screen.getByText("Mira's label")).toBeTruthy();
     fireEvent.change(screen.getByLabelText('Label'), { target: { value: 'manager' } });
     expect(screen.getByRole('alert').textContent).toBe('Use two or three words.');
     fireEvent.change(screen.getByLabelText('Label'), { target: { value: 'project manager' } });

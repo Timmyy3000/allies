@@ -60,6 +60,7 @@ type OnboardingLookScreenProps = {
   onColorChange: (color: AllyColorValue) => void;
   onShapeChange: (shape: AllyShape) => void;
   onSwipe: () => void;
+  compact?: boolean;
 };
 
 type OnboardingLookDotProps = {
@@ -114,11 +115,12 @@ export function OnboardingLookScreen({
   onColorChange,
   onShapeChange,
   onSwipe,
+  compact = false,
 }: OnboardingLookScreenProps) {
   const theme = useTheme();
   const { width: windowWidth } = useWindowDimensions();
   const reducedMotion = useReducedMotion();
-  const edgeToEdgeStyle = getOnboardingEdgeToEdgeStyle(windowWidth);
+  const edgeToEdgeStyle = compact ? undefined : getOnboardingEdgeToEdgeStyle(windowWidth);
   const scrollRef = useRef<ScrollView>(null);
   const positionedViewportRef = useRef(0);
   const swipeHintTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -262,9 +264,9 @@ export function OnboardingLookScreen({
 
   return (
     <View
-      style={[styles.root, { backgroundColor: theme.appBackground }]}
+      style={[styles.root, compact && styles.compactRoot, { backgroundColor: compact ? 'transparent' : theme.appBackground }]}
     >
-      <View style={ONBOARDING_LOOK_CAROUSEL_GROUP_STYLE}>
+      <View style={compact ? undefined : ONBOARDING_LOOK_CAROUSEL_GROUP_STYLE}>
         <View
           onLayout={({ nativeEvent }) => setViewportWidth(nativeEvent.layout.width)}
           style={[styles.carouselFrame, { height: shellSize }, edgeToEdgeStyle]}>
@@ -299,7 +301,7 @@ export function OnboardingLookScreen({
           </Animated.ScrollView>
         </View>
 
-        <View accessibilityLabel="Ally shape choices" style={styles.dots}>
+        <View accessibilityLabel="Ally shape choices" style={[styles.dots, compact && styles.compactDots]}>
           {ALLY_SHAPES.map((shape, index) => {
             const selected = index === shapeIndex;
 
@@ -327,12 +329,12 @@ export function OnboardingLookScreen({
         </View>
       </View>
 
-      {hasSwipedAvatar ? (
+      {hasSwipedAvatar || compact ? (
         <ScrollView
-          contentContainerStyle={styles.colorRowContent}
+          contentContainerStyle={[styles.colorRowContent, compact && styles.compactColorRowContent]}
           horizontal
           showsHorizontalScrollIndicator={false}
-          style={[styles.colorRow, edgeToEdgeStyle]}>
+          style={[styles.colorRow, compact && styles.compactColorRow, edgeToEdgeStyle]}>
           {ALLY_COLORS.map((color) => {
             const selected = selectedColor === color;
 
@@ -345,6 +347,7 @@ export function OnboardingLookScreen({
                 onPress={() => onColorChange(color)}
                 style={({ pressed }) => [
                   styles.swatch,
+                  compact && styles.compactSwatch,
                   { backgroundColor: color },
                   pressed && styles.swatchPressed,
                 ]}>
@@ -403,6 +406,27 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     flexGrow: 0,
     marginBottom: ONBOARDING_LOOK_COLOR_ROW_BOTTOM_MARGIN,
+  },
+  compactColorRow: {
+    marginBottom: 0,
+    marginTop: 24,
+  },
+  compactColorRowContent: {
+    flexGrow: 1,
+    gap: 6,
+    justifyContent: 'space-between',
+    paddingHorizontal: 0,
+  },
+  compactDots: {
+    marginTop: 20,
+  },
+  compactRoot: {
+    flex: 0,
+  },
+  compactSwatch: {
+    borderRadius: 20,
+    height: 40,
+    width: 40,
   },
   colorRowContent: {
     alignItems: 'center',
