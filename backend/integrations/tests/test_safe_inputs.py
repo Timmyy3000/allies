@@ -384,3 +384,36 @@ def test_other_workspace_sees_and_changes_nothing(turn):
     request.refresh_from_db()
     assert item.name == "Amazon" and request.status == SafeInputRequest.PENDING
     assert SafeInputGrant.objects.filter(safe_input=item, ally=ally).exists()
+    granted = client.post(
+        mine + f"/safe-inputs/{item.id}/grants",
+        json.dumps({"ally_id": str(ally.id)}),
+        content_type="application/json",
+        **headers,
+    )
+    assert granted.status_code == 404
+
+
+def test_settings_grant_is_scoped_to_the_workspace(turn):
+    workspace, ally, _ = turn
+    item = _login(workspace)
+    request_id = _tool(turn, action="request_access", safe_input_id=str(item.id))[1][
+        "request_id"
+    ]
+    safe_inputs.grant_access(workspace.id, item.id, ally.id)
+    safe_inputs.grant_access(workspace.id, item.id, ally.id)
+    assert _tool(turn, action="status", request_id=request_id)[1]["status"] == "allowed"
+    with pytest.raises(IntegrationInvalid):
+        safe_inputs.resolve_request(
+            workspace.id, request_id, allow=False, user=None, fields={}
+        )
+    assert SafeInputGrant.objects.filter(safe_input=item, ally=ally).count() == 1
+    stranger = Ally.objects.create(
+        workspace=Workspace.objects.create(owner=User.objects.create_user(), name="X"),
+        name="Rex",
+        job="-",
+        personality="-",
+        appearance_catalog_version="v1",
+        appearance_key="sunrise",
+    )
+    with pytest.raises(Ally.DoesNotExist):
+        safe_inputs.grant_access(workspace.id, item.id, stranger.id)
