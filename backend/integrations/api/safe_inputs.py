@@ -75,13 +75,16 @@ def _request_out(row) -> dict:
         name=row.name,
         website=row.website,
         created_at=row.created_at,
-    )
+    ).model_dump(mode="json")
 
 
 @api_controller("/workspaces/{workspace_id}", tags=["Safe inputs"])
 class SafeInputController(ControllerBase):
     def _run(self, request, workspace_id, work):
-        if rejected := _require_origin(request, allow_native_bearer=True):
+        # Reads follow the Cloud convention: session only; writes also check origin and CSRF.
+        if request.method != "GET" and (
+            rejected := _require_origin(request, allow_native_bearer=True)
+        ):
             return rejected
         try:
             session = _session(request)
@@ -105,7 +108,7 @@ class SafeInputController(ControllerBase):
             workspace_id,
             lambda user: success_json(
                 [
-                    SafeInputOut(**row)
+                    SafeInputOut(**row).model_dump(mode="json")
                     for row in safe_inputs.workspace_safe_inputs(workspace_id)
                 ],
                 "Safe inputs",
@@ -218,7 +221,7 @@ class SafeInputController(ControllerBase):
             return success_json(
                 BrowserSessionOut(
                     live_url=session.live_url, expires_at=session.expires_at
-                ),
+                ).model_dump(mode="json"),
                 "Browser session",
             )
 
