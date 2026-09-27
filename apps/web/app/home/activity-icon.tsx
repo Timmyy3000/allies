@@ -1,6 +1,7 @@
 import {
   Book, Calendar, Code, Cpu, DocumentText, DocumentUpload, Eye, Gallery, GlobalSearch,
-  MagicStar, More, People, SearchNormal, TaskSquare, Verify, Video, VolumeHigh,
+  Home2, Key, Lock, MagicStar, More, People, SearchNormal, Sms, TaskSquare, Timer1, Verify,
+  Video, VolumeHigh,
   type Icon,
 } from "iconsax-reactjs";
 
@@ -41,6 +42,17 @@ const icons: Record<string, Icon> = {
   routine_result: Calendar,
   delegate_task: People,
   approval: Verify,
+  approval_request: Verify,
+  browser_view: Eye,
+  process: Timer1,
+  smart_home: Home2,
+  tool_lookup: SearchNormal,
+  gmail_read: Sms,
+  gmail_send: Sms,
+  gmail_organise: Sms,
+  safe_input_check: Lock,
+  safe_input_request: Lock,
+  safe_input_fill: Key,
   unknown: MagicStar,
 };
 
