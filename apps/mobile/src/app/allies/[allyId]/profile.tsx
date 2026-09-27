@@ -14,7 +14,18 @@ export default function AllyProfileRoute() {
   const allyQuery = useAlly(allyId);
   const back = () => (router.canGoBack() ? router.back() : router.replace(allyId ? `/allies/${allyId}` as never : '/allies' as never));
 
-  if (allyQuery.data) return <AllyProfileScreen ally={allyQuery.data} onBack={back} />;
+  if (allyQuery.data) {
+    return (
+      <AllyProfileScreen
+        ally={allyQuery.data}
+        onBack={back}
+        onDeleteRoutineInChat={(title) => router.dismissTo({
+          pathname: '/allies/[allyId]',
+          params: { allyId: allyQuery.data.id, prefill: `Please delete the “${title}” routine.` },
+        } as never)}
+      />
+    );
+  }
   if (allyQuery.isError || !allyId) {
     return (
       <View style={{ alignItems: 'center', backgroundColor: theme.appBackground, flex: 1, gap: 16, justifyContent: 'center', padding: 24 }}>

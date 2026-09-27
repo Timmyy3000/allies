@@ -315,6 +315,76 @@ describe('mounted Ally conversation route', () => {
     unmount();
   });
 
+  it('offers a Delete in chat prefill only after a saved unsent message is retried', async () => {
+    const userId = '00000000-0000-4000-8000-000000000010';
+    const prefill = 'Please delete the “Morning check” routine.';
+    harness.params = { allyId: ids.ally, prefill } as typeof harness.params;
+    (harness.pendingStore.readMessage as unknown as { mockResolvedValue: (value: unknown) => void }).mockResolvedValue({
+      kind: 'message',
+      conversationId: ids.conversation,
+      content: 'Help me plan tomorrow.',
+      idempotencyKey: '00000000-0000-4000-8000-000000000031',
+      createdAt: '2026-09-05T10:00:00Z',
+      boundUserId: userId,
+      boundWorkspaceId: ids.workspace,
+    });
+    const sent: unknown[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const request = input instanceof Request ? input : new Request(input, init);
+      const path = new URL(request.url).pathname;
+      if (path === `/api/v1/workspaces/${ids.workspace}/allies/${ids.ally}`) {
+        return Response.json({ status: 'success', message: 'Ally loaded', data: allyResponse });
+      }
+      if (path === `/api/v1/workspaces/${ids.workspace}/allies/${ids.ally}/conversation`) {
+        return Response.json({ status: 'success', message: 'Conversation loaded', data: emptyConversation });
+      }
+      if (path === `/api/v1/workspaces/${ids.workspace}/conversations/${ids.conversation}`) {
+        return Response.json({ status: 'success', message: 'Conversation loaded', data: { ...emptyConversation, messages: sent.length ? [acceptedMessage] : [] } });
+      }
+      if (path === `/api/v1/workspaces/${ids.workspace}/conversations/${ids.conversation}/activities`) {
+        return Response.json(activityResponse());
+      }
+      if (path === `/api/v1/allies/${ids.ally}/runtime-intents`) {
+        return Response.json({ status: 'success', message: 'Runtime intent accepted', data: { status: 'waking' } }, { status: 202 });
+      }
+      if (path === `/api/v1/workspaces/${ids.workspace}/conversations/${ids.conversation}/messages`) {
+        sent.push(await request.clone().json());
+        return Response.json({
+          status: 'success',
+          message: 'Message accepted',
+          data: { conversation_id: ids.conversation, message: acceptedMessage, execution: null, replayed: false },
+        }, { status: 201 });
+      }
+      throw new Error(`Unexpected request: ${request.method} ${path}`);
+    });
+    const client = createMobileCloudClient({
+      cloudApiUrl: 'https://cloud.example.com',
+      nativeAuthRedirectUri: 'https://mobile.example/auth/return',
+      fetch,
+    });
+    client.setAccessToken('access-example');
+    harness.session.value = {
+      account: account(userId),
+      accountClient: client.account,
+      adapter: { withRefresh: (operation: () => Promise<unknown>) => operation() },
+      restore: vi.fn(async () => undefined),
+      status: 'signed-in',
+    };
+
+    const { unmount } = renderRoute();
+    await settleRoute();
+    const input = document.querySelector('input[aria-label="Message Mira"]') as HTMLInputElement;
+    expect(input.value).toBe('Help me plan tomorrow.');
+
+    fireEvent.click(document.querySelector('button[aria-label="Send message"]')!);
+    await settleRoute();
+    expect(sent).toEqual([expect.objectContaining({ content: 'Help me plan tomorrow.' })]);
+    expect(input.value).toBe(prefill);
+    unmount();
+    harness.params = { allyId: ids.ally };
+    (harness.pendingStore.readMessage as unknown as { mockResolvedValue: (value: unknown) => void }).mockResolvedValue(null);
+  });
+
   it('leaves a late send acceptance pending when the account identity changes', async () => {
     let resolveSend: ((response: Response) => void) | null = null;
     let sendRequest: Request | null = null;
