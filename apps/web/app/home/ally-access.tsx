@@ -135,7 +135,6 @@ export function AllyAccess({ workspaceId, allyId, returned = null }: { workspace
       {row}
       {problem ? <p className={styles.profileInlineError} role="alert">{problem.message}</p> : null}
       {!problem && returned?.status === "failed" ? <p className={styles.profileInlineError} role="alert">{returned.message}</p> : null}
-      {!problem && returned?.status === "connected" && connectionQuery.data ? <p className={styles.accessNotice} role="status">Gmail connected</p> : null}
     </section>
   );
 }
