@@ -2,7 +2,9 @@
 
 import type { SafeInputRequest } from "@allies/cloud-client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode } from "react";
+
+import { AllyAvatar, type AllyShape } from "../../components/ally-avatar";
 
 import { useSession } from "../../lib/session/session-context";
 import { SafeInputFields, safeInputsQueryKey } from "./ally-safe-inputs";
@@ -15,7 +17,7 @@ const POLL_MS = 3_000;
 const ERROR_POLL_MS = 15_000;
 
 /** In-chat Safe input requests and the Ally's watch-only browser (DSN-011 1–8, 13). */
-export function SafeInputLayer({ workspaceId, allyId, allyName, accent }: { workspaceId: string; allyId: string; allyName: string; accent: string }) {
+export function SafeInputLayer({ workspaceId, allyId, allyName, accent, shape = "ghosty" }: { workspaceId: string; allyId: string; allyName: string; accent: string; shape?: AllyShape }) {
   const session = useSession();
   const requests = useQuery({
     queryKey: ["safe-inputs", workspaceId, "requests", allyId],
@@ -49,9 +51,9 @@ export function SafeInputLayer({ workspaceId, allyId, allyName, accent }: { work
 
   return (
     <div style={style}>
-      {browser.data && !request ? <BrowserWindow liveUrl={browser.data.liveUrl} allyName={allyName} /> : null}
+      {browser.data && !request ? <BrowserWindow liveUrl={browser.data.liveUrl} allyName={allyName} avatar={(size) => <AllyAvatar shape={shape} color={accent} size={size} />} /> : null}
       {request?.kind === "new" ? (
-        <SafeInputSheet key={request.id} workspaceId={workspaceId} request={request} allyName={allyName} onDone={done} />
+        <SafeInputSheet key={request.id} workspaceId={workspaceId} request={request} allyName={allyName} avatar={<AllyAvatar shape={shape} color={accent} size={52} />} onDone={done} />
       ) : request?.kind === "access" ? (
         <AccessRequest key={request.id} workspaceId={workspaceId} request={request} allyName={allyName} onDone={done} />
       ) : null}
@@ -59,15 +61,54 @@ export function SafeInputLayer({ workspaceId, allyId, allyName, accent }: { work
   );
 }
 
-function BrowserWindow({ liveUrl, allyName }: { liveUrl: string; allyName: string }) {
+// Where the floating browser sits, measured from the viewport's bottom-right corner.
+type Offset = { right: number; bottom: number };
+const DRAG_SLOP = 4;
+const EDGE = 8;
+
+function BrowserWindow({ liveUrl, allyName, avatar }: { liveUrl: string; allyName: string; avatar: (size: number) => ReactNode }) {
   const [expanded, setExpanded] = useState(false);
+  const [offset, setOffset] = useState<Offset>({ right: 16, bottom: 96 });
+  const drag = useRef<{ x: number; y: number; start: Offset; moved: boolean } | null>(null);
+
+  const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    drag.current = { x: event.clientX, y: event.clientY, start: offset, moved: false };
+  };
+  const onPointerMove = (event: PointerEvent<HTMLButtonElement>) => {
+    const current = drag.current;
+    if (!current) return;
+    const dx = event.clientX - current.x;
+    const dy = event.clientY - current.y;
+    if (!current.moved && Math.hypot(dx, dy) < DRAG_SLOP) return;
+    current.moved = true;
+    const box = event.currentTarget.getBoundingClientRect();
+    const clamp = (value: number, max: number) => Math.min(Math.max(EDGE, value), Math.max(EDGE, max));
+    setOffset({
+      right: clamp(current.start.right - dx, window.innerWidth - box.width - EDGE),
+      bottom: clamp(current.start.bottom - dy, window.innerHeight - box.height - EDGE),
+    });
+  };
+  // A drag leaves the window where it was dropped; a tap opens it.
+  const onClick = () => {
+    const moved = drag.current?.moved;
+    drag.current = null;
+    if (!moved) setExpanded(true);
+  };
+
   if (expanded) {
     return (
       <div className={styles.scrim} onClick={(event) => { if (event.target === event.currentTarget) setExpanded(false); }}>
         <section className={styles.browserExpanded} role="dialog" aria-modal="true" aria-label={`${allyName}'s browser`}>
           <header className={styles.browserHead}>
-            <span><strong>{allyName}&apos;s browser</strong><small><span className={styles.live} /> Live</small></span>
-            <button type="button" className={styles.iconButton} aria-label="Minimize" onClick={() => setExpanded(false)}>–</button>
+            {avatar(36)}
+            <span className={styles.browserWho}>
+              <strong>{allyName}&apos;s browser</strong>
+              <small><span className={styles.live} /> Live</small>
+            </span>
+            <button type="button" className={styles.minimize} aria-label="Minimize" onClick={() => setExpanded(false)}>
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+            </button>
           </header>
           <div className={styles.browserFrame}>
             <iframe src={liveUrl} title={`${allyName}'s browser`} sandbox="allow-scripts allow-same-origin" tabIndex={-1} />
@@ -79,16 +120,29 @@ function BrowserWindow({ liveUrl, allyName }: { liveUrl: string; allyName: strin
     );
   }
   return (
-    <button type="button" className={styles.pip} onClick={() => setExpanded(true)} aria-label={`Watch ${allyName}'s browser`}>
+    <button
+      type="button"
+      className={styles.pip}
+      style={{ right: offset.right, bottom: offset.bottom }}
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerCancel={() => { drag.current = null; }}
+      onClick={onClick}
+      aria-label={`Watch ${allyName}'s browser`}
+    >
+      <span className={styles.pipBar}>
+        {avatar(16)}
+        <span className={styles.pipTitle}><span className={styles.live} /> Browsing</span>
+        <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" /></svg>
+      </span>
       <span className={styles.pipFrame}>
         <iframe src={liveUrl} title={`${allyName}'s browser preview`} sandbox="allow-scripts allow-same-origin" tabIndex={-1} />
       </span>
-      <span className={styles.pipLabel}><span className={styles.live} /> Browsing</span>
     </button>
   );
 }
 
-function SafeInputSheet({ workspaceId, request, allyName, onDone }: { workspaceId: string; request: SafeInputRequest; allyName: string; onDone: () => void }) {
+function SafeInputSheet({ workspaceId, request, allyName, avatar, onDone }: { workspaceId: string; request: SafeInputRequest; allyName: string; avatar: ReactNode; onDone: () => void }) {
   const session = useSession();
   const queryClient = useQueryClient();
   const [state, setState] = useState<"editing" | "explaining" | "saving" | "saved">("editing");
@@ -134,7 +188,8 @@ function SafeInputSheet({ workspaceId, request, allyName, onDone }: { workspaceI
           </div>
         ) : state === "explaining" ? (
           <>
-            <SheetHead onHelp={() => setState("editing")} onClose={() => void decide("deny")} />
+            <SheetHead avatar={avatar} onClose={() => void decide("deny")} />
+            <Chip onHelp={() => setState("editing")} />
             <h2 id="safe-input-sheet-title">What&apos;s a Safe input?</h2>
             <p className={styles.lead}>A login you give {allyName} without putting it in chat.</p>
             <ul className={styles.points}>
@@ -147,7 +202,8 @@ function SafeInputSheet({ workspaceId, request, allyName, onDone }: { workspaceI
           </>
         ) : (
           <form onSubmit={(event) => { event.preventDefault(); void decide("allow", new FormData(event.currentTarget)); }}>
-            <SheetHead onHelp={() => setState("explaining")} onClose={() => void decide("deny")} disabled={state === "saving"} />
+            <SheetHead avatar={avatar} onClose={() => void decide("deny")} disabled={state === "saving"} />
+            <Chip onHelp={() => setState("explaining")} disabled={state === "saving"} />
             <h2 id="safe-input-sheet-title">Sign in to {name}</h2>
             <p className={styles.lead}>{allyName} needs your {name} login. {allyName} can use it but never sees it.</p>
             <fieldset className={styles.fields} disabled={state === "saving"}>
@@ -162,11 +218,25 @@ function SafeInputSheet({ workspaceId, request, allyName, onDone }: { workspaceI
   );
 }
 
-function SheetHead({ onHelp, onClose, disabled = false }: { onHelp: () => void; onClose: () => void; disabled?: boolean }) {
+function SheetHead({ avatar, onClose, disabled = false }: { avatar: ReactNode; onClose: () => void; disabled?: boolean }) {
   return (
     <div className={styles.sheetHead}>
-      <span className={styles.badge}>Safe input <button type="button" className={styles.help} aria-label="What's a Safe input?" onClick={onHelp} disabled={disabled}>?</button></span>
-      <button type="button" className={styles.iconButton} aria-label="Not now" onClick={onClose} disabled={disabled}>×</button>
+      <span className={styles.avatarRing}>{avatar}</span>
+      <button type="button" className={styles.iconButton} aria-label="Not now" onClick={onClose} disabled={disabled}>
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+      </button>
+    </div>
+  );
+}
+
+function Chip({ onHelp, disabled = false }: { onHelp: () => void; disabled?: boolean }) {
+  return (
+    <div className={styles.chipRow}>
+      <span className={styles.badge}>
+        <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="currentColor" /><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
+        Safe input
+      </span>
+      <button type="button" className={styles.help} aria-label="What's a Safe input?" onClick={onHelp} disabled={disabled}>?</button>
     </div>
   );
 }

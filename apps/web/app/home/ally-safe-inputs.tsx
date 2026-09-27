@@ -4,6 +4,8 @@ import type { AllyViewModel, SafeInput } from "@allies/cloud-client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { AllyAvatar } from "../../components/ally-avatar";
+import { resolveAllyAppearance } from "../../lib/allies/appearance";
 import { alliesQueryOptions } from "../../lib/allies/queries";
 import { useSession } from "../../lib/session/session-context";
 
@@ -70,7 +72,7 @@ export function AllySafeInputs({ workspaceId, ally }: { workspaceId: string; all
           {items.map((item) => (
             <div key={item.id} className={styles.accessRow}>
               <SiteMark name={item.name} />
-              <button type="button" className={styles.accessCopy} onClick={() => setManaging(item.id)}>
+              <button type="button" className={`${styles.accessCopy} ${styles.safeInputOpen}`} onClick={() => setManaging(item.id)}>
                 <strong>{item.name}</strong>
                 <small>{item.website}</small>
               </button>
@@ -140,37 +142,58 @@ function SafeInputDetail({ workspaceId, item, onClose }: { workspaceId: string; 
 
   return (
     <div className={styles.subsheetScrim} onClick={(event) => { if (event.target === event.currentTarget && !busy) onClose(); }}>
-      <section className={styles.subsheet} role="dialog" aria-modal="true" aria-labelledby="safe-input-title">
+      <section className={styles.subsheet} role="dialog" aria-modal="true" aria-labelledby={view === "detail" ? "safe-input-name" : "safe-input-title"}>
         <div className={styles.subsheetHead}>
-          <h3 id="safe-input-title">{view === "update" ? `Update ${item.name} login` : view === "delete" ? `Delete your ${item.name} login?` : item.name}</h3>
+          <h3 id="safe-input-title">{view === "update" ? `Update ${item.name} login` : view === "delete" ? `Delete your ${item.name} login?` : ""}</h3>
           <button type="button" className={styles.subsheetClose} aria-label="Close" onClick={onClose} disabled={busy}>×</button>
         </div>
         {view === "detail" ? (
           <>
-            <p className={styles.settingsHelp}>{item.website} · Updated {new Date(item.updatedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}</p>
+            <div className={styles.safeInputIdentity}>
+              <SiteMark name={item.name} large />
+              <strong id="safe-input-name">{item.name}</strong>
+              <small>
+                <span className={styles.safeInputDot} aria-hidden="true" />
+                {item.website} · Updated {new Date(item.updatedAt).toLocaleDateString(undefined, { day: "numeric", month: "short" })}
+              </small>
+            </div>
             <div className={styles.profileSectionHead}>
               <h4>Allies that can use it</h4>
-              <span className={styles.labelCount}>{withAccess.length} of {allies.length}</span>
+              <span>{withAccess.length} of {allies.length}</span>
             </div>
             <div className={styles.profileList}>
-              {allies.map((ally) => (
-                <label key={ally.id} className={styles.accessRow}>
-                  <span className={styles.accessCopy}><strong>{ally.name}</strong><small>{ally.job}</small></span>
-                  <input
-                    type="checkbox"
-                    role="switch"
-                    className={styles.accessSwitch}
-                    aria-label={`${ally.name} can use ${item.name}`}
-                    checked={item.allyIds.includes(ally.id)}
-                    disabled={busy}
-                    onChange={(event) => void run((signal) => session.client.setSafeInputAccess(workspaceId, item.id, ally.id, event.target.checked, signal))}
-                  />
-                </label>
-              ))}
+              {allies.map((ally) => {
+                const appearance = resolveAllyAppearance(ally);
+                return (
+                  <label key={ally.id} className={styles.accessRow}>
+                    {appearance ? <AllyAvatar shape={appearance.shape} color={appearance.color} size={40} label="" /> : null}
+                    <span className={styles.accessCopy}><strong>{ally.name}</strong><small>{ally.job}</small></span>
+                    <input
+                      type="checkbox"
+                      role="switch"
+                      className={styles.accessSwitch}
+                      aria-label={`${ally.name} can use ${item.name}`}
+                      checked={item.allyIds.includes(ally.id)}
+                      disabled={busy}
+                      onChange={(event) => void run((signal) => session.client.setSafeInputAccess(workspaceId, item.id, ally.id, event.target.checked, signal))}
+                    />
+                  </label>
+                );
+              })}
             </div>
-            <p className={styles.settingsHelp}>Email and password are hidden, even from you.</p>
-            <button type="button" className={styles.subsheetPrimary} onClick={() => setView("update")}>Update login</button>
-            <button type="button" className={styles.profileDeleteRow} onClick={() => setView("delete")}>Delete Safe input</button>
+            <div className={`${styles.profileSectionHead} ${styles.safeInputLoginHead}`}><h4>Login</h4></div>
+            <div className={styles.profileList}>
+              <p className={styles.safeInputLoginRow}>
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2" fill="none" stroke="#12c25b" strokeWidth="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" fill="none" stroke="#12c25b" strokeWidth="2" /></svg>
+                Email and password are hidden, even from you.
+              </p>
+              <button type="button" className={styles.safeInputLoginRow} onClick={() => setView("update")}>
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16v4z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" /></svg>
+                Update login
+                <svg className={styles.safeInputChevron} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 6l6 6-6 6" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>
+              </button>
+            </div>
+            <button type="button" className={styles.safeInputDelete} onClick={() => setView("delete")}>Delete Safe input</button>
           </>
         ) : view === "update" ? (
           <form onSubmit={(event) => { event.preventDefault(); update(new FormData(event.currentTarget)); }}>
@@ -208,6 +231,10 @@ export function SafeInputFields({ name, website }: { name?: string; website: str
   );
 }
 
-function SiteMark({ name }: { name: string }) {
-  return <span className={styles.accessLogo} aria-hidden="true" style={{ display: "grid", placeItems: "center", fontWeight: 600 }}>{name.charAt(0).toLowerCase()}</span>;
+function SiteMark({ name, large = false }: { name: string; large?: boolean }) {
+  return (
+    <span className={large ? styles.siteTileLarge : styles.siteTile} aria-hidden="true">
+      <span className={styles.siteMark}>{name.charAt(0).toLowerCase()}</span>
+    </span>
+  );
 }

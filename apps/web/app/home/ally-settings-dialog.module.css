@@ -356,14 +356,15 @@
 .profileSectionHead h4 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 700;
   letter-spacing: -0.6px;
 }
 
 .profileSectionHead span {
+  margin: 0;
   color: #a0a0a0;
-  font-size: 16px;
+  font-size: 14px;
 }
 
 .profileList {
@@ -952,4 +953,148 @@
   .accessNotice {
     color: #6fdc8c;
   }
+}
+
+/* DSN-011 20: Access and Safe inputs keep the profile's section spacing. */
+.profileSections {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.accessRow + .accessRow,
+.safeInputLoginRow + .safeInputLoginRow {
+  border-top: 1px solid var(--divider);
+}
+
+.safeInputOpen {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.siteTile,
+.siteTileLarge {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  box-sizing: border-box;
+  place-items: center;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.siteMark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: #1b2430;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.siteTileLarge {
+  width: 80px;
+  height: 80px;
+  flex-basis: 80px;
+  border-radius: 24px;
+}
+
+.siteTileLarge .siteMark {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 24px;
+}
+
+/* DSN-011 17: Safe input detail. */
+.safeInputIdentity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: -12px 0 28px;
+  text-align: center;
+}
+
+.safeInputIdentity strong {
+  margin-top: 6px;
+  color: var(--text-primary);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+.safeInputIdentity small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.safeInputDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #12c25b;
+}
+
+.subsheet .profileSectionHead {
+  margin-bottom: 12px;
+}
+
+.safeInputLoginHead {
+  margin-top: 28px;
+}
+
+.safeInputLoginRow {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 18px;
+  box-sizing: border-box;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+}
+
+button.safeInputLoginRow {
+  cursor: pointer;
+}
+
+.safeInputChevron {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.safeInputDelete {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 24px;
+  border: 0;
+  border-radius: 60px;
+  background: var(--surface);
+  color: #e5352b;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
 }
