@@ -223,6 +223,10 @@ RUN cd /opt/hermes \
     && git apply --whitespace=nowarn /tmp/allies-platform-layer.patch \
     && rm -f /tmp/allies-platform-layer.patch
 
+COPY patches/activity-detail.patch /tmp/allies-activity-detail.patch
+COPY smoke_activity_detail.py /tmp/allies-smoke-activity-detail.py
+RUN cd /opt/hermes     && sed -i 's/$//' /tmp/allies-activity-detail.patch     && git apply --check --whitespace=nowarn /tmp/allies-activity-detail.patch     && git apply --whitespace=nowarn /tmp/allies-activity-detail.patch     && rm -f /tmp/allies-activity-detail.patch     && PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-activity-detail.py     && rm -f /tmp/allies-smoke-activity-detail.py
+
 # Version stamp for the refresh gate: source SHA plus the full overlay patch
 # set, so any Hermes code or config change retires live session prompts once.
 COPY patches/ /tmp/allies-prompt-version-patches/

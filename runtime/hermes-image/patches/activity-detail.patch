@@ -1,0 +1,147 @@
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index ae00c4cb8..297985133 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -73,6 +73,90 @@ _api_request_profile: ContextVar[Optional[str]] = ContextVar(
+     "api_server_request_profile", default=None
+ )
+ 
++_ALLIES_ACTIVITY_ACTIONS = {
++    "allies_gmail": {
++        "search": "gmail_read",
++        "get": "gmail_read",
++        "list_labels": "gmail_read",
++        "prepare_send": "gmail_send",
++        "send": "gmail_send",
++        "modify": "gmail_organise",
++        "create_label": "gmail_organise",
++    },
++    "allies_safe_inputs": {
++        "list": "safe_input_check",
++        "status": "safe_input_check",
++        "request_new": "safe_input_request",
++        "request_access": "safe_input_request",
++        "fill": "safe_input_fill",
++    },
++}
++_ALLIES_ROUTINE_ACTIONS = {"create", "list", "inspect", "update", "pause", "resume", "request_delete", "delete"}
++_ALLIES_ACTIVITY_SUBJECT_CHARS = 80
++
++
++def _allies_activity_host(value: Any) -> Optional[str]:
++    if not isinstance(value, str) or not value.strip():
++        return None
++    from urllib.parse import urlsplit
++
++    raw = value.strip()
++    try:
++        host = urlsplit(raw if "//" in raw else "//" + raw).hostname or ""
++    except ValueError:
++        return None
++    host = host.lower().rstrip(".").removeprefix("www.")
++    return host if "." in host else None
++
++
++def _allies_activity_subject(value: Any) -> Optional[str]:
++    """Bound a user-facing detail: printable, single-line, at most 80 characters."""
++
++    if not isinstance(value, str):
++        return None
++    text = " ".join("".join(c if c.isprintable() else " " for c in value).split())
++    if len(text) > _ALLIES_ACTIVITY_SUBJECT_CHARS:
++        text = text[: _ALLIES_ACTIVITY_SUBJECT_CHARS - 1].rstrip() + "\u2026"
++    return text or None
++
++
++def _allies_activity(target: Any, arguments: Any) -> tuple[Optional[str], Optional[str]]:
++    """Name one tool call for the activity feed, with a safe detail when useful.
++
++    Only allowlisted, non-secret argument fields become details: hostnames,
++    search text, file names, skill names, and Safe input websites.
++    """
++
++    if not isinstance(target, str) or not target:
++        return None, None
++    args = arguments if isinstance(arguments, dict) else {}
++    action = args.get("action")
++    if target == "allies_routine_result":
++        return "routine_result", None
++    if target == "allies_routines":
++        return ("routine_" + action if action in _ALLIES_ROUTINE_ACTIONS else target), None
++    if target == "allies_ask_approval":
++        return "approval_request", None
++    name = _ALLIES_ACTIVITY_ACTIONS.get(target, {}).get(action, target)
++    subject: Any = None
++    if target == "browser_navigate":
++        subject = _allies_activity_host(args.get("url"))
++    elif target == "web_extract":
++        urls = args.get("urls")
++        subject = _allies_activity_host(urls[0]) if isinstance(urls, list) and len(urls) == 1 else None
++    elif target == "web_search":
++        subject = args.get("query")
++    elif target in {"read_file", "write_file", "patch"} and isinstance(args.get("path"), str):
++        subject = os.path.basename(args["path"].rstrip("/\\"))
++    elif target == "search_files":
++        subject = args.get("pattern")
++    elif target == "skill_view":
++        subject = args.get("name")
++    elif name == "safe_input_request":
++        subject = _allies_activity_host(args.get("website"))
++    return name, _allies_activity_subject(subject)
++
++
+ def _approval_event_choices(*, smart_denied: bool, allow_permanent: bool) -> list[str]:
+     if smart_denied:
+         return ["once", "deny"]
+@@ -4109,27 +4193,40 @@ class APIServerAdapter(BasePlatformAdapter):
+             if event_type == "tool.started":
+                 target, arguments = tool_name, args
+                 if target == "tool_call" and isinstance(args, dict):
++                    # Tool-search mode wraps every call; name the tool actually run.
+                     target, arguments = args.get("name"), args.get("arguments")
+-                if target == "allies_routine_result":
+-                    routine_activity_names[tool_call_id] = "routine_result"
+-                elif target == "publish_files":
+-                    routine_activity_names[tool_call_id] = "publish_files"
+-                elif target == "allies_routines" and isinstance(arguments, dict):
+-                    action = arguments.get("action")
+-                    if action in {"create", "list", "inspect", "update", "pause", "resume", "request_delete", "delete"}:
+-                        routine_activity_names[tool_call_id] = "routine_" + action
+-                tool_name = routine_activity_names.get(tool_call_id, tool_name)
+-            else:
+-                tool_name = routine_activity_names.pop(tool_call_id, tool_name)
++                    if isinstance(arguments, str):
++                        try:
++                            arguments = json.loads(arguments)
++                        except (ValueError, TypeError):
++                            arguments = None
++                name, subject = _allies_activity(target, arguments)
++                routine_activity_names[tool_call_id] = (name or tool_name, subject)
++            name, subject = (
++                routine_activity_names.get(tool_call_id, (tool_name, None))
++                if event_type == "tool.started"
++                else routine_activity_names.pop(tool_call_id, (tool_name, None))
++            )
++            tool_name = name
+             payload = {
+                 "message_id": message_id,
+                 "tool_name": tool_name,
+                 "tool_call_id": tool_call_id,
+             }
++            if subject:
++                payload["activity_subject"] = subject
+             if event_type == "tool.completed":
+                 is_error = kwargs.get("is_error")
+                 if type(is_error) is not bool:
+                     return
++                if tool_name == "safe_input_fill":
++                    # Only a real fill counts as signed in; refusals read as not finished.
++                    try:
++                        outcome = json.loads(kwargs.get("result") or "{}").get("status")
++                    except (ValueError, TypeError, AttributeError):
++                        outcome = None
++                    if outcome != "filled":
++                        is_error = True
+                 if tool_name == "publish_files":
+                     result = kwargs.get("result")
+                     if isinstance(result, str) and len(result) <= 65536:

@@ -99,6 +99,17 @@ ACTIVITY_KINDS = frozenset(
         "routine_delete",
         "routine_result",
         "delegate_task",
+        "browser_view",
+        "process",
+        "smart_home",
+        "tool_lookup",
+        "gmail_read",
+        "gmail_send",
+        "gmail_organise",
+        "safe_input_check",
+        "safe_input_request",
+        "safe_input_fill",
+        "approval_request",
         "unknown",
     }
 )
@@ -109,6 +120,27 @@ _ACTIVITY_KIND_ALIASES = {
     "browser_scroll": "browser_interact",
     "browser_press": "browser_interact",
     "browser_hover": "browser_interact",
+    "browser_back": "browser_interact",
+    "browser_dialog": "browser_interact",
+    "browser_console": "browser_interact",
+    "browser_cdp": "browser_interact",
+    "browser_get_images": "browser_view",
+    "browser_vision": "browser_view",
+    "read_terminal": "terminal",
+    "close_terminal": "terminal",
+    "ha_list_entities": "smart_home",
+    "ha_get_state": "smart_home",
+    "ha_list_services": "smart_home",
+    "ha_call_service": "smart_home",
+    "tool_search": "tool_lookup",
+    "tool_describe": "tool_lookup",
+    "memory_search": "memory_recall",
+    "bfl_flux3_text_to_video": "video_generate",
+    "bfl_flux3_image_to_video": "video_generate",
+    "bfl_flux3_keyframes_to_video": "video_generate",
+    "bfl_flux3_video_continuation": "video_generate",
+    "bfl_flux3_get_result": "video_generate",
+    "bfl_flux3_prompting_guide": "video_generate",
     "exec_command": "terminal",
     "apply_patch": "patch",
     "web_search_preview": "web_search",
@@ -278,6 +310,22 @@ def _normalize_activity_kind(tool_name: Any) -> str:
     )
 
 
+MAX_ACTIVITY_SUBJECT_CHARS = 80
+
+
+def _activity_subject(value: Any) -> str | None:
+    """Keep a Hermes-bounded activity detail only if it is short, printable text."""
+
+    if (
+        isinstance(value, str)
+        and 0 < len(value) <= MAX_ACTIVITY_SUBJECT_CHARS
+        and value == value.strip()
+        and value.isprintable()
+    ):
+        return value
+    return None
+
+
 def _activity_id(run_id: str, tool_call_id: str) -> str:
     digest = hashlib.sha256(
         b"allies:activity:v1\0"
@@ -379,6 +427,8 @@ def _approval_material(value: Any, *, label: bool) -> str:
     elif len(value.encode("utf-8")) > MAX_APPROVAL_PREVIEW_BYTES:
         raise HermesMalformedResponse("Hermes approval preview was invalid")
     return value
+
+
 MAX_OVERRIDE_OPTIONS = 8
 _OVERRIDE_KEY = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
@@ -1191,11 +1241,13 @@ class _IncrementalHTTPStream:
                 raise HermesMalformedResponse("Hermes activity identity collided")
             self._active_activity_calls[tool_call_id] = (activity_id, activity_kind)
             self._seen_activity_calls.add(tool_call_id)
-            return self._event(
-                "activity.started",
-                self.session_id,
-                {"activity_id": activity_id, "activity_kind": activity_kind},
-            )
+            started_payload = {
+                "activity_id": activity_id,
+                "activity_kind": activity_kind,
+            }
+            if subject := _activity_subject(payload.get("activity_subject")):
+                started_payload["activity_subject"] = subject
+            return self._event("activity.started", self.session_id, started_payload)
         if name == "tool.progress":
             _validated_tool_name(payload.get("tool_name"))
             return None
@@ -1238,6 +1290,8 @@ class _IncrementalHTTPStream:
             }
             if duration is not None:
                 completed_payload["duration_ms"] = duration
+            if subject := _activity_subject(payload.get("activity_subject")):
+                completed_payload["activity_subject"] = subject
             return self._event("activity.completed", self.session_id, completed_payload)
         if name == "run.completed":
             if (
@@ -1682,12 +1736,9 @@ class HermesClient:
                     if isinstance(runtime, Mapping):
                         value = runtime.get("hermes_instance_id")
                 features = payload.get("features")
-                capability = (
-                    payload.get("profile_quiescence_v1") is True
-                    or (
-                        isinstance(features, Mapping)
-                        and features.get("profile_quiescence_v1") is True
-                    )
+                capability = payload.get("profile_quiescence_v1") is True or (
+                    isinstance(features, Mapping)
+                    and features.get("profile_quiescence_v1") is True
                 )
                 if not capability:
                     raise HermesMalformedResponse(
