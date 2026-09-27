@@ -73,9 +73,21 @@ ACTIVITY_KINDS = frozenset(
         "routine_delete",
         "routine_result",
         "delegate_task",
+        "browser_view",
+        "process",
+        "smart_home",
+        "tool_lookup",
+        "gmail_read",
+        "gmail_send",
+        "gmail_organise",
+        "safe_input_check",
+        "safe_input_request",
+        "safe_input_fill",
+        "approval_request",
         "unknown",
     }
 )
+MAX_ACTIVITY_SUBJECT_CHARS = 80
 
 
 def _validate_activity(payload: dict[str, Any], *, completed: bool) -> None:
@@ -85,9 +97,19 @@ def _validate_activity(payload: dict[str, Any], *, completed: bool) -> None:
     required = {"activity_id", "activity_kind"}
     if completed:
         required.add("status")
-    allowed = required | ({"duration_ms"} if completed else set())
+    allowed = required | {"activity_subject"}
+    if completed:
+        allowed.add("duration_ms")
     if not required <= set(payload) <= allowed:
         raise ValueError("activity payload fields are invalid")
+    subject = payload.get("activity_subject")
+    if subject is not None and (
+        not isinstance(subject, str)
+        or not 0 < len(subject) <= MAX_ACTIVITY_SUBJECT_CHARS
+        or subject != subject.strip()
+        or any(not character.isprintable() for character in subject)
+    ):
+        raise ValueError("activity subject is invalid")
     identity = payload["activity_id"]
     kind = payload["activity_kind"]
     if (

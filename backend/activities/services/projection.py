@@ -957,7 +957,9 @@ def _apply_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
     outcome = envelope.payload.get("status") if activity_id else None
     duplicate_activity = False
     if activity_id:
-        text = activity_text(activity_kind, outcome)
+        text = activity_text(
+            activity_kind, outcome, envelope.payload.get("activity_subject")
+        )
         prior = FoundryEventReceipt.objects.filter(
             message=message, attempt_id=foundry.attempt_id, activity_id=activity_id
         )
