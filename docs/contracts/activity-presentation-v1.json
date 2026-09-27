@@ -35,6 +35,17 @@
     "routine_delete",
     "routine_result",
     "delegate_task",
+    "browser_view",
+    "process",
+    "smart_home",
+    "tool_lookup",
+    "gmail_read",
+    "gmail_send",
+    "gmail_organise",
+    "safe_input_check",
+    "safe_input_request",
+    "safe_input_fill",
+    "approval_request",
     "unknown"
   ],
   "accepted": [
@@ -72,6 +83,14 @@
         "activity_id": "activity-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
         "activity_kind": "unknown",
         "status": "stopped"
+      }
+    },
+    {
+      "event_type": "activity.started",
+      "payload": {
+        "activity_id": "activity-cccccccccccccccccccccccccccccccc",
+        "activity_kind": "browser_navigate",
+        "activity_subject": "wg-gesucht.de"
       }
     }
   ],

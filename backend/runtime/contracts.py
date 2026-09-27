@@ -71,6 +71,17 @@ ACTIVITY_KINDS = frozenset(
         "routine_delete",
         "routine_result",
         "delegate_task",
+        "browser_view",
+        "process",
+        "smart_home",
+        "tool_lookup",
+        "gmail_read",
+        "gmail_send",
+        "gmail_organise",
+        "safe_input_check",
+        "safe_input_request",
+        "safe_input_fill",
+        "approval_request",
         "unknown",
     }
 )
@@ -659,13 +670,23 @@ def _validate_activity_payload(payload: Mapping[str, Any], *, completed: bool) -
     required = {"activity_id", "activity_kind"}
     if completed:
         required.add("status")
-    allowed = required | ({"duration_ms"} if completed else set())
+    allowed = required | {"activity_subject"}
+    if completed:
+        allowed.add("duration_ms")
     if not required <= set(payload) <= allowed:
         raise RuntimeValidationError(
             "activity completion payload is invalid"
             if completed
             else "activity start payload is invalid"
         )
+    subject = payload.get("activity_subject")
+    if subject is not None and (
+        not isinstance(subject, str)
+        or not 0 < len(subject) <= 80
+        or subject != subject.strip()
+        or not subject.isprintable()
+    ):
+        raise RuntimeValidationError("activity subject is invalid")
     activity_id = payload.get("activity_id")
     activity_kind = payload.get("activity_kind")
     if (
@@ -703,6 +724,8 @@ def _activity_wire_payload(
     if payload == ({"status": "completed"} if completed else {"kind": "tool"}):
         return dict(payload)
     fields = ["activity_id", "activity_kind"]
+    if "activity_subject" in payload:
+        fields.append("activity_subject")
     if completed:
         fields.append("status")
         if "duration_ms" in payload:
