@@ -167,6 +167,7 @@ class Command(BaseCommand):
                 cpus=settings.WORKSPACE_CPUS,
                 memory_mb=settings.WORKSPACE_MEMORY_MB,
                 volume_size_gb=settings.WORKSPACE_VOLUME_SIZE_GB,
+            volume_size_limit_gb=settings.WORKSPACE_VOLUME_SIZE_LIMIT_GB,
                 organization=required["FLY_ORG"],
                 region=required["FLY_REGION"],
                 hermes_image=required["HERMES_IMAGE"],

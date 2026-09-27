@@ -228,6 +228,7 @@ def reconcile_workspace_release(
             cpus=settings.WORKSPACE_CPUS,
             memory_mb=settings.WORKSPACE_MEMORY_MB,
             volume_size_gb=settings.WORKSPACE_VOLUME_SIZE_GB,
+            volume_size_limit_gb=settings.WORKSPACE_VOLUME_SIZE_LIMIT_GB,
             organization=target["organization"],
             region=target["region"],
             runtime_image=target["images"]["allies-runtime"],
