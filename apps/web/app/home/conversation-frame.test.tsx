@@ -11,7 +11,7 @@ import {
   EMPTY_ACTIVITY_PRESENTATION,
   mergeActivityPresentation,
 } from "../../lib/allies/activity-presentation";
-import { ConversationFrame } from "./conversation-frame";
+import { ConversationFrame, WAKE_HINT_TIMEOUT_MS } from "./conversation-frame";
 import { ConversationApprovals, type ApprovalClient } from "./conversation-approvals";
 import { AssistantMessage, UserBubble } from "./conversation-frame-primitives";
 import type {
@@ -379,6 +379,34 @@ describe("ConversationFrame", () => {
     expect(screen.getByText("Waking up")).toBeTruthy();
     expect(screen.queryByText(/couldn’t wake/)).toBeNull();
     expect(screen.getByRole("textbox").hasAttribute("disabled")).toBe(false);
+  });
+
+  it.each(["requesting", "waking", "failed", "rate_limited"] as const)("settles a stuck %s hint to idle after the timeout without blocking send", (status) => {
+    vi.useFakeTimers();
+    render(<ConversationFrame model={model} actions={actions} runtimeIntentStatus={status} />);
+    expect(screen.getByText("Waking up")).toBeTruthy();
+    act(() => { vi.advanceTimersByTime(WAKE_HINT_TIMEOUT_MS); });
+    expect(screen.queryByText("Waking up")).toBeNull();
+    expect(screen.getByTestId("conversation-ally").getAttribute("data-state")).toBe("idle");
+    expect(screen.getByRole("textbox").hasAttribute("disabled")).toBe(false);
+  });
+
+  it("keeps Waking up past the timeout while the ally is getting ready", () => {
+    vi.useFakeTimers();
+    render(<ConversationFrame model={{ ...model, gettingReady: true }} actions={actions} runtimeIntentStatus="waking" />);
+    act(() => { vi.advanceTimersByTime(WAKE_HINT_TIMEOUT_MS * 2); });
+    expect(screen.getByText("Waking up")).toBeTruthy();
+  });
+
+  it("restarts the hint timer when the intent status changes", () => {
+    vi.useFakeTimers();
+    const view = render(<ConversationFrame model={model} actions={actions} runtimeIntentStatus="requesting" />);
+    act(() => { vi.advanceTimersByTime(WAKE_HINT_TIMEOUT_MS - 1000); });
+    view.rerender(<ConversationFrame model={model} actions={actions} runtimeIntentStatus="waking" />);
+    act(() => { vi.advanceTimersByTime(WAKE_HINT_TIMEOUT_MS - 1000); });
+    expect(screen.getByText("Waking up")).toBeTruthy();
+    act(() => { vi.advanceTimersByTime(1000); });
+    expect(screen.queryByText("Waking up")).toBeNull();
   });
 
   it("shows the awaiting-action explanation when the projected turn has no text", () => {
