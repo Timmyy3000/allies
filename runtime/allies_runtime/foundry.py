@@ -2554,12 +2554,15 @@ class FoundryWorker:
                         claim.lease_token,
                         reason="binding_repair_required",
                     )
-            if claim.binding_generation and (claim.provider or claim.model):
+            # Hermes sessions keep the model they were created with, so every
+            # session is pinned to the claim's current selection, not only
+            # sessions with a user binding.
+            lock_session = getattr(self.hermes, "lock_session_model", None)
+            if claim.binding_generation and not callable(lock_session):
+                raise HermesError("Hermes session model lock was unavailable")
+            if callable(lock_session) and (claim.provider or claim.model):
                 pinned = self._session_model_locks.get(session_id)
                 if pinned != (claim.provider, claim.model):
-                    lock_session = getattr(self.hermes, "lock_session_model", None)
-                    if not callable(lock_session):
-                        raise HermesError("Hermes session model lock was unavailable")
                     try:
                         locked = lock_session(
                             claim.hermes_profile_key,
@@ -2570,17 +2573,22 @@ class FoundryWorker:
                         if inspect.isawaitable(locked):
                             await locked
                     except (HermesError, ValueError):
-                        return await self.foundry.stopped(
-                            claim.attempt_id,
-                            claim.lease_token,
-                            reason="binding_repair_required",
+                        if claim.binding_generation:
+                            return await self.foundry.stopped(
+                                claim.attempt_id,
+                                claim.lease_token,
+                                reason="binding_repair_required",
+                            )
+                        # The default model is best effort: keep the session's
+                        # model for this turn and retry the lock on the next.
+                        locked = None
+                    if locked is not None:
+                        if len(self._session_model_locks) > 1024:
+                            self._session_model_locks.clear()
+                        self._session_model_locks[session_id] = (
+                            claim.provider,
+                            claim.model,
                         )
-                    if len(self._session_model_locks) > 1024:
-                        self._session_model_locks.clear()
-                    self._session_model_locks[session_id] = (
-                        claim.provider,
-                        claim.model,
-                    )
             stream = await _stream_events(
                 self.hermes,
                 claim.hermes_profile_key,

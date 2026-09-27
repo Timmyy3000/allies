@@ -1723,7 +1723,9 @@ async def test_worker_coalesces_consecutive_text_deltas():
             )
 
     responses = [CLAIM]
-    responses.extend([{"status": 202, "body": {"event_id": "event", "sequence": 1}}] * 3)
+    responses.extend(
+        [{"status": 202, "body": {"event_id": "event", "sequence": 1}}] * 3
+    )
     responses.append(
         {"attempt_id": "attempt-1", "status": "succeeded", "receipt_id": "receipt-1"}
     )
@@ -3291,9 +3293,7 @@ async def test_worker_stops_when_session_lock_fails():
         {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
         {"attempt_id": "attempt-1", "state": "released", "requeued": True},
     )
-    worker = FoundryWorker(
-        foundry, hermes, renew_interval=0.1, binding_applier=applier
-    )
+    worker = FoundryWorker(foundry, hermes, renew_interval=0.1, binding_applier=applier)
     assert (await worker.run(max_turns=1))[0].state == "released"
     assert applied == [("ally-a", 2, {"OPENCODE_ZEN_API_KEY": "vault://tenant/zen"})]
     assert hermes.locks == [
@@ -3327,9 +3327,7 @@ async def test_worker_locks_on_current_generation_after_restart():
         {"session_id": "session-1"},
         {"attempt_id": "attempt-1", "status": "succeeded", "receipt_id": "receipt"},
     )
-    worker = FoundryWorker(
-        foundry, hermes, renew_interval=0.1, binding_applier=applier
-    )
+    worker = FoundryWorker(foundry, hermes, renew_interval=0.1, binding_applier=applier)
     assert (await worker.run(max_turns=1))[0].status == "succeeded"
     assert hermes.locks == [
         {
@@ -3371,9 +3369,7 @@ async def test_worker_skips_relock_for_same_session_and_selection():
     }
     hermes = FakeHermesClient()
     foundry, transport = client(claim, *turn_fixtures())
-    worker = FoundryWorker(
-        foundry, hermes, renew_interval=0.1, binding_applier=applier
-    )
+    worker = FoundryWorker(foundry, hermes, renew_interval=0.1, binding_applier=applier)
     assert (await worker.run(max_turns=1))[0].status == "succeeded"
     assert len(hermes.locks) == 1
     transport.responses.extend([claim, *turn_fixtures()])
@@ -3427,15 +3423,56 @@ async def test_worker_lock_memo_resets_past_cap():
         {"session_id": "session-1"},
         {"attempt_id": "attempt-1", "status": "succeeded", "receipt_id": "receipt"},
     )
-    worker = FoundryWorker(
-        foundry, hermes, renew_interval=0.1, binding_applier=applier
-    )
+    worker = FoundryWorker(foundry, hermes, renew_interval=0.1, binding_applier=applier)
     worker._session_model_locks.update(
         {f"old-session-{i}": ("p", "m") for i in range(1025)}
     )
     assert (await worker.run(max_turns=1))[0].status == "succeeded"
     assert hermes.locks != []
     assert len(worker._session_model_locks) == 1
+
+
+@pytest.mark.asyncio
+async def test_worker_pins_existing_sessions_to_the_current_default_model():
+    claim = {
+        **CLAIM,
+        "hermes_profile_key": "ally-a",
+        "provider": "openai-api",
+        "model": "openai/gpt-6-luna",
+    }
+    hermes = FakeHermesClient()
+    foundry, _ = client(
+        claim,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "renew", "sequence": 2}},
+        {"session_id": "session-1"},
+        {"attempt_id": "attempt-1", "status": "succeeded", "receipt_id": "receipt"},
+    )
+    worker = FoundryWorker(foundry, hermes, renew_interval=0.1)
+    assert (await worker.run(max_turns=1))[0].status == "succeeded"
+    assert [(lock["provider"], lock["model"]) for lock in hermes.locks] == [
+        ("openai-api", "openai/gpt-6-luna")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_worker_keeps_the_turn_when_a_default_model_lock_fails():
+    claim = {
+        **CLAIM,
+        "hermes_profile_key": "ally-a",
+        "provider": "p" * 100,
+        "model": "m",
+    }
+    foundry, _ = client(
+        claim,
+        {"status": 202, "body": {"event_id": "dispatch", "sequence": 1}},
+        {"status": 202, "body": {"event_id": "renew", "sequence": 2}},
+        {"session_id": "session-1"},
+        {"attempt_id": "attempt-1", "status": "succeeded", "receipt_id": "receipt"},
+    )
+    worker = FoundryWorker(foundry, FakeHermesClient(), renew_interval=0.1)
+    assert (await worker.run(max_turns=1))[0].status == "succeeded"
+    assert worker._session_model_locks == {}
 
 
 @pytest.mark.asyncio
