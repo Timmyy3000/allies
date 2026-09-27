@@ -16,6 +16,7 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from allies.models import Ally
 from common.vault import seal_secret, unseal_secret
 
 from ..exceptions import IntegrationInvalid
@@ -324,6 +325,18 @@ def delete_safe_input(workspace_id, safe_input_id) -> None:
         browser.sign_out_site(grant.ally, item.website)
     logger.info("safe_input.deleted safe_input=%s", item.id)
     item.delete()
+
+
+def grant_access(workspace_id, safe_input_id, ally_id) -> None:
+    item = SafeInput.objects.get(pk=safe_input_id, workspace_id=workspace_id)
+    ally = Ally.objects.get(pk=ally_id, workspace_id=workspace_id)
+    with transaction.atomic():
+        SafeInputGrant.objects.get_or_create(safe_input=item, ally=ally)
+        # The user answered any open access request by turning access on.
+        SafeInputRequest.objects.filter(
+            safe_input=item, ally=ally, status=SafeInputRequest.PENDING
+        ).update(status=SafeInputRequest.ALLOWED)
+    logger.info("safe_input.granted safe_input=%s ally=%s", item.id, ally.id)
 
 
 def revoke_grant(workspace_id, safe_input_id, ally_id) -> None:

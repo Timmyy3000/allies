@@ -35,6 +35,10 @@ class SafeInputValues(Schema):
     password: str | None = Field(default=None, max_length=512)
 
 
+class GrantIn(Schema):
+    ally_id: UUID
+
+
 class RequestDecision(SafeInputValues):
     decision: Literal["allow", "deny"]
 
@@ -170,6 +174,20 @@ class SafeInputController(ControllerBase):
         def work(user):
             safe_inputs.delete_safe_input(workspace_id, safe_input_id)
             return success_json({"id": safe_input_id}, "Safe input deleted")
+
+        return self._run(request, workspace_id, work)
+
+    @http_post("/safe-inputs/{safe_input_id}/grants")
+    def grant_access(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        safe_input_id: UUID,
+        payload: GrantIn,
+    ):
+        def work(user):
+            safe_inputs.grant_access(workspace_id, safe_input_id, payload.ally_id)
+            return success_json({"id": safe_input_id}, "Access granted")
 
         return self._run(request, workspace_id, work)
 
