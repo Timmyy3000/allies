@@ -1,19 +1,20 @@
 "use client";
 
-import type { AllyDeletionViewModel, AllySettingsInput, AllyViewModel, RoutineDiscoveryPage } from "@allies/cloud-client";
+import type { AllyDeletionViewModel, AllySettingsInput, AllyViewModel, RoutineDiscoveryDetail, RoutineDiscoveryPage } from "@allies/cloud-client";
 import { isCloudError } from "@allies/cloud-client";
 import { useQuery, useQueryClient, type UseQueryResult } from "@tanstack/react-query";
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 
-import { AllyAvatar, ALLY_SHAPES, type AllyShape } from "../../components/ally-avatar";
+import { AllyAvatar } from "../../components/ally-avatar";
+import { AllyLookPicker } from "../../components/ally-look-picker";
 import { allyAppearanceKey, resolveAllyAppearance, type ResolvedAllyAppearance } from "../../lib/allies/appearance";
 import { useSession } from "../../lib/session/session-context";
 import { alliesQueryKey } from "../../lib/allies/query-keys";
 import { WAITLIST_APPEARANCE_CATALOG_VERSION, WAITLIST_COLORS } from "../../lib/waitlist/catalog";
 
 import { formatRoutineSchedule } from "./conversation-frame";
-import { BottomSheet, RoutineCard } from "./conversation-frame-primitives";
+import { BottomSheet, readableAccentForeground } from "./conversation-frame-primitives";
 import frameStyles from "./conversation-frame.module.css";
 import styles from "./ally-settings-dialog.module.css";
 
@@ -22,7 +23,7 @@ type SettingsDraft = {
   showLabel: boolean;
 };
 
-type ProfilePanel = "profile" | "label" | "look";
+type ProfilePanel = "profile" | "label" | "look" | "routine";
 type DeletionState = "active" | "pending" | "repair_required";
 type DeletionView = "settings" | "confirming" | "submitting" | "pending" | "repair_required";
 
@@ -31,7 +32,7 @@ export const ALLY_DELETION_MAX_POLL_MS = 30_000;
 export const ALLY_DELETION_MAX_POLL_DURATION_MS = 10 * 60 * 1_000;
 const PROFILE_ROUTINE_PREVIEW = 3;
 const DEFAULT_LOOK: ResolvedAllyAppearance = { shape: "ghosty", color: WAITLIST_COLORS[0] };
-const SHAPE_NAMES: Record<AllyShape, string> = { boxy: "Boxy", ghosty: "Ghosty", rocky: "Rocky", rolly: "Rolly" };
+const LABEL_MAX_LENGTH = 40;
 
 function normalizeLabel(value: string): string {
   return value.trim().replace(/\s+/gu, " ");
@@ -154,6 +155,7 @@ export function AllySettingsDialog({
   const lookChanged = lookDraft !== null
     && (currentAppearance === null || allyAppearanceKey(lookDraft) !== allyAppearanceKey(currentAppearance));
   const [routinesExpanded, setRoutinesExpanded] = useState(false);
+  const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
   const dirtyRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
@@ -220,6 +222,16 @@ export function AllySettingsDialog({
     retry: false,
   });
 
+  const routineDetailQuery = useQuery({
+    queryKey: [...alliesQueryKey(workspaceId), ally.id, "profile-routine", selectedRoutineId ?? "none"],
+    enabled: panel === "routine" && Boolean(selectedRoutineId),
+    queryFn: ({ signal }) => session.runCloudOperation(
+      (operationSignal) => session.client.getRoutine(workspaceId, selectedRoutineId ?? "", operationSignal),
+      { signal },
+    ),
+    retry: false,
+  });
+
   const openPanel = (next: ProfilePanel) => {
     setError(null);
     setStatus(null);
@@ -252,11 +264,7 @@ export function AllySettingsDialog({
       setStatus(null);
       return;
     }
-    if (!label && draft.showLabel) {
-      setError("Add a label before showing it.");
-      return;
-    }
-    await persist({ label, showLabel: Boolean(draft.showLabel && label) }, "label");
+    await persist({ label, showLabel: Boolean(label) }, "label");
   };
 
   const persist = async (input: Omit<AllySettingsInput, "settingsRevision">, subject: "label" | "look") => {
@@ -423,23 +431,39 @@ export function AllySettingsDialog({
       ? "pending"
       : ally.deletionState ?? "active";
 
+  const closeSubsheet = () => openPanel("profile");
+  const closeSubsheetOnEscape = () => {
+    if (panel === "profile" || currentDeletionView !== "settings") return false;
+    if (!saving) closeSubsheet();
+    return true;
+  };
+  const accent = currentAppearance?.color ?? DEFAULT_LOOK.color;
+  const labelCount = [...draft.label].length;
+
   return (
     <BottomSheet
       modal
-      title={panel === "label" ? "Edit label" : panel === "look" ? "Change look" : `${ally.name} settings`}
+      hideHeader
       onClose={onClose}
+      onEscape={closeSubsheetOnEscape}
       labelledBy="ally-settings-title"
       className={styles.settingsOverlay}
       closeDisabled={saving || currentDeletionView === "submitting"}
     >
+      <h2 id="ally-settings-title" className={styles.visuallyHidden}>{ally.name} settings</h2>
       <form className={styles.settingsContent} onSubmit={currentDeletionView === "confirming" ? handleDelete : handleSubmit} noValidate>
+        <div className={styles.profileTopBar} inert={panel !== "profile" && currentDeletionView === "settings" ? true : undefined}>
+          <button type="button" className={styles.profileBack} aria-label="Close profile" onClick={onClose} disabled={saving || currentDeletionView === "submitting"}>
+            <BackChevronIcon />
+          </button>
+        </div>
         <motion.div key={currentDeletionView} className={styles.settingsView} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: reducedMotion ? 0 : .16 }}>
-        {currentDeletionView === "settings" && panel === "profile" ? (
-          <>
+        {currentDeletionView === "settings" ? (
+          <div className={styles.profilePage} inert={panel !== "profile" ? true : undefined}>
             <div className={styles.profileIdentity}>
               <button type="button" className={styles.profileAvatar} aria-label="Change look" onClick={() => openPanel("look")} disabled={saving}>
                 {currentAppearance ? (
-                  <AllyAvatar shape={currentAppearance.shape} color={currentAppearance.color} size={96} label="" />
+                  <AllyAvatar shape={currentAppearance.shape} color={currentAppearance.color} size={136} label="" />
                 ) : <span className={styles.profileAvatarFallback} aria-hidden="true">?</span>}
                 <span className={styles.profileAvatarBadge} aria-hidden="true"><PaletteIcon /></span>
               </button>
@@ -450,7 +474,7 @@ export function AllySettingsDialog({
               </button>
             </div>
             <section className={styles.profileSection} aria-labelledby="ally-about-title">
-              <h4 id="ally-about-title">About</h4>
+              <div className={styles.profileSectionHead}><h4 id="ally-about-title">About</h4></div>
               <div className={styles.profileList}>
                 <details className={styles.profileDisclosure}>
                   <summary>Job</summary>
@@ -464,9 +488,13 @@ export function AllySettingsDialog({
             </section>
             <ProfileRoutines
               query={routinesQuery}
+              accent={accent}
               expanded={routinesExpanded}
               onExpand={() => setRoutinesExpanded(true)}
-              onOpenRoutine={onOpenRoutine}
+              onOpenRoutine={(routineId) => {
+                setSelectedRoutineId(routineId);
+                openPanel("routine");
+              }}
             />
             <div className={styles.profileList}>
               <button
@@ -483,88 +511,13 @@ export function AllySettingsDialog({
                 Delete Ally
               </button>
             </div>
-            <div className={styles.settingsMessages} aria-live="polite">
-              {error ? <p id="ally-settings-error" role="alert">{error}</p> : null}
-              {status ? <p role="status">{status}</p> : null}
-            </div>
-          </>
-        ) : currentDeletionView === "settings" && panel === "label" ? (
-          <>
-            <div className={styles.settingsField}>
-              <label htmlFor="ally-label">Label</label>
-              <input
-                id="ally-label"
-                className={styles.settingsInput}
-                type="text"
-                value={draft.label}
-                disabled={saving}
-                maxLength={80}
-                autoComplete="off"
-                aria-invalid={Boolean(error && !status)}
-                aria-describedby={error ? "ally-settings-error" : undefined}
-                onChange={(event) => updateDraft({ ...draft, label: event.target.value })}
-              />
-            </div>
-            <label className={styles.settingsToggle}>
-              <input
-                type="checkbox"
-                checked={draft.showLabel}
-                disabled={saving || !normalizeLabel(draft.label)}
-                onChange={(event) => updateDraft({ ...draft, showLabel: event.target.checked })}
-              />
-              <span><strong>Show label</strong></span>
-            </label>
-            <div className={styles.settingsMessages} aria-live="polite">
-              {error ? <p id="ally-settings-error" role="alert">{error}</p> : null}
-              {status ? <p role="status">{status}</p> : null}
-            </div>
-            <div className={frameStyles.frameSheetActions}>
-              <button type="button" className={frameStyles.frameNeutralAction} onClick={() => openPanel("profile")} disabled={saving}>Cancel</button>
-              <button type="submit" className={frameStyles.frameAccentAction} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
-            </div>
-          </>
-        ) : currentDeletionView === "settings" ? (
-          <>
-            <div className={styles.lookPreview}>
-              <AllyAvatar shape={look.shape} color={look.color} size={120} label="" />
-            </div>
-            <fieldset className={styles.lookGroup} disabled={saving}>
-              <legend>Shape</legend>
-              <div className={styles.lookShapes}>
-                {ALLY_SHAPES.map((shape) => (
-                  <label key={shape} className={styles.lookShape}>
-                    <input type="radio" name="ally-shape" value={shape} checked={look.shape === shape} onChange={() => setLook({ ...look, shape })} />
-                    <AllyAvatar shape={shape} color={look.color} size={52} label="" motion="reduced" />
-                    <span>{SHAPE_NAMES[shape]}</span>
-                  </label>
-                ))}
+            {panel === "profile" ? (
+              <div className={styles.settingsMessages} aria-live="polite">
+                {error ? <p id="ally-settings-error" role="alert">{error}</p> : null}
+                {status ? <p role="status">{status}</p> : null}
               </div>
-            </fieldset>
-            <fieldset className={styles.lookGroup} disabled={saving}>
-              <legend>Colour</legend>
-              <div className={styles.lookColours}>
-                {WAITLIST_COLORS.map((color) => (
-                  <label key={color} className={styles.lookColour} style={{ background: color }}>
-                    <input type="radio" name="ally-colour" value={color} aria-label={color} checked={look.color === color} onChange={() => setLook({ ...look, color })} />
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-            <div className={styles.settingsMessages} aria-live="polite">
-              {error ? <p id="ally-settings-error" role="alert">{error}</p> : null}
-              {status ? <p role="status">{status}</p> : null}
-            </div>
-            <div className={frameStyles.frameSheetActions}>
-              <button type="button" className={frameStyles.frameNeutralAction} onClick={() => openPanel("profile")} disabled={saving}>Cancel</button>
-              <button
-                type="submit"
-                className={frameStyles.frameAccentAction}
-                disabled={saving || !lookChanged}
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </>
+            ) : null}
+          </div>
         ) : currentDeletionView === "confirming" ? (
           <>
             <section className={styles.deleteWarning} aria-labelledby="ally-delete-warning-title">
@@ -617,26 +570,129 @@ export function AllySettingsDialog({
           </>
         )}
         </motion.div>
+
+        {currentDeletionView === "settings" && panel !== "profile" ? (
+          <div className={styles.subsheetScrim} onClick={(event) => { if (event.target === event.currentTarget && !saving) closeSubsheet(); }}>
+            <motion.section
+              className={styles.subsheet}
+              role="group"
+              aria-labelledby="ally-subsheet-title"
+              initial={reducedMotion ? false : { y: 24, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              transition={{ duration: reducedMotion ? 0 : .18, ease: "easeOut" }}
+            >
+              <div className={styles.subsheetHead}>
+                {panel === "routine" ? (
+                  <span className={styles.routineSheetIcon} style={{ color: accent, background: `${accent}24` }} aria-hidden="true"><TimerIcon /></span>
+                ) : (
+                  <h3 id="ally-subsheet-title">{panel === "label" ? `${ally.name}'s label` : `How should ${ally.name} look?`}</h3>
+                )}
+                <button type="button" className={styles.subsheetClose} aria-label="Close" onClick={closeSubsheet} disabled={saving}><CloseIcon /></button>
+              </div>
+
+              {panel === "label" ? (
+                <>
+                  <input
+                    id="ally-label"
+                    aria-label="Label"
+                    className={styles.labelInput}
+                    type="text"
+                    value={draft.label}
+                    disabled={saving}
+                    maxLength={LABEL_MAX_LENGTH}
+                    autoComplete="off"
+                    autoFocus
+                    aria-invalid={Boolean(error && !status)}
+                    aria-describedby={error ? "ally-label-count ally-settings-error" : "ally-label-count"}
+                    onChange={(event) => updateDraft({ ...draft, label: event.target.value })}
+                  />
+                  <span id="ally-label-count" className={styles.labelCount}>{labelCount}/{LABEL_MAX_LENGTH}</span>
+                </>
+              ) : panel === "look" ? (
+                <AllyLookPicker
+                  shape={look.shape}
+                  color={look.color}
+                  colors={WAITLIST_COLORS}
+                  dotColor={look.color}
+                  swatchSize={40}
+                  className={styles.lookPicker}
+                  onShapeChange={(shape) => setLook({ ...look, shape })}
+                  onColorChange={(color) => setLook({ ...look, color })}
+                />
+              ) : (
+                <RoutineSheetBody query={routineDetailQuery} allyName={ally.name} />
+              )}
+
+              <div className={styles.settingsMessages} aria-live="polite">
+                {error ? <p id="ally-settings-error" role="alert">{error}</p> : null}
+                {status ? <p role="status">{status}</p> : null}
+              </div>
+
+              {panel === "label" ? (
+                <button type="submit" className={styles.subsheetPrimary} disabled={saving}>{saving ? "Saving…" : "Save"}</button>
+              ) : panel === "look" ? (
+                <button
+                  type="submit"
+                  className={styles.subsheetPrimary}
+                  style={{ background: look.color, color: readableAccentForeground(look.color) }}
+                  disabled={saving || !lookChanged}
+                >
+                  {saving ? "Saving…" : "Use this look"}
+                </button>
+              ) : (
+                <button type="button" className={styles.routineDeleteInChat} onClick={() => selectedRoutineId && onOpenRoutine(selectedRoutineId)}>
+                  Delete in chat <ArrowUpRightIcon />
+                </button>
+              )}
+            </motion.section>
+          </div>
+        ) : null}
       </form>
     </BottomSheet>
   );
 }
 
+function relativeNextRun(nextRunAt: string | null, now = new Date()): string | null {
+  if (!nextRunAt) return null;
+  const next = new Date(nextRunAt);
+  if (Number.isNaN(next.getTime())) return null;
+  const startOfDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const days = Math.round((startOfDay(next) - startOfDay(now)) / 86_400_000);
+  if (days <= 0) return "Next today";
+  if (days === 1) return "Next tomorrow";
+  return `Next in ${days} days`;
+}
+
+function formatRoutineDay(value: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleDateString([], { weekday: "short", day: "numeric", month: "short" });
+}
+
 function ProfileRoutines({
   query,
+  accent,
   expanded,
   onExpand,
   onOpenRoutine,
 }: {
   query: UseQueryResult<RoutineDiscoveryPage>;
+  accent: string;
   expanded: boolean;
   onExpand: () => void;
   onOpenRoutine: (routineId: string) => void;
 }) {
+  const head = (meta?: string) => (
+    <div className={styles.profileSectionHead}>
+      <h4 id="ally-routines-title">Routines</h4>
+      {meta ? <span>{meta}</span> : null}
+    </div>
+  );
   if (query.isPending) {
     return (
       <section className={styles.profileSection} aria-labelledby="ally-routines-title" aria-busy="true">
-        <h4 id="ally-routines-title">Routines</h4>
+        {head()}
         <div className={styles.routineSkeleton} />
       </section>
     );
@@ -644,7 +700,7 @@ function ProfileRoutines({
   if (query.isError) {
     return (
       <section className={styles.profileSection} aria-labelledby="ally-routines-title">
-        <h4 id="ally-routines-title">Routines</h4>
+        {head()}
         <p className={styles.profileInlineError}>
           We couldn&apos;t load routines.{" "}
           <button type="button" onClick={() => void query.refetch()}>Try again</button>
@@ -654,24 +710,71 @@ function ProfileRoutines({
   }
   const routines = query.data.items;
   if (routines.length === 0) return null;
+  const active = routines.filter((routine) => routine.scheduleState === "active").length;
   const visible = expanded ? routines : routines.slice(0, PROFILE_ROUTINE_PREVIEW);
   return (
     <section className={styles.profileSection} aria-labelledby="ally-routines-title">
-      <h4 id="ally-routines-title">Routines</h4>
+      {head(`${active} active`)}
       <div className={styles.profileRoutines}>
-        {visible.map((routine) => (
-          <RoutineCard
-            key={routine.routineId}
-            name={routine.title}
-            schedule={routine.scheduleState === "paused" ? "Paused" : formatRoutineSchedule(routine.schedule, false)}
-            onOpen={() => onOpenRoutine(routine.routineId)}
-          />
-        ))}
+        {visible.map((routine) => {
+          const paused = routine.scheduleState === "paused";
+          const detail = paused
+            ? "Paused"
+            : [formatRoutineSchedule(routine.schedule, false), relativeNextRun(routine.nextRunAt)].filter(Boolean).join(" · ");
+          return (
+            <button
+              key={routine.routineId}
+              type="button"
+              className={styles.routineRow}
+              style={{ background: `${accent}14` }}
+              onClick={() => onOpenRoutine(routine.routineId)}
+            >
+              <span className={styles.routineRowIcon} style={{ color: accent, background: `${accent}24` }} aria-hidden="true"><TimerIcon /></span>
+              <span className={styles.routineRowCopy}>
+                <strong>{routine.title}</strong>
+                <span style={{ color: paused ? undefined : accent }}>{detail}</span>
+              </span>
+              <ChevronRightIcon />
+            </button>
+          );
+        })}
       </div>
       {!expanded && routines.length > PROFILE_ROUTINE_PREVIEW ? (
         <button type="button" className={styles.profileViewAll} onClick={onExpand}>View all {routines.length} routines</button>
       ) : null}
     </section>
+  );
+}
+
+function RoutineSheetBody({ query, allyName }: { query: UseQueryResult<RoutineDiscoveryDetail>; allyName: string }) {
+  if (query.isPending) return <div className={styles.routineSkeleton} aria-busy="true" />;
+  if (query.isError) {
+    return (
+      <p className={styles.profileInlineError}>
+        We couldn&apos;t load this routine.{" "}
+        <button type="button" onClick={() => void query.refetch()}>Try again</button>
+      </p>
+    );
+  }
+  const routine = query.data;
+  const rows: [string, string | null][] = [
+    ["Repeats", formatRoutineSchedule(routine.schedule, false)],
+    ["Next run", routine.scheduleState === "paused" ? "Paused" : formatRoutineDay(routine.nextRunAt)],
+    ["Started", formatRoutineDay(routine.createdAt)],
+  ];
+  return (
+    <>
+      <h3 id="ally-subsheet-title" className={styles.routineSheetTitle}>{routine.title}</h3>
+      <dl className={styles.routineFacts}>
+        {rows.filter(([, value]) => value).map(([label, value]) => (
+          <div key={label}><dt>{label}</dt><dd>{value}</dd></div>
+        ))}
+      </dl>
+      <div className={styles.routinePrompt}>
+        <span>What {allyName} does</span>
+        <p>{routine.executionPrompt}</p>
+      </div>
+    </>
   );
 }
 
@@ -681,4 +784,24 @@ function PaletteIcon() {
 
 function PencilIcon() {
   return <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M10.5 2.5 13.5 5.5 5.5 13.5H2.5v-3Z" /></svg>;
+}
+
+function BackChevronIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12.5 4 6.5 10l6 6" /></svg>;
+}
+
+function CloseIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M5 5l10 10M15 5 5 15" /></svg>;
+}
+
+function ChevronRightIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="#a0a0a0" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="M6 3.5 10.5 8 6 12.5" /></svg>;
+}
+
+function TimerIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"><circle cx="10" cy="11" r="6.5" /><path d="M10 8v3.2l2 1.3M8 2.5h4" /></svg>;
+}
+
+function ArrowUpRightIcon() {
+  return <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M5 11 11 5M6 5h5v5" /></svg>;
 }

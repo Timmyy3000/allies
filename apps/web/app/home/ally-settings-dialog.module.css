@@ -39,8 +39,7 @@
   gap: 8px;
 }
 
-.settingsField label,
-.settingsToggle strong {
+.settingsField label {
   font-size: 14px;
   font-weight: 600;
 }
@@ -78,34 +77,6 @@
   color: var(--text-secondary);
   font-size: 12px;
   line-height: 17px;
-}
-
-.settingsToggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 12px 0;
-  cursor: pointer;
-}
-
-.settingsToggle input {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
-  margin: 0;
-  accent-color: var(--chat-accent);
-}
-
-.settingsToggle input:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
-}
-
-.settingsToggle > span {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .settingsMessages {
@@ -230,87 +201,169 @@
   }
 }
 
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.settingsOverlay > section {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+
+.settingsOverlay .settingsContent {
+  height: auto;
+  max-height: none;
+  flex: 1 1 auto;
+  gap: 0;
+  padding: 16px 20px 32px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.profileTopBar {
+  display: flex;
+  justify-content: flex-start;
+  padding-bottom: 8px;
+}
+
+.profileBack {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f3f3f3;
+  color: #121212;
+  cursor: pointer;
+}
+
+.profileBack svg {
+  width: 20px;
+  height: 20px;
+}
+
+.profilePage {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
 .profileIdentity {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
-  padding: 8px 0 4px;
+  gap: 12px;
 }
 
 .profileIdentity h3 {
-  margin: 0;
-  font-size: 22px;
+  margin: 8px 0 0;
+  color: var(--text-primary);
+  font-size: 32px;
   font-weight: 700;
-  line-height: 28px;
+  letter-spacing: -1px;
+  line-height: 38px;
+  text-align: center;
 }
 
 .profileAvatar {
   position: relative;
   padding: 0;
   border: 0;
+  border-radius: 50%;
   background: transparent;
   cursor: pointer;
 }
 
 .profileAvatarFallback {
   display: grid;
-  width: 96px;
-  height: 96px;
+  width: 136px;
+  height: 136px;
   place-items: center;
   border-radius: 50%;
   background: var(--surface-secondary);
   color: var(--text-secondary);
-  font-size: 28px;
+  font-size: 32px;
 }
 
 .profileAvatarBadge {
   position: absolute;
-  right: -2px;
-  bottom: -2px;
+  right: 0;
+  bottom: 2px;
   display: grid;
-  width: 32px;
-  height: 32px;
+  width: 40px;
+  height: 40px;
   place-items: center;
-  border: 3px solid var(--surface);
+  border: 3px solid var(--panel);
   border-radius: 50%;
-  background: #f3f3f3;
-  color: #121212;
+  background: #121212;
+  color: #fff;
 }
 
 .profileAvatarBadge svg,
 .profileLabelPill svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .profileLabelPill {
   display: inline-flex;
-  min-height: 40px;
+  max-width: 100%;
+  min-height: 44px;
   align-items: center;
-  gap: 8px;
-  padding: 0 16px;
+  gap: 10px;
+  padding: 0 20px;
   border: 0;
   border-radius: 60px;
   background: #f3f3f3;
-  color: #757575;
+  color: #121212;
   font: inherit;
-  font-size: 15px;
+  font-size: 17px;
   cursor: pointer;
+}
+
+.profileLabelPill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileLabelPill svg {
+  flex: 0 0 auto;
+  color: #757575;
 }
 
 .profileSection {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 14px;
 }
 
-.profileSection h4 {
-  margin: 0;
+.profileSectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   padding: 0 4px;
-  color: #757575;
-  font-size: 14px;
-  font-weight: 600;
+}
+
+.profileSectionHead h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+}
+
+.profileSectionHead span {
+  color: #a0a0a0;
+  font-size: 16px;
 }
 
 .profileList {
@@ -320,16 +373,17 @@
 }
 
 .profileDisclosure + .profileDisclosure {
-  border-top: 1px solid rgb(18 18 18 / 6%);
+  border-top: 1px solid rgb(18 18 18 / 7%);
 }
 
 .profileDisclosure summary {
   display: flex;
-  min-height: 52px;
+  min-height: 60px;
   align-items: center;
   justify-content: space-between;
-  padding: 0 18px;
-  font-size: 16px;
+  padding: 0 20px;
+  color: var(--text-primary);
+  font-size: 18px;
   cursor: pointer;
   list-style: none;
 }
@@ -341,6 +395,7 @@
 .profileDisclosure summary::after {
   width: 8px;
   height: 8px;
+  margin-top: -4px;
   border-right: 1.5px solid #a0a0a0;
   border-bottom: 1.5px solid #a0a0a0;
   content: "";
@@ -349,22 +404,86 @@
 }
 
 .profileDisclosure[open] summary::after {
+  margin-top: 4px;
   transform: rotate(-135deg);
 }
 
 .profileDisclosure p {
   margin: 0;
-  padding: 0 18px 16px;
+  padding: 0 20px 18px;
   color: #757575;
-  font-size: 15px;
-  line-height: 22px;
+  font-size: 16px;
+  line-height: 23px;
   white-space: pre-wrap;
 }
 
 .profileRoutines {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
+}
+
+.routineRow {
+  display: flex;
+  width: 100%;
+  min-height: 76px;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px 14px 16px;
+  border: 0;
+  border-radius: 20px;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.routineRowIcon,
+.routineSheetIcon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.routineRowIcon {
+  width: 44px;
+  height: 44px;
+}
+
+.routineRowIcon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.routineRowCopy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.routineRowCopy strong {
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routineRowCopy span {
+  overflow: hidden;
+  color: #757575;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routineRow > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
 }
 
 .profileViewAll,
@@ -384,11 +503,11 @@
   margin: 0;
   padding: 0 4px;
   color: #757575;
-  font-size: 14px;
+  font-size: 15px;
 }
 
 .routineSkeleton {
-  height: 56px;
+  height: 76px;
   border-radius: 20px;
   background: #f7f7f7;
   animation: routinePulse 1.2s ease-in-out infinite alternate;
@@ -402,102 +521,274 @@
 
 .profileDeleteRow {
   width: 100%;
-  min-height: 52px;
-  padding: 0 18px;
+  min-height: 60px;
+  padding: 0 20px;
   border: 0;
   background: transparent;
-  color: #c84f3f;
+  color: #d92d20;
   font: inherit;
-  font-size: 16px;
+  font-size: 18px;
   text-align: left;
   cursor: pointer;
 }
 
-.profileAvatar:focus-visible,
-.profileLabelPill:focus-visible,
-.profileDisclosure summary:focus-visible,
-.profileViewAll:focus-visible,
-.profileDeleteRow:focus-visible {
-  outline: 2px solid var(--chat-accent);
-  outline-offset: 2px;
+.subsheetScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  padding: 12px;
+  background: rgb(0 0 0 / 40%);
 }
 
-.lookPreview {
+.subsheet {
   display: flex;
-  justify-content: center;
-  padding: 8px 0;
-}
-
-.lookGroup {
-  display: flex;
+  width: 100%;
+  max-height: 100%;
   flex-direction: column;
-  gap: 10px;
+  box-sizing: border-box;
+  padding: 24px 20px 20px;
+  overflow-y: auto;
+  border-radius: 30px;
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 24%);
+}
+
+.subsheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.subsheetHead h3 {
   margin: 0;
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  line-height: 30px;
+}
+
+.subsheetClose {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
   padding: 0;
   border: 0;
+  border-radius: 50%;
+  background: #f3f3f3;
+  color: #121212;
+  cursor: pointer;
 }
 
-.lookGroup legend {
-  margin-bottom: 10px;
-  padding: 0 4px;
+.subsheetClose svg {
+  width: 18px;
+  height: 18px;
+}
+
+.labelInput {
+  width: 100%;
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 0 18px;
+  border: 1.5px solid #ff5800;
+  border-radius: 16px;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 18px;
+}
+
+.labelInput[aria-invalid="true"] {
+  border-color: #d92d20;
+}
+
+.labelCount {
+  margin: 10px 0 16px;
+  padding: 0 2px;
+  color: #a0a0a0;
+  font-size: 15px;
+}
+
+.subsheetPrimary {
+  width: 100%;
+  min-height: 56px;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 60px;
+  background: #ff5800;
+  color: #fff;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.subsheetPrimary:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.lookPicker {
+  width: 100%;
+  min-height: 0;
+  margin: 0 0 8px;
+  cursor: grab;
+}
+
+.lookPicker :global(.onboarding-look-avatar-window) {
+  margin-top: 0;
+}
+
+.lookPicker :global(.onboarding-look-dots) {
+  margin-top: 24px;
+}
+
+.lookPicker :global(.onboarding-look-colors) {
+  justify-content: space-between;
+  gap: 6px;
+  overflow: visible;
+  width: 100%;
+  margin: 24px 0 0;
+  padding: 0;
+}
+
+.routineSheetIcon {
+  width: 60px;
+  height: 60px;
+}
+
+.routineSheetIcon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.routineSheetTitle {
+  margin: 0 0 16px;
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+}
+
+.routineFacts {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 20px;
+}
+
+.routineFacts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 17px;
+}
+
+.routineFacts dt {
+  color: #757575;
+}
+
+.routineFacts dd {
+  margin: 0;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.routinePrompt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: #f5f5f5;
+}
+
+.routinePrompt span {
   color: #757575;
   font-size: 14px;
   font-weight: 600;
 }
 
-.lookShapes {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px;
+.routinePrompt p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 23px;
+  white-space: pre-wrap;
 }
 
-.lookShape {
+.routineDeleteInChat {
   display: flex;
-  flex-direction: column;
+  width: 100%;
+  min-height: 56px;
   align-items: center;
-  gap: 6px;
-  padding: 10px 0;
-  border: 2px solid transparent;
-  border-radius: 20px;
-  background: #f7f7f7;
-  font-size: 13px;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 60px;
+  background: #f3f3f3;
+  color: #d92d20;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
   cursor: pointer;
 }
 
-.lookShape:has(input:checked) {
-  border-color: #121212;
+.routineDeleteInChat svg {
+  width: 16px;
+  height: 16px;
 }
 
-.lookShape input,
-.lookColour input {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-.lookColours {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 0 4px;
-}
-
-.lookColour {
-  position: relative;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  cursor: pointer;
-}
-
-.lookColour:has(input:checked) {
-  box-shadow: 0 0 0 3px var(--surface), 0 0 0 5px #121212;
-}
-
-.lookShape:has(input:focus-visible),
-.lookColour:has(input:focus-visible) {
+.profileBack:focus-visible,
+.profileAvatar:focus-visible,
+.profileLabelPill:focus-visible,
+.profileDisclosure summary:focus-visible,
+.routineRow:focus-visible,
+.profileViewAll:focus-visible,
+.profileDeleteRow:focus-visible,
+.subsheetClose:focus-visible,
+.subsheetPrimary:focus-visible,
+.routineDeleteInChat:focus-visible {
   outline: 2px solid var(--chat-accent);
-  outline-offset: 3px;
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  .settingsOverlay {
+    padding: 0;
+  }
+
+  .settingsOverlay > section {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+  }
+
+  .settingsOverlay .settingsContent {
+    padding-top: calc(12px + env(safe-area-inset-top));
+    padding-bottom: calc(32px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (min-width: 768px) {
+  .settingsOverlay > section {
+    width: min(calc(100% - 48px), 600px);
+    height: min(900px, calc(100dvh - 48px));
+    max-width: none;
+    max-height: none;
+  }
+
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -510,33 +801,30 @@
 
 @media (prefers-color-scheme: dark) {
   .profileList,
-  .lookShape,
-  .routineSkeleton {
+  .routineSkeleton,
+  .routinePrompt {
     background: rgb(255 255 255 / 6%);
   }
 
+  .profileBack,
   .profileLabelPill,
-  .profileAvatarBadge {
+  .subsheetClose,
+  .routineDeleteInChat {
     background: rgb(255 255 255 / 10%);
     color: var(--text-primary);
   }
 
-  .lookShape:has(input:checked) {
-    border-color: var(--text-primary);
+  .profileAvatarBadge {
+    background: #fff;
+    color: #121212;
   }
 
-  .profileDeleteRow {
+  .profileDisclosure + .profileDisclosure {
+    border-top-color: rgb(255 255 255 / 8%);
+  }
+
+  .profileDeleteRow,
+  .routineDeleteInChat {
     color: #f09a8a;
-  }
-}
-
-@media (min-width: 768px) {
-  .settingsOverlay > section {
-    width: min(calc(100% - 48px), 600px);
-    max-width: none;
-  }
-
-  .settingsContent {
-    height: min(640px, calc(100dvh - 180px));
   }
 }

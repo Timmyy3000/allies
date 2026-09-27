@@ -167,6 +167,15 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
         run_id: "00000000-0000-4000-8000-000000000026", result_id: "00000000-0000-4000-8000-000000000025", result_insertion: "inserted", text: "**AI is great**", references: [],
       }] : [])] } } : payload });
     }
+    if (url.pathname === `/api/v1/workspaces/${workspaceId}/routines`) {
+      return route.fulfill({ status: 200, headers, json: success({
+        items: withRoutine ? [{
+          id: routineId, responsible_ally_id: allyId, title: "Morning check", schedule: routineSchedule,
+          revision: 1, schedule_generation: 1, schedule_state: "active", next_run_at: "2099-01-02T08:00:00Z", created_at: now, updated_at: now,
+        }] : [],
+        next_cursor: null,
+      }) });
+    }
     if (withRoutine && url.pathname === `/api/v1/workspaces/${workspaceId}/routines/${routineId}`) {
       return route.fulfill({ status: 200, headers, json: success({
         id: routineId, responsible_ally_id: allyId, title: "Morning check", schedule: routineSchedule,
@@ -772,7 +781,39 @@ test("shows streamed text immediately when reduced motion is enabled", async ({ 
   await expect(page.getByRole("status", { name: "Response in progress" })).toBeAttached();
 });
 
-test("edits an Ally label, opts into roster display, and persists hiding it", async ({ page }, testInfo) => {
+test("shows the Ally profile with routines and opens each profile sheet", async ({ page }, testInfo) => {
+  await page.emulateMedia({ colorScheme: "light" });
+  await fixtureCloud(page, "signed-in", false, false, false, true);
+  await page.goto("/home");
+  await page.getByRole("link", { name: /Ada/ }).click();
+  await page.getByRole("button", { name: "Ada settings", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Ada settings" });
+  await expect(dialog.getByText("1 active")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: /Morning check/ })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: testInfo.outputPath("profile.png") });
+
+  await dialog.getByRole("button", { name: /Morning check/ }).click();
+  await expect(dialog.getByText("What Ada does")).toBeVisible();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: testInfo.outputPath("routine-sheet.png") });
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
+
+  await dialog.getByRole("button", { name: "Change look" }).click();
+  await expect(dialog.getByRole("heading", { name: "How should Ada look?" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Use this look" })).toBeDisabled();
+  await page.screenshot({ path: testInfo.outputPath("look-sheet.png") });
+  await page.keyboard.press("Escape");
+  await expect(dialog.getByRole("heading", { name: "How should Ada look?" })).toHaveCount(0);
+  await expect(dialog).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Edit label" }).click();
+  await expect(dialog.getByRole("heading", { name: "Ada's label" })).toBeVisible();
+  await page.waitForTimeout(300);
+  await page.screenshot({ path: testInfo.outputPath("label-sheet.png") });
+});
+
+test("edits an Ally label, shows it in the roster, and persists clearing it", async ({ page }, testInfo) => {
   await page.emulateMedia({ colorScheme: "dark" });
   await fixtureCloud(page, "signed-in");
   await page.goto("/home");
@@ -783,13 +824,10 @@ test("edits an Ally label, opts into roster display, and persists hiding it", as
   const dialog = page.getByRole("dialog");
   await expect(page.getByRole("dialog", { name: "Ada settings" })).toBeVisible();
   await dialog.getByRole("button", { name: "Edit label" }).click();
+  await expect(dialog.getByRole("heading", { name: "Ada's label" })).toBeVisible();
   await expect(dialog.getByLabel("Label", { exact: true })).toHaveValue("chief of staff");
-  await expect(dialog.getByRole("checkbox", { name: /Show label/ })).not.toBeChecked();
-  await dialog.getByRole("button", { name: "Close", exact: true }).focus();
-  await page.keyboard.press("Tab");
   await expect(dialog.getByLabel("Label", { exact: true })).toBeFocused();
   await dialog.getByLabel("Label", { exact: true }).fill("calendar manager");
-  await dialog.getByRole("checkbox", { name: /Show label/ }).check();
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog.getByRole("status")).toHaveText("Settings saved.");
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
@@ -803,7 +841,7 @@ test("edits an Ally label, opts into roster display, and persists hiding it", as
   await page.getByRole("link", { name: /Ada/ }).click();
   await settingsButton.click();
   await dialog.getByRole("button", { name: "Edit label" }).click();
-  await dialog.getByRole("checkbox", { name: /Show label/ }).uncheck();
+  await dialog.getByLabel("Label", { exact: true }).fill("");
   await dialog.getByRole("button", { name: "Save", exact: true }).click();
   await expect(dialog.getByRole("status")).toHaveText("Settings saved.");
   await page.goto("/home");
