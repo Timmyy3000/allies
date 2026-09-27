@@ -117,7 +117,7 @@ def request_runtime_intent(
     check_rate_limit(
         scope="runtime-intent-user",
         identity=str(user.id),
-        limit=int(getattr(settings, "ALLIES_RUNTIME_INTENT_RATE_LIMIT", 20)),
+        limit=int(getattr(settings, "ALLIES_RUNTIME_INTENT_RATE_LIMIT", 60)),
         period=int(getattr(settings, "ALLIES_RUNTIME_INTENT_RATE_PERIOD_SECONDS", 60)),
     )
 
@@ -197,7 +197,7 @@ def request_workspace_runtime_intent(
         check_rate_limit(
             scope="runtime-intent-user",
             identity=str(user.id),
-            limit=int(getattr(settings, "ALLIES_RUNTIME_INTENT_RATE_LIMIT", 20)),
+            limit=int(getattr(settings, "ALLIES_RUNTIME_INTENT_RATE_LIMIT", 60)),
             period=int(
                 getattr(settings, "ALLIES_RUNTIME_INTENT_RATE_PERIOD_SECONDS", 60)
             ),
