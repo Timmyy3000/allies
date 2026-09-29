@@ -2,7 +2,7 @@ diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
 index ae00c4cb8..297985133 100644
 --- a/gateway/platforms/api_server.py
 +++ b/gateway/platforms/api_server.py
-@@ -73,6 +73,90 @@ _api_request_profile: ContextVar[Optional[str]] = ContextVar(
+@@ -73,6 +73,97 @@ _api_request_profile: ContextVar[Optional[str]] = ContextVar(
      "api_server_request_profile", default=None
  )
  
@@ -15,6 +15,13 @@ index ae00c4cb8..297985133 100644
 +        "send": "gmail_send",
 +        "modify": "gmail_organise",
 +        "create_label": "gmail_organise",
++    },
++    "allies_calendar": {
++        "list_events": "calendar_read",
++        "get_event": "calendar_read",
++        "create_event": "calendar_write",
++        "update_event": "calendar_write",
++        "delete_event": "calendar_write",
 +    },
 +    "allies_safe_inputs": {
 +        "list": "safe_input_check",
@@ -93,7 +100,7 @@ index ae00c4cb8..297985133 100644
  def _approval_event_choices(*, smart_denied: bool, allow_permanent: bool) -> list[str]:
      if smart_denied:
          return ["once", "deny"]
-@@ -4109,27 +4193,40 @@ class APIServerAdapter(BasePlatformAdapter):
+@@ -4109,27 +4200,40 @@ class APIServerAdapter(BasePlatformAdapter):
              if event_type == "tool.started":
                  target, arguments = tool_name, args
                  if target == "tool_call" and isinstance(args, dict):

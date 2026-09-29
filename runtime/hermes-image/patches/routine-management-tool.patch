@@ -16,9 +16,9 @@ index fcfcbdf..15be238 100644
              disabled_toolsets.append(_ALLIES_FILE_PUBLICATION_TOOLSET)
 +        disabled_toolsets.append("cronjob")
 +        if routine_tool_context is not None and not routine_result:
-+            enabled_toolsets.extend(["allies-routines", "allies-gmail", "allies-safe-inputs"])
++            enabled_toolsets.extend(["allies-routines", "allies-gmail", "allies-calendar", "allies-safe-inputs"])
 +        else:
-+            disabled_toolsets.extend(["allies-routines", "allies-gmail", "allies-safe-inputs"])
++            disabled_toolsets.extend(["allies-routines", "allies-gmail", "allies-calendar", "allies-safe-inputs"])
          max_iterations = _current_max_iterations()
  
          # Load fallback provider chain so the API server platform has the
