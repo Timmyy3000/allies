@@ -9,10 +9,9 @@ from integrations.exceptions import IntegrationInvalid
 from integrations.models import PROVIDER_GMAIL, AllyIntegrationGrant, IntegrationSecret
 from integrations.services import google_oauth
 from integrations.services.grants import (
-    READ_ALLOWLIST,
-    SEND_ALLOWLIST,
-    check_gmail_grant,
-    disconnect_gmail_account,
+    ALLOWLISTS,
+    check_grant,
+    disconnect_account,
     revoke_ally_grant,
     set_ally_grant,
 )
@@ -74,14 +73,14 @@ def test_grant_matrix_and_generation(rig):
     set_ally_grant(secret=secret, ally=reader, level="read", created_by=user)
     set_ally_grant(secret=secret, ally=sender, level="send", created_by=user)
 
-    read_decision = check_gmail_grant(secret=secret, ally=reader)
+    read_decision = check_grant(secret=secret, ally=reader)
     assert read_decision.allowed is True
-    assert read_decision.tool_allowlist == READ_ALLOWLIST
+    assert read_decision.tool_allowlist == ALLOWLISTS[("gmail", "read")]
     assert "gmail send" not in read_decision.tool_allowlist
 
-    send_decision = check_gmail_grant(secret=secret, ally=sender)
+    send_decision = check_grant(secret=secret, ally=sender)
     assert send_decision.allowed is True
-    assert send_decision.tool_allowlist == SEND_ALLOWLIST
+    assert send_decision.tool_allowlist == ALLOWLISTS[("gmail", "send")]
 
     upgraded = set_ally_grant(secret=secret, ally=reader, level="send")
     assert upgraded.grant_generation == read_decision.grant_generation
@@ -97,7 +96,7 @@ def test_regrant_after_revoke_gets_fresh_generation(rig):
 
 def test_ungranted_ally_denied(rig):
     _, _, reader, _, secret = rig
-    decision = check_gmail_grant(secret=secret, ally=reader)
+    decision = check_grant(secret=secret, ally=reader)
     assert decision.allowed is False
     assert decision.reason_code == "grant_missing"
 
@@ -129,7 +128,7 @@ def test_revoked_secret_denies_and_revoke_fences(rig):
     generation = revoke_ally_grant(secret=secret, ally=reader)
     assert generation == 1
     assert AllyIntegrationGrant.objects.count() == 0
-    decision = check_gmail_grant(secret=secret, ally=reader)
+    decision = check_grant(secret=secret, ally=reader)
     assert decision.allowed is False
     assert revoke_ally_grant(secret=secret, ally=reader) == 0
 
@@ -138,27 +137,27 @@ def test_disconnect_scrubs_and_revokes(rig, monkeypatch):
     _, _, reader, _, secret = rig
     set_ally_grant(secret=secret, ally=reader, level="read")
     monkeypatch.setattr(google_oauth, "revoke_at_google", lambda token: True)
-    result = disconnect_gmail_account(secret=secret)
+    result = disconnect_account(secret=secret)
     assert result.status == "deprovisioned"
     secret.refresh_from_db()
     assert secret.revoked_at is not None
     assert bytes(secret.ciphertext) == b""
     assert AllyIntegrationGrant.objects.count() == 0
-    assert check_gmail_grant(secret=secret, ally=reader).allowed is False
-    again = disconnect_gmail_account(secret=secret)
+    assert check_grant(secret=secret, ally=reader).allowed is False
+    again = disconnect_account(secret=secret)
     assert again.status == "already_cleaned"
 
 
 def test_disconnect_google_failure_is_repair(rig, monkeypatch):
     _, _, _, _, secret = rig
     monkeypatch.setattr(google_oauth, "revoke_at_google", lambda token: False)
-    result = disconnect_gmail_account(secret=secret)
+    result = disconnect_account(secret=secret)
     assert result.status == "repair_required"
     secret.refresh_from_db()
     assert secret.revoked_at is not None
     assert bytes(secret.ciphertext) != b""
     monkeypatch.setattr(google_oauth, "revoke_at_google", lambda token: True)
-    retry = disconnect_gmail_account(secret=secret)
+    retry = disconnect_account(secret=secret)
     assert retry.status == "deprovisioned"
     secret.refresh_from_db()
     assert bytes(secret.ciphertext) == b""
@@ -176,7 +175,7 @@ def test_disconnect_wipe_skips_reconnected_secret(rig, monkeypatch):
         return True
 
     monkeypatch.setattr(google_oauth, "revoke_at_google", _revoke_with_racing_reconnect)
-    result = disconnect_gmail_account(secret=secret)
+    result = disconnect_account(secret=secret)
     assert result.status == "repair_required"
     secret.refresh_from_db()
     assert secret.revoked_at is None
