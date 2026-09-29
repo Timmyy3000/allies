@@ -262,7 +262,7 @@ function renderHome(
       settingsRevision: input.settingsRevision + 1,
     })),
     listRoutines: vi.fn(async () => ({ items: [], nextCursor: null })),
-    getGmailConnection: vi.fn(async () => null),
+    getIntegrationConnection: vi.fn(async () => null),
     getApprovals: vi.fn(async () => []),
     getAllyConversation: vi.fn(async (_workspaceId: string, selectedId: string) => ({
       id: "00000000-0000-4000-8000-000000000005",
@@ -953,14 +953,15 @@ describe("HomeWorkspace", () => {
 
   it("reopens the Ally profile with the Gmail result when Cloud returns from Google", async () => {
     window.history.replaceState(null, "", `/home/${ally.id}?gmail=connected`);
-    const getGmailConnection = vi.fn(async () => ({
+    const gmailConnection = {
       connectionId: "00000000-0000-4000-8000-000000000050",
       accountEmail: "me@example.com",
       scopes: [],
       connectedAt: "2026-09-20T10:00:00Z",
       allyGrants: [{ allyId: ally.id, level: "read" as const, grantGeneration: 1, updatedAt: "2026-09-20T10:00:00Z" }],
-    }));
-    renderHome([ally], ally.id, { getGmailConnection });
+    };
+    const getIntegrationConnection = vi.fn(async (_workspaceId: string, provider: string) => (provider === "gmail" ? gmailConnection : null));
+    renderHome([ally], ally.id, { getIntegrationConnection });
     const dialog = await screen.findByRole("dialog", { name: "Mira settings" });
     expect(await within(dialog).findByText("me@example.com")).toBeTruthy();
     expect(within(dialog).queryByText("Gmail connected")).toBeNull();

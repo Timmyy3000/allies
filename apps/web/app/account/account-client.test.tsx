@@ -60,9 +60,9 @@ function setupSession(overrides: Record<string, unknown> = {}) {
     getCurrentAccount: vi.fn(async () => account),
     getAvatarRead: vi.fn(async () => avatar),
     listAllies: vi.fn(async () => [sally, mo]),
-    getGmailConnection: vi.fn(async (): Promise<unknown> => null),
-    setGmailGrant: vi.fn(async (_workspace: string, allyId: string, level: string) => ({ allyId, level, grantGeneration: 2, updatedAt: "2026-09-21T10:00:00Z" })),
-    disconnectGmail: vi.fn(async () => undefined),
+    getIntegrationConnection: vi.fn(async (_workspace: string, _provider: string): Promise<unknown> => null),
+    setIntegrationGrant: vi.fn(async (_workspace: string, _provider: string, allyId: string, level: string) => ({ allyId, level, grantGeneration: 2, updatedAt: "2026-09-21T10:00:00Z" })),
+    disconnectIntegration: vi.fn(async () => undefined),
     listSafeInputs: vi.fn(async (): Promise<unknown[]> => []),
     deleteAvatar: vi.fn(async () => undefined),
     getWorkspace: vi.fn(async () => account.workspace),
@@ -192,7 +192,7 @@ describe("AccountClient", () => {
 
   it("lists Gmail with the Allies that use it and toggles access per Ally", async () => {
     const { client } = setupSession();
-    client.getGmailConnection.mockResolvedValue(gmail);
+    client.getIntegrationConnection.mockImplementation(async (_workspace, provider) => (provider === "gmail" ? gmail : null));
     renderAccount();
 
     const row = await screen.findByRole("button", { name: /Gmail/ });
@@ -202,13 +202,13 @@ describe("AccountClient", () => {
     expect(screen.getByText("Food errands")).toBeTruthy();
     expect(screen.getByText("Money and bills")).toBeTruthy();
     fireEvent.click(screen.getByRole("switch", { name: "Mo can use Gmail" }));
-    await waitFor(() => expect(client.setGmailGrant).toHaveBeenCalledWith("wsp_example", mo.id, "read", undefined));
+    await waitFor(() => expect(client.setIntegrationGrant).toHaveBeenCalledWith("wsp_example", "gmail", mo.id, "read", undefined));
     await waitFor(() => expect((screen.getByRole("switch", { name: "Mo can use Gmail" }) as HTMLInputElement).checked).toBe(true));
   });
 
   it("names the Allies losing access before disconnecting Gmail", async () => {
     const { client } = setupSession();
-    client.getGmailConnection.mockResolvedValue(gmail);
+    client.getIntegrationConnection.mockImplementation(async (_workspace, provider) => (provider === "gmail" ? gmail : null));
     renderAccount();
 
     fireEvent.click(await screen.findByRole("button", { name: /Gmail/ }));
@@ -216,8 +216,22 @@ describe("AccountClient", () => {
     expect(screen.getByText("Sally will stop using it straight away.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
 
-    await waitFor(() => expect(client.disconnectGmail).toHaveBeenCalledOnce());
-    expect(await screen.findByRole("button", { name: "Connect" })).toBeTruthy();
+    await waitFor(() => expect(client.disconnectIntegration).toHaveBeenCalledOnce());
+    expect(await screen.findByRole("button", { name: "Connect Gmail" })).toBeTruthy();
+  });
+
+  it("lists Calendar beside Gmail and grants it write access per Ally", async () => {
+    const { client } = setupSession();
+    client.getIntegrationConnection.mockImplementation(async (_workspace, provider) => (
+      provider === "gmail" ? gmail : { ...gmail, accountEmail: "cal@example.com", allyGrants: [{ allyId: mo.id, level: "write", grantGeneration: 1, updatedAt: "2026-09-20T10:00:00Z" }] }
+    ));
+    renderAccount();
+
+    expect(await screen.findByText("2 connected")).toBeTruthy();
+    fireEvent.click(await screen.findByRole("button", { name: /Calendar/ }));
+    fireEvent.click(screen.getByRole("switch", { name: "Sally can use Calendar" }));
+    await waitFor(() => expect(client.setIntegrationGrant).toHaveBeenCalledWith("wsp_example", "calendar", sally.id, "write", undefined));
+    expect(client.disconnectIntegration).not.toHaveBeenCalled();
   });
 
   it("lists saved Safe inputs and hides the section when there are none", async () => {

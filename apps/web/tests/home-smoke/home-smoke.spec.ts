@@ -167,7 +167,7 @@ async function fixtureCloud(page: Page, mode: SessionMode, withApproval = false,
         run_id: "00000000-0000-4000-8000-000000000026", result_id: "00000000-0000-4000-8000-000000000025", result_insertion: "inserted", text: "**AI is great**", references: [],
       }] : [])] } } : payload });
     }
-    if (url.pathname === `/api/v1/workspaces/${workspaceId}/integrations/gmail`) {
+    if (["gmail", "calendar"].some((provider) => url.pathname === `/api/v1/workspaces/${workspaceId}/integrations/${provider}`)) {
       return route.fulfill({ status: 200, headers, json: success(null) });
     }
     if (url.pathname === `/api/v1/workspaces/${workspaceId}/routines`) {
