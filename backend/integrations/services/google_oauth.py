@@ -41,10 +41,11 @@ GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 GMAIL_V1_SCOPES = (GMAIL_MODIFY_SCOPE, GMAIL_SEND_SCOPE)
 CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
-# "email" only names the account; a connection is complete without it.
+# openid and email only name the account (userinfo needs both); they are not required grants.
+IDENTITY_SCOPES = {"openid", "email"}
 PROVIDER_SCOPES = {
     PROVIDER_GMAIL: GMAIL_V1_SCOPES,
-    PROVIDER_CALENDAR: (CALENDAR_EVENTS_SCOPE, "email"),
+    PROVIDER_CALENDAR: (CALENDAR_EVENTS_SCOPE, "openid", "email"),
 }
 USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo"
 
@@ -376,7 +377,7 @@ def complete_connect(*, state: str, code: str) -> ConnectComplete:
         raise IntegrationInvalid("google rejected the connect code")
     granted = token.get("scope", "")
     granted_scopes = set(granted.split()) if isinstance(granted, str) else set()
-    if not set(PROVIDER_SCOPES[provider]) - {"email"} <= granted_scopes:
+    if not set(PROVIDER_SCOPES[provider]) - IDENTITY_SCOPES <= granted_scopes:
         raise ScopeInsufficient("google access was not fully granted")
     refresh_token = token.get("refresh_token")
     access_token = token.get("access_token")
