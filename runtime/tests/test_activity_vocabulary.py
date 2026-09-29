@@ -19,8 +19,8 @@ EXPOSED_TOOLS = [
     "ha_call_service", "tool_search", "tool_describe",
     "memory_remember", "memory_recall", "publish_files", "routine_result",
     "routine_create", "routine_list", "gmail_read", "gmail_send",
-    "gmail_organise", "safe_input_check", "safe_input_request",
-    "safe_input_fill", "approval_request",
+    "gmail_organise", "calendar_read", "calendar_write", "safe_input_check",
+    "safe_input_request", "safe_input_fill", "approval_request",
 ]  # fmt: skip
 
 
