@@ -104,3 +104,44 @@ def test_symlink_in_eligible_skill_fails_before_install(tmp_path):
         catalog.build_catalog(source, destination, license_path, allies)
 
     assert not destination.exists()
+
+
+def test_extra_allies_skill_is_copied_and_must_be_mit(tmp_path, monkeypatch):
+    source, destination, license_path, allies = _inputs(tmp_path)
+    if hasattr(catalog.os, "chown"):
+        monkeypatch.setattr(catalog.os, "chown", lambda *_: None)
+    extra = tmp_path / "allies-capabilities"
+    extra.mkdir()
+    (extra / "SKILL.md").write_text(
+        "---\nname: allies-capabilities\ndescription: fixture\nlicense: MIT\n---\n",
+        encoding="utf-8",
+    )
+
+    catalog.build_catalog(source, destination, license_path, allies, (extra,))
+
+    assert (destination / "allies-capabilities/SKILL.md").exists()
+    assert (destination / "allies-skill-discovery/SKILL.md").exists()
+
+    (extra / "SKILL.md").write_text(
+        "---\nname: allies-capabilities\ndescription: fixture\nlicense: GPL\n---\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="MIT"):
+        catalog.build_catalog(
+            source, tmp_path / "catalog2", license_path, allies, (extra,)
+        )
+
+
+def test_shipped_capabilities_skill_is_valid_and_covers_the_baked_in_tools():
+    skill = Path(__file__).parents[1] / "skills/allies-capabilities/SKILL.md"
+    assert catalog._frontmatter_license(skill) == "MIT"
+    text = skill.read_text(encoding="utf-8")
+    for tool in (
+        "allies_routines",
+        "allies_safe_inputs",
+        "allies_gmail",
+        "allies_calendar",
+        "publish_files",
+    ):
+        assert tool in text
+    assert "Browser" in text and "Memory" in text and "Not connected yet" in text

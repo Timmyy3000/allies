@@ -25,6 +25,20 @@ even without `pymupdf` or `marker`. The guide requires checking the instructions
 prerequisites; the smoke verifies these local extractors remain absent. This
 change does not add a separate readiness model or rewrite the upstream skill.
 
+## Allies capabilities
+
+`allies-capabilities` is an Allies-owned skill in the shared catalog. It lists
+what an Ally can do for its user (routines, browser, saved logins, Gmail,
+Calendar, files, memory, research, code) and tells it to offer them when a task
+fits, after doing the obvious part first and never for outward-facing actions
+without asking. Its description appears in every Ally's skill index, which is
+what prompts an Ally to load it. It states which integrations are not
+connected yet (Drive, Docs, Sheets) so an Ally does not promise them.
+
+Update `skills/allies-capabilities/SKILL.md` whenever an Ally tool is added,
+removed or gains a capability. The skill is not proof of access: Gmail and
+Calendar still need the user's connection and per-Ally grant.
+
 ## Additional skills
 
 The existing terminal tool propagates the active Hermes profile to subprocesses.
