@@ -50,6 +50,8 @@ const icons: Record<string, Icon> = {
   gmail_read: Sms,
   gmail_send: Sms,
   gmail_organise: Sms,
+  calendar_read: Calendar,
+  calendar_write: Calendar,
   safe_input_check: Lock,
   safe_input_request: Lock,
   safe_input_fill: Key,

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createCloudClient } from "../src/client";
-import { parseGoogleAuthUrl } from "../src/mappers/gmail";
+import { parseGoogleAuthUrl } from "../src/mappers/integrations";
 
 const workspaceId = "00000000-0000-4000-8000-000000000001";
 const allyId = "00000000-0000-4000-8000-000000000002";
@@ -19,12 +19,12 @@ function clientFor(handler: (request: Request) => Promise<Response> | Response) 
   return { fetch, client: createCloudClient({ baseUrl: "https://cloud.example.com", fetch: fetch as typeof globalThis.fetch }) };
 }
 
-describe("gmail integration client", () => {
+describe("integration client", () => {
   it("treats a null status as not connected and maps a live connection", async () => {
     const empty = clientFor(() => Response.json({ status: "success", message: "ok", data: null }));
-    await expect(empty.client.getGmailConnection(workspaceId)).resolves.toBeNull();
+    await expect(empty.client.getIntegrationConnection(workspaceId, "gmail")).resolves.toBeNull();
     const live = clientFor(() => Response.json({ status: "success", message: "ok", data: connection }));
-    await expect(live.client.getGmailConnection(workspaceId)).resolves.toMatchObject({
+    await expect(live.client.getIntegrationConnection(workspaceId, "gmail")).resolves.toMatchObject({
       accountEmail: "me@example.com",
       allyGrants: [{ allyId, level: "read" }],
     });
@@ -40,7 +40,7 @@ describe("gmail integration client", () => {
         expires_at: "2026-09-20T10:10:00Z",
       } }, { status: 202 });
     });
-    await expect(client.beginGmailConnect(workspaceId, { allyId, grantLevel: "read", returnTo: `/home/${allyId}` }, key))
+    await expect(client.beginIntegrationConnect(workspaceId, "gmail", { allyId, grantLevel: "read", returnTo: `/home/${allyId}` }, key))
       .resolves.toMatchObject({ authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=abc" });
   });
 
@@ -53,13 +53,13 @@ describe("gmail integration client", () => {
         expires_at: "2026-09-20T10:10:00Z",
       } }, { status: 202 });
     });
-    await expect(client.beginGmailConnect(workspaceId, { grantLevel: "read", returnTo: "/account" }, key))
+    await expect(client.beginIntegrationConnect(workspaceId, "gmail", { grantLevel: "read", returnTo: "/account" }, key))
       .resolves.toMatchObject({ connectSessionId: "00000000-0000-4000-8000-000000000004" });
   });
 
   it("disconnects Gmail for the workspace", async () => {
     const { client, fetch } = clientFor(() => Response.json({ status: "success", message: "ok", data: { status: "disconnecting" } }, { status: 202 }));
-    await expect(client.disconnectGmail(workspaceId)).resolves.toBeUndefined();
+    await expect(client.disconnectIntegration(workspaceId, "gmail")).resolves.toBeUndefined();
     const request = fetch.mock.calls[0]?.[0] as Request;
     expect(request.method).toBe("DELETE");
     expect(await request.json()).toEqual({ confirm: true });
@@ -72,7 +72,7 @@ describe("gmail integration client", () => {
       auth_url: "https://accounts.google.com.evil.example/auth",
       expires_at: "2026-09-20T10:10:00Z",
     } }, { status: 202 }));
-    await expect(client.beginGmailConnect(workspaceId, { allyId, grantLevel: "read", returnTo: `/home/${allyId}` }, key))
+    await expect(client.beginIntegrationConnect(workspaceId, "gmail", { allyId, grantLevel: "read", returnTo: `/home/${allyId}` }, key))
       .rejects.toMatchObject({ kind: "contract" });
   });
 
@@ -94,7 +94,44 @@ describe("gmail integration client", () => {
         ally_id: "00000000-0000-4000-8000-000000000009", level: "none", grant_generation: 0, updated_at: "2026-09-20T10:00:00Z",
       } });
     });
-    await expect(client.setGmailGrant(workspaceId, allyId, "none")).rejects.toMatchObject({ kind: "contract" });
+    await expect(client.setIntegrationGrant(workspaceId, "gmail", allyId, "none")).rejects.toMatchObject({ kind: "contract" });
   });
 
+  it("connects, grants write on, and disconnects Calendar through its own routes", async () => {
+    const { client, fetch } = clientFor(async (request) => {
+      const { pathname } = new URL(request.url);
+      if (pathname.endsWith("/calendar/connect")) {
+        expect(await request.json()).toEqual({ entry_point: "in_chat", ally_id: allyId, grant_level: "write", return_to: `/home/${allyId}` });
+        return Response.json({ status: "success", message: "ok", data: {
+          connect_session_id: "00000000-0000-4000-8000-000000000004",
+          auth_url: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
+          expires_at: "2026-09-20T10:10:00Z",
+        } }, { status: 202 });
+      }
+      if (pathname.endsWith("/calendar/grants")) {
+        expect(await request.json()).toEqual({ ally_id: allyId, level: "write" });
+        return Response.json({ status: "success", message: "ok", data: {
+          ally_id: allyId, level: "write", grant_generation: 2, updated_at: "2026-09-20T10:00:00Z",
+        } });
+      }
+      return Response.json({ status: "success", message: "ok", data: null });
+    });
+    await client.beginIntegrationConnect(workspaceId, "calendar", { allyId, grantLevel: "write", returnTo: `/home/${allyId}` }, key);
+    await expect(client.setIntegrationGrant(workspaceId, "calendar", allyId, "write")).resolves.toMatchObject({ level: "write" });
+    await expect(client.getIntegrationConnection(workspaceId, "calendar")).resolves.toBeNull();
+    await client.disconnectIntegration(workspaceId, "calendar");
+    const paths = fetch.mock.calls.map(([request]) => new URL((request as Request).url).pathname);
+    expect(paths).toEqual([
+      `/api/v1/workspaces/${workspaceId}/integrations/calendar/connect`,
+      `/api/v1/workspaces/${workspaceId}/integrations/calendar/grants`,
+      `/api/v1/workspaces/${workspaceId}/integrations/calendar`,
+      `/api/v1/workspaces/${workspaceId}/integrations/calendar`,
+    ]);
+  });
+
+  it("refuses an unknown provider before any request", async () => {
+    const { client, fetch } = clientFor(() => Response.json({}));
+    await expect(client.getIntegrationConnection(workspaceId, "drive" as never)).rejects.toBeDefined();
+    expect(fetch).not.toHaveBeenCalled();
+  });
 });
