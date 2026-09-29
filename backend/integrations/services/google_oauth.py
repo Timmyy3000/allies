@@ -1,4 +1,4 @@
-"""Allies-owned Google OAuth for Gmail: connect, refresh, revoke.
+"""Allies-owned Google OAuth for Gmail and Calendar: connect, refresh, revoke.
 
 The driving Cloud owns the full refresh lifecycle. Foundry and Hermes only
 ever see short-lived access tokens minted per execution. Refresh secrets at
@@ -28,12 +28,26 @@ from ..exceptions import (
     RefreshRevoked,
     ScopeInsufficient,
 )
-from ..models import PROVIDER_GMAIL, GmailConnectSession, IntegrationSecret
+from ..models import (
+    PROVIDER_CALENDAR,
+    PROVIDER_GMAIL,
+    PROVIDER_GRANT_LEVELS,
+    GmailConnectSession,
+    IntegrationSecret,
+)
 from .vault import seal_refresh_token, unseal_refresh_token
 
 GMAIL_MODIFY_SCOPE = "https://www.googleapis.com/auth/gmail.modify"
 GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 GMAIL_V1_SCOPES = (GMAIL_MODIFY_SCOPE, GMAIL_SEND_SCOPE)
+CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
+# openid and email only name the account (userinfo needs both); they are not required grants.
+IDENTITY_SCOPES = {"openid", "email"}
+PROVIDER_SCOPES = {
+    PROVIDER_GMAIL: GMAIL_V1_SCOPES,
+    PROVIDER_CALENDAR: (CALENDAR_EVENTS_SCOPE, "openid", "email"),
+}
+USERINFO_ENDPOINT = "https://openidconnect.googleapis.com/v1/userinfo"
 
 GOOGLE_AUTHORIZATION_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token"
@@ -138,7 +152,11 @@ def _handshake_field(sealed_handshake: str, name: str) -> str | None:
 
 def _handshake_grant_level(sealed_handshake: str) -> str | None:
     level = _handshake_field(sealed_handshake, "grant_level")
-    return level if level in {"read", "send"} else None
+    return level if level in {"read", "send", "write"} else None
+
+
+def handshake_provider(sealed_handshake: str) -> str:
+    return _handshake_field(sealed_handshake, "provider") or PROVIDER_GMAIL
 
 
 def _code_challenge(verifier: str) -> str:
@@ -152,28 +170,31 @@ def _code_challenge(verifier: str) -> str:
 
 
 @dataclass(frozen=True)
-class GmailConnectBegin:
+class ConnectBegin:
     connect_session_id: str
     auth_url: str
     expires_at: object
 
 
-def begin_gmail_connect(
+def begin_connect(
     *,
     workspace,
+    provider: str = PROVIDER_GMAIL,
     entry_point: str,
     ally=None,
     grant_level: str | None = None,
     idempotency_key: str,
     return_to: str | None = None,
-) -> GmailConnectBegin:
+) -> ConnectBegin:
     if not gmail_enabled():
         raise IntegrationUnavailable("gmail integration disabled")
+    if provider not in PROVIDER_SCOPES:
+        raise IntegrationInvalid("unknown provider")
     if entry_point not in {"integrations", "in_chat"}:
         raise IntegrationInvalid("unknown connect entry point")
     if entry_point == "in_chat" and ally is None:
         raise IntegrationInvalid("in-chat connect requires an ally")
-    if entry_point == "in_chat" and grant_level not in {"read", "send"}:
+    if entry_point == "in_chat" and grant_level not in PROVIDER_GRANT_LEVELS[provider]:
         raise IntegrationInvalid("in-chat connect requires an explicit grant level")
     if entry_point == "integrations" and grant_level is not None:
         raise IntegrationInvalid("grant level is only valid for in-chat connect")
@@ -200,12 +221,15 @@ def begin_gmail_connect(
             raise IntegrationInvalid("connect replay targets a different ally")
         if existing.entry_point != entry_point:
             raise IntegrationInvalid("connect replay targets a different entry point")
+        if handshake_provider(existing.sealed_handshake) != provider:
+            raise IntegrationInvalid("connect replay targets a different provider")
         if _handshake_grant_level(existing.sealed_handshake) != grant_level:
             raise IntegrationInvalid("connect replay targets a different grant level")
         replay_handshake = json.dumps(
             {
                 "state": state,
                 "pkce_verifier": verifier,
+                "provider": provider,
                 "workspace_id": str(existing.workspace_id),
                 "ally_id": str(existing.ally_id) if existing.ally_id else None,
                 "grant_level": _handshake_grant_level(existing.sealed_handshake),
@@ -218,15 +242,18 @@ def begin_gmail_connect(
         existing.sealed_handshake = replay_sealed.decode()
         existing.expires_at = now + timedelta(seconds=CONNECT_SESSION_TTL_SECONDS)
         existing.save(update_fields=["state_hash", "sealed_handshake", "expires_at"])
-        return GmailConnectBegin(
+        return ConnectBegin(
             connect_session_id=str(existing.id),
-            auth_url=_authorization_url(client_id, redirect_uri, state, challenge),
+            auth_url=_authorization_url(
+                provider, client_id, redirect_uri, state, challenge
+            ),
             expires_at=existing.expires_at,
         )
     handshake = json.dumps(
         {
             "state": state,
             "pkce_verifier": verifier,
+            "provider": provider,
             "workspace_id": str(workspace.id),
             "ally_id": str(ally.id) if ally is not None else None,
             "grant_level": grant_level,
@@ -244,15 +271,17 @@ def begin_gmail_connect(
         idempotency_key=idempotency_key,
         expires_at=now + timedelta(seconds=CONNECT_SESSION_TTL_SECONDS),
     )
-    return GmailConnectBegin(
+    return ConnectBegin(
         connect_session_id=str(session.id),
-        auth_url=_authorization_url(client_id, redirect_uri, state, challenge),
+        auth_url=_authorization_url(
+            provider, client_id, redirect_uri, state, challenge
+        ),
         expires_at=session.expires_at,
     )
 
 
 def _authorization_url(
-    client_id: str, redirect_uri: str, state: str, challenge: str
+    provider: str, client_id: str, redirect_uri: str, state: str, challenge: str
 ) -> str:
     return (
         GOOGLE_AUTHORIZATION_ENDPOINT
@@ -261,7 +290,7 @@ def _authorization_url(
             {
                 "client_id": client_id,
                 "response_type": "code",
-                "scope": " ".join(GMAIL_V1_SCOPES),
+                "scope": " ".join(PROVIDER_SCOPES[provider]),
                 "redirect_uri": redirect_uri,
                 "state": state,
                 "code_challenge": challenge,
@@ -274,7 +303,7 @@ def _authorization_url(
 
 
 @dataclass(frozen=True)
-class GmailConnectComplete:
+class ConnectComplete:
     secret: IntegrationSecret
     auto_grant_ally_id: str | None
     auto_grant_level: str | None
@@ -293,7 +322,17 @@ def connect_return_to(*, state: str) -> str | None:
     return _handshake_field(session.sealed_handshake, "return_to")
 
 
-def peek_connect_workspace_id(*, state: str):
+def connect_provider(*, state: str) -> str:
+    """Provider a pending connect began for; gmail when the state is unknown."""
+
+    state_hash = hashlib.sha256(state.encode()).hexdigest()
+    session = GmailConnectSession.objects.filter(state_hash=state_hash).first()
+    if session is None:
+        return PROVIDER_GMAIL
+    return handshake_provider(session.sealed_handshake)
+
+
+def peek_connect_session(*, state: str):
     state_hash = hashlib.sha256(state.encode()).hexdigest()
     try:
         session = GmailConnectSession.objects.get(state_hash=state_hash)
@@ -302,11 +341,11 @@ def peek_connect_workspace_id(*, state: str):
     now = timezone.now()
     if session.consumed_at is not None or session.expires_at <= now:
         raise IntegrationInvalid("connect session expired")
-    return session.workspace_id
+    return session
 
 
 @transaction.atomic
-def complete_gmail_connect(*, state: str, code: str) -> GmailConnectComplete:
+def complete_connect(*, state: str, code: str) -> ConnectComplete:
     if not gmail_enabled():
         raise IntegrationUnavailable("gmail integration disabled")
     state_hash = hashlib.sha256(state.encode()).hexdigest()
@@ -319,6 +358,7 @@ def complete_gmail_connect(*, state: str, code: str) -> GmailConnectComplete:
     now = timezone.now()
     if session.consumed_at is not None or session.expires_at <= now:
         raise IntegrationInvalid("connect session expired")
+    provider = handshake_provider(session.sealed_handshake)
     verifier = _handshake_field(session.sealed_handshake, "pkce_verifier")
     if verifier is None:
         raise IntegrationInvalid("connect session handshake invalid")
@@ -337,31 +377,31 @@ def complete_gmail_connect(*, state: str, code: str) -> GmailConnectComplete:
         raise IntegrationInvalid("google rejected the connect code")
     granted = token.get("scope", "")
     granted_scopes = set(granted.split()) if isinstance(granted, str) else set()
-    if not set(GMAIL_V1_SCOPES) <= granted_scopes:
-        raise ScopeInsufficient("gmail needs read and send scopes")
+    if not set(PROVIDER_SCOPES[provider]) - IDENTITY_SCOPES <= granted_scopes:
+        raise ScopeInsufficient("google access was not fully granted")
     refresh_token = token.get("refresh_token")
     access_token = token.get("access_token")
     if not isinstance(refresh_token, str) or not refresh_token:
         raise IntegrationInvalid("google did not return a refresh token")
     if not isinstance(access_token, str) or not access_token:
         raise IntegrationInvalid("google did not return an access token")
-    account_email = _gmail_profile_email(access_token)
+    account_email = _account_email(provider, access_token)
     account_ref_hash = hashlib.sha256(account_email.lower().encode()).hexdigest()
     ciphertext, key_version = seal_refresh_token(refresh_token)
     conflict = (
         IntegrationSecret.objects.filter(
             workspace=session.workspace,
-            provider_key=PROVIDER_GMAIL,
+            provider_key=provider,
             revoked_at=None,
         )
         .exclude(account_ref_hash=account_ref_hash)
         .first()
     )
     if conflict is not None:
-        raise IntegrationConflict("a different gmail account is connected")
+        raise IntegrationConflict("a different google account is connected")
     secret, created = IntegrationSecret.objects.update_or_create(
         workspace=session.workspace,
-        provider_key=PROVIDER_GMAIL,
+        provider_key=provider,
         account_ref_hash=account_ref_hash,
         defaults={
             "ciphertext": bytes(ciphertext),
@@ -375,7 +415,7 @@ def complete_gmail_connect(*, state: str, code: str) -> GmailConnectComplete:
     session.save(update_fields=["consumed_at"])
     auto_grant_ally_id = str(session.ally_id) if session.ally_id else None
     auto_grant_level = _handshake_grant_level(session.sealed_handshake)
-    return GmailConnectComplete(
+    return ConnectComplete(
         secret=secret,
         auto_grant_ally_id=auto_grant_ally_id,
         auto_grant_level=auto_grant_level,
@@ -383,18 +423,20 @@ def complete_gmail_connect(*, state: str, code: str) -> GmailConnectComplete:
     )
 
 
-def _gmail_profile_email(access_token: str) -> str:
-    request = Request(
-        GMAIL_PROFILE_ENDPOINT, headers={"Authorization": f"Bearer {access_token}"}
+def _account_email(provider: str, access_token: str) -> str:
+    endpoint = (
+        GMAIL_PROFILE_ENDPOINT if provider == PROVIDER_GMAIL else USERINFO_ENDPOINT
     )
+    request = Request(endpoint, headers={"Authorization": f"Bearer {access_token}"})
     try:
         with urlopen(request, timeout=PROVIDER_TIMEOUT_SECONDS) as response:
             payload = json.loads(response.read(100_001).decode())
     except (HTTPError, URLError, TimeoutError, OSError, ValueError) as exc:
-        raise ProviderUnavailable("gmail profile lookup failed") from exc
-    email = payload.get("emailAddress") if isinstance(payload, dict) else None
+        raise ProviderUnavailable("account lookup failed") from exc
+    key = "emailAddress" if provider == PROVIDER_GMAIL else "email"
+    email = payload.get(key) if isinstance(payload, dict) else None
     if not isinstance(email, str) or not email or len(email) > 254:
-        raise ProviderUnavailable("gmail profile lookup failed")
+        raise ProviderUnavailable("account lookup failed")
     return email
 
 

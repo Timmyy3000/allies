@@ -8,8 +8,13 @@ from ninja_extra import NinjaExtraAPI
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from auths.exceptions import WorkspaceAccessDenied
-from integrations.api.controllers import GmailCallbackController, GmailController
+from integrations.api.controllers import (
+    CalendarController,
+    GmailCallbackController,
+    GmailController,
+)
 from integrations.api.safe_inputs import SafeInputController
+from integrations.services.calendar_tool import execute_calendar_tool
 from integrations.services.gmail_tool import execute_gmail_tool
 from integrations.services.safe_inputs import (
     execute_browser_tool,
@@ -19,6 +24,7 @@ from integrations.services.safe_inputs import (
 _MAX_TOOL_BYTES = 64 * 1024
 _TOOLS = {
     "gmail": execute_gmail_tool,
+    "calendar": execute_calendar_tool,
     "safe_inputs": execute_safe_input_tool,
     "browser": execute_browser_tool,
 }
@@ -45,7 +51,10 @@ class IntegrationToolEnvelope(BaseModel):
 
 def register(api: NinjaExtraAPI) -> None:
     api.register_controllers(
-        GmailController, GmailCallbackController, SafeInputController
+        GmailController,
+        CalendarController,
+        GmailCallbackController,
+        SafeInputController,
     )
 
     @api.post("/internal/foundry/integrations/tool", auth=_foundry_token_valid)

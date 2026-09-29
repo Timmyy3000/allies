@@ -492,3 +492,77 @@ def test_unknown_state_keeps_the_json_error(api_account):
     )
     assert response.status_code == 422
     assert response.json()["data"]["code"] == "validation_error"
+
+
+@pytest.mark.django_db
+@override_settings(
+    ALLOWED_HOSTS=["testserver"],
+    CSRF_TRUSTED_ORIGINS=["http://localhost:3000"],
+    ALLIES_AUTH_DIGEST_KEY="d" * 32,
+    ALLIES_AUTH_JWT_KEY="j" * 32,
+    ALLIES_GMAIL_ENABLED=True,
+    ALLIES_GMAIL_CLIENT_ID="test-client-id",
+    ALLIES_GMAIL_CLIENT_SECRET="test-client-secret",
+    ALLIES_GMAIL_REDIRECT_URI="https://app.example/callback",
+    ALLIES_INTEGRATIONS_VAULT_KEY=Fernet.generate_key().decode(),
+)
+def test_calendar_connects_and_grants_independently_of_gmail(api_account, monkeypatch):
+    user, workspace, ally = api_account
+    client, csrf = _client(user)
+    calendar = f"/api/v1/workspaces/{workspace.id}/integrations/calendar"
+    gmail = f"/api/v1/workspaces/{workspace.id}/integrations/gmail"
+
+    begun = client.post(
+        f"{calendar}/connect",
+        json.dumps(
+            {"entry_point": "in_chat", "ally_id": str(ally.id), "grant_level": "write"}
+        ),
+        content_type="application/json",
+        **_headers(csrf, HTTP_IDEMPOTENCY_KEY="api-connect-key-0002"),
+    )
+    assert begun.status_code == 202
+    state = parse_qs(urlparse(begun.json()["data"]["auth_url"]).query)["state"][0]
+
+    def fake(request, timeout=None):
+        url = request.full_url if hasattr(request, "full_url") else str(request)
+        if "oauth2.googleapis.com/token" in url:
+            return FakeResponse(
+                {
+                    "access_token": "ya29.test",
+                    "refresh_token": "refresh.test",
+                    "scope": "email https://www.googleapis.com/auth/calendar.events",
+                }
+            )
+        if "openidconnect.googleapis.com" in url:
+            return FakeResponse({"email": "cal@gmail.com"})
+        if "oauth2.googleapis.com/revoke" in url:
+            return FakeResponse({})
+        raise AssertionError(url)
+
+    monkeypatch.setattr(google_oauth, "urlopen", fake)
+    callback = client.get(
+        f"/api/v1/integrations/gmail/callback?code=auth-code-c&state={state}",
+        **_headers(csrf),
+    )
+    assert callback.status_code == 200
+    assert callback.json()["data"]["ally_grants"][0]["level"] == "write"
+    assert IntegrationSecret.objects.get().provider_key == "calendar"
+
+    assert client.get(gmail, **_headers(csrf)).json()["data"] is None
+    status = client.get(calendar, **_headers(csrf)).json()["data"]
+    assert status["account_email"] == "cal@gmail.com"
+
+    wrong = client.post(
+        f"{calendar}/grants",
+        json.dumps({"ally_id": str(ally.id), "level": "send"}),
+        content_type="application/json",
+        **_headers(csrf),
+    )
+    assert wrong.status_code == 422
+    gone = client.delete(
+        calendar,
+        json.dumps({"confirm": True}),
+        content_type="application/json",
+        **_headers(csrf),
+    )
+    assert gone.status_code == 202
