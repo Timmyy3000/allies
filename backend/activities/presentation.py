@@ -116,6 +116,8 @@ ACTIVITY_LABELS = {
     "gmail_read": ("Reading your email", "Read your email"),
     "gmail_send": ("Sending an email", "Sent an email"),
     "gmail_organise": ("Organising your email", "Organised your email"),
+    "calendar_read": ("Checking your calendar", "Checked your calendar"),
+    "calendar_write": ("Updating your calendar", "Updated your calendar"),
     "safe_input_check": ("Checking your Safe inputs", "Checked your Safe inputs"),
     "safe_input_request": ("Asking for a login", "Asked for a login"),
     "safe_input_fill": (

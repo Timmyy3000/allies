@@ -11,7 +11,7 @@ class BeginConnectRequest(Schema):
 
     entry_point: Literal["integrations", "in_chat"]
     ally_id: UUID | None = None
-    grant_level: Literal["read", "send"] | None = None
+    grant_level: Literal["read", "send", "write"] | None = None
     return_to: str | None = Field(default=None, min_length=1, max_length=500)
 
 
@@ -40,7 +40,7 @@ class SetGrantRequest(Schema):
     model_config = ConfigDict(extra="forbid")
 
     ally_id: UUID
-    level: Literal["read", "send", "none"]
+    level: Literal["read", "send", "write", "none"]
 
 
 class DisconnectRequest(Schema):
