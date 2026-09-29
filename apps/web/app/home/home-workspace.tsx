@@ -37,7 +37,7 @@ import { hasOnboardingResumePending } from "../(onboarding)/_store/onboarding-re
 import { OnboardingStateProvider } from "../(onboarding)/_store/onboarding-store";
 import { AllyAvatar, type AllyShape } from "../../components/ally-avatar";
 import { resolveAllyAppearance } from "../../lib/allies/appearance";
-import { readGmailReturn, type GmailReturn } from "../../lib/integrations/gmail-connect";
+import { readIntegrationReturn, type IntegrationReturn } from "../../lib/integrations/integration-connect";
 import { currentAccountQueryOptions } from "../../lib/account/account-query";
 import { AuthenticatedAllyFlowProvider } from "../../lib/allies/authenticated-onboarding-flow";
 import { alliesQueryOptions, conversationQueryKey } from "../../lib/allies/queries";
@@ -432,18 +432,18 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
   const [settingsAllyId, setSettingsAllyId] = useState<string | null>(null);
   const [routineOpenRequest, setRoutineOpenRequest] = useState<RoutineOpenRequest | null>(null);
   const locationSearch = useSyncExternalStore(subscribeToLocation, readLocationSearch, () => "");
-  const [gmailReturn, setGmailReturn] = useState<{ allyId: string; value: GmailReturn } | null>(null);
-  const [handledGmailSearch, setHandledGmailSearch] = useState("");
-  const pendingGmailReturn = selectedAllyId && selectedAllyId !== "new" ? readGmailReturn(new URLSearchParams(locationSearch)) : null;
-  if (pendingGmailReturn && selectedAllyId && locationSearch !== handledGmailSearch) {
-    setHandledGmailSearch(locationSearch);
-    setGmailReturn({ allyId: selectedAllyId, value: pendingGmailReturn });
+  const [integrationReturn, setIntegrationReturn] = useState<{ allyId: string; value: IntegrationReturn } | null>(null);
+  const [handledIntegrationSearch, setHandledIntegrationSearch] = useState("");
+  const pendingIntegrationReturn = selectedAllyId && selectedAllyId !== "new" ? readIntegrationReturn(new URLSearchParams(locationSearch)) : null;
+  if (pendingIntegrationReturn && selectedAllyId && locationSearch !== handledIntegrationSearch) {
+    setHandledIntegrationSearch(locationSearch);
+    setIntegrationReturn({ allyId: selectedAllyId, value: pendingIntegrationReturn });
     setSettingsAllyId(selectedAllyId);
   }
   useEffect(() => {
-    if (!handledGmailSearch || !selectedAllyId) return;
+    if (!handledIntegrationSearch || !selectedAllyId) return;
     router.replace(`/home/${encodeURIComponent(selectedAllyId)}`);
-  }, [handledGmailSearch, router, selectedAllyId]);
+  }, [handledIntegrationSearch, router, selectedAllyId]);
   const [dismissedCreateRoute, setDismissedCreateRoute] = useState(false);
   const [acceptedHandoff, setAcceptedHandoff] = useState<AcceptedOnboardingHandoff | null>(null);
   const [handoffReleased, setHandoffReleased] = useState(false);
@@ -978,9 +978,9 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
           workspaceId={workspaceId}
           onClose={() => {
             setSettingsAllyId(null);
-            setGmailReturn(null);
+            setIntegrationReturn(null);
           }}
-          gmailReturn={gmailReturn?.allyId === settingsAlly.id ? gmailReturn.value : null}
+          integrationReturn={integrationReturn?.allyId === settingsAlly.id ? integrationReturn.value : null}
           onSaved={replaceAlly}
           onDeletionStatus={applyAllyDeletionStatus}
           onRefreshDeletion={() => refreshAllyDeletion(settingsAlly.id)}

@@ -9,7 +9,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { AllyAvatar } from "../../components/ally-avatar";
 import { AllyLookPicker } from "../../components/ally-look-picker";
 import { allyAppearanceKey, resolveAllyAppearance, type ResolvedAllyAppearance } from "../../lib/allies/appearance";
-import type { GmailReturn } from "../../lib/integrations/gmail-connect";
+import type { IntegrationReturn } from "../../lib/integrations/integration-connect";
 import { useSession } from "../../lib/session/session-context";
 import { alliesQueryKey } from "../../lib/allies/query-keys";
 import { WAITLIST_APPEARANCE_CATALOG_VERSION, WAITLIST_COLORS } from "../../lib/waitlist/catalog";
@@ -137,7 +137,7 @@ export function AllySettingsDialog({
   onDeletionStatus,
   onRefreshDeletion,
   onOpenRoutine,
-  gmailReturn = null,
+  integrationReturn = null,
 }: {
   ally: AllyViewModel;
   workspaceId: string;
@@ -146,7 +146,7 @@ export function AllySettingsDialog({
   onDeletionStatus: (status: AllyDeletionViewModel) => void;
   onRefreshDeletion: () => Promise<AllyDeletionViewModel>;
   onOpenRoutine: (routineId: string) => void;
-  gmailReturn?: GmailReturn | null;
+  integrationReturn?: IntegrationReturn | null;
 }) {
   const reducedMotion = useReducedMotion();
   const session = useSession();
@@ -502,7 +502,7 @@ export function AllySettingsDialog({
               }}
             />
             <div className={styles.profileSections} style={{ "--access-accent": accent } as CSSProperties}>
-              <AllyAccess workspaceId={workspaceId} allyId={ally.id} returned={gmailReturn} />
+              <AllyAccess workspaceId={workspaceId} allyId={ally.id} returned={integrationReturn} />
               <AllySafeInputs workspaceId={workspaceId} ally={ally} />
             </div>
             <div className={styles.profileList}>
