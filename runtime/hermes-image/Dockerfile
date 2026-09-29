@@ -53,8 +53,10 @@ RUN /opt/hermes/.venv/bin/python /tmp/allies-verify-wheelhouse.py \
 # skills.  The build script validates provenance before copying any content.
 COPY build_skills_catalog.py /tmp/allies-build-skills-catalog.py
 COPY skills/allies-skill-discovery/ /tmp/allies-skill-discovery/
+COPY skills/allies-capabilities/ /tmp/allies-capabilities/
 RUN /opt/hermes/.venv/bin/python /tmp/allies-build-skills-catalog.py \
-    && rm -rf /tmp/allies-build-skills-catalog.py /tmp/allies-skill-discovery
+    && rm -rf /tmp/allies-build-skills-catalog.py /tmp/allies-skill-discovery \
+        /tmp/allies-capabilities
 
 # The pinned base already ships the helper used by youtube-content.  Keep the
 # assertion at image build so profile wake never installs it.
