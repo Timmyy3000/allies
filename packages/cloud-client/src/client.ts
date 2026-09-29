@@ -763,20 +763,23 @@ export function createCloudClient(options: CloudClientOptions) {
 
     async beginGmailConnect(
       workspaceId: string,
-      input: { allyId: string; grantLevel: Exclude<GmailGrantLevel, "none">; returnTo: string },
+      input: { allyId?: string; grantLevel: Exclude<GmailGrantLevel, "none">; returnTo: string },
       idempotencyKey: string,
       signal?: AbortSignal,
     ): Promise<GmailConnectSession> {
       rejectPreAborted(signal);
       const workspace = parsePathSegment(workspaceId);
-      const allyId = parseCanonicalUuid(input.allyId);
+      const allyId = input.allyId === undefined ? undefined : parseCanonicalUuid(input.allyId);
       const grantLevel = parseInput(gmailGrantLevelSchema, input.grantLevel);
       const returnTo = parseInput(gmailReturnToSchema, input.returnTo);
       const key = parseIdempotencyKey(idempotencyKey);
+      const body = allyId
+        ? { entry_point: "in_chat" as const, ally_id: allyId, grant_level: grantLevel, return_to: returnTo }
+        : { entry_point: "integrations" as const, return_to: returnTo };
       return unwrap(
         api.POST("/api/v1/workspaces/{workspace_id}/integrations/gmail/connect", {
           params: { path: { workspace_id: workspace }, header: { "Idempotency-Key": key } },
-          body: { entry_point: "in_chat", ally_id: allyId, grant_level: grantLevel, return_to: returnTo },
+          body,
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => toGmailConnectSession(successEnvelope(gmailConnectResponseSchema).parse(data).data),
@@ -806,6 +809,20 @@ export function createCloudClient(options: CloudClientOptions) {
           return grant;
         },
         [200],
+      );
+    },
+
+    async disconnectGmail(workspaceId: string, signal?: AbortSignal): Promise<void> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      await unwrap(
+        api.DELETE("/api/v1/workspaces/{workspace_id}/integrations/gmail", {
+          params: { path: { workspace_id: workspace } },
+          body: { confirm: true },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        () => undefined,
+        [200, 202],
       );
     },
 

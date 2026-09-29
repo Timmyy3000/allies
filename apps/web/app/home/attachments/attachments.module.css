@@ -12,11 +12,10 @@
   backdrop-filter: blur(3px);
   -webkit-backdrop-filter: blur(3px);
 }
-@media (prefers-color-scheme: dark) {
-  .backdrop {
-    background: rgb(0 0 0 / 55%);
-  }
+:global(:root[data-theme="dark"]) .backdrop {
+  background: rgb(0 0 0 / 55%);
 }
+
 .surface {
   position: absolute;
   overflow: hidden;

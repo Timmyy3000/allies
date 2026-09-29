@@ -18,3 +18,9 @@ export function resolveAllyAppearance(ally: AllyViewModel): ResolvedAllyAppearan
 export function allyAppearanceKey(appearance: ResolvedAllyAppearance): string {
   return `${appearance.shape}:${appearance.color.slice(1)}`;
 }
+
+/** The line shown under an Ally's name in lists: its label when shown, else its job. */
+export function allySubtitle(ally: AllyViewModel): string {
+  const label = ally.label?.trim();
+  return ally.showLabel && label ? label : ally.job;
+}

@@ -97,11 +97,10 @@
   font-size: 13px;
   line-height: 18px;
 }
-@media (prefers-color-scheme: dark) {
-  .error {
-    color: #f09a8a;
-  }
+:global(:root[data-theme="dark"]) .error {
+  color: #f09a8a;
 }
+
 @media (max-width: 420px) {
   .page {
     padding: 16px;
