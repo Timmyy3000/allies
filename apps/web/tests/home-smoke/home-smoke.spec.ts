@@ -794,7 +794,8 @@ test("shows the Ally profile with routines and opens each profile sheet", async 
   await expect(dialog.getByText("1 active")).toBeVisible();
   await expect(dialog.getByRole("button", { name: /Morning check/ })).toBeVisible();
   await expect(dialog.getByRole("heading", { name: "Access" })).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Connect" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Connect Gmail" })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Connect Calendar" })).toBeVisible();
   await dialog.getByRole("heading", { name: "Access" }).scrollIntoViewIfNeeded();
   await page.screenshot({ path: testInfo.outputPath("access.png") });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
