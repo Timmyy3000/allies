@@ -12,6 +12,15 @@ INSTRUCTION = (
     "Times are RFC 3339 with an offset (2026-10-03T12:00:00+01:00), or a plain date "
     "(2026-10-03) for an all-day event; give time_zone when a time has no offset. "
     "list_events starts from now unless time_min is given. "
+    "create_event and update_event can also set: color (lavender, sage, grape, flamingo, "
+    "banana, tangerine, peacock, graphite, blueberry, basil, tomato, or default to clear), "
+    "recurrence (RRULE lines such as RRULE:FREQ=WEEKLY;BYDAY=MO, with time_zone), "
+    "reminder_minutes (popup reminders before the event), visibility, busy (busy or free), "
+    "add_meet (attach a Google Meet link), and guests_can_modify, guests_can_invite and "
+    "guests_can_see_guests. Events come back with the same details, including meet_link. "
+    "To colour-code, map each kind of event to one colour and apply it with update_event. "
+    "Edit one occurrence of a recurring event by its own event_id, or the whole series "
+    "by passing its recurring_event_id as event_id. "
     "Changes that notify other people (an event with attendees, or updating or "
     "deleting an event that has them) return confirmation_required first: show the user "
     "the event and everyone who will be notified, and ask them to confirm. Only after "
@@ -63,6 +72,47 @@ SCHEMA = {
                     "description": "Email addresses; replaces the guest list on update.",
                 },
                 "confirmation_ref": {"type": "string", "maxLength": 36},
+                "color": {
+                    "type": "string",
+                    "enum": [
+                        "lavender",
+                        "sage",
+                        "grape",
+                        "flamingo",
+                        "banana",
+                        "tangerine",
+                        "peacock",
+                        "graphite",
+                        "blueberry",
+                        "basil",
+                        "tomato",
+                        "default",
+                    ],
+                },
+                "recurrence": {
+                    "type": "array",
+                    "items": {"type": "string", "maxLength": 300},
+                    "maxItems": 5,
+                    "description": "RRULE, EXRULE, RDATE or EXDATE lines.",
+                },
+                "reminder_minutes": {
+                    "type": "array",
+                    "items": {"type": "integer", "minimum": 0, "maximum": 40320},
+                    "maxItems": 5,
+                    "description": "Minutes before the start; replaces the default reminders.",
+                },
+                "visibility": {
+                    "type": "string",
+                    "enum": ["default", "public", "private", "confidential"],
+                },
+                "busy": {"type": "string", "enum": ["busy", "free"]},
+                "add_meet": {
+                    "type": "boolean",
+                    "description": "Attach a new Google Meet link.",
+                },
+                "guests_can_modify": {"type": "boolean"},
+                "guests_can_invite": {"type": "boolean"},
+                "guests_can_see_guests": {"type": "boolean"},
             },
         },
     },
