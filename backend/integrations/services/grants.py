@@ -1,7 +1,7 @@
-"""Per-Ally Gmail grants and account disconnect.
+"""Per-Ally Google grants and account disconnect.
 
-Grants are read live on every Gmail tool call — never cached.
-``check_gmail_grant`` returns the operations the Ally may perform.
+Grants are read live on every tool call — never cached.
+``check_grant`` returns the operations the Ally may perform.
 """
 
 from __future__ import annotations
@@ -17,13 +17,32 @@ from ..exceptions import (
     IntegrationInvalid,
     IntegrationUnavailable,
 )
-from ..models import GRANT_LEVELS, GRANT_READ, GRANT_SEND, AllyIntegrationGrant
+from ..models import (
+    GRANT_READ,
+    GRANT_SEND,
+    GRANT_WRITE,
+    PROVIDER_CALENDAR,
+    PROVIDER_GMAIL,
+    PROVIDER_GRANT_LEVELS,
+    AllyIntegrationGrant,
+)
 from .google_oauth import gmail_enabled
 
 logger = logging.getLogger(__name__)
 
-READ_ALLOWLIST = ("gmail search", "gmail get")
-SEND_ALLOWLIST = (*READ_ALLOWLIST, "gmail send", "gmail reply", "gmail organize")
+_GMAIL_READ = ("gmail search", "gmail get")
+_CALENDAR_READ = ("calendar list", "calendar get")
+ALLOWLISTS = {
+    (PROVIDER_GMAIL, GRANT_READ): _GMAIL_READ,
+    (PROVIDER_GMAIL, GRANT_SEND): (
+        *_GMAIL_READ,
+        "gmail send",
+        "gmail reply",
+        "gmail organize",
+    ),
+    (PROVIDER_CALENDAR, GRANT_READ): _CALENDAR_READ,
+    (PROVIDER_CALENDAR, GRANT_WRITE): (*_CALENDAR_READ, "calendar write"),
+}
 
 
 def _require_enabled() -> None:
@@ -51,12 +70,12 @@ def set_ally_grant(
     *, secret, ally, level: str, created_by=None
 ) -> AllyIntegrationGrant:
     _require_enabled()
-    if level not in GRANT_LEVELS:
+    if level not in PROVIDER_GRANT_LEVELS[secret.provider_key]:
         raise IntegrationInvalid("unknown grant level")
     if str(ally.workspace_id) != str(secret.workspace_id):
         raise IntegrationInvalid("ally is outside the connection workspace")
     if secret.revoked_at is not None:
-        raise IntegrationConflict("gmail connection revoked")
+        raise IntegrationConflict("connection revoked")
     with transaction.atomic():
         locked_secret = secret.__class__.objects.select_for_update().get(pk=secret.pk)
         grant, created = AllyIntegrationGrant.objects.select_for_update().get_or_create(
@@ -97,7 +116,7 @@ def revoke_ally_grant(*, secret, ally) -> int:
     return generation
 
 
-def check_gmail_grant(*, secret, ally) -> GrantDecision:
+def check_grant(*, secret, ally) -> GrantDecision:
     _require_enabled()
     if secret.revoked_at is not None:
         return GrantDecision(
@@ -108,11 +127,8 @@ def check_gmail_grant(*, secret, ally) -> GrantDecision:
         return GrantDecision(
             allowed=False, grant_generation=0, reason_code="grant_missing"
         )
-    if grant.level == GRANT_SEND:
-        allowlist = SEND_ALLOWLIST
-    elif grant.level == GRANT_READ:
-        allowlist = READ_ALLOWLIST
-    else:
+    allowlist = ALLOWLISTS.get((secret.provider_key, grant.level))
+    if allowlist is None:
         return GrantDecision(
             allowed=False,
             grant_generation=grant.grant_generation,
@@ -130,7 +146,7 @@ class DisconnectResult:
     status: str
 
 
-def disconnect_gmail_account(*, secret) -> DisconnectResult:
+def disconnect_account(*, secret) -> DisconnectResult:
     _require_enabled()
     from .google_oauth import revoke_at_google
     from .vault import unseal_refresh_token
@@ -151,7 +167,7 @@ def disconnect_gmail_account(*, secret) -> DisconnectResult:
         locked.ally_grants.all().delete()
     if refresh_token and not revoke_at_google(refresh_token):
         logger.warning(
-            "gmail google-revoke failed",
+            "google revoke failed",
             extra={"secret_id": str(locked.id)},
         )
         return DisconnectResult(status="repair_required")
@@ -160,7 +176,7 @@ def disconnect_gmail_account(*, secret) -> DisconnectResult:
     ).update(ciphertext=b"", scope_set=[])
     if wiped == 0:
         logger.warning(
-            "gmail disconnect wipe skipped",
+            "disconnect wipe skipped",
             extra={"secret_id": str(locked.id)},
         )
         return DisconnectResult(status="repair_required")
