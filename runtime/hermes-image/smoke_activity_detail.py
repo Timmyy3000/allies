@@ -19,6 +19,12 @@ CASES = [
         ("safe_input_request", "wg-gesucht.de"),
     ),
     ("allies_gmail", {"action": "send", "body": "private"}, ("gmail_send", None)),
+    ("allies_calendar", {"action": "list_events"}, ("calendar_read", None)),
+    (
+        "allies_calendar",
+        {"action": "delete_event", "event_id": "e1"},
+        ("calendar_write", None),
+    ),
     ("terminal", {"command": "cat secrets"}, ("terminal", None)),
     ("allies_routines", {"action": "list"}, ("routine_list", None)),
     ("allies_ask_approval", {"action": "Buy it"}, ("approval_request", None)),

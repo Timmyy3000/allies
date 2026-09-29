@@ -106,6 +106,8 @@ ACTIVITY_KINDS = frozenset(
         "gmail_read",
         "gmail_send",
         "gmail_organise",
+        "calendar_read",
+        "calendar_write",
         "safe_input_check",
         "safe_input_request",
         "safe_input_fill",

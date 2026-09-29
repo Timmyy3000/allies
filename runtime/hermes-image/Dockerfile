@@ -178,6 +178,8 @@ COPY plugins/routines/ /opt/hermes/plugins/routines/
 COPY allies_routines.py /opt/hermes/tools/allies_routines.py
 COPY plugins/gmail/ /opt/hermes/plugins/gmail/
 COPY allies_gmail.py /opt/hermes/tools/allies_gmail.py
+COPY plugins/calendar/ /opt/hermes/plugins/calendar/
+COPY allies_calendar.py /opt/hermes/tools/allies_calendar.py
 COPY plugins/safe-inputs/ /opt/hermes/plugins/safe-inputs/
 COPY allies_safe_inputs.py /opt/hermes/tools/allies_safe_inputs.py
 COPY allies_browser_provider.py /opt/hermes/plugins/browser/browser_use/provider.py
