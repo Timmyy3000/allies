@@ -20,7 +20,7 @@ INSTRUCTION = (
     "guests_can_see_guests. Events come back with the same details, including meet_link. "
     "To colour-code, map each kind of event to one colour and apply it with update_event. "
     "Edit one occurrence of a recurring event by its own event_id, or the whole series "
-    "through its recurring_event_id. "
+    "by passing its recurring_event_id as event_id. "
     "Changes that notify other people (an event with attendees, or updating or "
     "deleting an event that has them) return confirmation_required first: show the user "
     "the event and everyone who will be notified, and ask them to confirm. Only after "
