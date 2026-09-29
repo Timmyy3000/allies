@@ -19,7 +19,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import { CURRENT_ACCOUNT_QUERY_KEY, AVATAR_READ_QUERY_KEY } from "../../lib/account/account-query";
+import { AVATAR_READ_QUERY_KEY, CURRENT_ACCOUNT_QUERY_KEY } from "../../lib/account/account-query";
 import { AccountClient } from "./account-client";
 
 const account: AccountViewModel = {
@@ -41,6 +41,16 @@ const avatar: AvatarViewModel = {
   expiresAt: new Date(Date.now() + 60_000).toISOString(),
 };
 
+const sally = { id: "00000000-0000-4000-8000-00000000000a", name: "Sally", job: "Cooking", label: "Food errands", showLabel: true, appearance: { catalogVersion: "v1", key: "boxy:ff5800" } };
+const mo = { id: "00000000-0000-4000-8000-00000000000b", name: "Mo", job: "Money and bills", appearance: { catalogVersion: "v1", key: "rolly:fd304f" } };
+const gmail = {
+  connectionId: "gmc_example",
+  accountEmail: "ada@example.com",
+  scopes: [],
+  connectedAt: "2026-09-20T10:00:00Z",
+  allyGrants: [{ allyId: sally.id, level: "read", grantGeneration: 1, updatedAt: "2026-09-20T10:00:00Z" }],
+};
+
 function operationRunner<T>(operation: (signal?: AbortSignal) => Promise<T>) {
   return operation();
 }
@@ -49,7 +59,11 @@ function setupSession(overrides: Record<string, unknown> = {}) {
   const client = {
     getCurrentAccount: vi.fn(async () => account),
     getAvatarRead: vi.fn(async () => avatar),
-    updateProfile: vi.fn(async (displayName: string) => ({ displayName, avatarUrl: null })),
+    listAllies: vi.fn(async () => [sally, mo]),
+    getGmailConnection: vi.fn(async (): Promise<unknown> => null),
+    setGmailGrant: vi.fn(async (_workspace: string, allyId: string, level: string) => ({ allyId, level, grantGeneration: 2, updatedAt: "2026-09-21T10:00:00Z" })),
+    disconnectGmail: vi.fn(async () => undefined),
+    listSafeInputs: vi.fn(async (): Promise<unknown[]> => []),
     deleteAvatar: vi.fn(async () => undefined),
     getWorkspace: vi.fn(async () => account.workspace),
   };
@@ -85,6 +99,8 @@ beforeEach(() => {
     removeEventListener: vi.fn(),
   }));
   vi.clearAllMocks();
+  window.localStorage.clear();
+  delete document.documentElement.dataset.theme;
   sessionMock.useSession.mockReset();
   avatarUploadMock.uploadAvatar.mockReset();
 });
@@ -118,27 +134,14 @@ describe("AccountClient", () => {
     expect(screen.queryByText("Ada Lovelace")).toBeNull();
     expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
   });
-  it("preserves the raw profile draft after a recoverable failure and updates Query after success", async () => {
-    const { client } = setupSession();
-    client.updateProfile
-      .mockRejectedValueOnce({ kind: "server" })
-      .mockImplementationOnce(async (displayName: string) => ({ displayName, avatarUrl: null }));
-    const { queryClient } = renderAccount();
-    const input = screen.getByRole("textbox", { name: "Display name" }) as HTMLInputElement;
-    fireEvent.change(input, { target: { value: "  Ada   Byron  " } });
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-
-    const error = await screen.findByRole("alert");
-    expect(error.textContent).toContain("couldn't save");
-    expect(input.value).toBe("  Ada   Byron  ");
-
-    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-    await waitFor(() => expect(queryClient.getQueryData<AccountViewModel>(CURRENT_ACCOUNT_QUERY_KEY)?.displayName)
-      .toBe("Ada Byron"));
-    expect(screen.getByText("Saved")).toBeTruthy();
+  it("shows the first name only and no editable name field", () => {
+    setupSession();
+    renderAccount();
+    expect(screen.getByRole("heading", { name: "Ada" })).toBeTruthy();
+    expect(screen.queryByRole("textbox")).toBeNull();
   });
 
-  it("retains the selected file on avatar failure and retries the complete lifecycle explicitly", async () => {
+  it("keeps a failed photo and retries the full upload", async () => {
     const { client } = setupSession();
     const selected = new File(["avatar"], "profile.png", { type: "image/png" });
     avatarUploadMock.uploadAvatar
@@ -147,16 +150,14 @@ describe("AccountClient", () => {
     const { queryClient } = renderAccount({ ...account, avatarUrl: "https://media.example/old" });
     queryClient.setQueryData(AVATAR_READ_QUERY_KEY, avatar);
 
-    const input = screen.getByLabelText("Choose a profile avatar") as HTMLInputElement;
-    fireEvent.change(input, { target: { files: [selected] } });
-    fireEvent.click(screen.getByRole("button", { name: "Upload avatar" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change profile photo" }));
+    fireEvent.change(screen.getByLabelText("Choose a profile photo"), { target: { files: [selected] } });
 
-    expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(input.files?.[0]?.name).toBe("profile.png");
-
-    fireEvent.click(screen.getByRole("button", { name: "Retry avatar upload" }));
+    expect((await screen.findByRole("alert")).textContent).toContain("couldn't save that photo");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     await waitFor(() => expect(avatarUploadMock.uploadAvatar).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText("Avatar saved")).toBeTruthy();
+    expect(avatarUploadMock.uploadAvatar.mock.calls[1]?.[0]).toBe(selected);
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
     expect(client.getWorkspace).not.toHaveBeenCalled();
   });
 
@@ -176,23 +177,73 @@ describe("AccountClient", () => {
     } else {
       client.getAvatarRead.mockResolvedValue(refreshedAvatar);
     }
-    avatarUploadMock.uploadAvatar.mockResolvedValue({
-      assetId: "avt_example",
-      url: null,
-      expiresAt: null,
-    });
-    const { queryClient } = renderAccount({ ...account, avatarUrl: previousUrl });
+    avatarUploadMock.uploadAvatar.mockResolvedValue({ assetId: "avt_example", url: null, expiresAt: null });
+    const { queryClient, container } = renderAccount({ ...account, avatarUrl: previousUrl });
     if (previousUrl) queryClient.setQueryData(AVATAR_READ_QUERY_KEY, { ...avatar, url: previousUrl });
-
     if (previousUrl) await waitFor(() => expect(client.getAvatarRead).toHaveBeenCalledOnce());
 
-    fireEvent.change(screen.getByLabelText("Choose a profile avatar"), { target: { files: [selected] } });
-    fireEvent.click(screen.getByRole("button", { name: "Upload avatar" }));
+    fireEvent.click(screen.getByRole("button", { name: /profile photo/ }));
+    fireEvent.change(screen.getByLabelText("Choose a profile photo"), { target: { files: [selected] } });
 
     await waitFor(() => expect(queryClient.getQueryData<AvatarViewModel>(AVATAR_READ_QUERY_KEY)?.url)
       .toBe(refreshedAvatar.url));
-    expect(screen.getByAltText("Profile avatar").getAttribute("src")).toBe(refreshedAvatar.url);
-    expect(screen.getByText("Avatar saved")).toBeTruthy();
+    await waitFor(() => expect(container.querySelector("main img[src]")?.getAttribute("src")).toBe(refreshedAvatar.url));
+  });
+
+  it("lists Gmail with the Allies that use it and toggles access per Ally", async () => {
+    const { client } = setupSession();
+    client.getGmailConnection.mockResolvedValue(gmail);
+    renderAccount();
+
+    const row = await screen.findByRole("button", { name: /Gmail/ });
+    expect(screen.getByRole("img", { name: "Used by Sally" })).toBeTruthy();
+    fireEvent.click(row);
+
+    expect(screen.getByText("Food errands")).toBeTruthy();
+    expect(screen.getByText("Money and bills")).toBeTruthy();
+    fireEvent.click(screen.getByRole("switch", { name: "Mo can use Gmail" }));
+    await waitFor(() => expect(client.setGmailGrant).toHaveBeenCalledWith("wsp_example", mo.id, "read", undefined));
+    await waitFor(() => expect((screen.getByRole("switch", { name: "Mo can use Gmail" }) as HTMLInputElement).checked).toBe(true));
+  });
+
+  it("names the Allies losing access before disconnecting Gmail", async () => {
+    const { client } = setupSession();
+    client.getGmailConnection.mockResolvedValue(gmail);
+    renderAccount();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Gmail/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Gmail" }));
+    expect(screen.getByText("Sally will stop using it straight away.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() => expect(client.disconnectGmail).toHaveBeenCalledOnce());
+    expect(await screen.findByRole("button", { name: "Connect" })).toBeTruthy();
+  });
+
+  it("lists saved Safe inputs and hides the section when there are none", async () => {
+    const first = setupSession();
+    first.client.listSafeInputs.mockResolvedValue([{ id: "si_1", name: "Netflix", website: "netflix.com", allyIds: [mo.id], updatedAt: "2026-09-20T10:00:00Z" }]);
+    renderAccount();
+    expect(await screen.findByText("netflix.com")).toBeTruthy();
+    expect(screen.getByText("1 saved")).toBeTruthy();
+    expect(await screen.findByRole("img", { name: "Used by Mo" })).toBeTruthy();
+    cleanup();
+
+    setupSession();
+    renderAccount();
+    await waitFor(() => expect(screen.queryByRole("heading", { name: "Safe inputs" })).toBeNull());
+  });
+
+  it("saves the picked theme and applies it", () => {
+    setupSession();
+    renderAccount();
+
+    fireEvent.click(screen.getByRole("button", { name: /Appearance/ }));
+    fireEvent.click(screen.getByRole("radio", { name: "Dark" }));
+
+    expect(window.localStorage.getItem("allies.theme")).toBe("dark");
+    expect(document.documentElement.dataset.theme).toBe("dark");
+    expect(screen.getByRole("button", { name: /Appearance/ }).textContent).toContain("Dark");
   });
 
   it("preserves unconfirmed server logout on the landing page", async () => {

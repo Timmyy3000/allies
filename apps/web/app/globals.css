@@ -47,25 +47,33 @@
   --font-sans: var(--font-open-runde);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-    --canvas: #111111;
-    --panel: #161616;
-    --surface: #222222;
-    --surface-secondary: #262626;
-    --text-primary: #ededed;
-    --text-secondary: #999999;
-    --text-muted: #858585;
-    --divider: #252525;
-    --control-disabled: #333333;
-    --canvas-rgb: 17 17 17;
-    --app-color-scheme: dark;
-    --mono-icon-filter: invert(1);
-    --sleeping-shell-brightness: 0.62;
-    --story-blue: #8995ff;
-  }
+:root[data-theme="dark"] {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+  --canvas: #111111;
+  --panel: #161616;
+  --surface: #222222;
+  --surface-secondary: #262626;
+  --text-primary: #ededed;
+  --text-secondary: #999999;
+  --text-muted: #858585;
+  --divider: #252525;
+  --control-disabled: #333333;
+  --canvas-rgb: 17 17 17;
+  --app-color-scheme: dark;
+  --mono-icon-filter: invert(1);
+  --sleeping-shell-brightness: 0.62;
+  --story-blue: #8995ff;
+}
+
+:root {
+  color-scheme: var(--app-color-scheme);
+}
+
+:root[data-theme-transition]::view-transition-old(root),
+:root[data-theme-transition]::view-transition-new(root) {
+  animation: none;
+  mix-blend-mode: normal;
 }
 
 body {
@@ -1711,10 +1719,8 @@ textarea::placeholder {
   --canvas: var(--panel);
 }
 
-@media (prefers-color-scheme: dark) {
-  .onboarding-drawer-backdrop {
-    background: rgb(0 0 0 / 64%);
-  }
+:root[data-theme="dark"] .onboarding-drawer-backdrop {
+  background: rgb(0 0 0 / 64%);
 }
 
 .onboarding-drawer-content {

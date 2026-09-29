@@ -2,10 +2,10 @@
 
 import type { AllyViewModel, SafeInput } from "@allies/cloud-client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
 
 import { AllyAvatar } from "../../components/ally-avatar";
-import { resolveAllyAppearance } from "../../lib/allies/appearance";
+import { allySubtitle, resolveAllyAppearance } from "../../lib/allies/appearance";
 import { alliesQueryOptions } from "../../lib/allies/queries";
 import { useSession } from "../../lib/session/session-context";
 
@@ -17,7 +17,7 @@ export function safeInputsQueryKey(workspaceId: string) {
 
 type Signal = AbortSignal | undefined;
 
-function useSafeInputs(workspaceId: string) {
+export function useSafeInputs(workspaceId: string) {
   const session = useSession();
   return useQuery({
     queryKey: safeInputsQueryKey(workspaceId),
@@ -107,7 +107,7 @@ export function AllySafeInputs({ workspaceId, ally }: { workspaceId: string; all
 }
 
 /** Safe input detail (DSN-011 17–19): Ally access, update login, delete. */
-function SafeInputDetail({ workspaceId, item, onClose }: { workspaceId: string; item: SafeInput; onClose: () => void }) {
+export function SafeInputDetail({ workspaceId, item, onClose }: { workspaceId: string; item: SafeInput; onClose: () => void }) {
   const session = useSession();
   const queryClient = useQueryClient();
   const allies = useQuery(alliesQueryOptions(session.client, session.runCloudOperation, workspaceId)).data ?? [];
@@ -167,11 +167,12 @@ function SafeInputDetail({ workspaceId, item, onClose }: { workspaceId: string; 
                 return (
                   <label key={ally.id} className={styles.accessRow}>
                     {appearance ? <AllyAvatar shape={appearance.shape} color={appearance.color} size={40} label="" /> : null}
-                    <span className={styles.accessCopy}><strong>{ally.name}</strong><small>{ally.job}</small></span>
+                    <span className={styles.accessCopy}><strong>{ally.name}</strong><small>{allySubtitle(ally)}</small></span>
                     <input
                       type="checkbox"
                       role="switch"
                       className={styles.accessSwitch}
+                      style={appearance ? { "--access-accent": appearance.color } as CSSProperties : undefined}
                       aria-label={`${ally.name} can use ${item.name}`}
                       checked={item.allyIds.includes(ally.id)}
                       disabled={busy}
@@ -231,7 +232,7 @@ export function SafeInputFields({ name, website }: { name?: string; website: str
   );
 }
 
-function SiteMark({ name, large = false }: { name: string; large?: boolean }) {
+export function SiteMark({ name, large = false }: { name: string; large?: boolean }) {
   return (
     <span className={large ? styles.siteTileLarge : styles.siteTile} aria-hidden="true">
       <span className={styles.siteMark}>{name.charAt(0).toLowerCase()}</span>
