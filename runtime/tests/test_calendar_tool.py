@@ -102,3 +102,29 @@ def test_unavailable_without_turn_context(monkeypatch):
         calendar, "build_opener", lambda *a: pytest.fail("no context must not call out")
     )
     assert "unavailable" in calendar.handle_calendar({"action": "list_events"})
+
+
+def test_schema_offers_every_event_detail_cloud_accepts():
+    properties = calendar.SCHEMA["function"]["parameters"]["properties"]
+    assert {
+        "color",
+        "recurrence",
+        "reminder_minutes",
+        "visibility",
+        "busy",
+        "add_meet",
+        "guests_can_modify",
+        "guests_can_invite",
+        "guests_can_see_guests",
+    } <= set(properties)
+    assert "graphite" in properties["color"]["enum"]
+    assert "default" in properties["color"]["enum"]
+    assert "color" in calendar.INSTRUCTION and "meet_link" in calendar.INSTRUCTION
+
+
+def test_series_edits_use_event_id_not_a_field_the_schema_lacks():
+    assert (
+        "recurring_event_id"
+        not in calendar.SCHEMA["function"]["parameters"]["properties"]
+    )
+    assert "recurring_event_id as event_id" in calendar.INSTRUCTION
