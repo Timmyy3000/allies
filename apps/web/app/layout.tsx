@@ -5,6 +5,7 @@ import "generative-loaders/styles.css";
 import "streamdown/styles.css";
 import "./globals.css";
 import AppProviders from "./providers";
+import { THEME_INIT_SCRIPT } from "../lib/theme/theme";
 
 const openRunde = localFont({
   src: [
@@ -107,7 +108,11 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${openRunde.variable} ${inter.variable} ${openRunde.className} h-full antialiased`}
+      suppressHydrationWarning
     >
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-full flex flex-col">
         <AppProviders>{children}</AppProviders>
       </body>

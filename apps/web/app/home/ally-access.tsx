@@ -139,7 +139,7 @@ export function AllyAccess({ workspaceId, allyId, returned = null }: { workspace
   );
 }
 
-function GmailLogo() {
+export function GmailLogo() {
   return (
     <svg className={styles.accessLogo} aria-hidden="true" viewBox="0 0 48 48">
       <path fill="#4caf50" d="M45 16.2l-5 2.75-5 4.75V40h7a3 3 0 0 0 3-3V16.2z" />

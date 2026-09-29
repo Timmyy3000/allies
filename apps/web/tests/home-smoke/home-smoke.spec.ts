@@ -609,7 +609,7 @@ test("beta settings navigation and roster controls", async ({ page }, testInfo) 
   await expect(page).toHaveURL(new RegExp(`/home/${allyId}$`));
   await page.goto("/account");
   await expect(page.getByRole("heading", { name: "Settings", exact: true })).toBeVisible();
-  await expect(page.getByLabel("Display name", { exact: true })).toHaveValue("Smoke User");
+  await expect(page.getByRole("heading", { name: "Smoke", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await page.screenshot({ path: testInfo.outputPath("account-settings-dark.png"), fullPage: true });
   await page.emulateMedia({ colorScheme: "light" });

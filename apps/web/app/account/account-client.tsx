@@ -1,25 +1,15 @@
 "use client";
 
 import Link from "next/link";
-import { AlliesLoading } from "@/components/allies-loading";
-import { BackButton } from "@/components/back-button";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
-import {
-  useEffect,
-  useRef,
-  useState,
-  type ChangeEvent,
-  type FormEvent,
-} from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type MouseEvent } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { motion, useReducedMotion } from "motion/react";
 
-import {
-  isCloudError,
-  type AccountViewModel,
-} from "@allies/cloud-client";
+import { isCloudError, type AccountViewModel } from "@allies/cloud-client";
 
+import { AlliesLoading } from "@/components/allies-loading";
+import { BackButton } from "@/components/back-button";
 import {
   AVATAR_READ_QUERY_KEY,
   CURRENT_ACCOUNT_QUERY_KEY,
@@ -27,80 +17,71 @@ import {
   currentAccountQueryOptions,
 } from "../../lib/account/account-query";
 import { uploadAvatar } from "../../lib/account/avatar-upload";
-import { profileFormSchema } from "../../lib/account/profile-schema";
+import { alliesQueryOptions } from "../../lib/allies/queries";
 import { isStandalonePwa } from "../../lib/pwa/pwa-install";
 import { useSession } from "../../lib/session/session-context";
+import { readThemePreference, subscribeThemePreference, switchTheme, type ThemePreference } from "../../lib/theme/theme";
+import sheet from "../home/ally-settings-dialog.module.css";
 
+import { AccountConnections } from "./account-connections";
+import { Chevron, SettingsSection, SheetLayer } from "./account-parts";
+import { AccountSafeInputs } from "./account-safe-inputs";
+import { AppearanceSheet, THEME_LABELS } from "./appearance-sheet";
 import styles from "./account.module.css";
 
-type AvatarState = "idle" | "uploading" | "deleting" | "success" | "error";
+type AvatarState = "idle" | "uploading" | "deleting" | "error";
+const AVATAR_TYPES = "image/jpeg,image/png,image/webp";
 
 function safeErrorMessage(error: unknown, fallback: string): string {
   if (!isCloudError(error)) return fallback;
-
   if (error.kind === "unauthorized") return "Your session has ended. Sign in again to continue.";
-  if (error.kind === "network" || error.kind === "server" || error.kind === "timeout") {
-    return fallback;
-  }
   if (error.kind === "security") return "We couldn't complete that securely. Try again.";
   if (error.kind === "forbidden") return "You don't have permission to change this yet.";
-  if (error.kind === "validation" || error.code === "avatar_invalid") return "Check the details and try again.";
+  if (error.kind === "validation" || error.code === "avatar_invalid") return "Use a JPEG, PNG or WebP under 5 MB.";
   return fallback;
 }
 
-function initials(displayName: string): string {
-  const parts = displayName.trim().split(/\s+/u).filter(Boolean);
-  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? "").join("") || "A";
-}
-
-function AccountShell({ children }: { children: React.ReactNode }) {
-  return <main className={styles.page}><div className={styles.shell}>{children}</div></main>;
+export function firstName(displayName: string): string {
+  return displayName.trim().split(/\s+/u)[0] || "You";
 }
 
 function Brand() {
   return <Link className={styles.brand} href="/" aria-label="Allies home"><Image src="/allies-icon.svg" alt="" width={28} height={28} /> allies</Link>;
 }
 
-function PendingAccount() {
-  return <AlliesLoading label="Restoring your account" />;
-}
-
 function UnavailableAccount({ onRetry }: { onRetry: () => void }) {
   return (
-    <AccountShell>
-      <div className={styles.centerState}>
-        <Brand />
-        <p className={styles.eyebrow}>A small pause</p>
-        <h1>We couldn’t load your account</h1>
-        <p className={styles.copy} role="alert">Allies is having trouble reaching your account right now.</p>
-        <div className={styles.stateActions}>
-          <button type="button" className={styles.primaryAction} onClick={onRetry}>Try again</button>
-          <Link className={styles.secondaryAction} href="/">Back to Allies</Link>
+    <main className={styles.page}>
+      <div className={styles.shell}>
+        <div className={styles.centerState}>
+          <Brand />
+          <h1>We couldn’t load your account</h1>
+          <p className={styles.copy} role="alert">Allies is having trouble reaching your account right now.</p>
+          <div className={styles.stateActions}>
+            <button type="button" className={styles.pillPrimary} onClick={onRetry}>Try again</button>
+            <Link className={styles.pillAction} href="/">Back to Allies</Link>
+          </div>
         </div>
       </div>
-    </AccountShell>
+    </main>
   );
 }
 
 export function AccountClient() {
-  const reducedMotion = useReducedMotion();
   const session = useSession();
   const router = useRouter();
   const { restore } = session;
   const queryClient = useQueryClient();
   const restoreStarted = useRef(false);
   const uploadController = useRef<AbortController | null>(null);
-  const fileInput = useRef<HTMLInputElement>(null);
-  const displayNameInput = useRef<HTMLInputElement>(null);
-  const [profilePending, setProfilePending] = useState(false);
-  const [profileMessage, setProfileMessage] = useState<string | null>(null);
-  const [profileError, setProfileError] = useState<string | null>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const appearanceRow = useRef<HTMLButtonElement>(null);
+  const storedTheme = useSyncExternalStore(subscribeThemePreference, readThemePreference, () => "system" as const);
+  const [pickedTheme, setPickedTheme] = useState<ThemePreference | null>(null);
+  const [sheetOpen, setSheetOpen] = useState<"photo" | "appearance" | null>(null);
   const [avatarState, setAvatarState] = useState<AvatarState>("idle");
-  const [avatarMessage, setAvatarMessage] = useState<string | null>(null);
   const [avatarError, setAvatarError] = useState<string | null>(null);
+  const [failedFile, setFailedFile] = useState<File | null>(null);
   const [logoutPending, setLogoutPending] = useState(false);
-  const [logoutMessage, setLogoutMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (restoreStarted.current) return;
@@ -114,77 +95,43 @@ export function AccountClient() {
 
   useEffect(() => () => uploadController.current?.abort(), []);
 
+  const signedIn = session.state.status === "signed-in";
   const accountQuery = useQuery({
     ...currentAccountQueryOptions(session.client, session.runCloudOperation),
-    enabled: session.state.status === "signed-in",
+    enabled: signedIn,
     staleTime: Number.POSITIVE_INFINITY,
   });
   const account = accountQuery.data;
   const avatarQuery = useQuery({
     ...avatarReadQueryOptions(session.client, session.runCloudOperation),
-    enabled: session.state.status === "signed-in" && Boolean(account?.avatarUrl),
+    enabled: signedIn && Boolean(account?.avatarUrl),
+  });
+  const alliesQuery = useQuery({
+    ...alliesQueryOptions(session.client, session.runCloudOperation, account?.workspace.id ?? ""),
+    enabled: signedIn && Boolean(account),
   });
 
-  if (session.state.status === "unknown" || session.state.status === "restoring") return <PendingAccount />;
+  if (session.state.status === "unknown" || session.state.status === "restoring") return <AlliesLoading label="Restoring your account" />;
   if (session.state.status === "signed-out") return null;
   if (session.state.status === "unavailable") return <UnavailableAccount onRetry={() => void restore()} />;
-  if (accountQuery.isError) {
-    return <UnavailableAccount onRetry={() => void accountQuery.refetch()} />;
-  }
-  if (!account || accountQuery.isPending) return <PendingAccount />;
+  if (accountQuery.isError) return <UnavailableAccount onRetry={() => void accountQuery.refetch()} />;
+  if (!account || accountQuery.isPending) return <AlliesLoading label="Restoring your account" />;
 
+  const workspaceId = account.workspace.id;
+  const allies = alliesQuery.data ?? [];
   const avatarUrl = avatarQuery.data?.url ?? account.avatarUrl;
   const avatarBusy = avatarState === "uploading" || avatarState === "deleting";
+  const theme = pickedTheme ?? storedTheme;
+  const name = firstName(account.displayName);
 
-  const submitProfile = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    if (profilePending) return;
-    setProfileMessage(null);
-    setProfileError(null);
-    const parsed = profileFormSchema.safeParse({ displayName: displayNameInput.current?.value ?? "" });
-    if (!parsed.success) {
-      setProfileError(parsed.error.issues[0]?.message ?? "Enter a valid display name.");
-      return;
-    }
-
-    setProfilePending(true);
-    try {
-      const profile = await session.runCloudOperation(
-        (signal) => session.client.updateProfile(parsed.data.displayName, signal),
-        { csrf: true },
-      );
-      queryClient.setQueryData<AccountViewModel>(CURRENT_ACCOUNT_QUERY_KEY, (current) => current ? {
-        ...current,
-        displayName: profile.displayName,
-        avatarUrl: profile.avatarUrl ?? current.avatarUrl,
-      } : current);
-      if (displayNameInput.current) displayNameInput.current.value = profile.displayName;
-      setProfileMessage("Saved");
-    } catch (error) {
-      setProfileError(safeErrorMessage(error, "We couldn't save your name. Try again."));
-    } finally {
-      setProfilePending(false);
-    }
-  };
-
-  const selectFile = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
-    if (!file) return;
-    setSelectedFile(file);
-    setAvatarState("idle");
-    setAvatarMessage(null);
-    setAvatarError(null);
-  };
-
-  const uploadSelectedAvatar = async () => {
-    if (!selectedFile || avatarBusy) return;
+  const saveAvatar = async (file: File) => {
+    if (avatarBusy) return;
     const controller = new AbortController();
     uploadController.current = controller;
     setAvatarState("uploading");
-    setAvatarMessage(null);
     setAvatarError(null);
     try {
-      const completed = await uploadAvatar(selectedFile, {
+      const completed = await uploadAvatar(file, {
         client: session.client,
         runCloudOperation: session.runCloudOperation,
         signal: controller.signal,
@@ -192,45 +139,51 @@ export function AccountClient() {
       if (completed.url) queryClient.setQueryData(AVATAR_READ_QUERY_KEY, completed);
       await queryClient.invalidateQueries({ queryKey: CURRENT_ACCOUNT_QUERY_KEY });
       await queryClient.invalidateQueries({ queryKey: AVATAR_READ_QUERY_KEY });
-      setSelectedFile(null);
-      if (fileInput.current) fileInput.current.value = "";
-      setAvatarState("success");
-      setAvatarMessage("Avatar saved");
+      setFailedFile(null);
+      setAvatarState("idle");
     } catch (error) {
+      setFailedFile(file);
       setAvatarState("error");
-      setAvatarError(safeErrorMessage(error, "We couldn't save that avatar. Try again."));
+      setAvatarError(safeErrorMessage(error, "We couldn't save that photo. Try again."));
     } finally {
       if (uploadController.current === controller) uploadController.current = null;
     }
   };
 
-  const deleteCurrentAvatar = async () => {
+  const pickFile = (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    setSheetOpen(null);
+    if (file) void saveAvatar(file);
+  };
+
+  const removeAvatar = async () => {
+    setSheetOpen(null);
     if (!avatarUrl || avatarBusy) return;
     setAvatarState("deleting");
-    setAvatarMessage(null);
     setAvatarError(null);
     try {
-      await session.runCloudOperation(
-        (signal) => session.client.deleteAvatar(signal),
-        { csrf: true },
-      );
-      queryClient.setQueryData<AccountViewModel>(CURRENT_ACCOUNT_QUERY_KEY, (current) => current ? {
-        ...current,
-        avatarUrl: null,
-      } : current);
+      await session.runCloudOperation((signal) => session.client.deleteAvatar(signal), { csrf: true });
+      queryClient.setQueryData<AccountViewModel>(CURRENT_ACCOUNT_QUERY_KEY, (current) => current && { ...current, avatarUrl: null });
       queryClient.removeQueries({ queryKey: AVATAR_READ_QUERY_KEY });
-      setAvatarState("success");
-      setAvatarMessage("Avatar removed");
+      setAvatarState("idle");
     } catch (error) {
       setAvatarState("error");
-      setAvatarError(safeErrorMessage(error, "We couldn't remove that avatar. Try again."));
+      setAvatarError(safeErrorMessage(error, "We couldn't remove your photo. Try again."));
     }
   };
 
-  const logout = async () => {
+  const pickTheme = (preference: ThemePreference) => {
+    setSheetOpen(null);
+    setPickedTheme(preference);
+    const rect = appearanceRow.current?.getBoundingClientRect();
+    switchTheme(preference, rect ? { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 } : undefined);
+  };
+
+  const logout = async (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
     if (logoutPending) return;
     setLogoutPending(true);
-    setLogoutMessage(null);
     const destination = isStandalonePwa() ? "/app" : "/";
     try {
       const result = await session.logout();
@@ -241,105 +194,101 @@ export function AccountClient() {
   };
 
   return (
-    <AccountShell>
-      <header className={styles.header}>
-        <BackButton onClick={() => router.push("/home")} />
-        <h1>Settings</h1>
-      </header>
+    <main className={styles.page}>
+      <div className={styles.shell}>
+        <header className={styles.header}>
+          <BackButton onClick={() => router.push("/home")} />
+          <h1>Settings</h1>
+          <span aria-hidden="true" />
+        </header>
 
-      <div className={styles.grid}>
-        <section className={styles.card} aria-labelledby="avatar-title">
-          <div className={styles.sectionHeading}>
-            <div>
-              <h2 id="avatar-title">Your photo</h2>
-              <p className={styles.sectionCopy}>A familiar face in your space.</p>
-            </div>
-          </div>
-          <div className={styles.editor}>
-          <div className={styles.avatarRow}>
-            <div className={styles.avatarMedium}>
-              {avatarUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={avatarUrl} alt="Profile avatar" />
-              ) : <span aria-hidden="true">{initials(account.displayName)}</span>}
-            </div>
-            <div className={styles.avatarCopy}>
-              <p className={styles.profileName}>{account.displayName}</p>
-              <p>JPEG, PNG, or WebP · up to 5 MB</p>
-              {avatarQuery.isError ? (
-                <button type="button" className={styles.inlineAction} onClick={() => void avatarQuery.refetch()}>Retry avatar read</button>
-              ) : null}
-            </div>
-          </div>
-          <label className={styles.filePicker} htmlFor="avatar-file">
-            <span>{avatarUrl ? "Change photo" : "Add a photo"}</span>
-            <input
-              ref={fileInput}
-              id="avatar-file"
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              aria-label="Choose a profile avatar"
-              onChange={selectFile}
-              disabled={avatarBusy}
-            />
-          </label>
-          {selectedFile ? <p className={styles.selectedFile}>Ready to upload: {selectedFile.name}</p> : null}
-          {selectedFile ? (
-            <button type="button" className={styles.primaryAction} onClick={() => void uploadSelectedAvatar()} disabled={avatarBusy}>
-              {avatarState === "error" ? "Retry avatar upload" : avatarBusy ? "Uploading…" : "Upload avatar"}
-            </button>
+        <section className={styles.profile} aria-label="Profile">
+          <button
+            type="button"
+            className={styles.avatar}
+            onClick={() => setSheetOpen("photo")}
+            disabled={avatarBusy}
+            aria-label={avatarUrl ? "Change profile photo" : "Add a profile photo"}
+            aria-busy={avatarBusy}
+          >
+            {avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={avatarUrl} alt="" />
+            ) : <span aria-hidden="true">{(Array.from(name)[0] ?? "").toUpperCase()}</span>}
+            <span className={styles.avatarBadge} aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="16" height="16"><path d="M4 8h3l2-3h6l2 3h3v11H4z" fill="none" stroke="currentColor" strokeWidth="2" strokeLinejoin="round" /><circle cx="12" cy="13" r="3.5" fill="none" stroke="currentColor" strokeWidth="2" /></svg>
+            </span>
+          </button>
+          <h2 className={styles.profileName}>{name}</h2>
+          <p className={styles.formStatus} aria-live="polite">
+            {avatarState === "uploading" ? "Saving your photo…" : avatarState === "deleting" ? "Removing your photo…" : null}
+          </p>
+          {avatarError ? (
+            <p className={styles.inlineError} role="alert">
+              {avatarError}{" "}
+              {failedFile ? <button type="button" className={styles.textAction} onClick={() => void saveAvatar(failedFile)}>Try again</button> : null}
+            </p>
           ) : null}
-          {avatarUrl ? (
-            <button type="button" className={styles.dangerAction} onClick={() => void deleteCurrentAvatar()} disabled={avatarBusy}>
-              {avatarState === "deleting" ? "Removing…" : "Remove avatar"}
-            </button>
+          {avatarQuery.isError ? (
+            <button type="button" className={styles.textAction} onClick={() => void avatarQuery.refetch()}>Reload photo</button>
           ) : null}
-          <p className={styles.formStatus} aria-live="polite">{avatarMessage}</p>
-          {avatarError ? <p className={styles.formError} role="alert">{avatarError}</p> : null}
-          </div>
         </section>
 
-        <section className={styles.card} aria-labelledby="profile-title">
-          <div className={styles.sectionHeading}>
-            <div>
-              <h2 id="profile-title">Your name</h2>
-              <p className={styles.sectionCopy}>What your Allies call you.</p>
-            </div>
-          </div>
-          <form className={styles.editor} onSubmit={(event) => void submitProfile(event)}>
-            <label className={styles.fieldLabel} htmlFor="display-name">Display name</label>
-            <input
-              id="display-name"
-              name="displayName"
-              className={styles.textInput}
-              ref={displayNameInput}
-              defaultValue={account.displayName}
-              onChange={() => {
-                setProfileMessage(null);
-                setProfileError(null);
-              }}
-              autoComplete="name"
-              maxLength={80}
-              required
-              aria-invalid={Boolean(profileError)}
-              aria-describedby={profileError ? "profile-error" : "profile-status"}
-            />
-            <button type="submit" className={styles.primaryAction} disabled={profilePending}>
-              <motion.span key={profilePending ? "saving" : profileMessage ? "saved" : "save"} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: reducedMotion ? 0 : .12 }}>{profilePending ? "Saving…" : profileMessage ? "Saved ✓" : "Save changes"}</motion.span>
+        <SettingsSection title="Preferences">
+          <div className={styles.group}>
+            <button ref={appearanceRow} type="button" className={styles.row} onClick={() => setSheetOpen("appearance")}>
+              <span className={styles.rowCopy}><strong>Appearance</strong></span>
+              <span className={styles.rowValue}>{THEME_LABELS[theme]}</span>
+              <Chevron />
             </button>
-            <p id="profile-status" className={styles.formStatus} aria-live="polite">{profileMessage}</p>
-            {profileError ? <p id="profile-error" className={styles.formError} role="alert">{profileError}</p> : null}
-          </form>
-        </section>
+          </div>
+        </SettingsSection>
+
+        <AccountConnections workspaceId={workspaceId} allies={allies} />
+        <AccountSafeInputs workspaceId={workspaceId} allies={allies} />
+
+        <SettingsSection title="Privacy and sessions">
+          <div className={styles.group}>
+            <Link className={styles.row} href="/privacy">
+              <span className={styles.rowCopy}><strong>Privacy policy</strong></span>
+              <Chevron />
+            </Link>
+          </div>
+          <button type="button" className={styles.greyPill} onClick={(event) => void logout(event)} disabled={logoutPending}>
+            {logoutPending ? "Signing out…" : "Sign out"}
+          </button>
+        </SettingsSection>
       </div>
 
-      <section className={styles.sessionRow} aria-label="Session">
-        <button type="button" className={styles.logoutButton} onClick={() => void logout()} disabled={logoutPending}>
-          {logoutPending ? "Signing out…" : "Sign out"}
-        </button>
-      </section>
+      {sheetOpen === "photo" ? (
+        <SheetLayer onDismiss={() => setSheetOpen(null)}>
+          <section className={sheet.subsheet} role="dialog" aria-modal="true" aria-labelledby="photo-title">
+            <div className={sheet.subsheetHead}>
+              <h3 id="photo-title">Profile photo</h3>
+              <button type="button" className={sheet.subsheetClose} aria-label="Close" onClick={() => setSheetOpen(null)}>×</button>
+            </div>
+            <div className={styles.group}>
+              <label className={`${styles.row} ${styles.touchOnly}`}>
+                <span className={styles.rowCopy}><strong>Take photo</strong></span>
+                <input className={styles.hiddenInput} type="file" accept={AVATAR_TYPES} capture="user" onChange={pickFile} />
+              </label>
+              <label className={styles.row}>
+                <span className={styles.rowCopy}><strong>Choose from library</strong></span>
+                <input className={styles.hiddenInput} type="file" accept={AVATAR_TYPES} aria-label="Choose a profile photo" onChange={pickFile} />
+              </label>
+              {avatarUrl ? (
+                <button type="button" className={styles.row} onClick={() => void removeAvatar()}>
+                  <span className={`${styles.rowCopy} ${styles.danger}`}><strong>Remove photo</strong></span>
+                </button>
+              ) : null}
+            </div>
+          </section>
+        </SheetLayer>
+      ) : null}
 
-      {logoutMessage ? <p className={styles.logoutMessage} role="alert">{logoutMessage}</p> : null}
-    </AccountShell>
+      {sheetOpen === "appearance" ? (
+        <AppearanceSheet value={theme} onPick={pickTheme} onClose={() => setSheetOpen(null)} />
+      ) : null}
+    </main>
   );
 }

@@ -44,6 +44,28 @@ describe("gmail integration client", () => {
       .resolves.toMatchObject({ authUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=abc" });
   });
 
+  it("starts an account-level connect from settings without an Ally", async () => {
+    const { client } = clientFor(async (request) => {
+      expect(await request.json()).toEqual({ entry_point: "integrations", return_to: "/account" });
+      return Response.json({ status: "success", message: "ok", data: {
+        connect_session_id: "00000000-0000-4000-8000-000000000004",
+        auth_url: "https://accounts.google.com/o/oauth2/v2/auth?state=abc",
+        expires_at: "2026-09-20T10:10:00Z",
+      } }, { status: 202 });
+    });
+    await expect(client.beginGmailConnect(workspaceId, { grantLevel: "read", returnTo: "/account" }, key))
+      .resolves.toMatchObject({ connectSessionId: "00000000-0000-4000-8000-000000000004" });
+  });
+
+  it("disconnects Gmail for the workspace", async () => {
+    const { client, fetch } = clientFor(() => Response.json({ status: "success", message: "ok", data: { status: "disconnecting" } }, { status: 202 }));
+    await expect(client.disconnectGmail(workspaceId)).resolves.toBeUndefined();
+    const request = fetch.mock.calls[0]?.[0] as Request;
+    expect(request.method).toBe("DELETE");
+    expect(await request.json()).toEqual({ confirm: true });
+    expect(new URL(request.url).pathname).toBe(`/api/v1/workspaces/${workspaceId}/integrations/gmail`);
+  });
+
   it("refuses to hand back a consent url that is not Google's", async () => {
     const { client } = clientFor(() => Response.json({ status: "success", message: "ok", data: {
       connect_session_id: "00000000-0000-4000-8000-000000000004",

@@ -1527,14 +1527,12 @@
 @keyframes frame-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
 .frameNativeSheet:not([open]) { display: none; }
 
-@media (prefers-color-scheme: dark) {
-  .frameShell { --chat-activity-accent: var(--chat-accent); }
-  .frameOverlay {
-    background: rgb(0 0 0 / 64%);
-  }
-  .frameNativeSheet { background: transparent; }
-  .frameNativeSheet::backdrop { background: rgb(0 0 0 / 64%); }
+:global(:root[data-theme="dark"]) .frameShell { --chat-activity-accent: var(--chat-accent); }
+:global(:root[data-theme="dark"]) .frameOverlay {
+  background: rgb(0 0 0 / 64%);
 }
+:global(:root[data-theme="dark"]) .frameNativeSheet { background: transparent; }
+:global(:root[data-theme="dark"]) .frameNativeSheet::backdrop { background: rgb(0 0 0 / 64%); }
 
 .approvalModal .frameSheet {
   max-height: calc(100dvh - 24px);
@@ -2085,7 +2083,6 @@
   font-size: 14px;
   line-height: 20px;
 }
-
 
 .frameRoutineRunLink {
   display: flex;
@@ -2728,7 +2725,6 @@
 
 .frameRoutineRunStatus[data-outcome="success"] { color: #24734a; }
 .frameRoutineRunStatus[data-outcome="failure"] { color: #b43e3e; }
-@media (prefers-color-scheme: dark) {
-  .frameRoutineRunStatus[data-outcome="success"] { color: #83c9a1; }
-  .frameRoutineRunStatus[data-outcome="failure"] { color: #ed9292; }
-}
+:global(:root[data-theme="dark"]) .frameRoutineRunStatus[data-outcome="success"] { color: #83c9a1; }
+:global(:root[data-theme="dark"]) .frameRoutineRunStatus[data-outcome="failure"] { color: #ed9292; }
+

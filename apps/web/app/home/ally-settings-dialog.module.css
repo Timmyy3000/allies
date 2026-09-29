@@ -186,19 +186,15 @@
   opacity: 0.55;
 }
 
-@media (prefers-color-scheme: dark) {
-  .settingsMessages [role="alert"] {
-    color: #f09a8a;
-  }
-
-  .deleteButton,
-  .deletionError {
-    color: #f09a8a;
-  }
-
-  .deleteButton {
-    border-color: #f09a8a;
-  }
+:global(:root[data-theme="dark"]) .settingsMessages [role="alert"] {
+  color: #f09a8a;
+}
+:global(:root[data-theme="dark"]) .deleteButton,
+:global(:root[data-theme="dark"]) .deletionError {
+  color: #f09a8a;
+}
+:global(:root[data-theme="dark"]) .deleteButton {
+  border-color: #f09a8a;
 }
 
 .visuallyHidden {
@@ -800,34 +796,28 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  .profileList,
-  .routineSkeleton,
-  .routinePrompt {
-    background: rgb(255 255 255 / 6%);
-  }
-
-  .profileBack,
-  .profileLabelPill,
-  .subsheetClose,
-  .routineDeleteInChat {
-    background: rgb(255 255 255 / 10%);
-    color: var(--text-primary);
-  }
-
-  .profileAvatarBadge {
-    background: #fff;
-    color: #121212;
-  }
-
-  .profileDisclosure + .profileDisclosure {
-    border-top-color: rgb(255 255 255 / 8%);
-  }
-
-  .profileDeleteRow,
-  .routineDeleteInChat {
-    color: #f09a8a;
-  }
+:global(:root[data-theme="dark"]) .profileList,
+:global(:root[data-theme="dark"]) .routineSkeleton,
+:global(:root[data-theme="dark"]) .routinePrompt {
+  background: rgb(255 255 255 / 6%);
+}
+:global(:root[data-theme="dark"]) .profileBack,
+:global(:root[data-theme="dark"]) .profileLabelPill,
+:global(:root[data-theme="dark"]) .subsheetClose,
+:global(:root[data-theme="dark"]) .routineDeleteInChat {
+  background: rgb(255 255 255 / 10%);
+  color: var(--text-primary);
+}
+:global(:root[data-theme="dark"]) .profileAvatarBadge {
+  background: #fff;
+  color: #121212;
+}
+:global(:root[data-theme="dark"]) .profileDisclosure + .profileDisclosure {
+  border-top-color: rgb(255 255 255 / 8%);
+}
+:global(:root[data-theme="dark"]) .profileDeleteRow,
+:global(:root[data-theme="dark"]) .routineDeleteInChat {
+  color: #f09a8a;
 }
 
 .accessRow {
@@ -945,14 +935,11 @@
   }
 }
 
-@media (prefers-color-scheme: dark) {
-  .accessSwitch {
-    background: rgb(255 255 255 / 18%);
-  }
-
-  .accessNotice {
-    color: #6fdc8c;
-  }
+:global(:root[data-theme="dark"]) .accessSwitch:not(:checked) {
+  background: rgb(255 255 255 / 18%);
+}
+:global(:root[data-theme="dark"]) .accessNotice {
+  color: #6fdc8c;
 }
 
 /* DSN-011 20: Access and Safe inputs keep the profile's section spacing. */
