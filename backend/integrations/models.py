@@ -17,10 +17,15 @@ from django.db import models
 # ruff: noqa: RUF012
 
 PROVIDER_GMAIL = "gmail"
+PROVIDER_CALENDAR = "calendar"
 
 GRANT_READ = "read"
 GRANT_SEND = "send"
-GRANT_LEVELS = (GRANT_READ, GRANT_SEND)
+GRANT_WRITE = "write"
+PROVIDER_GRANT_LEVELS = {
+    PROVIDER_GMAIL: (GRANT_READ, GRANT_SEND),
+    PROVIDER_CALENDAR: (GRANT_READ, GRANT_WRITE),
+}
 
 
 class IntegrationSecret(models.Model):

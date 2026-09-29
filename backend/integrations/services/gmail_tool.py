@@ -28,7 +28,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from ..exceptions import IntegrationUnavailable, ProviderUnavailable, RefreshRevoked
 from ..models import PROVIDER_GMAIL, IntegrationSecret, IntegrationToolCall
 from .google_oauth import gmail_enabled, refresh_access_token
-from .grants import check_gmail_grant
+from .grants import check_grant
 from .turns import resolve_tool_turn
 
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
@@ -174,7 +174,7 @@ def execute_gmail_tool(
     ).first()
     if secret is None:
         return NOT_CONNECTED
-    decision = check_gmail_grant(secret=secret, ally=ally)
+    decision = check_grant(secret=secret, ally=ally)
     if not decision.allowed or _OPERATION[args.action] not in decision.tool_allowlist:
         return NOT_GRANTED
 

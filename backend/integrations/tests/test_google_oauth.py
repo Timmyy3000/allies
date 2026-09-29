@@ -20,7 +20,7 @@ from integrations.models import GmailConnectSession, IntegrationSecret
 from integrations.services import google_oauth
 from integrations.services.google_oauth import (
     GMAIL_SEND_SCOPE,
-    complete_gmail_connect,
+    complete_connect,
 )
 from integrations.services.vault import seal_refresh_token
 from workspaces.models import Membership, Workspace
@@ -100,7 +100,7 @@ def _state_from_auth_url(auth_url):
 @pytest.mark.django_db
 def test_begin_and_complete_connect(account, gmail_settings, monkeypatch):
     _, workspace, ally = account
-    begun = google_oauth.begin_gmail_connect(
+    begun = google_oauth.begin_connect(
         workspace=workspace,
         entry_point="in_chat",
         ally=ally,
@@ -117,7 +117,7 @@ def test_begin_and_complete_connect(account, gmail_settings, monkeypatch):
         "expires_in": 3600,
     }
     monkeypatch.setattr(google_oauth, "urlopen", fake_urlopen_factory(token=token))
-    completed = complete_gmail_connect(
+    completed = complete_connect(
         state=_state_from_auth_url(begun.auth_url), code="auth-code-1"
     )
     assert completed.status == "connected"
@@ -144,7 +144,7 @@ def test_begin_replay_mismatch_rejected(account, gmail_settings):
         appearance_key="sunrise",
     )
     AllyBinding.objects.create(ally=other)
-    google_oauth.begin_gmail_connect(
+    google_oauth.begin_connect(
         workspace=workspace,
         entry_point="in_chat",
         ally=ally,
@@ -152,7 +152,7 @@ def test_begin_replay_mismatch_rejected(account, gmail_settings):
         idempotency_key="connect-key-mismatch-01",
     )
     with pytest.raises(IntegrationInvalid):
-        google_oauth.begin_gmail_connect(
+        google_oauth.begin_connect(
             workspace=workspace,
             entry_point="in_chat",
             ally=other,
@@ -160,7 +160,7 @@ def test_begin_replay_mismatch_rejected(account, gmail_settings):
             idempotency_key="connect-key-mismatch-01",
         )
     with pytest.raises(IntegrationInvalid):
-        google_oauth.begin_gmail_connect(
+        google_oauth.begin_connect(
             workspace=workspace,
             entry_point="in_chat",
             ally=ally,
@@ -174,7 +174,7 @@ def test_exchange_4xx_not_retried(account, gmail_settings, monkeypatch):
     from urllib.error import HTTPError
 
     _, workspace, _ = account
-    begun = google_oauth.begin_gmail_connect(
+    begun = google_oauth.begin_connect(
         workspace=workspace,
         entry_point="integrations",
         idempotency_key="connect-key-4xx-00001",
@@ -195,7 +195,7 @@ def test_exchange_4xx_not_retried(account, gmail_settings, monkeypatch):
 
     monkeypatch.setattr(google_oauth, "urlopen", _bad_request)
     with pytest.raises(IntegrationInvalid):
-        complete_gmail_connect(
+        complete_connect(
             state=_state_from_auth_url(begun.auth_url), code="auth-code-bad"
         )
     assert len(calls) == 1
@@ -205,14 +205,14 @@ def test_exchange_4xx_not_retried(account, gmail_settings, monkeypatch):
 @pytest.mark.django_db
 def test_begin_replay_returns_live_session(account, gmail_settings):
     _, workspace, ally = account
-    first = google_oauth.begin_gmail_connect(
+    first = google_oauth.begin_connect(
         workspace=workspace,
         entry_point="in_chat",
         ally=ally,
         grant_level="send",
         idempotency_key="connect-key-0000000002",
     )
-    second = google_oauth.begin_gmail_connect(
+    second = google_oauth.begin_connect(
         workspace=workspace,
         entry_point="in_chat",
         ally=ally,
@@ -227,7 +227,7 @@ def test_begin_replay_returns_live_session(account, gmail_settings):
 def test_begin_rejects_bad_entry_and_flag_off(account, gmail_settings):
     _, workspace, ally = account
     with pytest.raises(IntegrationInvalid):
-        google_oauth.begin_gmail_connect(
+        google_oauth.begin_connect(
             workspace=workspace,
             entry_point="in_chat",
             ally=ally,
@@ -236,7 +236,7 @@ def test_begin_rejects_bad_entry_and_flag_off(account, gmail_settings):
         )
     gmail_settings.ALLIES_GMAIL_ENABLED = False
     with pytest.raises(IntegrationUnavailable):
-        google_oauth.begin_gmail_connect(
+        google_oauth.begin_connect(
             workspace=workspace,
             entry_point="integrations",
             idempotency_key="connect-key-0000000004",
@@ -248,7 +248,7 @@ def test_complete_rejects_scope_shortfall_and_stores_nothing(
     account, gmail_settings, monkeypatch
 ):
     _, workspace, _ally = account
-    begun = google_oauth.begin_gmail_connect(
+    begun = google_oauth.begin_connect(
         workspace=workspace,
         entry_point="integrations",
         idempotency_key="connect-key-0000000006",
@@ -261,9 +261,7 @@ def test_complete_rejects_scope_shortfall_and_stores_nothing(
     }
     monkeypatch.setattr(google_oauth, "urlopen", fake_urlopen_factory(token=token))
     with pytest.raises(ScopeInsufficient):
-        complete_gmail_connect(
-            state=_state_from_auth_url(begun.auth_url), code="auth-code-2"
-        )
+        complete_connect(state=_state_from_auth_url(begun.auth_url), code="auth-code-2")
     assert IntegrationSecret.objects.count() == 0
 
 
@@ -271,7 +269,7 @@ def test_complete_rejects_scope_shortfall_and_stores_nothing(
 def test_complete_rejects_second_account(account, gmail_settings, monkeypatch):
     _, workspace, _ = account
     for index, email in enumerate(("a@gmail.com", "b@gmail.com")):
-        begun = google_oauth.begin_gmail_connect(
+        begun = google_oauth.begin_connect(
             workspace=workspace,
             entry_point="integrations",
             idempotency_key=f"connect-key-dupe-{index:010d}",
@@ -286,22 +284,22 @@ def test_complete_rejects_second_account(account, gmail_settings, monkeypatch):
             google_oauth, "urlopen", fake_urlopen_factory(token=token, email=email)
         )
         if index == 0:
-            complete_gmail_connect(
+            complete_connect(
                 state=_state_from_auth_url(begun.auth_url), code="auth-code-3"
             )
         else:
             with pytest.raises(IntegrationConflict):
-                complete_gmail_connect(
+                complete_connect(
                     state=_state_from_auth_url(begun.auth_url), code="auth-code-4"
                 )
 
 
 @pytest.mark.django_db
 def test_reconnect_after_disconnect_succeeds(account, gmail_settings, monkeypatch):
-    from integrations.services.grants import disconnect_gmail_account
+    from integrations.services.grants import disconnect_account
 
     _, workspace, _ = account
-    begun = google_oauth.begin_gmail_connect(
+    begun = google_oauth.begin_connect(
         workspace=workspace,
         entry_point="integrations",
         idempotency_key="connect-key-reconnect-1",
@@ -315,12 +313,12 @@ def test_reconnect_after_disconnect_succeeds(account, gmail_settings, monkeypatc
     monkeypatch.setattr(
         google_oauth, "urlopen", fake_urlopen_factory(token=token, email="a@gmail.com")
     )
-    first = complete_gmail_connect(
+    first = complete_connect(
         state=_state_from_auth_url(begun.auth_url), code="auth-code-7"
     )
-    disconnect_gmail_account(secret=first.secret)
+    disconnect_account(secret=first.secret)
 
-    begun2 = google_oauth.begin_gmail_connect(
+    begun2 = google_oauth.begin_connect(
         workspace=workspace,
         entry_point="integrations",
         idempotency_key="connect-key-reconnect-2",
@@ -328,7 +326,7 @@ def test_reconnect_after_disconnect_succeeds(account, gmail_settings, monkeypatc
     monkeypatch.setattr(
         google_oauth, "urlopen", fake_urlopen_factory(token=token, email="b@gmail.com")
     )
-    second = complete_gmail_connect(
+    second = complete_connect(
         state=_state_from_auth_url(begun2.auth_url), code="auth-code-8"
     )
     assert second.status == "connected"
@@ -341,7 +339,7 @@ def test_pkce_challenge_and_verifier_roundtrip(account, gmail_settings, monkeypa
     import hashlib
 
     _, workspace, _ = account
-    begun = google_oauth.begin_gmail_connect(
+    begun = google_oauth.begin_connect(
         workspace=workspace,
         entry_point="integrations",
         idempotency_key="connect-key-pkce-00001",
@@ -373,9 +371,7 @@ def test_pkce_challenge_and_verifier_roundtrip(account, gmail_settings, monkeypa
         raise AssertionError(f"unexpected provider call: {url}")
 
     monkeypatch.setattr(google_oauth, "urlopen", _capture)
-    complete_gmail_connect(
-        state=_state_from_auth_url(begun.auth_url), code="auth-code-pkce"
-    )
+    complete_connect(state=_state_from_auth_url(begun.auth_url), code="auth-code-pkce")
     assert "code_verifier" in seen
     expected = (
         base64.urlsafe_b64encode(
@@ -393,8 +389,8 @@ def test_complete_rejects_unknown_and_expired_state(
 ):
     _, workspace, _ = account
     with pytest.raises(IntegrationInvalid):
-        complete_gmail_connect(state="no-such-state", code="auth-code-5")
-    begun = google_oauth.begin_gmail_connect(
+        complete_connect(state="no-such-state", code="auth-code-5")
+    begun = google_oauth.begin_connect(
         workspace=workspace,
         entry_point="integrations",
         idempotency_key="connect-key-0000000006",
@@ -407,9 +403,7 @@ def test_complete_rejects_unknown_and_expired_state(
         expires_at=timezone.now() - timezone.timedelta(seconds=1)
     )
     with pytest.raises(IntegrationInvalid):
-        complete_gmail_connect(
-            state=_state_from_auth_url(begun.auth_url), code="auth-code-6"
-        )
+        complete_connect(state=_state_from_auth_url(begun.auth_url), code="auth-code-6")
     assert state_hash == session.state_hash
 
 
@@ -474,3 +468,47 @@ def test_revoke_reports_success_and_failure(gmail_settings, monkeypatch):
 
     monkeypatch.setattr(google_oauth, "urlopen", _down)
     assert google_oauth.revoke_at_google("refresh.x") is False
+
+
+@pytest.mark.django_db
+def test_calendar_connect_is_its_own_provider_and_scope(
+    account, gmail_settings, monkeypatch
+):
+    _, workspace, ally = account
+    begun = google_oauth.begin_connect(
+        workspace=workspace,
+        provider="calendar",
+        entry_point="in_chat",
+        ally=ally,
+        grant_level="write",
+        idempotency_key="connect-key-0000000002",
+    )
+    scope_param = parse_qs(urlparse(begun.auth_url).query)["scope"][0]
+    assert "calendar.events" in scope_param
+    assert {"openid", "email"} <= set(scope_param.split())
+    assert "gmail" not in scope_param
+    state = _state_from_auth_url(begun.auth_url)
+    assert google_oauth.connect_provider(state=state) == "calendar"
+
+    def fake(request, timeout=None):
+        url = request.full_url if hasattr(request, "full_url") else str(request)
+        if "oauth2.googleapis.com/token" in url:
+            return FakeResponse(token)
+        if "openidconnect.googleapis.com" in url:
+            return FakeResponse({"email": "cal@gmail.com"})
+        raise AssertionError(url)
+
+    token = {
+        "access_token": "ya29.test",
+        "refresh_token": "refresh.test",
+        "scope": "https://www.googleapis.com/auth/gmail.modify",
+        "expires_in": 3600,
+    }
+    monkeypatch.setattr(google_oauth, "urlopen", fake)
+    with pytest.raises(ScopeInsufficient):
+        complete_connect(state=state, code="auth-code-cal")
+    token["scope"] = "email https://www.googleapis.com/auth/calendar.events"
+    completed = complete_connect(state=state, code="auth-code-cal")
+    assert completed.secret.provider_key == "calendar"
+    assert completed.secret.account_email == "cal@gmail.com"
+    assert completed.auto_grant_level == "write"
