@@ -47,6 +47,7 @@ def main():
             "himalaya",
             "github-issues",
             "allies-skill-discovery",
+            "allies-capabilities",
             "grounded-citations",
             "arxiv",
             "humanizer",
