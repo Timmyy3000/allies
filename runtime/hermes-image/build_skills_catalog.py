@@ -76,11 +76,20 @@ def _seal(root: Path) -> None:
     root.chmod(0o555)
 
 
+def _check_allies_skill(path: Path) -> None:
+    if not path.is_dir() or not (path / "SKILL.md").is_file():
+        raise ValueError(f"Allies skill is missing: {path.name}")
+    if _frontmatter_license(path / "SKILL.md") != "MIT":
+        raise ValueError(f"Allies skill must carry an MIT license: {path.name}")
+    _reject_symlinks(path)
+
+
 def build_catalog(
     source: Path,
     destination: Path,
     repository_license: Path,
     allies_skill: Path,
+    extra_allies_skills: tuple[Path, ...] = (),
 ) -> list[tuple[str, str]]:
     source = source.resolve()
     destination = destination.resolve()
@@ -90,11 +99,9 @@ def build_catalog(
         raise ValueError("catalog destination must be outside the source tree")
     if destination.exists():
         raise ValueError(f"catalog destination already exists: {destination}")
-    if not allies_skill.is_dir() or not (allies_skill / "SKILL.md").is_file():
-        raise ValueError("Allies discovery skill is missing")
-    if _frontmatter_license(allies_skill / "SKILL.md") != "MIT":
-        raise ValueError("Allies discovery skill must carry an MIT license")
-    _reject_symlinks(allies_skill)
+    allies_skills = (allies_skill, *extra_allies_skills)
+    for skill in allies_skills:
+        _check_allies_skill(skill)
 
     eligible = []
     for skill_file in sorted(source.rglob("SKILL.md")):
@@ -123,7 +130,8 @@ def build_catalog(
             target.mkdir(parents=True, exist_ok=True)
             shutil.copy2(description, target / description.name)
     shutil.copy2(repository_license, destination / "LICENSE")
-    shutil.copytree(allies_skill, destination / allies_skill.name)
+    for skill in allies_skills:
+        shutil.copytree(skill, destination / skill.name)
     _seal(destination)
     return [entry for _, entry in eligible]
 
@@ -134,5 +142,6 @@ if __name__ == "__main__":
         Path("/opt/allies/skills"),
         Path("/opt/hermes/LICENSE"),
         Path("/tmp/allies-skill-discovery"),
+        (Path("/tmp/allies-capabilities"),),
     )
     print(f"Built {len(found)} eligible Hermes skills at /opt/allies/skills")
