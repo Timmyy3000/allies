@@ -6,19 +6,21 @@ import { isCloudError, normalizeCloudError, type CloudError } from "./errors";
 import { parsePublicCloudUrl } from "./environment";
 import { toAccountViewModel, type AccountViewModel } from "./mappers/account";
 import {
-  gmailAllyGrantSchema,
-  gmailConnectionSchema,
-  gmailConnectResponseSchema,
-  gmailGrantLevelSchema,
-  gmailReturnToSchema,
-  toGmailAllyGrant,
-  toGmailConnection,
-  toGmailConnectSession,
-  type GmailAllyGrant,
-  type GmailConnection,
-  type GmailConnectSession,
-  type GmailGrantLevel,
-} from "./mappers/gmail";
+  integrationAllyGrantSchema,
+  integrationConnectionSchema,
+  integrationConnectResponseSchema,
+  integrationGrantLevelSchema,
+  integrationProviderSchema,
+  integrationReturnToSchema,
+  toIntegrationAllyGrant,
+  toIntegrationConnection,
+  toIntegrationConnectSession,
+  type IntegrationAllyGrant,
+  type IntegrationConnection,
+  type IntegrationConnectSession,
+  type IntegrationGrantLevel,
+  type IntegrationProvider,
+} from "./mappers/integrations";
 import {
   activitySnapshotResponseSchema,
   allyLabelSchema,
@@ -307,6 +309,9 @@ const routineListOptionsSchema = z.object({
 const messageContentSchema = z.string().min(1).max(16_000);
 const runtimeIntentOccurredAtSchema = z.iso.datetime({ offset: true });
 const runtimeIntentIdempotencyKeySchema = z.uuid();
+const integrationPath = (provider: IntegrationProvider) =>
+  `/api/v1/workspaces/{workspace_id}/integrations/${provider}` as const;
+
 const runtimeIntentStatusSchema = z.enum([
   "disabled",
   "already_ready",
@@ -745,66 +750,71 @@ export function createCloudClient(options: CloudClientOptions) {
       );
     },
 
-    async getGmailConnection(workspaceId: string, signal?: AbortSignal): Promise<GmailConnection | null> {
+    async getIntegrationConnection(workspaceId: string, provider: IntegrationProvider, signal?: AbortSignal): Promise<IntegrationConnection | null> {
       rejectPreAborted(signal);
       const workspace = parsePathSegment(workspaceId);
+      const path = integrationPath(parseInput(integrationProviderSchema, provider));
       return unwrap(
-        api.GET("/api/v1/workspaces/{workspace_id}/integrations/gmail", {
+        api.GET(path, {
           params: { path: { workspace_id: workspace } },
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => {
-          const connection = successEnvelope(gmailConnectionSchema.nullable()).parse(data).data;
-          return connection ? toGmailConnection(connection) : null;
+          const connection = successEnvelope(integrationConnectionSchema.nullable()).parse(data).data;
+          return connection ? toIntegrationConnection(connection) : null;
         },
         [200],
       );
     },
 
-    async beginGmailConnect(
+    async beginIntegrationConnect(
       workspaceId: string,
-      input: { allyId?: string; grantLevel: Exclude<GmailGrantLevel, "none">; returnTo: string },
+      provider: IntegrationProvider,
+      input: { allyId?: string; grantLevel: Exclude<IntegrationGrantLevel, "none">; returnTo: string },
       idempotencyKey: string,
       signal?: AbortSignal,
-    ): Promise<GmailConnectSession> {
+    ): Promise<IntegrationConnectSession> {
       rejectPreAborted(signal);
       const workspace = parsePathSegment(workspaceId);
       const allyId = input.allyId === undefined ? undefined : parseCanonicalUuid(input.allyId);
-      const grantLevel = parseInput(gmailGrantLevelSchema, input.grantLevel);
-      const returnTo = parseInput(gmailReturnToSchema, input.returnTo);
+      const path = integrationPath(parseInput(integrationProviderSchema, provider));
+      const grantLevel = parseInput(integrationGrantLevelSchema, input.grantLevel);
+      const returnTo = parseInput(integrationReturnToSchema, input.returnTo);
       const key = parseIdempotencyKey(idempotencyKey);
       const body = allyId
         ? { entry_point: "in_chat" as const, ally_id: allyId, grant_level: grantLevel, return_to: returnTo }
         : { entry_point: "integrations" as const, return_to: returnTo };
       return unwrap(
-        api.POST("/api/v1/workspaces/{workspace_id}/integrations/gmail/connect", {
+        api.POST(`${path}/connect`, {
           params: { path: { workspace_id: workspace }, header: { "Idempotency-Key": key } },
           body,
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
-        (data) => toGmailConnectSession(successEnvelope(gmailConnectResponseSchema).parse(data).data),
+        (data) => toIntegrationConnectSession(successEnvelope(integrationConnectResponseSchema).parse(data).data),
         [200, 202],
       );
     },
 
-    async setGmailGrant(
+    async setIntegrationGrant(
       workspaceId: string,
+      provider: IntegrationProvider,
       allyId: string,
-      level: GmailGrantLevel,
+      level: IntegrationGrantLevel,
       signal?: AbortSignal,
-    ): Promise<GmailAllyGrant> {
+    ): Promise<IntegrationAllyGrant> {
       rejectPreAborted(signal);
       const workspace = parsePathSegment(workspaceId);
       const ally = parseCanonicalUuid(allyId);
-      const parsedLevel = parseInput(z.enum(["read", "send", "none"]), level);
+      const path = integrationPath(parseInput(integrationProviderSchema, provider));
+      const parsedLevel = parseInput(z.enum(["read", "send", "write", "none"]), level);
       return unwrap(
-        api.POST("/api/v1/workspaces/{workspace_id}/integrations/gmail/grants", {
+        api.POST(`${path}/grants`, {
           params: { path: { workspace_id: workspace } },
           body: { ally_id: ally, level: parsedLevel },
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
         (data) => {
-          const grant = toGmailAllyGrant(successEnvelope(gmailAllyGrantSchema).parse(data).data);
+          const grant = toIntegrationAllyGrant(successEnvelope(integrationAllyGrantSchema).parse(data).data);
           if (grant.allyId !== ally) throw { kind: "contract" } satisfies CloudError;
           return grant;
         },
@@ -812,11 +822,12 @@ export function createCloudClient(options: CloudClientOptions) {
       );
     },
 
-    async disconnectGmail(workspaceId: string, signal?: AbortSignal): Promise<void> {
+    async disconnectIntegration(workspaceId: string, provider: IntegrationProvider, signal?: AbortSignal): Promise<void> {
       rejectPreAborted(signal);
       const workspace = parsePathSegment(workspaceId);
+      const path = integrationPath(parseInput(integrationProviderSchema, provider));
       await unwrap(
-        api.DELETE("/api/v1/workspaces/{workspace_id}/integrations/gmail", {
+        api.DELETE(path, {
           params: { path: { workspace_id: workspace } },
           body: { confirm: true },
           signal: normalizeRequestSignal(signal),
