@@ -14,15 +14,21 @@ def main():
     discover_plugins(force=True)
     assert registry.get_entry("allies_routines") is not None
     assert registry.get_entry("allies_gmail") is not None
+    assert registry.get_entry("allies_calendar") is not None
     definitions = get_tool_definitions(
-        enabled_toolsets=["allies-routines", "allies-gmail", "cronjob"],
+        enabled_toolsets=[
+            "allies-routines",
+            "allies-gmail",
+            "allies-calendar",
+            "cronjob",
+        ],
         disabled_toolsets=["cronjob"],
         quiet_mode=True,
         skip_tool_search_assembly=True,
     )
     names = {item["function"]["name"] for item in definitions}
     assert "allies_routines" in names and "cronjob" not in names, names
-    assert "allies_gmail" in names, names
+    assert "allies_gmail" in names and "allies_calendar" in names, names
     definition = next(
         item["function"]
         for item in definitions
@@ -82,6 +88,17 @@ def main():
         assert observed[-1]["arguments"] == {"action": "search", "query": "x"}
         result = handle_function_call(
             "tool_call",
+            {"name": "allies_calendar", "arguments": {"action": "list_events"}},
+            task_id="smoke",
+            tool_call_id="call_smoke_calendar",
+            enabled_tools=["tool_call", "tool_search", "tool_describe"],
+            enabled_toolsets=["allies-calendar"],
+            disabled_toolsets=["cronjob"],
+        )
+        assert json.loads(result)["status"] == "saved", result
+        assert observed[-1]["integration"] == "calendar", observed[-1]
+        result = handle_function_call(
+            "tool_call",
             {"name": "allies_safe_inputs", "arguments": {"action": "list"}},
             task_id="smoke",
             tool_call_id="call_smoke_safe_inputs",
@@ -98,6 +115,9 @@ def main():
         thread.join()
     assert "unavailable" in registry.dispatch("allies_routines", {"action": "list"})
     assert "unavailable" in registry.dispatch("allies_gmail", {"action": "search"})
+    assert "unavailable" in registry.dispatch(
+        "allies_calendar", {"action": "list_events"}
+    )
     assert registry.get_entry("allies_ask_approval") is not None
     from tools.browser_tool import _get_cloud_provider
 

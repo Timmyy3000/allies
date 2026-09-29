@@ -1,0 +1,7 @@
+name: allies-calendar
+version: 0.1.0
+description: Read and manage the workspace's connected Google Calendar through Allies Cloud
+author: Allies
+kind: backend
+provides_tools:
+  - allies_calendar
