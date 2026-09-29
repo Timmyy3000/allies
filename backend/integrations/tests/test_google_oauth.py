@@ -485,6 +485,7 @@ def test_calendar_connect_is_its_own_provider_and_scope(
     )
     scope_param = parse_qs(urlparse(begun.auth_url).query)["scope"][0]
     assert "calendar.events" in scope_param
+    assert {"openid", "email"} <= set(scope_param.split())
     assert "gmail" not in scope_param
     state = _state_from_auth_url(begun.auth_url)
     assert google_oauth.connect_provider(state=state) == "calendar"
