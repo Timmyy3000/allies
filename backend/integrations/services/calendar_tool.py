@@ -34,6 +34,33 @@ CALENDAR_TIMEOUT_SECONDS = 8
 MAX_DESCRIPTION_CHARS = 2_000
 _ADDRESS = re.compile(r"[^@\s,<>\"]+@[^@\s,<>\"]+\.[^@\s,<>\"]+")
 _EVENT_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
+_RECURRENCE = re.compile(r"(RRULE|EXRULE|RDATE|EXDATE)[:;][^\r\n]{1,300}")
+# Google's fixed event palette; "default" clears the colour back to the calendar's.
+COLOR_IDS = {
+    "lavender": "1",
+    "sage": "2",
+    "grape": "3",
+    "flamingo": "4",
+    "banana": "5",
+    "tangerine": "6",
+    "peacock": "7",
+    "graphite": "8",
+    "blueberry": "9",
+    "basil": "10",
+    "tomato": "11",
+}
+COLOR_NAMES = {color_id: name for name, color_id in COLOR_IDS.items()}
+_DETAILS = {
+    "color",
+    "recurrence",
+    "reminder_minutes",
+    "visibility",
+    "busy",
+    "add_meet",
+    "guests_can_modify",
+    "guests_can_invite",
+    "guests_can_see_guests",
+}
 _OPERATION = {
     "list_events": "calendar list",
     "get_event": "calendar get",
@@ -53,6 +80,7 @@ _FIELDS = {
         "location",
         "attendees",
         "confirmation_ref",
+        *_DETAILS,
     },
     "update_event": {
         "event_id",
@@ -64,6 +92,7 @@ _FIELDS = {
         "location",
         "attendees",
         "confirmation_ref",
+        *_DETAILS,
     },
     "delete_event": {"event_id", "confirmation_ref"},
 }
@@ -99,6 +128,15 @@ class CalendarToolRequest(BaseModel):
     location: str | None = Field(default=None, max_length=1024)
     attendees: list[str] | None = Field(default=None, max_length=50)
     confirmation_ref: str | None = Field(default=None, max_length=36)
+    color: Literal[*COLOR_IDS, "default"] | None = None
+    recurrence: list[str] | None = Field(default=None, max_length=5)
+    reminder_minutes: list[int] | None = Field(default=None, max_length=5)
+    visibility: Literal["default", "public", "private", "confidential"] | None = None
+    busy: Literal["busy", "free"] | None = None
+    add_meet: bool | None = None
+    guests_can_modify: bool | None = None
+    guests_can_invite: bool | None = None
+    guests_can_see_guests: bool | None = None
 
     @model_validator(mode="after")
     def action_fields(self):
@@ -123,6 +161,18 @@ class CalendarToolRequest(BaseModel):
         for address in self.attendees or []:
             if not _ADDRESS.fullmatch(address):
                 raise ValueError("invalid email address")
+        for rule in self.recurrence or []:
+            if not _RECURRENCE.fullmatch(rule):
+                raise ValueError("recurrence needs RRULE/EXRULE/RDATE/EXDATE lines")
+        if (
+            self.recurrence
+            and self.start
+            and len(self.start) != 10
+            and not self.time_zone
+        ):
+            raise ValueError("a recurring timed event needs time_zone")
+        if any(not 0 <= minutes <= 40_320 for minutes in self.reminder_minutes or []):
+            raise ValueError("reminder minutes must be 0 to 40320")
         return self
 
     def payload_digest(self) -> str:
@@ -289,6 +339,8 @@ def _write(message, call_id, digest, args, token) -> tuple[int, dict]:
 
 def _perform(token: str, args: CalendarToolRequest, notify: str) -> dict:
     query = {"sendUpdates": notify}
+    if args.add_meet:
+        query["conferenceDataVersion"] = 1
     if args.action == "create_event":
         return {
             "status": "created",
@@ -377,6 +429,36 @@ def _body(args: CalendarToolRequest) -> dict:
             body[name] = _when(getattr(args, name), args.time_zone)
     if "attendees" in args.model_fields_set:
         body["attendees"] = [{"email": address} for address in args.attendees or []]
+    if args.color is not None:
+        body["colorId"] = COLOR_IDS.get(args.color)
+    if args.recurrence is not None:
+        body["recurrence"] = args.recurrence
+    if args.reminder_minutes is not None:
+        body["reminders"] = {
+            "useDefault": False,
+            "overrides": [
+                {"method": "popup", "minutes": minutes}
+                for minutes in args.reminder_minutes
+            ],
+        }
+    if args.visibility is not None:
+        body["visibility"] = args.visibility
+    if args.busy is not None:
+        body["transparency"] = "transparent" if args.busy == "free" else "opaque"
+    for name, key in (
+        ("guests_can_modify", "guestsCanModify"),
+        ("guests_can_invite", "guestsCanInviteOthers"),
+        ("guests_can_see_guests", "guestsCanSeeOtherGuests"),
+    ):
+        if getattr(args, name) is not None:
+            body[key] = getattr(args, name)
+    if args.add_meet:
+        body["conferenceData"] = {
+            "createRequest": {
+                "requestId": uuid4().hex,
+                "conferenceSolutionKey": {"type": "hangoutsMeet"},
+            }
+        }
     return body
 
 
@@ -400,7 +482,21 @@ def _event(event: dict) -> dict:
         "attendees": _guests(event),
         "event_status": event.get("status", ""),
         "link": event.get("htmlLink", ""),
+        "color": COLOR_NAMES.get(event.get("colorId"), "default"),
+        "recurrence": event.get("recurrence", []),
+        "recurring_event_id": event.get("recurringEventId"),
+        "meet_link": event.get("hangoutLink", ""),
+        "reminder_minutes": _reminders(event),
+        "visibility": event.get("visibility", "default"),
+        "busy": "free" if event.get("transparency") == "transparent" else "busy",
     }
+
+
+def _reminders(event: dict):
+    reminders = event.get("reminders") or {}
+    if reminders.get("useDefault", True):
+        return "calendar default"
+    return [item.get("minutes") for item in reminders.get("overrides", [])]
 
 
 def _list(token: str, args: CalendarToolRequest) -> dict:
