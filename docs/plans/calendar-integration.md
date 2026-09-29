@@ -21,6 +21,7 @@ Google product is its own connection with its own per-Ally access. Never bundled
 | D6 | A write that would notify other people (event with guests; update or delete of an event that has guests) needs a confirmation from an earlier user turn, bound to the exact request, usable once. Solo events go straight through with `sendUpdates=none`. | Owner |
 | D7 | One kill switch for now: `ALLIES_GMAIL_ENABLED` covers all Google integrations. | Ponytail |
 | D8 | Drive, Docs and Sheets are out of scope. | Owner |
+| D9 | Ally tools default to full provider capability. Events also take colour (Google's 11 names, or default), recurrence, custom reminders, visibility, busy/free, a Google Meet link and guest permissions, on create and update, and reads return them. Detail-only changes on an event with guests stay confirmation-gated. | Owner, 2026-09-30 |
 
 ## Approach
 
