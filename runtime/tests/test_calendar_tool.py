@@ -120,3 +120,11 @@ def test_schema_offers_every_event_detail_cloud_accepts():
     assert "graphite" in properties["color"]["enum"]
     assert "default" in properties["color"]["enum"]
     assert "color" in calendar.INSTRUCTION and "meet_link" in calendar.INSTRUCTION
+
+
+def test_series_edits_use_event_id_not_a_field_the_schema_lacks():
+    assert (
+        "recurring_event_id"
+        not in calendar.SCHEMA["function"]["parameters"]["properties"]
+    )
+    assert "recurring_event_id as event_id" in calendar.INSTRUCTION
