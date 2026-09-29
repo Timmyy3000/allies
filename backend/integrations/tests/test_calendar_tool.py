@@ -227,3 +227,122 @@ def test_malformed_requests_are_rejected_before_any_call(calendar, arguments):
     status, result = run(calendar["turn"], arguments)
     assert (status, result["error"]) == (422, "invalid_calendar_request")
     assert calendar["calls"] == []
+
+
+def test_every_event_detail_reaches_google_in_its_own_shape(calendar):
+    status, result = run(
+        calendar["turn"],
+        {
+            **LUNCH,
+            "color": "graphite",
+            "visibility": "private",
+            "busy": "free",
+            "reminder_minutes": [10, 60],
+            "guests_can_modify": False,
+            "guests_can_invite": False,
+            "guests_can_see_guests": True,
+            "add_meet": True,
+        },
+    )
+    assert (status, result["status"]) == (200, "created")
+    _, _, query, body = calendar["calls"][-1]
+    assert query == {"sendUpdates": "none", "conferenceDataVersion": 1}
+    assert body["colorId"] == "8"
+    assert (body["visibility"], body["transparency"]) == ("private", "transparent")
+    assert body["reminders"] == {
+        "useDefault": False,
+        "overrides": [
+            {"method": "popup", "minutes": 10},
+            {"method": "popup", "minutes": 60},
+        ],
+    }
+    assert (
+        body["guestsCanModify"],
+        body["guestsCanInviteOthers"],
+        body["guestsCanSeeOtherGuests"],
+    ) == (False, False, True)
+    assert body["conferenceData"]["createRequest"]["conferenceSolutionKey"] == {
+        "type": "hangoutsMeet"
+    }
+
+
+def test_colour_names_map_both_ways_and_default_clears_it(calendar):
+    assert (
+        run(
+            calendar["turn"],
+            {"action": "update_event", "event_id": "e2", "color": "tomato"},
+        )[0]
+        == 200
+    )
+    assert calendar["calls"][-1][3] == {"colorId": "11"}
+    assert (
+        run(
+            calendar["turn"],
+            {"action": "update_event", "event_id": "e2", "color": "default"},
+        )[0]
+        == 200
+    )
+    assert calendar["calls"][-1][3] == {"colorId": None}
+    assert calendar_tool._event({"id": "x", "colorId": "9"})["color"] == "blueberry"
+    assert calendar_tool._event({"id": "x"})["color"] == "default"
+
+
+def test_recurring_events_and_event_output_details(calendar):
+    status, _ = run(
+        calendar["turn"],
+        {
+            **LUNCH,
+            "time_zone": "Europe/London",
+            "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=MO"],
+        },
+    )
+    assert status == 200
+    assert calendar["calls"][-1][3]["recurrence"] == ["RRULE:FREQ=WEEKLY;BYDAY=MO"]
+    event = calendar_tool._event(
+        {
+            "id": "e9",
+            "recurrence": ["RRULE:FREQ=DAILY"],
+            "recurringEventId": "series",
+            "hangoutLink": "https://meet.google.com/abc",
+            "reminders": {"useDefault": False, "overrides": [{"minutes": 30}]},
+            "transparency": "transparent",
+            "visibility": "private",
+        }
+    )
+    assert event["meet_link"] == "https://meet.google.com/abc"
+    assert event["recurring_event_id"] == "series"
+    assert event["reminder_minutes"] == [30]
+    assert (event["busy"], event["visibility"]) == ("free", "private")
+    assert calendar_tool._event({"id": "e"})["reminder_minutes"] == "calendar default"
+
+
+def test_details_on_an_event_with_guests_still_need_confirmation(calendar):
+    args = {"action": "update_event", "event_id": "e1", "color": "sage"}
+    _, prepared = run(calendar["turn"], args)
+    assert prepared["status"] == "confirmation_required"
+    assert all(call[0] == "GET" for call in calendar["calls"])
+    later = _later_turn(calendar)
+    status, result = run(
+        later, {**args, "confirmation_ref": prepared["confirmation_ref"]}
+    )
+    assert (status, result["status"]) == (200, "updated")
+    assert calendar["calls"][-1][2] == {"sendUpdates": "all"}
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        {**LUNCH, "color": "pink"},
+        {**LUNCH, "recurrence": ["FREQ=WEEKLY"]},
+        {**LUNCH, "start": "2026-10-03T12:00:00", "time_zone": None},
+        {**LUNCH, "recurrence": ["RRULE:FREQ=DAILY"], "start": "2026-10-03T12:00:00Z"},
+        {**LUNCH, "reminder_minutes": [99999]},
+        {**LUNCH, "visibility": "secret"},
+        {"action": "list_events", "color": "sage"},
+        {"action": "delete_event", "event_id": "e1", "add_meet": True},
+    ],
+)
+def test_bad_event_details_are_rejected_before_any_call(calendar, arguments):
+    status, result = run(calendar["turn"], arguments)
+    assert (status, result["error"]) == (422, "invalid_calendar_request")
+    assert calendar["calls"] == []
