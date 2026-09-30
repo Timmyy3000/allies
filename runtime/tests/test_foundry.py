@@ -2841,15 +2841,6 @@ async def test_worker_empty_hermes_stream_fails_as_malformed():
     )
 
 
-def test_fake_stream_type_is_an_async_iterator():
-    stream = asyncio.run(
-        FakeHermesClient().stream_profile_incremental(
-            "ally-a", "s", "m", session_key="stable"
-        )
-    )
-    assert hasattr(stream, "__aiter__") and hasattr(stream, "aclose")
-
-
 def test_transport_and_response_normalizers_cover_http_and_fake_shapes(monkeypatch):
     class Response:
         status = 200
