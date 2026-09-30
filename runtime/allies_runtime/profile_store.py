@@ -934,6 +934,15 @@ def _replace_legacy_model_config(content: bytes, seed: ProfileSeed) -> bytes:
     return yaml.safe_dump(config, allow_unicode=True, sort_keys=False).encode("utf-8")
 
 
+def _match_parent_owner(path: Path) -> None:
+    """Give a root-written profile file back to the profile owner Hermes runs as."""
+
+    if os.name == "nt" or os.geteuid() != 0:
+        return
+    owner = path.parent.stat(follow_symlinks=False)
+    os.chown(path, owner.st_uid, owner.st_gid, follow_symlinks=False)
+
+
 def _replace_legacy_provider_config(content: bytes, seed: ProfileSeed) -> bytes:
     content = _config_with_catalog(content)
     import yaml
@@ -1667,6 +1676,7 @@ class ProfileStore:
                 os.chmod(path, mode)
             except OSError:
                 pass
+            _match_parent_owner(path)
         except ProfileStoreError:
             try:
                 if _is_regular_file(temporary):
@@ -1689,6 +1699,7 @@ class ProfileStore:
                 os.chmod(path, mode)
             except OSError:
                 pass
+            _match_parent_owner(path)
         except ProfileStoreError:
             try:
                 if _is_regular_file(temporary):
