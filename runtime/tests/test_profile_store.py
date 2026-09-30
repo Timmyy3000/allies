@@ -2167,3 +2167,84 @@ def test_bound_profile_env_is_left_to_the_binding(tmp_path):
 
     assert store.materialize(seed).status is ProfileProvisionStatus.EXISTING
     assert (profile / ".env").read_bytes() == before
+
+
+def _native_openrouter_seed():
+    return replace(
+        make_seed(credential_refs={"OPENROUTER_API_KEY": "vault://tenant/openai"}),
+        provider="openrouter",
+        model="openai/gpt-6-luna",
+        base_url="https://openrouter.ai/api/v1",
+    )
+
+
+def test_openai_api_route_upgrades_to_native_openrouter_in_place(tmp_path):
+    store, seed = make_store(tmp_path), _native_openrouter_seed()
+    legacy = seed.legacy_provider_seed
+    assert store.materialize(legacy).status is ProfileProvisionStatus.CREATED
+    marker = profile_path(store, seed) / "sessions" / "preserved"
+    marker.write_text("keep", encoding="utf-8")
+
+    receipt = store.materialize(seed)
+
+    assert receipt.status is ProfileProvisionStatus.EXISTING
+    assert marker.read_text(encoding="utf-8") == "keep"
+    manifest = json.loads(
+        (profile_path(store, seed) / MANIFEST_NAME).read_text(encoding="utf-8")
+    )
+    assert manifest["seed_fingerprint"] == seed.fingerprint
+    config = yaml.safe_load(
+        (profile_path(store, seed) / "config.yaml").read_text(encoding="utf-8")
+    )
+    assert config["model"] == {
+        "provider": "openrouter",
+        "default": "openai/gpt-6-luna",
+        "base_url": "https://openrouter.ai/api/v1",
+    }
+    env = (profile_path(store, seed) / ".env").read_text(encoding="utf-8")
+    assert f"OPENROUTER_API_KEY={PROFILE_SECRET}" in env.splitlines()
+    assert store.materialize(seed).status is ProfileProvisionStatus.EXISTING
+
+
+def test_pre_gpt6_volume_upgrades_model_and_provider_together(tmp_path):
+    store, seed = make_store(tmp_path), _native_openrouter_seed()
+    legacy = seed.legacy_provider_seed
+    assert store.materialize(legacy).status is ProfileProvisionStatus.CREATED
+    manifest_path = profile_path(store, seed) / MANIFEST_NAME
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    manifest["seed_fingerprint"] = legacy.legacy_model_fingerprint
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    config_path = profile_path(store, seed) / "config.yaml"
+    config = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    config["model"] = {
+        "provider": "openai-api",
+        "default": "gpt-5.6-luna",
+        "base_url": "https://api.openai.com/v1",
+    }
+    config_path.write_text(
+        yaml.safe_dump(config, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
+
+    receipt = store.materialize(seed)
+
+    assert receipt.status is ProfileProvisionStatus.EXISTING
+    upgraded = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert upgraded["seed_fingerprint"] == seed.fingerprint
+    assert yaml.safe_load(config_path.read_text(encoding="utf-8"))["model"] == {
+        "provider": "openrouter",
+        "default": "openai/gpt-6-luna",
+        "base_url": "https://openrouter.ai/api/v1",
+    }
+
+
+def test_only_the_managed_openrouter_seed_has_a_provider_legacy():
+    assert make_seed().legacy_provider_seed is None
+    custom = replace(
+        _native_openrouter_seed(),
+        credential_refs={
+            "OPENROUTER_API_KEY": "vault://tenant/openai",
+            "EXTRA_KEY": "vault://tenant/extra",
+        },
+    )
+    assert custom.legacy_provider_seed is None
