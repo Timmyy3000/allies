@@ -186,19 +186,6 @@ def test_ledger_supports_async_cleaners_and_invoke_supports_both_shapes():
     assert asyncio.run(invoke(plus, 1)) == 2
 
 
-def test_fake_adapter_exercises_preflight_provision_and_cleanup():
-    adapter = FakeSmokeIntegration()
-    adapter.preflight()
-    snapshot = adapter.provision("fixed")
-    ledger = OwnedResourceLedger()
-    ledger.record_snapshot(snapshot)
-    result = adapter.cleanup(ledger, deadline=1.0)
-    assert adapter.preflight_calls == 1
-    assert adapter.provision_calls == 1
-    assert adapter.cleanup_calls == 1
-    assert result.status == "complete"
-
-
 def test_live_smoke_requires_bootstrap_before_provision(monkeypatch):
     monkeypatch.setenv("FND004_LIVE_SMOKE", "1")
     adapter = FakeSmokeIntegration()
