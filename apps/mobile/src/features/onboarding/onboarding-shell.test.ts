@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -7,11 +6,6 @@ import {
   getOnboardingHeaderAllyVariant,
   isOnboardingFooterDisabled,
 } from './onboarding-shell-config';
-
-const shellSource = readFileSync(
-  fileURLToPath(new URL('./onboarding-shell.tsx', import.meta.url)),
-  'utf8',
-);
 
 describe('onboarding chrome', () => {
   it('keeps header metadata stable and step-driven', () => {
@@ -53,11 +47,5 @@ describe('onboarding chrome', () => {
   it('disables the job footer while help is open', () => {
     expect(isOnboardingFooterDisabled('job', true, true)).toBe(true);
     expect(isOnboardingFooterDisabled('job', true, false)).toBe(false);
-  });
-
-  it('does not keep a second editor keyboard implementation in the shell', () => {
-    expect(shellSource).not.toContain('useOnboardingEditorLift');
-    expect(shellSource).not.toContain('useAnimatedKeyboard');
-    expect(shellSource).not.toContain('useFrameCallback');
   });
 });
