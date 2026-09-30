@@ -31,7 +31,7 @@ export function classifyApprovalReadError(error: unknown): ApprovalReadFailure {
 
 interface ConversationApprovalSlots {
   forMessage: (messageId: string) => ReactNode;
-  unmatched: (visibleMessageIds: ReadonlySet<string>) => ReactNode;
+  unmatched: (visibleMessageIds?: ReadonlySet<string>) => ReactNode;
 }
 
 interface ApprovalReadState {
@@ -50,7 +50,7 @@ const ApprovalSlotsContext = createContext<ConversationApprovalSlots | null>(nul
 export function ConversationApprovalSlot({ messageId, visibleMessageIds }: { messageId?: string; visibleMessageIds?: ReadonlySet<string> }) {
   const slots = useContext(ApprovalSlotsContext);
   if (!slots) return null;
-  return messageId ? slots.forMessage(messageId) : slots.unmatched(visibleMessageIds ?? new Set());
+  return messageId ? slots.forMessage(messageId) : slots.unmatched(visibleMessageIds);
 }
 
 export function pruneDecisionIntents(intents: Record<string, DecisionIntent>, approvals: ApprovalSummary[]) {
@@ -286,7 +286,9 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
   </div> : null;
   const slots: ConversationApprovalSlots = {
     forMessage: (messageId) => list(approvals.filter((approval) => approval.messageId === messageId)),
-    unmatched: (visibleMessageIds) => list(approvals.filter((approval) => !visibleMessageIds.has(approval.messageId))),
+    // Settled approvals wait for their message to load; only open ones need the fallback slot.
+    unmatched: (visibleMessageIds) => list(visibleMessageIds ? approvals.filter((approval) => !visibleMessageIds.has(approval.messageId)
+      && ["pending", "decision_recorded"].includes(approvalStatusAt(approval, now))) : approvals),
   };
   useEffect(() => {
     if (activeId !== null || !restoreFocusId.current) return;
