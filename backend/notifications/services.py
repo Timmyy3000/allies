@@ -514,9 +514,8 @@ def _clip(text, limit):
 
 
 def _preview(n):
-    if n.kind != "reply_completed" or n.reply is None:
-        return None
-    return " ".join(n.reply.content.split())
+    text = n.reply.content if n.reply else n.result.text if n.result else ""
+    return " ".join(text.split()) or None
 
 
 def dispatch_push(*, now=None, limit=50):

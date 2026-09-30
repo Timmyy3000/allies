@@ -505,6 +505,7 @@ def test_routine_result_only_after_insertion(push_setup, result_account):
     ).exists()
     notification = PushNotification.objects.get(result=result.result)
     assert notification.kind == "routine_completed"
+    assert services._preview(notification) == " ".join(result.result.text.split())
 
 
 def test_routine_approval_staleness(push_setup, approval_account):
