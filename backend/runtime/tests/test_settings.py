@@ -142,11 +142,21 @@ def test_production_file_features_require_cloud_connection():
     )
 
 
-def test_profile_provisioning_defaults_to_hermes_openai_api_provider():
-    result = run_settings_probe(DJANGO_DEBUG="true")
+def test_profile_provisioning_defaults_to_native_openrouter_provider():
+    result = run_settings_probe(
+        DJANGO_DEBUG="true",
+        probe=(
+            "import config.settings as settings\n"
+            "print(settings.PROFILE_PROVISIONING_PROVIDER)\n"
+            "print(sorted(settings.PROFILE_PROVISIONING_CREDENTIAL_REFS))\n"
+        ),
+    )
 
     assert result.returncode == 0, result.stderr
-    assert result.stdout.splitlines()[-2] == "openai-api"
+    assert result.stdout.splitlines()[-2:] == [
+        "openrouter",
+        "['OPENROUTER_API_KEY']",
+    ]
 
 
 def test_profile_provisioning_defaults_to_openrouter_gpt6():
