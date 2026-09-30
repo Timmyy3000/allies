@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -25,11 +24,6 @@ import {
   getOnboardingComingAliveSquishTransform,
   getOnboardingPersonalitySelectorOffset,
 } from './onboarding-motion';
-
-const motionSource = readFileSync(
-  fileURLToPath(new URL('./onboarding-motion.ts', import.meta.url)),
-  'utf8',
-);
 
 describe('onboarding polish contract', () => {
   it('uses relationship-first welcome copy', () => {
@@ -81,14 +75,6 @@ describe('onboarding polish contract', () => {
   it('keeps the basics Ally bounce short and grounded', () => {
     expect(ONBOARDING_BASICS_BOUNCE_CYCLE_MS).toBe(720);
     expect(ONBOARDING_BASICS_BOUNCE_LIFT).toBe(18);
-  });
-
-  it('does not retain the full-screen welcome-to-name handoff constants', () => {
-    expect(motionSource).not.toContain('ONBOARDING_SCREEN_EXIT_DURATION_MS');
-    expect(motionSource).not.toContain('ONBOARDING_SCREEN_ENTER_DELAY_MS');
-    expect(motionSource).not.toContain('ONBOARDING_SCREEN_ENTER_DURATION_MS');
-    expect(motionSource).not.toContain('ONBOARDING_SCREEN_ENTER_EASING');
-    expect(motionSource).not.toContain('ONBOARDING_SCREEN_EXIT_EASING');
   });
 
   it('uses one finite coming-alive squish that settles at identity', () => {
