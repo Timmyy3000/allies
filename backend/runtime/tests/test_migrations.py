@@ -720,3 +720,127 @@ def test_profile_default_model_migration_switches_and_restores(tmp_path):
         check=False,
     )
     assert result.returncode == 0, result.stderr or result.stdout
+
+
+PROVIDER_MIGRATION_PROBE = r"""
+from __future__ import annotations
+
+import os
+import sys
+import uuid
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
+import django
+
+django.setup()
+
+from django.db import connections
+from django.db.migrations.executor import MigrationExecutor
+
+from runtime.services.profiles import _seed_fingerprint
+
+MIGRATION_FROM = ("runtime", "0034_profile_default_model_openrouter")
+MIGRATION_TO = ("runtime", "0035_profile_native_openrouter_provider")
+database_path = sys.argv[1]
+connections.databases["default"]["NAME"] = database_path
+connections["default"].settings_dict["NAME"] = database_path
+connection = connections["default"]
+
+
+def migrate(target):
+    MigrationExecutor(connection).migrate([target])
+
+
+def models_at(target):
+    apps = MigrationExecutor(connection).loader.project_state([target]).apps
+    return apps.get_model("runtime", "Workspace"), apps.get_model("runtime", "RuntimeProfile")
+
+
+migrate(MIGRATION_FROM)
+workspace_model, profile_model = models_at(MIGRATION_FROM)
+workspace = workspace_model.objects.create(
+    id=uuid.uuid4(),
+    tenant_ref="provider-migration",
+    fly_app_ref="app-provider",
+    volume_ref="volume-provider",
+    machine_ref="machine-provider",
+    machine_generation=2,
+)
+profile_id = uuid.UUID("00000000-0000-0000-0000-000000000005")
+key = "ally-v1-00000000000000000000000000000005"
+seed = {
+    "version": 1,
+    "personality": "p",
+    "provider": "openai-api",
+    "model": "openai/gpt-6-luna",
+    "base_url": "https://openrouter.ai/api/v1",
+    "first_chat_instruction": "i",
+    "first_chat_instruction_version": 1,
+    "credential_refs": {"OPENAI_API_KEY": "file:///run/secrets/openai-api-key"},
+    "memory_provider": "allies_mnemosyne",
+    "memory_mode": "narrow_tools",
+    "memory_policy_version": "allies-mnemosyne-v1",
+    "memory_tool_allowlist": ["mnemosyne_recall"],
+    "memory_profile_isolation": True,
+    "memory_sync_roles": [],
+    "compression_threshold_tokens": 100_000,
+}
+legacy = _seed_fingerprint(profile_id, key, "ally-e", seed)
+custom_id = uuid.UUID("00000000-0000-0000-0000-000000000006")
+custom_seed = dict(seed, credential_refs={"CUSTOM_KEY": "file:///run/secrets/custom"})
+for pk, ally_ref, hermes_key, payload, fingerprint in (
+    (profile_id, "ally-e", key, seed, legacy),
+    (custom_id, "ally-f", "ally-v1-00000000000000000000000000000006", custom_seed, "0" * 64),
+):
+    profile_model.objects.create(
+        id=pk,
+        workspace=workspace,
+        ally_ref=ally_ref,
+        hermes_profile_key=hermes_key,
+        lifecycle_state="active",
+        seed_payload=payload,
+        seed_fingerprint=fingerprint,
+        materialized_generation=2,
+        materialization_operation_id=uuid.uuid4(),
+        materialization_request_digest="e" * 64,
+        materialization_receipt_id=uuid.uuid4(),
+        materialization_result_code="created",
+    )
+
+migrate(MIGRATION_TO)
+_, upgraded_model = models_at(MIGRATION_TO)
+profile = upgraded_model.objects.get(pk=profile_id)
+assert profile.seed_payload["provider"] == "openrouter"
+assert profile.seed_payload["credential_refs"] == {
+    "OPENROUTER_API_KEY": "file:///run/secrets/openai-api-key"
+}
+assert profile.seed_payload["model"] == "openai/gpt-6-luna"
+assert profile.seed_fingerprint == _seed_fingerprint(
+    profile_id, key, "ally-e", profile.seed_payload
+)
+assert profile.materialized_generation == 0
+assert profile.materialization_operation_id is None
+
+custom = upgraded_model.objects.get(pk=custom_id)
+assert custom.seed_payload["provider"] == "openai-api"
+assert custom.seed_fingerprint == "0" * 64
+assert custom.materialized_generation == 2
+
+migrate(MIGRATION_FROM)
+_, rolled_back_model = models_at(MIGRATION_FROM)
+profile = rolled_back_model.objects.get(pk=profile_id)
+assert profile.seed_payload == seed
+assert profile.seed_fingerprint == legacy
+"""
+
+
+def test_profile_native_openrouter_migration_switches_and_restores(tmp_path):
+    database_path = tmp_path / "provider.sqlite3"
+    result = subprocess.run(
+        [sys.executable, "-c", PROVIDER_MIGRATION_PROBE, str(database_path)],
+        cwd=Path(__file__).resolve().parents[2],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr or result.stdout
