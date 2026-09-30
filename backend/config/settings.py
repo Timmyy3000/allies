@@ -325,7 +325,7 @@ if (
 
 PROFILE_PROVISIONING_PROVIDER = env_profile_text(
     "PROFILE_PROVISIONING_PROVIDER",
-    "openai-api",
+    "openrouter",
     max_length=128,  # gitleaks:allow - provider identifier, not a credential
 )
 PROFILE_PROVISIONING_MODEL = env_profile_text(
@@ -341,7 +341,7 @@ if not re.fullmatch(
 ):
     raise ImproperlyConfigured("PROFILE_PROVISIONING_BASE_URL is not absolute")
 profile_credential_name = env_profile_text(
-    "PROFILE_PROVISIONING_CREDENTIAL_NAME", "OPENAI_API_KEY", max_length=64
+    "PROFILE_PROVISIONING_CREDENTIAL_NAME", "OPENROUTER_API_KEY", max_length=64
 )
 profile_credential_ref = env_profile_text(
     "PROFILE_PROVISIONING_CREDENTIAL_REF",
