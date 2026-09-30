@@ -1156,20 +1156,6 @@ def test_interrupted_cleanup_resumes_same_operation(tmp_path, monkeypatch):
     assert not profile_path(store, seed).exists()
 
 
-def test_secret_resolver_failure_is_sanitized(tmp_path, capsys):
-    def resolver(_reference: str) -> str:
-        raise RuntimeError(PROFILE_SECRET)
-
-    store = make_store(tmp_path, resolver=resolver)
-    receipt = store.materialize(make_seed())
-
-    captured = capsys.readouterr()
-    assert receipt.status is ProfileProvisionStatus.REPAIR_REQUIRED
-    assert PROFILE_SECRET not in repr(receipt.to_dict())
-    assert PROFILE_SECRET not in captured.out
-    assert PROFILE_SECRET not in captured.err
-
-
 def test_profile_seed_validation_rejects_unsafe_inputs():
     with pytest.raises(ProfileStoreError):
         derive_profile_key("not-a-uuid")
@@ -1461,7 +1447,9 @@ def test_profile_store_sanitizes_api_key_factory_failures(tmp_path, factory_kind
 @pytest.mark.parametrize(
     "resolver_kind", ["missing", "none", "empty", "newline", "raises"]
 )
-def test_profile_store_sanitizes_credential_resolver_failures(tmp_path, resolver_kind):
+def test_profile_store_sanitizes_credential_resolver_failures(
+    tmp_path, capsys, resolver_kind
+):
     if resolver_kind == "missing":
         resolver = {}
     elif resolver_kind == "none":
@@ -1485,6 +1473,8 @@ def test_profile_store_sanitizes_credential_resolver_failures(tmp_path, resolver
     assert receipt.status is ProfileProvisionStatus.REPAIR_REQUIRED
     assert receipt.repair_code == "materialization_failed"
     assert PROFILE_SECRET not in repr(receipt.to_dict())
+    captured = capsys.readouterr()
+    assert PROFILE_SECRET not in captured.out + captured.err
 
 
 def test_profile_seed_rejects_credential_and_identity_limits():
