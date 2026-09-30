@@ -555,41 +555,6 @@ async def test_incremental_profile_stream_emits_one_provider_lifecycle_pair(
         "provider.operation.started",
         "provider.operation.succeeded",
     ]
-
-
-@pytest.mark.asyncio
-async def test_incremental_profile_stream_reports_byte_totals(monkeypatch):
-    class Response(FakeResponse):
-        def __init__(self):
-            super().__init__()
-            self.rows = iter(
-                [
-                    b"event: run.started\n",
-                    b'data: {"session_id":"s1","run_id":"r1"}\n',
-                    b"\n",
-                    b"event: run.completed\n",
-                    b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[{"role":"assistant","content":"hello"}]}\n',
-                    b"\n",
-                    b"event: done\n",
-                    b'data: {"session_id":"s1","run_id":"r1"}\n',
-                    b"\n",
-                ]
-            )
-
-        def readline(self, _limit):
-            return next(self.rows, b"")
-
-    events = []
-    monkeypatch.setattr(
-        "allies_runtime.hermes.emit_runtime_event",
-        lambda event: events.append(event),
-    )
-    client, _ = _client(monkeypatch, Response())
-
-    stream = await client.stream_profile_incremental("ally-a", "s1", "hello")
-    [event async for event in stream]
-
-    assert events[-1]["event"] == "provider.operation.succeeded"
     assert events[-1]["request_bytes"] > 0
     assert events[-1]["response_bytes"] > 0
 
@@ -617,27 +582,6 @@ async def test_incremental_profile_stream_close_before_terminal_is_failure(
         "provider.operation.failed",
     ]
     assert events[-1]["error_type"] == "HermesDisconnected"
-
-
-@pytest.mark.asyncio
-async def test_incremental_profile_stream_failure_carries_error_message(
-    monkeypatch,
-):
-    class Response(FakeResponse):
-        def readline(self, _limit):
-            return b""
-
-    events = []
-    monkeypatch.setattr(
-        "allies_runtime.hermes.emit_runtime_event",
-        lambda event: events.append(event),
-    )
-    client, _ = _client(monkeypatch, Response())
-
-    stream = await client.stream_profile_incremental("ally-a", "s1", "hello")
-    await stream.aclose()
-
-    assert events[-1]["event"] == "provider.operation.failed"
     assert events[-1]["message"] == "Hermes stream closed"
 
 
@@ -1999,8 +1943,20 @@ async def test_incremental_stream_absolute_deadline_ignores_yielded_events():
         stream._normalize_event("tool.progress", {"session_id": "s1", "run_id": "r1"})
 
 
+# Pinned Hermes can persist history while omitting it from run.completed.
+@pytest.mark.parametrize(
+    "messages",
+    [
+        b'[{"role":"assistant","content":"final answer"}]',
+        b"[]",
+        b'[{"role":"assistant","content":"' + b"x" * (300 * 1024) + b'"}]',
+    ],
+    ids=["inline", "empty-transcript", "large-transcript"],
+)
 @pytest.mark.asyncio
-async def test_incremental_stream_uses_final_content_when_provider_emits_no_deltas():
+async def test_incremental_stream_uses_final_content_when_provider_emits_no_deltas(
+    messages,
+):
     class Response:
         def __init__(self):
             self.rows = iter(
@@ -2012,94 +1968,15 @@ async def test_incremental_stream_uses_final_content_when_provider_emits_no_delt
                     b'data: {"session_id":"s1","run_id":"r1","content":"final answer"}\n',
                     b"\n",
                     b"event: run.completed\n",
-                    b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[{"role":"assistant","content":"final answer"}]}\n',
+                    b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":'
+                    + messages
+                    + b"}\n",
                     b"\n",
                     b"event: done\n",
                     b'data: {"session_id":"s1","run_id":"r1"}\n',
                     b"\n",
                 ]
             )
-
-        def readline(self, _limit):
-            return next(self.rows, b"")
-
-        def close(self):
-            return None
-
-    events = [
-        event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")
-    ]
-
-    assert [event.name for event in events] == [
-        "message.delta",
-        "execution.completed",
-    ]
-    assert events[0].payload == {"text": "final answer"}
-
-
-@pytest.mark.asyncio
-async def test_incremental_stream_accepts_empty_inline_transcript_after_completion():
-    """Pinned Hermes can persist history while omitting it from run.completed."""
-
-    class Response:
-        def __init__(self):
-            self.rows = iter(
-                [
-                    b"event: run.started\n",
-                    b'data: {"session_id":"s1","run_id":"r1"}\n',
-                    b"\n",
-                    b"event: assistant.completed\n",
-                    b'data: {"session_id":"s1","run_id":"r1","content":"final answer"}\n',
-                    b"\n",
-                    b"event: run.completed\n",
-                    b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[]}\n',
-                    b"\n",
-                    b"event: done\n",
-                    b'data: {"session_id":"s1","run_id":"r1"}\n',
-                    b"\n",
-                ]
-            )
-
-        def readline(self, _limit):
-            return next(self.rows, b"")
-
-        def close(self):
-            return None
-
-    events = [
-        event async for event in _IncrementalHTTPStream(Response(), "ally-a", "s1")
-    ]
-
-    assert [event.name for event in events] == [
-        "message.delta",
-        "execution.completed",
-    ]
-    assert events[0].payload == {"text": "final answer"}
-
-
-@pytest.mark.asyncio
-async def test_incremental_stream_accepts_large_transcript_terminal_event():
-    transcript = "x" * (300 * 1024)
-    rows = [
-        b"event: run.started\n",
-        b'data: {"session_id":"s1","run_id":"r1"}\n',
-        b"\n",
-        b"event: assistant.completed\n",
-        b'data: {"session_id":"s1","run_id":"r1","content":"final answer"}\n',
-        b"\n",
-        b"event: run.completed\n",
-        b'data: {"session_id":"s1","run_id":"r1","completed":true,"messages":[{"role":"assistant","content":"'
-        + transcript.encode()
-        + b'"}]}\n',
-        b"\n",
-        b"event: done\n",
-        b'data: {"session_id":"s1","run_id":"r1"}\n',
-        b"\n",
-    ]
-
-    class Response:
-        def __init__(self):
-            self.rows = iter(rows)
 
         def readline(self, _limit):
             return next(self.rows, b"")
