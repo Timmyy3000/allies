@@ -12,7 +12,7 @@ function validBinding(b) {
   return b && b.enabled === true && b.state === "active" && ["subscription_id", "browser_id", "binding_id", "workspace_id", "session_id", "owner_user_id"].every(key => UUID.test(b[key]));
 }
 function validPayload(p) {
-  return p && Object.keys(p).sort().join() === "ally_id,binding_id,conversation_id,expires_at,kind,notification_id,version,workspace_id" && p.version === 1 && Object.hasOwn(COPY, p.kind) && ["notification_id", "binding_id", "workspace_id", "ally_id", "conversation_id"].every(key => UUID.test(p[key])) && typeof p.expires_at === "string" && /Z$/.test(p.expires_at) && Date.parse(p.expires_at) > Date.now() && Date.parse(p.expires_at) <= Date.now() + 86400000;
+  return p && Object.keys(p).sort().join() === "ally_id,binding_id,body,conversation_id,expires_at,kind,notification_id,title,version,workspace_id" && p.version === 1 && Object.hasOwn(COPY, p.kind) && ["notification_id", "binding_id", "workspace_id", "ally_id", "conversation_id"].every(key => UUID.test(p[key])) && typeof p.title === "string" && (p.body === null || typeof p.body === "string") && typeof p.expires_at === "string" && /Z$/.test(p.expires_at) && Date.parse(p.expires_at) > Date.now() && Date.parse(p.expires_at) <= Date.now() + 86400000;
 }
 function validRegistration(r) {
   return r && Object.keys(r).sort().join() === "binding_id,browser_id,endpoint,keys,replaces_binding_id" && UUID.test(r.browser_id) && UUID.test(r.binding_id) && (r.replaces_binding_id === null || UUID.test(r.replaces_binding_id)) && typeof r.endpoint === "string" && r.endpoint.length <= 2048 && r.endpoint.startsWith("https://") && r.keys && Object.keys(r.keys).sort().join() === "auth,p256dh" && /^[A-Za-z0-9_-]{87}$/.test(r.keys.p256dh) && /^[A-Za-z0-9_-]{22}$/.test(r.keys.auth);
@@ -169,7 +169,7 @@ self.addEventListener("push", event => event.waitUntil(enqueue(async () => {
       state.seen = state.seen.slice(-256);
       return true;
     });
-    if (admitted) await self.registration.showNotification("Allies", { body: COPY[payload.kind], icon: "/allies-icon.svg", tag: `allies:${payload.notification_id}`, renotify: false, data: payload });
+    if (admitted) await self.registration.showNotification(payload.title || "Allies", { body: payload.body || COPY[payload.kind], icon: "/allies-icon.svg", tag: `allies:${payload.notification_id}`, renotify: false, data: payload });
   } catch { /* Fail closed when persistent ownership cannot be checked. */ }
 })));
 self.addEventListener("notificationclick", event => event.waitUntil(enqueue(async () => {
