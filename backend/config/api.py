@@ -13,6 +13,7 @@ from config.openapi import AlliesAPI
 from files.api.register import register as register_files_api
 from integrations.api.register import register as register_integrations_api
 from model_keys.api.register import register as register_model_keys_api
+from notifications.api import PushController
 from routines.api.register import register as register_routines_api
 from waitlist.api.register import register as register_waitlist_api
 from workspaces.api.register import register as register_workspaces_api
@@ -99,7 +100,7 @@ api.add_exception_handler(Exception, _unhandled_error)
 
 
 def register_all_apis() -> None:
-    api.register_controllers(HealthController)
+    api.register_controllers(HealthController, PushController)
     register_auths_api(api)
     register_workspaces_api(api)
     register_waitlist_api(api)

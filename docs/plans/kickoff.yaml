@@ -3,14 +3,14 @@ version: 1
 plan_it:
   workers:
     codex:
-      agent: "sol_high"
+      agent: "sol_planning_worker"
 
 plan_review:
   workers:
     codex:
-      agent: "sol_high"
+      agent: "sol_review_worker"
 
 ship_it:
   workers:
     codex:
-      agent: "terra_xhigh"
+      agent: "sol_execution_worker"

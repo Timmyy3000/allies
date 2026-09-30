@@ -305,6 +305,9 @@ def rotate_refresh(
                 family.revoked_at = timezone.now()
                 family.revoke_reason = "refresh_reuse"
                 family.save(update_fields=("revoked_at", "revoke_reason"))
+                from notifications.services import retire_family
+
+                retire_family(family.id)
         emit_auth_event(
             "auth.refresh.reuse_detected",
             outcome="revoked",
@@ -344,6 +347,9 @@ def logout_session(
         locked.revoked_at = timezone.now()
         locked.revoke_reason = "logout"
         locked.save(update_fields=("revoked_at", "revoke_reason"))
+        from notifications.services import retire_family
+
+        retire_family(locked.id)
 
 
 def revoke_family(family: SessionFamily, *, reason: str = "operator") -> bool:
@@ -354,4 +360,7 @@ def revoke_family(family: SessionFamily, *, reason: str = "operator") -> bool:
         locked.revoked_at = timezone.now()
         locked.revoke_reason = reason[:64]
         locked.save(update_fields=("revoked_at", "revoke_reason"))
+        from notifications.services import retire_family
+
+        retire_family(locked.id)
         return True

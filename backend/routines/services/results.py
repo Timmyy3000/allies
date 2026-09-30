@@ -419,6 +419,9 @@ def _complete_routine_result_insertion_locked(
     receipt.save(
         update_fields=("result_insertion", "insertion_watermark", "updated_at")
     )
+    from notifications.services import notify_result
+
+    notify_result(result, conversation)
     return result
 
 
