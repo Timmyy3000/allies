@@ -255,11 +255,7 @@ class FakeHermesClient:
         return CancellableHermesStream(iterator(), close)
 
 
-DeterministicFakeHermes = FakeHermesClient
-
-
 __all__ = [
-    "DeterministicFakeHermes",
     "FakeFoundryTransport",
     "FakeHermesClient",
     "FakeProfilePlan",
