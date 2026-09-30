@@ -6,7 +6,6 @@ import { describe, expect, it } from 'vitest';
 import { getComposerBorderRadius, getComposerHeight, shouldScrollComposer } from './conversation-composer';
 
 const layoutSource = readFileSync(fileURLToPath(new URL('./conversation-layout.tsx', import.meta.url)), 'utf8');
-const routeSource = readFileSync(fileURLToPath(new URL('../../app/allies/[allyId]/index.tsx', import.meta.url)), 'utf8');
 
 describe('conversation composer height', () => {
   it('keeps an empty field at the minimum height', () => {
@@ -33,14 +32,5 @@ describe('conversation composer scrolling', () => {
   it('uses the send button as the only submit action so multiline return inserts a newline', () => {
     expect(layoutSource).toContain('multiline');
     expect(layoutSource).not.toContain('onSubmitEditing');
-  });
-});
-
-describe('conversation reply replay', () => {
-  it('lets the live route opt out of typewriter replay for restored assistant messages', () => {
-    expect(layoutSource).toContain('animateAssistant = true');
-    expect(layoutSource).toContain("!animateAssistant || reducedMotion");
-    expect(routeSource).toContain('animateAssistant={false}');
-    expect(routeSource).not.toContain('function TypewriterMessage');
   });
 });

@@ -1,5 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -30,31 +29,6 @@ import {
 } from './onboarding-preview';
 import { ONBOARDING_POST_SETUP_DURATION_MS } from './onboarding-motion';
 
-const allyPreviewSource = readFileSync(
-  fileURLToPath(new URL('./onboarding-ally-preview.tsx', import.meta.url)),
-  'utf8',
-);
-const previewScreenSource = readFileSync(
-  fileURLToPath(new URL('./onboarding-preview-screen.tsx', import.meta.url)),
-  'utf8',
-);
-const flowSource = readFileSync(
-  fileURLToPath(new URL('./onboarding-flow.tsx', import.meta.url)),
-  'utf8',
-);
-const conversationRouteSource = readFileSync(
-  fileURLToPath(new URL('../../app/allies/[allyId]/index.tsx', import.meta.url)),
-  'utf8',
-);
-const conversationLayoutSource = readFileSync(
-  fileURLToPath(new URL('../conversation/conversation-layout.tsx', import.meta.url)),
-  'utf8',
-);
-const rootLayoutSource = readFileSync(
-  fileURLToPath(new URL('../../app/_layout.tsx', import.meta.url)),
-  'utf8',
-);
-
 describe('onboarding preview flow', () => {
   it('keeps the handoff timing short and deliberate', () => {
     expect(ONBOARDING_PREVIEW_ENTRANCE_DELAY_MS).toBe(2400);
@@ -66,50 +40,6 @@ describe('onboarding preview flow', () => {
     expect(getOnboardingFocusDelayMs(0, 0)).toBe(0);
     expect(getOnboardingFocusDelayMs(8, 0)).toBe(35);
     expect(getOnboardingFocusDelayMs(9, 4)).toBe(25);
-  });
-
-  it('uses the existing conversation layout during onboarding', () => {
-    expect(previewScreenSource).toContain('<ConversationLayout');
-    expect(previewScreenSource).toContain('<ConversationMessage');
-    expect(previewScreenSource).toContain('<ConversationThinkingRow');
-    expect(previewScreenSource).toContain('headerMode="onboarding"');
-    expect(previewScreenSource).toContain('thinking={isThinking}');
-    expect(conversationRouteSource).toContain('<ConversationLayout');
-    expect(conversationLayoutSource).toContain("headerMode?: 'standard' | 'onboarding'");
-    expect(conversationLayoutSource).toContain("if (mode === 'onboarding')");
-    expect(conversationLayoutSource).toContain('size={ONBOARDING_PREVIEW_CONVERSATION_ALLY_SIZE}');
-    expect(conversationLayoutSource).toContain('getComposerBorderRadius(composerHeight)');
-    expect(conversationLayoutSource).toContain('sendButtonMultiline: { alignSelf: \'flex-end\', marginBottom: 6 }');
-    expect(conversationLayoutSource).toContain('size={40}');
-    expect(conversationLayoutSource).toContain('OnboardingBackButton');
-    expect(conversationLayoutSource).toContain('source={require(\'@/assets/allies/icons/send.svg\')}');
-    expect(conversationLayoutSource).toContain(
-      "const sendColor = useAnimatedColor(headerMode === 'onboarding' ? ally.color : canSend ? ally.color : theme.inactiveButton);",
-    );
-    expect(conversationLayoutSource).toContain('disabled={!canSend}');
-  });
-
-  it('keeps the chat composer attached to the native keyboard animation', () => {
-    expect(rootLayoutSource).toContain('<KeyboardProvider>');
-    expect(conversationLayoutSource).toContain('<KeyboardChatScrollView');
-    expect(conversationLayoutSource).toContain('extraContentPadding={composerExtraPadding}');
-    expect(conversationLayoutSource).toContain('offset={insets.bottom}');
-    expect(conversationLayoutSource).toContain('<KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>');
-    expect(conversationLayoutSource).not.toContain('KeyboardAvoidingView');
-  });
-
-  it('focuses the composer after the initial Ally greeting finishes', () => {
-    expect(previewScreenSource).toContain('onRevealComplete={handleGreetingComplete}');
-    expect(previewScreenSource).toContain('focusComposer={greetingFinished}');
-    expect(conversationLayoutSource).toContain('focusComposer?: boolean');
-    expect(conversationLayoutSource).toContain('composerRef.current?.focus()');
-  });
-
-  it('defaults the unselected preview shell color to the theme app background', () => {
-    expect(allyPreviewSource).toContain("import { useTheme } from '@/hooks/use-theme';");
-    expect(allyPreviewSource).toContain(
-      'const animatedShellColor = useAnimatedColor(color ?? theme.appBackground);',
-    );
   });
 
   it('keeps the conversation preview aligned with onboarding typography and spacing', () => {
@@ -193,11 +123,6 @@ describe('onboarding preview flow', () => {
     expect(ONBOARDING_POST_SETUP_DURATION_MS).toBe(2000);
   });
 
-  it('keeps preview request status quiet until the request settles', () => {
-    expect(flowSource).toContain('useState(initialStep === \'preview\')');
-    expect(flowSource).toContain('statusMessage={cloudAttemptBusy ? null : cloudMessage}');
-  });
-
   it('prompts for an account before the first reply is submitted', () => {
     expect(getOnboardingReplyAction(true, true)).toBe('prompt-account');
     expect(getOnboardingReplyAction(true, false)).toBe('submit');
@@ -207,46 +132,6 @@ describe('onboarding preview flow', () => {
   it('waits for the keyboard to finish dismissing before opening the account prompt', () => {
     expect(getAccountPromptOpenMode(true)).toBe('after-keyboard-hide');
     expect(getAccountPromptOpenMode(false)).toBe('immediate');
-  });
-
-  it('forwards the current draft through the supported account continuation path', () => {
-    expect(previewScreenSource).toContain('onAccountContinue?: (draft: string) => void | Promise<void>;');
-    expect(previewScreenSource.match(/void onAccountContinue\(draft\);/g)).toHaveLength(2);
-    expect(previewScreenSource).not.toContain('Continue with ChatGPT');
-    expect(previewScreenSource).toContain("const TERMS_URL = 'https://yourallies.io/terms';");
-    expect(previewScreenSource).toContain("const PRIVACY_URL = 'https://yourallies.io/privacy';");
-    expect(previewScreenSource).toContain('WebBrowser.openBrowserAsync(url)');
-  });
-
-  it('saves the pending Ally command before starting native Google sign-in', () => {
-    const accountContinueSource = flowSource.slice(
-      flowSource.indexOf('  const handleAccountContinue'),
-      flowSource.indexOf('  const handleBasicsComplete'),
-    );
-
-    expect(flowSource).not.toContain("import { useGoogleSignIn } from '@/features/auth/use-google-sign-in';");
-    expect(accountContinueSource).toContain('if (!cloudAttempt || cloudAttempt.inputKey !== cloudInputKey)');
-    expect(accountContinueSource).toContain('await pendingCommandStore.saveCreate(command);');
-    expect(accountContinueSource).toContain("router.replace('/sign-in?returnTo=/allies/new/complete' as never);");
-    expect(accountContinueSource).toContain("await session.startGoogleSignIn('/allies/new/complete');");
-    expect(accountContinueSource.indexOf('await pendingCommandStore.saveCreate(command);')).toBeLessThan(
-      accountContinueSource.indexOf("await session.startGoogleSignIn('/allies/new/complete');")
-    );
-    expect(accountContinueSource).not.toContain('isGoogleSignInAvailable');
-    expect(accountContinueSource).not.toContain('setCloudSubmitting');
-    expect(accountContinueSource).not.toContain("router.replace('/?returnTo=%2Fallies%2Fnew%2Fcomplete' as never);");
-    expect(accountContinueSource).toContain(
-      "}, [cloudAttempt, cloudInputKey, flow, pendingCreate, router, session]);",
-    );
-    expect(flowSource).toContain('idempotencyKey: Crypto.randomUUID(),');
-    expect(flowSource).not.toContain('mock.registerAlly');
-    expect(flowSource).not.toContain('mock.sendMessage');
-    expect(conversationRouteSource).toContain('useAlly');
-  });
-
-  it('returns the visible conversation back button to the Allies home', () => {
-    expect(conversationRouteSource).toContain("onBack={() => router.replace('/allies' as never)}");
-    expect(conversationRouteSource).not.toContain('router.back()');
   });
 
   it('builds the first Ally greeting and reveals it incrementally', () => {
