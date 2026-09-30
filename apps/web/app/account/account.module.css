@@ -502,3 +502,11 @@ label.row:hover {
   gap: 12px;
   margin-top: 20px;
 }
+
+.rowCopy .notificationCopy { white-space: normal; overflow: visible; }
+.row:disabled { cursor: default; }
+.notificationToggle { display: flex; flex: 0 0 44px; height: 26px; padding: 3px; box-sizing: border-box; border-radius: 20px; background: var(--divider); }
+.notificationToggle > span { width: 20px; height: 20px; border-radius: 50%; background: white; box-shadow: 0 1px 2px rgb(0 0 0 / 12%); transition: transform 150ms; }
+.notificationToggle[data-enabled="true"] { background: #ff7028; }
+.notificationToggle[data-enabled="true"] > span { transform: translateX(18px); }
+@media (prefers-reduced-motion: reduce) { .notificationToggle > span { transition: none; } }
