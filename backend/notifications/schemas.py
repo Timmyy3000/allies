@@ -67,3 +67,5 @@ class PushPayload(Schema):
     ally_id: CanonicalUUID
     conversation_id: CanonicalUUID
     expires_at: datetime
+    title: str
+    body: str | None = None
