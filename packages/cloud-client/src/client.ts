@@ -60,6 +60,7 @@ import {
 import { csrfTokenSchema, externalHttpsUrlSchema, type CloudCsrfToken } from "./schemas";
 import { createControlledFetch } from "./transport";
 import { createFileClient } from "./files";
+import { createPushClient } from "./push";
 import {
   browserSessionSchema,
   safeInputRequestSchema,
@@ -454,6 +455,7 @@ export function createCloudClient(options: CloudClientOptions) {
 
   return {
     files: createFileClient(options),
+    push: createPushClient(options),
     async getCsrf(signal?: AbortSignal): Promise<CloudCsrfToken> {
       rejectPreAborted(signal);
       try {

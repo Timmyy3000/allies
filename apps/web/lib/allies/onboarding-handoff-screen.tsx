@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
+import { logoutDestination } from "../session/logout-destination";
 import { useSession } from "../session/session-context";
 import { alliesQueryKey } from "./query-keys";
 import { bindOnboardingHandoff, clearOnboardingHandoff, hasOnboardingHandoff } from "./onboarding-handoff";
@@ -74,7 +75,7 @@ export function OnboardingHandoffScreen() {
         <button type="button" disabled={signingOut} onClick={() => {
           setSigningOut(true);
           const destination = isStandalonePwa() ? "/app" : "/";
-          void logout().then((result) => router.replace(result.serverConfirmed ? destination : `${destination}?signout=unconfirmed`))
+          void logout().then((result) => router.replace(logoutDestination(result, destination)))
             .catch(() => router.replace(`${destination}?signout=unconfirmed`));
         }}>{signingOut ? "Signing out…" : "Sign out to switch accounts"}</button>
         <Link href="/home">Back to chats</Link>

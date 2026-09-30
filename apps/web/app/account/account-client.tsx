@@ -19,10 +19,12 @@ import {
 import { uploadAvatar } from "../../lib/account/avatar-upload";
 import { alliesQueryOptions } from "../../lib/allies/queries";
 import { isStandalonePwa } from "../../lib/pwa/pwa-install";
+import { logoutDestination } from "../../lib/session/logout-destination";
 import { useSession } from "../../lib/session/session-context";
 import { readThemePreference, subscribeThemePreference, switchTheme, type ThemePreference } from "../../lib/theme/theme";
 import sheet from "../home/ally-settings-dialog.module.css";
 
+import { NotificationPreference } from "./notification-preference";
 import { AccountConnections } from "./account-connections";
 import { Chevron, SettingsSection, SheetLayer } from "./account-parts";
 import { AccountSafeInputs } from "./account-safe-inputs";
@@ -187,7 +189,7 @@ export function AccountClient() {
     const destination = isStandalonePwa() ? "/app" : "/";
     try {
       const result = await session.logout();
-      router.replace(result.serverConfirmed ? destination : `${destination}?signout=unconfirmed`);
+      router.replace(logoutDestination(result, destination));
     } catch {
       router.replace(`${destination}?signout=unconfirmed`);
     }
@@ -241,6 +243,7 @@ export function AccountClient() {
               <span className={styles.rowValue}>{THEME_LABELS[theme]}</span>
               <Chevron />
             </button>
+            {session.push ? <NotificationPreference push={session.push} /> : null}
           </div>
         </SettingsSection>
 
