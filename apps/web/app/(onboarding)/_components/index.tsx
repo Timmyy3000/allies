@@ -1,5 +1,7 @@
 "use client";
 
+import { pushReturnPath } from "../../../lib/pwa/push-navigation";
+
 import {
   createContext,
   useContext,
@@ -1579,7 +1581,7 @@ function GoogleSignInButton() {
     setError(null);
     try {
       const url = await runCloudOperation(
-        (signal) => client.beginSignIn("/home", signal),
+        (signal) => client.beginSignIn(pushReturnPath(new URLSearchParams(window.location.search).get("returnTo")) ?? "/home", signal),
         { csrf: true },
       );
       window.location.assign(url);
