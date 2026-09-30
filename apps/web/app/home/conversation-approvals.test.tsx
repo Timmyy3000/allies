@@ -201,6 +201,15 @@ describe("conversation approvals", () => {
     expect(screen.getByRole("region", { name: "fallback" }).textContent).toBe("");
   });
 
+  it("keeps settled approvals for unloaded messages out of the fallback slot", async () => {
+    setup({ getApprovals: vi.fn().mockResolvedValue([{ ...approval, status: "expired" }]) }, true, <>
+      <section aria-label="matching"><ConversationApprovalSlot messageId={approval.messageId} /></section>
+      <section aria-label="fallback"><ConversationApprovalSlot visibleMessageIds={new Set(["newer-message"])} /></section>
+    </>);
+    await screen.findByRole("button", { name: "Approval expired" });
+    expect(screen.getByRole("region", { name: "fallback" }).textContent).toBe("");
+  });
+
   it("moves two approvals exactly once between fallback, active, and historical slots", async () => {
     const second = { ...approval, id: "second-approval", messageId: "second-message" };
     const client: ApprovalClient = {
