@@ -344,16 +344,20 @@ async def test_first_turn_dispatches_once_binds_terminal_session_and_completes()
     }
 
 
+@pytest.mark.parametrize(
+    ("outcome", "status"),
+    [("changed", "succeeded"), ("unchanged", "succeeded"), ("failed", "failed")],
+)
 @pytest.mark.asyncio
-async def test_routine_claim_uses_run_conversation_and_terminal_result():
+async def test_routine_claim_uses_run_conversation_and_terminal_result(outcome, status):
     foundry = RecordingFoundry()
-    hermes = RecordingHermes(routine_outcome="changed")
+    hermes = RecordingHermes(routine_outcome=outcome)
 
     result = await FoundryWorker(foundry, hermes).run_claim(
         claim(routine_id="routine-1")
     )
 
-    assert result.status == "succeeded"
+    assert result.status == status
     assert foundry.binds == []
     assert foundry.completes == []
     assert foundry.routine_binds == [
@@ -363,7 +367,7 @@ async def test_routine_claim_uses_run_conversation_and_terminal_result():
         }
     ]
     assert foundry.routine_results[0]["sequence"] == 3
-    assert foundry.routine_results[0]["outcome"] == "changed"
+    assert foundry.routine_results[0]["outcome"] == outcome
     assert foundry.routine_results[0]["text"] == "hello"
     assert hermes.routine_result_flags == [True]
 
@@ -384,34 +388,6 @@ async def test_routine_claim_requires_an_explicit_valid_terminal_outcome(
     assert foundry.failures == []
     assert foundry.routine_results[0]["outcome"] == "failed"
     assert foundry.routine_results[0]["text"] == "Routine failed before completion."
-
-
-@pytest.mark.asyncio
-async def test_routine_claim_preserves_explicit_unchanged_outcome_with_text():
-    foundry = RecordingFoundry()
-    hermes = RecordingHermes(routine_outcome="unchanged")
-
-    result = await FoundryWorker(foundry, hermes).run_claim(
-        claim(routine_id="routine-1")
-    )
-
-    assert result.status == "succeeded"
-    assert foundry.routine_results[0]["outcome"] == "unchanged"
-    assert foundry.routine_results[0]["text"] == "hello"
-
-
-@pytest.mark.asyncio
-async def test_routine_claim_preserves_explicit_failed_outcome_from_typed_report():
-    foundry = RecordingFoundry()
-    hermes = RecordingHermes(routine_outcome="failed")
-
-    result = await FoundryWorker(foundry, hermes).run_claim(
-        claim(routine_id="routine-1")
-    )
-
-    assert result.status == "failed"
-    assert foundry.routine_results[0]["outcome"] == "failed"
-    assert foundry.routine_results[0]["text"] == "hello"
 
 
 @pytest.mark.asyncio
