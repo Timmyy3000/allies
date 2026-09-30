@@ -40,7 +40,7 @@ function harness(records = new Map<string, unknown>()) {
     await message({ type: "PUSH_PREPARE", expected_epoch: epoch, ...owner, workspace_id: id(3), registration });
     return message({ type: "PUSH_BIND", expected_epoch: epoch, binding: { subscription_id: id(5), browser_id: state.browser_id, binding_id: bindingId, workspace_id: id(3), ...owner, state: "active", enabled: true } });
   }
-  const payload = (binding = id(4), notification = id(6)) => ({ version: 1, notification_id: notification, binding_id: binding, kind: "reply_completed", workspace_id: id(3), ally_id: id(7), conversation_id: id(8), expires_at: new Date(Date.now() + 60000).toISOString() });
+  const payload = (binding = id(4), notification = id(6)) => ({ version: 1, notification_id: notification, binding_id: binding, kind: "reply_completed", title: "Shaka", body: "Hello there", workspace_id: id(3), ally_id: id(7), conversation_id: id(8), expires_at: new Date(Date.now() + 60000).toISOString() });
   const push = (value = payload()) => dispatch("push", { data: { text: () => JSON.stringify(value), json: () => value } });
   return { records, message, bind, push, payload, dispatch, self, show, notifications, navigate, focus, unsubscribe };
 }
