@@ -2248,3 +2248,26 @@ def test_only_the_managed_openrouter_seed_has_a_provider_legacy():
         },
     )
     assert custom.legacy_provider_seed is None
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX ownership")
+def test_root_rewrites_keep_the_profile_owner(tmp_path, monkeypatch):
+    store, seed = make_store(tmp_path), _native_openrouter_seed()
+    assert store.materialize(seed.legacy_provider_seed).status is (
+        ProfileProvisionStatus.CREATED
+    )
+    chowned = {}
+    monkeypatch.setattr(profile_store_module.os, "geteuid", lambda: 0, raising=False)
+    monkeypatch.setattr(
+        profile_store_module.os,
+        "chown",
+        lambda path, uid, gid, **_: chowned.__setitem__(Path(path).name, (uid, gid)),
+        raising=False,
+    )
+
+    assert store.materialize(seed).status is ProfileProvisionStatus.EXISTING
+
+    owner = profile_path(store, seed).stat()
+    assert chowned[".env"] == (owner.st_uid, owner.st_gid)
+    assert chowned["config.yaml"] == (owner.st_uid, owner.st_gid)
+    assert chowned[MANIFEST_NAME] == (owner.st_uid, owner.st_gid)
