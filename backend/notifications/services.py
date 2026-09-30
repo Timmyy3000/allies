@@ -509,6 +509,15 @@ def settle_delivery(lease, status, retry_after=None, code="", *, now=None):
     return True
 
 
+def _clip(text, limit):
+    return text and text.encode()[:limit].decode(errors="ignore")
+
+
+def _preview(n):
+    text = n.reply.content if n.reply else n.result.text if n.result else ""
+    return " ".join(text.split()) or None
+
+
 def dispatch_push(*, now=None, limit=50):
     boundary = now or timezone.now()
     due = Q(state="pending", next_attempt_at__lte=boundary) | Q(
@@ -539,6 +548,8 @@ def dispatch_push(*, now=None, limit=50):
             continue
         n = lease.notification
         payload = PushPayload(
+            title=_clip(n.ally.name, 100),
+            body=_clip(_preview(n), 200),
             notification_id=n.id,
             binding_id=lease.binding_id,
             kind=n.kind,
