@@ -2,9 +2,10 @@
 
 import { isCloudError, type CloudClient } from "@allies/cloud-client";
 import { useQueryClient } from "@tanstack/react-query";
-import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { CURRENT_ACCOUNT_QUERY_KEY, removePrivateAccountQueries } from "../account/account-query";
+import { createPushLifecycle, type PushLifecycle } from "../pwa/push-lifecycle";
 import type { CloudCsrfTokenOwner } from "../cloud/csrf-token";
 import { createWebSessionAdapter, type LogoutResult, type RunCloudOperation, type SessionState } from "./web-session";
 
@@ -12,9 +13,10 @@ type RootSessionState = { status: "unknown" | "restoring" } | SessionState;
 
 export interface SessionContextValue {
   client: CloudClient;
+  push?: PushLifecycle;
   state: RootSessionState;
   restore(): Promise<void>;
-  logout(): Promise<LogoutResult>;
+  logout(): Promise<LogoutResult & { pushCleanupConfirmed: boolean }>;
   runCloudOperation: ReturnType<typeof createWebSessionAdapter>["runCloudOperation"];
 }
 
@@ -33,6 +35,8 @@ export function SessionProvider({
   const queryClient = useQueryClient();
   const [state, setState] = useState<RootSessionState>({ status: "unknown" });
   const operationGeneration = useRef(0);
+  const push = useMemo(() => createPushLifecycle(client, adapter.runCloudOperation), [client, adapter]);
+  useEffect(() => push.start(), [push]);
 
   const restore = useCallback(async () => {
     const restoreGeneration = ++operationGeneration.current;
@@ -40,22 +44,29 @@ export function SessionProvider({
     const nextState = await adapter.restore();
     if (restoreGeneration !== operationGeneration.current) return;
     if (nextState.status === "signed-in") {
+      void push.recover(nextState.account);
       queryClient.setQueryData(CURRENT_ACCOUNT_QUERY_KEY, nextState.account);
       setState({ status: "signed-in" });
       return;
     }
-    if (nextState.status === "signed-out") removePrivateAccountQueries(queryClient);
+    if (nextState.status === "signed-out") {
+      await push.logout();
+      if (restoreGeneration !== operationGeneration.current) return;
+      removePrivateAccountQueries(queryClient);
+    }
     setState(nextState);
-  }, [adapter, queryClient]);
+  }, [adapter, queryClient, push]);
 
   const logout = useCallback(async () => {
     const logoutGeneration = ++operationGeneration.current;
-    const result = await adapter.logout();
+    const pushCleanupConfirmed = await push.logout();
+    if (logoutGeneration !== operationGeneration.current) return { status: "signed-out" as const, serverConfirmed: false, pushCleanupConfirmed };
+    const result = { ...await adapter.logout(), pushCleanupConfirmed };
     if (logoutGeneration !== operationGeneration.current) return result;
     removePrivateAccountQueries(queryClient);
     setState({ status: "signed-out" });
     return result;
-  }, [adapter, queryClient]);
+  }, [adapter, queryClient, push]);
 
   const runCloudOperation = useCallback<RunCloudOperation>(async (operation, options) => {
     const operationGenerationAtStart = operationGeneration.current;
@@ -67,17 +78,20 @@ export function SessionProvider({
         && isCloudError(error)
         && (error.kind === "unauthorized" || error.status === 401)
       ) {
-        operationGeneration.current += 1;
-        removePrivateAccountQueries(queryClient);
-        setState({ status: "signed-out" });
+        const cleanupGeneration = ++operationGeneration.current;
+        await push.logout();
+        if (cleanupGeneration === operationGeneration.current) {
+          removePrivateAccountQueries(queryClient);
+          setState({ status: "signed-out" });
+        }
       }
       throw error;
     }
-  }, [adapter, queryClient]);
+  }, [adapter, queryClient, push]);
 
   const value = useMemo<SessionContextValue>(
-    () => ({ client, state, restore, logout, runCloudOperation }),
-    [client, logout, restore, runCloudOperation, state],
+    () => ({ client, push, state, restore, logout, runCloudOperation }),
+    [client, push, logout, restore, runCloudOperation, state],
   );
 
   return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;

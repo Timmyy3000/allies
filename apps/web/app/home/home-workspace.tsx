@@ -61,6 +61,7 @@ import {
   getWebEnvironment,
 } from "../../lib/env";
 import { useSession } from "../../lib/session/session-context";
+import { matchesPushTarget, pushReturnPath } from "../../lib/pwa/push-navigation";
 import { InstallInvitation } from "../../lib/pwa/pwa-install";
 
 import {
@@ -329,7 +330,8 @@ export function HomeWorkspace({ selectedAllyId }: { selectedAllyId: string | nul
     if (session.state.status !== "signed-out" || redirectStarted.current) return;
     redirectStarted.current = true;
     const inviteRequired = new URLSearchParams(window.location.search).get("auth_error") === "invite_required";
-    router.replace(inviteRequired ? "/?auth_error=invite_required" : "/");
+    const target = pushReturnPath(window.location.pathname + window.location.search);
+    router.replace(inviteRequired ? "/?auth_error=invite_required" : target ? `/?returnTo=${encodeURIComponent(target)}` : "/");
   }, [router, session.state.status]);
 
   const accountQuery = useQuery({
@@ -1421,12 +1423,13 @@ function ConversationPane({
           if (isAllySuppressed(ally.id)) throw new Error("Ally conversation is unavailable during deletion");
           const result = await session.client.getAllyConversation(workspaceId, ally.id, { limit: 50, signal: operationSignal });
           if (isAllySuppressed(ally.id)) throw new Error("Ally conversation is unavailable during deletion");
+          if (!matchesPushTarget(window.location.search, workspaceId, result.id)) throw new Error("This notification conversation is no longer available.");
           return result;
         },
         { signal },
       ),
   });
-  const conversation = conversationQuery.data;
+  const conversation = conversationQuery.data && matchesPushTarget(typeof window === "undefined" ? "" : window.location.search, workspaceId, conversationQuery.data.id) ? conversationQuery.data : undefined;
   const latestConversationMessages = conversation?.messages ?? EMPTY_MESSAGES;
   useEffect(() => { fileManager.observe(latestConversationMessages); }, [fileManager, latestConversationMessages]);
   const latestConversationAssistantReplies = conversation?.assistantReplies ?? EMPTY_ASSISTANT_REPLIES;
