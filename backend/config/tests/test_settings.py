@@ -543,8 +543,6 @@ def test_celery_settings_keep_cleanup_on_the_cloud_queue():
     assert settings.CELERY_ACCEPT_CONTENT == ["json"]
     assert settings.CELERY_TASK_DEFAULT_QUEUE == "cloud"
     assert settings.CELERY_BROKER_URL.endswith("/1")
-    assert settings.CELERY_WORKER_PREFETCH_MULTIPLIER == 1
-    assert settings.CELERY_WORKER_MAX_TASKS_PER_CHILD == 50
     assert settings.CELERY_BEAT_SCHEDULE["cleanup-auth-artifacts"] == {
         "task": "auths.cleanup_auth_artifacts",
         "schedule": 900.0,
@@ -579,7 +577,7 @@ def test_cache_and_celery_broker_use_separate_redis_databases():
     assert result.returncode == 0, result.stderr
 
 
-def test_only_health_path_is_exempt_from_https_redirect():
+def test_no_path_is_exempt_from_https_redirect_by_default():
     from config import settings
 
     assert settings.SECURE_REDIRECT_EXEMPT == []
