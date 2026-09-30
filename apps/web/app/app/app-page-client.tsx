@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { OnboardingHandoffScreen } from "../../lib/allies/onboarding-handoff-screen";
 import { isStandalonePwa } from "../../lib/pwa/pwa-install";
 import { googleSignInErrorMessage } from "../../lib/session/sign-in-errors";
+import { logoutDestination, NOTIFICATION_CLEANUP_NOTICE } from "../../lib/session/logout-destination";
 import { useSession } from "../../lib/session/session-context";
 import {
   hasOnboardingResume,
@@ -106,11 +107,14 @@ export function AppPageClient() {
 
   if (sessionStatus === "signed-out") {
     return (
+      <>
+      {searchParams.get("notification_cleanup") === "unconfirmed" ? <p role="alert">{NOTIFICATION_CLEANUP_NOTICE}</p> : null}
       <Welcome
         onSignIn={() => void startSignIn()}
         signInBusy={signInState === "redirecting"}
         signInError={signInError}
       />
+      </>
     );
   }
 
@@ -124,7 +128,7 @@ function LogoutRecovery({ session }: { session: ReturnType<typeof useSession> })
     setBusy(true);
     try {
       const result = await session.logout();
-      if (result.serverConfirmed) router.replace(isStandalonePwa() ? "/app" : "/");
+      if (result.serverConfirmed) router.replace(logoutDestination(result, isStandalonePwa() ? "/app" : "/"));
     } finally {
       setBusy(false);
     }

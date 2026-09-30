@@ -12,6 +12,8 @@ import {
 } from "./(onboarding)/_store/onboarding-resume";
 import { OnboardingStateProvider } from "./(onboarding)/_store/onboarding-store";
 import { getWebEnvironment } from "../lib/env";
+import { pushReturnPath } from "../lib/pwa/push-navigation";
+import { logoutDestination, NOTIFICATION_CLEANUP_NOTICE } from "../lib/session/logout-destination";
 import { useSession } from "../lib/session/session-context";
 import { WaitlistFlowProvider } from "../lib/waitlist/flow";
 import { OnboardingHandoffScreen } from "../lib/allies/onboarding-handoff-screen";
@@ -27,6 +29,7 @@ export function HomePageClient() {
   const environment = getWebEnvironment();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pushTarget = pushReturnPath(searchParams.get("returnTo"));
   const logoutUnconfirmed = searchParams.get("signout") === "unconfirmed";
   const session = useSession();
   const sessionStatus = session.state.status;
@@ -53,8 +56,8 @@ export function HomePageClient() {
     }
     if (!sendSignedInHome || homeRedirectStarted.current) return;
     homeRedirectStarted.current = true;
-    router.replace("/home");
-  }, [resumeSignedIn, router, sendSignedInHome]);
+    router.replace(pushTarget ?? "/home");
+  }, [resumeSignedIn, router, sendSignedInHome, pushTarget]);
 
   if (logoutUnconfirmed) return <LogoutRecovery />;
 
@@ -74,6 +77,7 @@ export function HomePageClient() {
 
   return (
     <>
+    {searchParams.get("notification_cleanup") === "unconfirmed" ? <p role="alert">{NOTIFICATION_CLEANUP_NOTICE}</p> : null}
     <InviteRequiredNotice visible={searchParams.get("auth_error") === "invite_required"} />
     <OnboardingStateProvider initialStep="welcome">
       <WaitlistFlowProvider
@@ -99,7 +103,7 @@ function LogoutRecovery() {
     setBusy(true);
     try {
       const result = await session.logout();
-      if (result.serverConfirmed) router.replace("/");
+      if (result.serverConfirmed) router.replace(logoutDestination(result, "/"));
     } finally {
       setBusy(false);
     }
