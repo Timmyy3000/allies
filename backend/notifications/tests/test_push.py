@@ -326,7 +326,11 @@ def test_cached_foreground_defers_then_sends_and_fresh_suppresses(
     assert services.dispatch_push(now=now + timedelta(seconds=61)) == 1
     delivery.refresh_from_db()
     assert delivery.state == "sent" and len(calls) == 1
-    assert len(calls[0][1].encode()) <= 1024 and "private reply" not in calls[0][1]
+    assert (
+        len(calls[0][1].encode()) <= 1024
+        and '"title":"Mira"' in calls[0][1]
+        and '"body":"private reply"' in calls[0][1]
+    )
     delivery.state = "pending"
     delivery.next_attempt_at = created
     delivery.save()
@@ -501,6 +505,7 @@ def test_routine_result_only_after_insertion(push_setup, result_account):
     ).exists()
     notification = PushNotification.objects.get(result=result.result)
     assert notification.kind == "routine_completed"
+    assert services._preview(notification) == " ".join(result.result.text.split())
 
 
 def test_routine_approval_staleness(push_setup, approval_account):
