@@ -1057,6 +1057,12 @@ def _apply_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
             "updated_at",
         )
     )
+    from notifications.services import notify_approval, notify_reply
+
+    if approval is not None:
+        notify_approval(approval)
+    if envelope.event_type == "execution.completed":
+        notify_reply(reply)
     if message_status in _TERMINAL_STATES:
         from chat.services.dispatch import _release_next_locked
         from model_keys.services import note_execution_outcome

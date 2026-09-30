@@ -176,6 +176,7 @@ INSTALLED_APPS = [
     "chat",
     "files",
     "activities",
+    "notifications",
     "integrations",
     "model_keys",
     "devtools",
@@ -212,6 +213,7 @@ _COMMON_MIDDLEWARE = [
 MIDDLEWARE = [
     "config.middleware.TrustedProxyHeadersMiddleware",
     "observability.middleware.WideEventMiddleware",
+    "notifications.middleware.PushRequestLimitMiddleware",
     "django.middleware.security.SecurityMiddleware",
     *_COMMON_MIDDLEWARE,
 ]
@@ -1073,3 +1075,13 @@ if not DEBUG:
         )
 
 BROWSER_USE_API_KEY = os.environ.get("BROWSER_USE_API_KEY", "")
+
+ALLIES_PUSH_ENABLED = env_bool("ALLIES_PUSH_ENABLED", True)
+ALLIES_PUSH_VAPID_PUBLIC_KEY = os.environ.get("ALLIES_PUSH_VAPID_PUBLIC_KEY", "")
+ALLIES_PUSH_VAPID_PRIVATE_KEY = os.environ.get("ALLIES_PUSH_VAPID_PRIVATE_KEY", "")
+ALLIES_PUSH_VAPID_CONTACT = os.environ.get("ALLIES_PUSH_VAPID_CONTACT", "")
+CELERY_BEAT_SCHEDULE["dispatch-push-notifications"] = {
+    "task": "notifications.dispatch_push",
+    "schedule": 60.0,
+    "options": {"queue": "cloud"},
+}

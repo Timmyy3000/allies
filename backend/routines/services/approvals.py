@@ -503,6 +503,9 @@ def apply_routine_approval_requested_event(
     if run.outcome != RoutineRunOutcome.APPROVAL_WAITING:
         run.outcome = RoutineRunOutcome.APPROVAL_WAITING
         run.save(update_fields=("outcome", "updated_at"))
+    from notifications.services import notify_approval
+
+    notify_approval(approval)
     return RoutineApprovalProjectionResult(
         status="applied",
         event_id=event.event_id,

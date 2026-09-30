@@ -15,6 +15,33 @@ GENERIC_ERROR_RESPONSE_EXAMPLE: dict[str, Any] = {
 
 STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
     "ErrorResponse_ErrorData_": GENERIC_ERROR_RESPONSE_EXAMPLE,
+    "SuccessResponse_PushConfig_": {
+        "status": "success",
+        "message": "Push configuration",
+        "data": {
+            "enabled": False,
+            "vapid_public_key": None,
+            "presence_ttl_seconds": 60,
+            "heartbeat_seconds": 20,
+        },
+    },
+    "SuccessResponse_PushRegistration_": {
+        "status": "success",
+        "message": "Push enabled",
+        "data": {
+            "subscription_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d72",
+            "browser_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d73",
+            "binding_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d74",
+            "workspace_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d75",
+            "session_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+            "state": "active",
+        },
+    },
+    "SuccessResponse_PresenceReceipt_": {
+        "status": "success",
+        "message": "Push presence updated",
+        "data": {"accepted_sequence": 1, "foreground_until": "2026-09-30T12:01:00Z"},
+    },
     "SuccessResponse_AuthorizationStartResponse_": {
         "status": "success",
         "message": "Authentication started",
@@ -1150,6 +1177,26 @@ def add_standard_response_examples(schema: dict[str, Any]) -> dict[str, Any]:
                             "schema": {"type": "string"},
                             "example": "no-cache",
                         }
+    for path, path_item in schema.get("paths", {}).items():
+        if not path.startswith("/api/v1/workspaces/{workspace_id}/push/"):
+            continue
+        for method, operation in path_item.items():
+            if not isinstance(operation, dict):
+                continue
+            operation["security"] = [{"BrowserSession": []}]
+            operation["description"] = (
+                "Browser-only push, scoped to the authenticated owner, workspace membership "
+                "and current session family. Unknown or foreign subscriptions return 404. "
+                "Native bearer credentials are not accepted."
+            )
+            if method in {"post", "delete"}:
+                for header, description in (
+                    ("Origin", "Trusted browser origin; Referer is an alternative."),
+                    ("X-CSRFToken", "Must match the browser CSRF cookie."),
+                ):
+                    _add_header_parameter(operation, header, description)
+            if method == "get":
+                _add_no_store_header(operation)
     return schema
 
 
