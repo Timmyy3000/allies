@@ -48,6 +48,11 @@ DEFAULT_COMPRESSION_THRESHOLD_TOKENS = 100_000
 # Previous default model route, kept for the legacy upgrade path only.
 LEGACY_MODEL_DEFAULT = "gpt-5.6-luna"
 LEGACY_MODEL_BASE_URL = "https://api.openai.com/v1"
+# OpenRouter used to run behind openai-api; kept for the legacy upgrade path only.
+LEGACY_PROVIDER = "openai-api"
+LEGACY_PROVIDER_CREDENTIAL = "OPENAI_API_KEY"
+NATIVE_PROVIDER = "openrouter"
+NATIVE_PROVIDER_CREDENTIAL = "OPENROUTER_API_KEY"
 MEMORY_MODES = frozenset({"context_only", "narrow_tools"})
 MEMORY_TOOLS = frozenset(
     {
@@ -568,6 +573,24 @@ class ProfileSeed:
         return None if legacy is None else replace(self, personality=legacy)
 
     @property
+    def legacy_provider_seed(self) -> ProfileSeed | None:
+        """Return this seed on the pre-native-OpenRouter route, if managed."""
+
+        if self.provider != NATIVE_PROVIDER or set(self.credential_refs) != {
+            NATIVE_PROVIDER_CREDENTIAL
+        }:
+            return None
+        return replace(
+            self,
+            provider=LEGACY_PROVIDER,
+            credential_refs={
+                LEGACY_PROVIDER_CREDENTIAL: self.credential_refs[
+                    NATIVE_PROVIDER_CREDENTIAL
+                ]
+            },
+        )
+
+    @property
     def legacy_compression_fingerprint(self) -> str:
         """Return the fingerprint from before the compression threshold."""
 
@@ -909,6 +932,51 @@ def _replace_legacy_model_config(content: bytes, seed: ProfileSeed) -> bytes:
         raise ValueError("legacy model config does not match")
     config["model"] = desired
     return yaml.safe_dump(config, allow_unicode=True, sort_keys=False).encode("utf-8")
+
+
+def _replace_legacy_provider_config(content: bytes, seed: ProfileSeed) -> bytes:
+    content = _config_with_catalog(content)
+    import yaml
+
+    config = yaml.safe_load(content)
+    desired = {
+        "provider": seed.provider,
+        "default": seed.model,
+        "base_url": seed.base_url,
+    }
+    current = config.get("model")
+    if current == desired:
+        return content
+    if current != {**desired, "provider": LEGACY_PROVIDER}:
+        raise ValueError("legacy provider config does not match")
+    config["model"] = desired
+    return yaml.safe_dump(config, allow_unicode=True, sort_keys=False).encode("utf-8")
+
+
+def _legacy_upgrades(
+    seed: ProfileSeed, manifest: Mapping[str, Any]
+) -> tuple[bool, bool, bool, bool]:
+    """Return the memory, compression, model, and soul upgrades a manifest needs."""
+
+    fingerprint = manifest.get("seed_fingerprint")
+    legacy_soul_seed = seed.legacy_soul_seed
+    # A volume asleep since before both switches carries the old soul and model.
+    legacy_soul_model_fingerprints = (
+        legacy_soul_seed.legacy_model_fingerprints
+        if legacy_soul_seed is not None
+        else frozenset()
+    )
+    return (
+        _is_legacy_managed_memory_manifest(seed, manifest),
+        fingerprint == seed.legacy_compression_fingerprint,
+        fingerprint
+        in (seed.legacy_model_fingerprints | legacy_soul_model_fingerprints),
+        legacy_soul_seed is not None
+        and (
+            fingerprint == legacy_soul_seed.fingerprint
+            or fingerprint in legacy_soul_model_fingerprints
+        ),
+    )
 
 
 def _is_legacy_managed_memory_manifest(seed: ProfileSeed, manifest: Mapping[str, Any]) -> bool:
@@ -1905,30 +1973,37 @@ class ProfileStore:
             return self._receipt(
                 seed, ProfileProvisionStatus.CONFLICT, repair_code="identity_collision"
             )
-        legacy_memory_upgrade = _is_legacy_managed_memory_manifest(seed, manifest)
-        legacy_compression_upgrade = (
-            manifest.get("seed_fingerprint") == seed.legacy_compression_fingerprint
-        )
-        legacy_soul_seed = seed.legacy_soul_seed
-        # A volume asleep since before both switches carries the old soul and model.
-        legacy_soul_model_fingerprints = (
-            legacy_soul_seed.legacy_model_fingerprints
-            if legacy_soul_seed is not None
-            else frozenset()
-        )
-        legacy_model_upgrade = manifest.get("seed_fingerprint") in (
-            seed.legacy_model_fingerprints | legacy_soul_model_fingerprints
-        )
-        legacy_soul_upgrade = legacy_soul_seed is not None and (
-            manifest.get("seed_fingerprint") == legacy_soul_seed.fingerprint
-            or manifest.get("seed_fingerprint") in legacy_soul_model_fingerprints
-        )
+        upgrades = _legacy_upgrades(seed, manifest)
+        # Earlier upgrades are judged against the seed as it was before native
+        # OpenRouter, then the provider route is rewritten on top.
+        upgrade_seed = seed
+        legacy_provider_upgrade = False
+        provider_seed = seed.legacy_provider_seed
+        if (
+            manifest.get("seed_fingerprint") != seed.fingerprint
+            and not any(upgrades)
+            and provider_seed is not None
+        ):
+            upgrades = _legacy_upgrades(provider_seed, manifest)
+            legacy_provider_upgrade = (
+                manifest.get("seed_fingerprint") == provider_seed.fingerprint
+                or any(upgrades)
+            )
+            if legacy_provider_upgrade:
+                upgrade_seed = provider_seed
+        (
+            legacy_memory_upgrade,
+            legacy_compression_upgrade,
+            legacy_model_upgrade,
+            legacy_soul_upgrade,
+        ) = upgrades
         if (
             manifest.get("seed_fingerprint") != seed.fingerprint
             and not legacy_memory_upgrade
             and not legacy_compression_upgrade
             and not legacy_model_upgrade
             and not legacy_soul_upgrade
+            and not legacy_provider_upgrade
         ):
             code = (
                 "instruction_version_conflict"
@@ -2045,13 +2120,19 @@ class ProfileStore:
                 os.close(descriptor)
             updated_config = _config_with_catalog(config_bytes)
             if legacy_memory_upgrade:
-                updated_config = _replace_legacy_memory_config(updated_config, seed)
+                updated_config = _replace_legacy_memory_config(
+                    updated_config, upgrade_seed
+                )
             if legacy_memory_upgrade or legacy_compression_upgrade or legacy_model_upgrade:
                 updated_config = _replace_legacy_compression_config(
-                    updated_config, seed
+                    updated_config, upgrade_seed
                 )
             if legacy_model_upgrade:
-                updated_config = _replace_legacy_model_config(updated_config, seed)
+                updated_config = _replace_legacy_model_config(
+                    updated_config, upgrade_seed
+                )
+            if legacy_provider_upgrade:
+                updated_config = _replace_legacy_provider_config(updated_config, seed)
             if updated_config != config_bytes:
                 current_stat = config_path.stat(follow_symlinks=False)
                 if any(
@@ -2094,7 +2175,12 @@ class ProfileStore:
                     repair_code="legacy_soul_upgrade_failed",
                 )
             manifest = upgraded
-        if legacy_memory_upgrade or legacy_compression_upgrade or legacy_model_upgrade:
+        if (
+            legacy_memory_upgrade
+            or legacy_compression_upgrade
+            or legacy_model_upgrade
+            or legacy_provider_upgrade
+        ):
             upgraded = dict(manifest)
             upgraded.update(
                 {
@@ -2117,6 +2203,8 @@ class ProfileStore:
                         "legacy_compression_upgrade_failed"
                         if legacy_compression_upgrade
                         else "legacy_model_upgrade_failed"
+                        if legacy_model_upgrade
+                        else "legacy_provider_upgrade_failed"
                     ),
                 )
         try:
