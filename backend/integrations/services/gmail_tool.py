@@ -25,8 +25,11 @@ from uuid import UUID, uuid4
 from django.db import IntegrityError, transaction
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
+from files.exceptions import FileScopeUnavailable
+
 from ..exceptions import IntegrationUnavailable, ProviderUnavailable, RefreshRevoked
 from ..models import PROVIDER_GMAIL, IntegrationSecret, IntegrationToolCall
+from . import gmail_attachments
 from .google_oauth import gmail_enabled, refresh_access_token
 from .grants import check_grant
 from .turns import resolve_tool_turn
@@ -35,10 +38,12 @@ GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 GMAIL_TIMEOUT_SECONDS = 8
 MAX_BODY_CHARS = 12_000
 _ADDRESS = re.compile(r"[^@\s,<>\"]+@[^@\s,<>\"]+\.[^@\s,<>\"]+")
-_GMAIL_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+_GMAIL_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _OPERATION = {
     "search": "gmail search",
     "get": "gmail get",
+    "download_attachment": "gmail get",
+    "attachment_status": "gmail get",
     "list_labels": "gmail get",
     "create_label": "gmail organize",
     "modify": "gmail organize",
@@ -50,6 +55,8 @@ _BLOCKED_LABELS = {"TRASH", "SPAM"}
 _FIELDS = {
     "search": {"query", "max_results"},
     "get": {"message_id"},
+    "download_attachment": {"message_id", "part_id"},
+    "attachment_status": {"publication_id"},
     "list_labels": set(),
     "create_label": {"label"},
     "modify": {"message_ids", "add_labels", "remove_labels"},
@@ -64,6 +71,8 @@ class GmailToolRequest(BaseModel):
     action: Literal[
         "search",
         "get",
+        "download_attachment",
+        "attachment_status",
         "list_labels",
         "create_label",
         "modify",
@@ -73,6 +82,10 @@ class GmailToolRequest(BaseModel):
     query: str | None = Field(default=None, max_length=512)
     max_results: int | None = Field(default=None, ge=1, le=10)
     message_id: str | None = Field(default=None, pattern=_GMAIL_ID.pattern)
+    part_id: str | None = Field(
+        default=None, max_length=128, pattern=r"^(?:\d+(?:\.\d+)*)?$"
+    )
+    publication_id: str | None = Field(default=None, max_length=36)
     to: list[str] | None = Field(default=None, min_length=1, max_length=20)
     cc: list[str] | None = Field(default=None, max_length=20)
     subject: str | None = Field(default=None, max_length=998)
@@ -90,6 +103,15 @@ class GmailToolRequest(BaseModel):
             raise ValueError("unexpected fields for this action")
         if self.action == "get" and not self.message_id:
             raise ValueError("message_id is required")
+        if self.action == "download_attachment" and (
+            not self.message_id or self.part_id is None
+        ):
+            raise ValueError("message_id and part_id are required")
+        if self.action == "attachment_status" and (
+            not self.publication_id
+            or str(UUID(self.publication_id)) != self.publication_id
+        ):
+            raise ValueError("canonical publication_id is required")
         if self.action == "create_label" and not self.label:
             raise ValueError("label is required")
         if self.action == "modify":
@@ -183,7 +205,20 @@ def execute_gmail_tool(
     if args.action == "send":
         return _send(message, call_id, digest, args, secret)
     try:
+        if args.action == "attachment_status":
+            result = gmail_attachments.status(message, args.publication_id)
+            resolve_tool_turn(message_id, binding_id, command_fingerprint)
+            secret.refresh_from_db()
+            if secret.revoked_at is not None or not gmail_enabled():
+                return NOT_CONNECTED
+            if "gmail get" not in check_grant(secret=secret, ally=ally).tool_allowlist:
+                return NOT_GRANTED
+            return 200, result
         token = refresh_access_token(secret).access_token
+        if args.action == "download_attachment":
+            return 200, gmail_attachments.download(
+                message, token, args.message_id, args.part_id, fetch=_gmail
+            )
         if args.action == "search":
             return 200, _search(token, args.query or "", args.max_results or 10)
         if args.action == "list_labels":
@@ -194,6 +229,18 @@ def execute_gmail_tool(
         if args.action == "modify":
             return _modify(token, args)
         return 200, _get(token, args.message_id)
+    except gmail_attachments.AttachmentError as exc:
+        return _error(
+            503 if exc.code == "gmail_attachment_unavailable" else 422,
+            exc.code,
+            exc.instruction,
+        )
+    except FileScopeUnavailable:
+        return _error(
+            403,
+            "gmail_attachment_unavailable",
+            "This file is not available for this turn.",
+        )
     except RefreshRevoked:
         return NOT_CONNECTED
     except HTTPError as exc:
@@ -332,7 +379,14 @@ def _unknown_send() -> tuple[int, dict]:
     )
 
 
-def _gmail(token: str, path: str, *, query: dict | None = None, body=None) -> dict:
+def _gmail(
+    token: str,
+    path: str,
+    *,
+    query: dict | None = None,
+    body=None,
+    max_bytes: int = 5_000_000,
+) -> dict:
     url = GMAIL_API + path + ("?" + urlencode(query, doseq=True) if query else "")
     request = Request(
         url,
@@ -344,7 +398,9 @@ def _gmail(token: str, path: str, *, query: dict | None = None, body=None) -> di
         method="GET" if body is None else "POST",
     )
     with urlopen(request, timeout=GMAIL_TIMEOUT_SECONDS) as response:
-        raw = response.read(5_000_001)
+        raw = response.read(max_bytes + 1)
+    if len(raw) > max_bytes:
+        raise gmail_attachments.AttachmentError("gmail_attachment_too_large")
     payload = json.loads(raw.decode()) if raw else {}
     if not isinstance(payload, dict):
         raise ProviderUnavailable("gmail response invalid")
@@ -396,30 +452,68 @@ def _decode(data: str) -> str:
     )
 
 
-def _text(part: dict) -> tuple[str, str]:
+def _text(part: dict) -> tuple[str, str, bool]:
+    if gmail_attachments.is_attachment(part):
+        return "", "", False
     mime = part.get("mimeType", "")
     data = part.get("body", {}).get("data")
     if data and mime in {"text/plain", "text/html"}:
-        return mime, _decode(data)
-    found = ("", "")
+        if not isinstance(data, str):
+            raise gmail_attachments.AttachmentError("gmail_attachment_invalid")
+        prefix = data[: 4 * ((4 * (MAX_BODY_CHARS + 1) + 2) // 3)]
+        return mime, _decode(prefix), len(prefix) < len(data)
+    found = ("", "", False)
     for child in part.get("parts", []) or []:
-        child_mime, child_text = _text(child)
+        child_mime, child_text, truncated = _text(child)
         if child_mime == "text/plain":
-            return child_mime, child_text
+            return child_mime, child_text, truncated
         if child_text and not found[1]:
-            found = (child_mime, child_text)
+            found = (child_mime, child_text, truncated)
     return found
 
 
 def _get(token: str, gmail_id: str) -> dict:
-    message = _gmail(token, f"/messages/{quote(gmail_id)}", query={"format": "full"})
-    mime, text = _text(message.get("payload", {}))
+    message = _gmail(
+        token,
+        f"/messages/{quote(gmail_id)}",
+        query={"format": "full"},
+        max_bytes=gmail_attachments.MAX_RESPONSE_BYTES,
+    )
+    parts = list(gmail_attachments.parts(message.get("payload", {})))
+    mime, text, truncated = _text(message.get("payload", {}))
     if mime == "text/html":
         text = html.unescape(re.sub(r"<[^>]+>", " ", text))
     result = _summary(message)
     result["cc"] = _headers(message).get("cc", "")
+    result = {
+        key: value[:1024] if isinstance(value, str) else value
+        for key, value in result.items()
+    }
     result["body"] = text[:MAX_BODY_CHARS]
-    result["truncated"] = len(text) > MAX_BODY_CHARS
+    result["truncated"] = truncated or len(text) > MAX_BODY_CHARS
+    while result["body"] and len(json.dumps(result).encode()) > 48 * 1024:
+        result["body"] = result["body"][: len(result["body"]) // 2]
+        result["truncated"] = True
+    if len(json.dumps(result).encode()) > 60 * 1024:
+        raise gmail_attachments.AttachmentError("gmail_attachment_invalid")
+    result["attachments"] = []
+    result["attachments_truncated"] = False
+    for part in parts:
+        if not gmail_attachments.is_attachment(part):
+            continue
+        try:
+            item = gmail_attachments.metadata(part)
+        except gmail_attachments.AttachmentError:
+            result["attachments_truncated"] = True
+            continue
+        result["attachments"].append(item)
+        if (
+            len(result["attachments"]) > 50
+            or len(json.dumps(result).encode()) > 60 * 1024
+        ):
+            result["attachments"].pop()
+            result["attachments_truncated"] = True
+            break
     return result
 
 

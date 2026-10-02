@@ -81,7 +81,7 @@ def gmail(dispatch_records, gmail_settings, monkeypatch):  # noqa: F811
     )
     calls = []
 
-    def fake_gmail(token, path, *, query=None, body=None):
+    def fake_gmail(token, path, *, query=None, body=None, max_bytes=5_000_000):
         assert token == "ya29.live"
         calls.append((path, query, body))
         if path == "/messages":
