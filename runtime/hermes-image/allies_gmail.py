@@ -7,12 +7,22 @@ from uuid import NAMESPACE_URL, uuid5
 
 INSTRUCTION = (
     "Read, organise and send email from the workspace's connected Gmail account. "
-    "search, get and list_labels need the Ally's read access; create_label, modify, "
+    "search, get, list_labels, download_attachment and attachment_status need the Ally's "
+    "read access; create_label, modify, "
     "prepare_send and send need full access. "
     "To organise: modify changes labels on up to 50 message ids at once, by label name "
     "or id. Mark read by removing UNREAD, mark unread by adding UNREAD, archive by "
     "removing INBOX, star by adding STARRED; create_label makes a new label. "
     "Trash and spam are not available. "
+    "To retrieve attachments: get exposes attachment metadata and part_id; call "
+    "download_attachment with message_id and the selected part_id, one attachment at "
+    "a time (an empty part_id selects the root). For pending publications, call "
+    "attachment_status with publication_id; Cloud waits up to 20 seconds per call. "
+    "Make at most five status checks per turn. Only when ready, include the returned "
+    "chat_reference exactly in your final answer. Never claim an attachment was "
+    "downloaded or returned before ready. If still pending after five checks, preserve "
+    "publication_id in the receipt and explain that retrieval succeeded and inspection "
+    "is pending; do not say Gmail cannot retrieve attachments. "
     "To send: call prepare_send with the exact message, show the user the recipients, "
     "subject and body, and ask them to confirm. Only after the user confirms in a later "
     "message, call send with the same fields and the returned confirmation_ref. "
@@ -35,6 +45,8 @@ SCHEMA = {
                     "enum": [
                         "search",
                         "get",
+                        "download_attachment",
+                        "attachment_status",
                         "list_labels",
                         "create_label",
                         "modify",
@@ -49,6 +61,17 @@ SCHEMA = {
                 },
                 "max_results": {"type": "integer", "minimum": 1, "maximum": 10},
                 "message_id": {"type": "string", "maxLength": 64},
+                "part_id": {
+                    "type": "string",
+                    "maxLength": 128,
+                    "description": "Selected attachment part from get; empty for the root.",
+                },
+                "publication_id": {
+                    "type": "string",
+                    "format": "uuid",
+                    "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+                    "description": "Canonical UUID returned by download_attachment.",
+                },
                 "to": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
                 "cc": {"type": "array", "items": {"type": "string"}, "maxItems": 20},
                 "subject": {"type": "string", "maxLength": 998},
