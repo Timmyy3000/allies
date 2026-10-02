@@ -41,6 +41,9 @@ import {
   UserBubble,
 } from "./conversation-frame-primitives";
 import styles from "./conversation-frame.module.css";
+import { playInteractionSound } from "../../lib/interaction-sounds";
+
+const EMPTY_ROUTINE_ITEMS: NonNullable<ProductionConversationFrameModel["routineItems"]> = [];
 
 // Safety net only: the composing intent now polls until Foundry reports ready.
 export const WAKE_HINT_TIMEOUT_MS = 90_000;
@@ -118,7 +121,26 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
       && (!currentTurn || group.conversationTurnOrdinal === currentTurn.turnOrdinal))
     : undefined;
   const visibleMessages = model.messages.filter((message) => !message.queued);
-  const routineItems = model.routineItems ?? [];
+  const routineItems = model.routineItems ?? EMPTY_ROUTINE_ITEMS;
+  const routineStates = useRef(new Map<string, { kind: string; approvalStatus: string | null }>());
+  useEffect(() => {
+    const next = new Map<string, { kind: string; approvalStatus: string | null }>();
+    for (const item of routineItems) {
+      const key = `${item.routineId}:${item.runId ?? item.id}`;
+      const previous = routineStates.current.get(key);
+      if (previous?.kind === "running" && item.kind === "result"
+        && ["succeeded", "changed", "unchanged"].includes(item.status)
+        && document.visibilityState === "visible") {
+        playInteractionSound("success", { emphasis: "subtle" });
+      } else if (previous?.kind === "running" && item.kind === "running"
+        && previous.approvalStatus !== "pending" && item.approvalStatus === "pending"
+        && document.visibilityState === "visible") {
+        playInteractionSound("attention", { emphasis: "subtle" });
+      }
+      next.set(key, { kind: item.kind, approvalStatus: item.approvalStatus });
+    }
+    routineStates.current = next;
+  }, [routineItems]);
   const [selectedRun, setSelectedRun] = useState<(typeof routineItems)[number] | null>(null);
   const [expandedDoc, setExpandedDoc] = useState<{ createdAt: string; text: string } | null>(null);
   const runDetail = selectedRun ? routineItems.find((item) => selectedRun.runId && item.kind === "result" && item.runId === selectedRun.runId && item.routineId === selectedRun.routineId && item.conversationId === selectedRun.conversationId)
@@ -358,6 +380,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
                 {turn ? <TurnMessage
                   model={model}
                   turn={turn}
+                  muteReadySound={routineItems.some((item) => item.kind === "result" && item.sourceMessageId === turn.messageId && ["succeeded", "changed", "unchanged"].includes(item.status))}
                   announceOnMount={message.id === latestUser?.id && model.responseStarted}
                   onOpenRoutine={actions.onOpenRoutine}
                   onOpenFile={onFileOpen}
@@ -708,12 +731,14 @@ function responseOutcomeAnnouncement(state: ProductionConversationTurnModel["sta
 function TurnMessage({
   model,
   turn,
+  muteReadySound,
   announceOnMount,
   onOpenRoutine,
   onOpenFile,
 }: {
   model: ProductionConversationFrameModel;
   turn: ProductionConversationTurnModel;
+  muteReadySound: boolean;
   announceOnMount: boolean;
   onOpenRoutine?: (id: string) => void;
   onOpenFile?: (id: string) => void;
@@ -739,9 +764,12 @@ function TurnMessage({
   }
   useEffect(() => {
     if (!presentation.announcement) return;
+    if (presentation.announcement === "Response complete" && !muteReadySound && document.visibilityState === "visible") {
+      playInteractionSound("ready", { emphasis: "subtle" });
+    }
     const timer = setTimeout(() => setPresentation((current) => ({ ...current, reveal: false, announcement: null })), 2800);
     return () => clearTimeout(timer);
-  }, [presentation.announcement]);
+  }, [muteReadySound, presentation.announcement]);
   const pendingText = model.responsePresentationMode === "paragraph" && pending
     ? completedParagraphs(turn.assistantText)
     : turn.assistantText;

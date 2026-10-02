@@ -3,8 +3,11 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+const audio = vi.hoisted(() => ({ play: vi.fn(), setEnabled: vi.fn(), setVolume: vi.fn() }));
+vi.mock("cuelume", () => audio);
 import type { ApprovalDetail } from "@allies/cloud-client";
 import { ConversationApprovalSlot, ConversationApprovals, approvalQuestion, approvalStatusAt, mergeApprovalSummaries, pruneDecisionIntents, type ApprovalClient } from "./conversation-approvals";
+import { InteractionSoundsProvider } from "../../lib/interaction-sounds";
 
 const approval: ApprovalDetail = {
   id: "e9cfec70-9140-4e08-8ba7-42c6edce5142",
@@ -14,7 +17,7 @@ const approval: ApprovalDetail = {
   actionLabel: "Connect a knowledge space", actionPreview: "Connect to the selected knowledge space using the supplied credential.",
 };
 
-afterEach(cleanup);
+afterEach(() => { cleanup(); audio.play.mockClear(); });
 beforeEach(() => {
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); this.querySelector<HTMLButtonElement>("button")?.focus(); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
@@ -33,6 +36,25 @@ function setup(overrides: Partial<ApprovalClient> = {}, canApprove = true, child
 }
 
 describe("conversation approvals", () => {
+  it("announces only approvals that arrive after the initial history", async () => {
+    localStorage.setItem("allies:interaction-sounds:v1", "on");
+    const nextApproval = { ...approval, id: "new-approval", messageId: "new-message" };
+    const client: ApprovalClient = {
+      getApprovals: vi.fn().mockResolvedValue([approval]),
+      getApproval: vi.fn().mockResolvedValue(approval),
+      decideApproval: vi.fn(),
+    };
+    const query = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const content = (activityApprovals: ApprovalDetail[]) => <InteractionSoundsProvider><QueryClientProvider client={query}>
+      <ConversationApprovals client={client} workspaceId="workspace" conversationId="conversation" allyName="Shaka" accent="#ff5800" canApprove activityApprovals={activityApprovals} />
+    </QueryClientProvider></InteractionSoundsProvider>;
+    const view = render(content([]));
+    await screen.findByRole("button", { name: "Approval needed" });
+    expect(audio.play).not.toHaveBeenCalled();
+    view.rerender(content([approval, nextApproval]));
+    await waitFor(() => expect(audio.play).toHaveBeenCalledExactlyOnceWith("attention", { emphasis: "subtle" }));
+  });
+
   it("phrases the approval question from the explanation summary", () => {
     expect(approvalQuestion("Shaka", "Run a command that will load a page and parse the output.", true)).toBe("Allow Shaka to run a command that will load a page and parse the output?");
     expect(approvalQuestion("Shaka", "  ", true)).toBe("Allow Shaka to perform this action?");
