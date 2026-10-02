@@ -5,6 +5,9 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const audio = vi.hoisted(() => ({ play: vi.fn(), setEnabled: vi.fn(), setVolume: vi.fn() }));
+vi.mock("cuelume", () => audio);
+
 import type { AccountViewModel, AvatarViewModel } from "@allies/cloud-client";
 
 const navigation = vi.hoisted(() => ({ replace: vi.fn(), push: vi.fn() }));
@@ -21,6 +24,7 @@ vi.mock("next/link", () => ({
 
 import { AVATAR_READ_QUERY_KEY, CURRENT_ACCOUNT_QUERY_KEY } from "../../lib/account/account-query";
 import { AccountClient } from "./account-client";
+import { InteractionSoundsProvider } from "../../lib/interaction-sounds";
 
 const account: AccountViewModel = {
   userId: "usr_example",
@@ -84,7 +88,7 @@ function renderAccount(seed = account) {
   queryClient.setQueryData(CURRENT_ACCOUNT_QUERY_KEY, seed);
   const result = render(
     <QueryClientProvider client={queryClient}>
-      <AccountClient />
+      <InteractionSoundsProvider><AccountClient /></InteractionSoundsProvider>
     </QueryClientProvider>,
   );
   return { ...result, queryClient };
@@ -139,6 +143,17 @@ describe("AccountClient", () => {
     renderAccount();
     expect(screen.getByRole("heading", { name: "Ada" })).toBeTruthy();
     expect(screen.queryByRole("textbox")).toBeNull();
+  });
+
+  it("persists the interaction sound preference beside notification settings", () => {
+    setupSession();
+    renderAccount();
+    const toggle = screen.getByRole("switch", { name: "Interaction sounds" });
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-checked")).toBe("true");
+    expect(window.localStorage.getItem("allies:interaction-sounds:v1")).toBe("on");
+    expect(audio.play).toHaveBeenCalledExactlyOnceWith("toggle", { emphasis: "subtle" });
   });
 
   it("keeps a failed photo and retries the full upload", async () => {

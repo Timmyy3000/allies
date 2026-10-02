@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { isCloudError, type ApprovalDecision, type ApprovalDetail, type ApprovalSummary } from "@allies/cloud-client";
+import { playInteractionSound } from "../../lib/interaction-sounds";
 import { BottomSheet } from "./conversation-frame-primitives";
 import { ActivityIcon } from "./activity-icon";
 import styles from "./conversation-frame.module.css";
@@ -155,6 +156,9 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
   const [summaryPaused, setSummaryPaused] = useState(false);
   const [notice, setNotice] = useState<ApprovalNotice | null>(null);
   const readStates = useRef<Record<string, ApprovalReadState>>({});
+  const approvalScope = useRef(scopeKey);
+  const seenApprovalBaseline = useRef(false);
+  const pendingApprovalIds = useRef(new Set<string>());
   useEffect(() => {
     let current = true;
     queueMicrotask(() => {
@@ -254,6 +258,21 @@ export function ConversationApprovals({ client, workspaceId, conversationId, all
   const approvals = useMemo(() => approvalsVisible
     ? mergeApprovalSummaries(summaries.data ?? [], activityApprovals, recorded)
     : [], [activityApprovals, approvalsVisible, recorded, summaries.data]);
+  useEffect(() => {
+    if (approvalScope.current !== scopeKey) {
+      approvalScope.current = scopeKey;
+      seenApprovalBaseline.current = false;
+      pendingApprovalIds.current = new Set();
+    }
+    if (!summaries.isSuccess) return;
+    const next = new Set(approvals.filter((approval) => approvalStatusAt(approval, Date.now()) === "pending").map((approval) => approval.id));
+    if (seenApprovalBaseline.current && document.visibilityState === "visible"
+      && [...next].some((id) => !pendingApprovalIds.current.has(id))) {
+      playInteractionSound("attention", { emphasis: "subtle" });
+    }
+    pendingApprovalIds.current = next;
+    seenApprovalBaseline.current = true;
+  }, [approvals, scopeKey, summaries.isSuccess]);
   const hasDeadlineBearing = approvals.some((approval) => {
     const status = approvalStatusAt(approval, now);
     return (status === "pending" && Boolean(approval.expiresAt))
