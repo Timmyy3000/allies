@@ -61,6 +61,7 @@ import {
   getWebEnvironment,
 } from "../../lib/env";
 import { useSession } from "../../lib/session/session-context";
+import { playInteractionSound } from "../../lib/interaction-sounds";
 import { matchesPushTarget, pushReturnPath } from "../../lib/pwa/push-navigation";
 import { InstallInvitation } from "../../lib/pwa/pwa-install";
 
@@ -2307,6 +2308,7 @@ function ConversationPane({
       setQueuePersistenceError(QUEUED_MESSAGE_PERSISTENCE_ERROR);
       return;
     }
+    playInteractionSound("tap", { emphasis: "subtle" });
     setQueuePersistenceError(null);
     setSendError(
       blockedHead && blockedQueuedMessageIdsRef.current.has(blockedHead.id)

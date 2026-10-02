@@ -7,6 +7,7 @@ import { useState, type ReactNode } from "react";
 import { prepareBrowserCloudRequest } from "../lib/cloud/browser-request";
 import { createCloudCsrfTokenOwner } from "../lib/cloud/csrf-token";
 import { getWebEnvironment } from "../lib/env";
+import { InteractionSoundsProvider } from "../lib/interaction-sounds";
 import { createQueryClient } from "../lib/query/create-query-client";
 import { SessionProvider } from "../lib/session/session-context";
 import { PwaInstallProvider } from "../lib/pwa/pwa-install";
@@ -26,7 +27,9 @@ export default function AppProviders({ children }: { children: ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <SessionProvider client={cloudClient} csrf={csrf}>
-        <PwaInstallProvider>{children}</PwaInstallProvider>
+        <PwaInstallProvider>
+          <InteractionSoundsProvider>{children}</InteractionSoundsProvider>
+        </PwaInstallProvider>
       </SessionProvider>
     </QueryClientProvider>
   );
