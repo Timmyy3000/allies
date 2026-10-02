@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import re
 import sys
 from contextvars import ContextVar
 from io import BytesIO
@@ -104,3 +105,61 @@ def test_unavailable_without_turn_context(monkeypatch):
         gmail, "build_opener", lambda *a: pytest.fail("no context must not call out")
     )
     assert "unavailable" in gmail.handle_gmail({"action": "search"})
+
+
+@pytest.mark.parametrize("state", ["validating", "ready", "rejected"])
+@pytest.mark.parametrize("action", ["download_attachment", "attachment_status"])
+def test_attachment_results_pass_through_without_promoting_state(
+    turn, monkeypatch, state, action
+):
+    publication_id = "00000000-0000-4000-8000-000000000001"
+    args = (
+        {"action": action, "message_id": "m", "part_id": ""}
+        if action == "download_attachment"
+        else {"action": action, "publication_id": publication_id}
+    )
+    result = {
+        "publication_id": publication_id,
+        "state": state,
+        "filename": "document.pdf",
+    }
+    if state == "ready":
+        result["chat_reference"] = (
+            "[document.pdf](/files/00000000-0000-4000-8000-000000000002)"
+        )
+    requests = _opener(monkeypatch, [(200, json.dumps(result).encode())])
+    assert json.loads(gmail.handle_gmail(args)) == result
+    assert json.loads(requests[0].data)["arguments"] == args
+    assert len(requests) == 1
+
+
+def test_attachment_tool_schema_and_guidance_contract():
+    function = gmail.SCHEMA["function"]
+    properties = function["parameters"]["properties"]
+    assert {"download_attachment", "attachment_status"} <= set(
+        properties["action"]["enum"]
+    )
+    assert properties["part_id"]["type"] == "string"
+    assert properties["part_id"]["maxLength"] == 128
+    assert properties["part_id"].get("minLength", 0) == 0
+    publication = properties["publication_id"]
+    assert publication["type"] == "string"
+    assert publication["format"] == "uuid"
+    assert re.fullmatch(publication["pattern"], "00000000-0000-4000-8000-000000000001")
+    assert not re.fullmatch(publication["pattern"], "00000000000040008000000000000001")
+    assert not re.fullmatch(
+        publication["pattern"], "AAAAAAAA-0000-4000-8000-000000000001"
+    )
+    guidance = function["description"]
+    for rule in (
+        "get exposes attachment metadata and part_id",
+        "one attachment at a time",
+        "Cloud waits up to 20 seconds per call",
+        "at most five status checks per turn",
+        "chat_reference exactly in your final answer",
+        "Never claim an attachment was downloaded or returned before ready",
+        "preserve publication_id in the receipt",
+        "retrieval succeeded and inspection is pending",
+        "do not say Gmail cannot retrieve attachments",
+    ):
+        assert rule in guidance

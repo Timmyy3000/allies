@@ -84,6 +84,21 @@ Cloud statuses passed through: 200, 403 (`integration_unavailable`, grant
 denied), 409, 413, 422 (invalid request / confirmation missing); anything else
 becomes Foundry 503 `integration_service_unavailable`. Bodies ≤ 64 KiB.
 
+## Attachment actions (additive contract)
+
+`get` exposes attachment metadata. `download_attachment(message_id, part_id)`
+retrieves one selected attachment; `part_id` is at most 128 characters and may
+be empty for the root. `attachment_status(publication_id)` accepts the canonical
+UUID returned by retrieval. Both actions require the live Gmail read grant.
+Cloud owns retrieval, publication and inspection; Foundry relays compact JSON
+without credentials or attachment bytes and retains its 64 KiB envelope.
+Cloud status waits at most 20 seconds; the Ally makes at most five checks per
+turn. Only a ready result supplies `chat_reference`, which the Ally includes
+exactly in its final answer. Pending exhaustion preserves `publication_id` and
+reports successful retrieval with inspection pending, without claiming download
+completion. Failed or rejected results provide no link. Deploy Cloud's additive
+actions before the updated Hermes tool.
+
 ## Boundary checks
 
 - Foundry kernel carries no vendor naming: `integration` is an opaque slug;

@@ -72,6 +72,31 @@ def test_passes_cloud_denials_through(tool_claim, monkeypatch, status):  # noqa:
 
 
 @override_settings(**CLOUD)
+@pytest.mark.parametrize("state", ["validating", "ready"])
+def test_relays_attachment_status_unchanged(tool_claim, monkeypatch, state):  # noqa: F811
+    _, claim = tool_claim
+    publication_id = str(uuid4())
+    arguments = {"action": "attachment_status", "publication_id": publication_id}
+    result = {
+        "publication_id": publication_id,
+        "state": state,
+        "filename": "document.pdf",
+    }
+    if state == "ready":
+        result["chat_reference"] = f"[document.pdf](/files/{uuid4()})"
+    captured = []
+    _opener(monkeypatch, 200, json.dumps(result).encode(), captured)
+    assert call_integration_tool(
+        routine_tool_token(claim),
+        call_id=uuid4(),
+        integration="gmail",
+        arguments=arguments,
+    ) == (200, result)
+    assert json.loads(captured[0].data)["arguments"] == arguments
+    assert len(captured) == 1
+
+
+@override_settings(**CLOUD)
 def test_unexpected_cloud_status_is_unavailable(tool_claim, monkeypatch):  # noqa: F811
     _, claim = tool_claim
     _opener(monkeypatch, 500, b'{"secret":"leak"}', [])
