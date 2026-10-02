@@ -16,6 +16,7 @@ import {
 } from "@allies/cloud-client";
 import type { RuntimeIntentRequester } from "../../lib/allies/runtime-intent";
 import type { ActivityStreamOptions } from "../../lib/allies/activity-stream";
+import { InteractionSoundsProvider } from "../../lib/interaction-sounds";
 import HomePage from "./page";
 import HomeLayout from "./layout";
 import AllyHomePage from "./[allyId]/page";
@@ -117,6 +118,8 @@ const replace = vi.hoisted(() => vi.fn());
 const push = vi.hoisted(() => vi.fn());
 const useSessionMock = vi.hoisted(() => vi.fn());
 const readActivityStreamMock = vi.hoisted(() => vi.fn());
+const audio = vi.hoisted(() => ({ play: vi.fn(), setEnabled: vi.fn(), setVolume: vi.fn() }));
+vi.mock("cuelume", () => audio);
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, push }), useSelectedLayoutSegment: selectedSegment }));
 vi.mock("next/link", () => ({
@@ -236,6 +239,7 @@ function renderHome(
   selectedAllyId: string | null = null,
   clientOverrides: Record<string, unknown> = {},
   page?: ReactNode,
+  withInteractionSounds = false,
 ) {
   selectedSegment.mockReturnValue(selectedAllyId);
   const client = {
@@ -295,9 +299,10 @@ function renderHome(
     ) => operation(options?.signal)),
   });
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const content = page !== undefined ? <HomeLayout>{page}</HomeLayout> : <HomeWorkspace selectedAllyId={selectedAllyId} />;
   const view = render(
     <QueryClientProvider client={queryClient}>
-      {page !== undefined ? <HomeLayout>{page}</HomeLayout> : <HomeWorkspace selectedAllyId={selectedAllyId} />}
+      {withInteractionSounds ? <InteractionSoundsProvider>{content}</InteractionSoundsProvider> : content}
     </QueryClientProvider>,
   );
   return Object.assign(client, { queryClient, view });
@@ -2277,6 +2282,7 @@ describe("HomeWorkspace", () => {
 
   it.each(["SecurityError", "QuotaExceededError"])("recovers an idle send after %s without sending before persistence", async (errorName) => {
     const storageKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`;
+    window.localStorage.setItem("allies:interaction-sounds:v1", "on");
     let storedBeforeRequest: string | null = null;
     const sendMessage = vi.fn(async () => {
       storedBeforeRequest = window.localStorage.getItem(storageKey);
@@ -2294,7 +2300,7 @@ describe("HomeWorkspace", () => {
         replayed: false,
       };
     });
-    renderHome([ally], ally.id, { sendMessage });
+    renderHome([ally], ally.id, { sendMessage }, undefined, true);
     const input = await screen.findByRole("textbox") as HTMLTextAreaElement;
     const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("Storage unavailable", errorName);
@@ -2305,12 +2311,14 @@ describe("HomeWorkspace", () => {
       expect((await screen.findByRole("alert")).textContent).toContain("allow site storage or free up space");
       expect(input.value).toBe("Keep this draft");
       expect(sendMessage).not.toHaveBeenCalled();
+      expect(audio.play).not.toHaveBeenCalled();
       expect(window.localStorage.getItem(storageKey)).toBeNull();
     } finally {
       setItem.mockRestore();
     }
     await clickSendMessage();
     await waitFor(() => expect(sendMessage).toHaveBeenCalledTimes(1));
+    expect(audio.play).toHaveBeenCalledExactlyOnceWith("tap", { emphasis: "subtle" });
     expect(storedBeforeRequest).toContain("Keep this draft");
     expect(JSON.parse(storedBeforeRequest!)[0].intentKey).toBe(
       (sendMessage.mock.calls[0] as unknown[])[3],

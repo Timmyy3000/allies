@@ -21,6 +21,7 @@ import { alliesQueryOptions } from "../../lib/allies/queries";
 import { isStandalonePwa } from "../../lib/pwa/pwa-install";
 import { logoutDestination } from "../../lib/session/logout-destination";
 import { useSession } from "../../lib/session/session-context";
+import { playInteractionSound, useInteractionSounds } from "../../lib/interaction-sounds";
 import { readThemePreference, subscribeThemePreference, switchTheme, type ThemePreference } from "../../lib/theme/theme";
 import sheet from "../home/ally-settings-dialog.module.css";
 
@@ -70,6 +71,7 @@ function UnavailableAccount({ onRetry }: { onRetry: () => void }) {
 }
 
 export function AccountClient() {
+  const sounds = useInteractionSounds();
   const session = useSession();
   const router = useRouter();
   const { restore } = session;
@@ -143,6 +145,7 @@ export function AccountClient() {
       await queryClient.invalidateQueries({ queryKey: AVATAR_READ_QUERY_KEY });
       setFailedFile(null);
       setAvatarState("idle");
+      playInteractionSound("success", { emphasis: "subtle" });
     } catch (error) {
       setFailedFile(file);
       setAvatarState("error");
@@ -169,6 +172,7 @@ export function AccountClient() {
       queryClient.setQueryData<AccountViewModel>(CURRENT_ACCOUNT_QUERY_KEY, (current) => current && { ...current, avatarUrl: null });
       queryClient.removeQueries({ queryKey: AVATAR_READ_QUERY_KEY });
       setAvatarState("idle");
+      playInteractionSound("success", { emphasis: "subtle" });
     } catch (error) {
       setAvatarState("error");
       setAvatarError(safeErrorMessage(error, "We couldn't remove your photo. Try again."));
@@ -244,6 +248,10 @@ export function AccountClient() {
               <Chevron />
             </button>
             {session.push ? <NotificationPreference push={session.push} /> : null}
+            <button type="button" className={styles.row} role="switch" aria-label="Interaction sounds" aria-checked={sounds.enabled} onClick={() => sounds.changeEnabled(!sounds.enabled)}>
+              <span className={styles.rowCopy}><strong>Interaction sounds</strong><small>Quiet feedback for sends, replies, approvals, and finished routines.</small></span>
+              <span className={styles.notificationToggle} data-enabled={sounds.enabled} aria-hidden="true"><span /></span>
+            </button>
           </div>
         </SettingsSection>
 
