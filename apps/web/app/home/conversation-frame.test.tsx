@@ -6,6 +6,10 @@ import { useState } from "react";
 import type { ActivityProjection, ApprovalSummary, MessageViewModel, RoutineChatItemViewModel, RoutineDiscoveryDetail } from "@allies/cloud-client";
 import { EMPTY_ACTIVITY_PROJECTION } from "@allies/cloud-client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { InteractionSoundsProvider } from "../../lib/interaction-sounds";
+
+const audio = vi.hoisted(() => ({ play: vi.fn(), setEnabled: vi.fn(), setVolume: vi.fn() }));
+vi.mock("cuelume", () => audio);
 
 import {
   EMPTY_ACTIVITY_PRESENTATION,
@@ -134,6 +138,7 @@ const actions: ProductionConversationFrameActions = {
 };
 
 beforeEach(() => {
+  audio.play.mockClear();
   HTMLDialogElement.prototype.showModal = function () { this.setAttribute("open", ""); };
   HTMLDialogElement.prototype.close = function () { this.removeAttribute("open"); };
   Object.defineProperty(window, "matchMedia", {
@@ -1147,6 +1152,7 @@ describe("ConversationFrame", () => {
   });
 
   it("streams a growing response in one reply and announces progress then completion", () => {
+    localStorage.setItem("allies:interaction-sounds:v1", "on");
     const running = {
       ...model,
       responsePresentationMode: "stream" as const,
@@ -1160,28 +1166,32 @@ describe("ConversationFrame", () => {
         turnOrdinal: 4,
       }],
     };
-    const view = render(<ConversationFrame model={running} actions={actions} />);
+    const renderFrame = (frameModel: ProductionConversationFrameModel) => <InteractionSoundsProvider><ConversationFrame model={frameModel} actions={actions} /></InteractionSoundsProvider>;
+    const view = render(renderFrame(running));
+    expect(audio.play).not.toHaveBeenCalled();
     const reply = screen.getByTestId("activity-reply-4");
     expect(reply.textContent).toContain("A growing");
     expect(screen.getByRole("status", { name: "Response in progress" })).toBeTruthy();
 
-    view.rerender(<ConversationFrame model={{
+    view.rerender(renderFrame({
       ...running,
       turns: [{ ...running.turns[0], assistantText: "A growing response" }],
-    }} actions={actions} />);
+    }));
     expect(screen.getByTestId("activity-reply-4")).toBe(reply);
     expect(reply.textContent).toContain("A growing response");
+    expect(audio.play).not.toHaveBeenCalled();
 
-    view.rerender(<ConversationFrame model={{
+    view.rerender(renderFrame({
       ...running,
       showThinkingState: false,
       activityState: "completed",
       turns: [{ ...running.turns[0], assistantText: "Corrected final", state: "completed" }],
-    }} actions={actions} />);
+    }));
     expect(screen.getByTestId("activity-reply-4")).toBe(reply);
     expect(reply.textContent).toContain("Corrected final");
     expect(reply.textContent).not.toContain("A growing response");
     expect(screen.getByRole("status", { name: "Response complete" })).toBeTruthy();
+    expect(audio.play).toHaveBeenCalledExactlyOnceWith("ready", { emphasis: "subtle" });
   });
 
   it("withholds a partial paragraph in paragraph mode but reveals complete ones", () => {
@@ -1347,6 +1357,7 @@ describe("ConversationFrame", () => {
   });
 
   it("renders routine projections with truthful insertion state and attributed approval actions", async () => {
+    localStorage.setItem("allies:interaction-sounds:v1", "on");
     const routineId = "00000000-0000-4000-8000-000000000010";
     const runId = "00000000-0000-4000-8000-000000000012";
     const approvalRequestId = "00000000-0000-4000-8000-000000000016";
@@ -1398,6 +1409,12 @@ describe("ConversationFrame", () => {
       actionAttemptId: null,
       approvalExpiresAt: null,
     };
+    const completionView = render(<InteractionSoundsProvider><ConversationFrame model={{ ...model, routineItems: [approvalItem] }} actions={actions} /></InteractionSoundsProvider>);
+    expect(audio.play).not.toHaveBeenCalled();
+    completionView.rerender(<InteractionSoundsProvider><ConversationFrame model={{ ...model, routineItems: [resultItem] }} actions={actions} /></InteractionSoundsProvider>);
+    expect(audio.play).toHaveBeenCalledExactlyOnceWith("success", { emphasis: "subtle" });
+    cleanup();
+
     const onRoutineAction = vi.fn(async () => true);
     const onOpenRoutine = vi.fn();
     render(<ConversationFrame model={{ ...model, routineItems: [approvalItem, resultItem] }} actions={{
