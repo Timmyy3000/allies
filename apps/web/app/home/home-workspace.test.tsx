@@ -966,6 +966,22 @@ describe("HomeWorkspace", () => {
     window.history.replaceState(null, "", "/");
   });
 
+  it("heals a failed response-status check without showing the banner", async () => {
+    const getActivities = vi.fn()
+      .mockRejectedValueOnce({ kind: "network" })
+      .mockResolvedValue({
+        conversationId: "00000000-0000-4000-8000-000000000005",
+        activities: [],
+        state: "completed" as const,
+        lastContiguousSequence: 0,
+      });
+    renderHome([ally], ally.id, { getActivities });
+    await waitFor(() => expect(getActivities).toHaveBeenCalled());
+    await waitFor(() => expect(getActivities.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 4_000 });
+    expect(screen.queryByText(/Reconnecting to Allies/)).toBeNull();
+    expect(screen.queryByText(/couldn't check the latest response status/)).toBeNull();
+  });
+
   it("offers a retry when routines fail to load", async () => {
     const listRoutines = vi.fn()
       .mockRejectedValueOnce({ kind: "server", status: 503 })
@@ -3555,10 +3571,12 @@ describe("HomeWorkspace", () => {
     await act(async () => undefined);
   });
 
-  it("surfaces activity history failure and retries terminal conversations", async () => {
+  it("shows the reconnect banner only after repeated history failures and recovers on Check again", async () => {
     const getActivities = vi.fn()
       .mockRejectedValueOnce(new Error("temporary activity failure"))
-      .mockResolvedValueOnce({
+      .mockRejectedValueOnce(new Error("temporary activity failure"))
+      .mockRejectedValueOnce(new Error("temporary activity failure"))
+      .mockResolvedValue({
         conversationId: "00000000-0000-4000-8000-000000000005",
         activities: [],
         state: "completed" as const,
@@ -3566,13 +3584,14 @@ describe("HomeWorkspace", () => {
       });
     renderHome([ally], ally.id, { getActivities });
 
-    const error = await screen.findByText("We couldn't check the latest response status.");
-    expect(error).toBeTruthy();
+    const banner = /Reconnecting to Allies/;
+    expect(await screen.findByText(banner, {}, { timeout: 10_000 })).toBeTruthy();
+    expect(getActivities).toHaveBeenCalledTimes(3);
     fireEvent.click(screen.getByRole("button", { name: "Check again" }));
 
-    await waitFor(() => expect(getActivities).toHaveBeenCalledTimes(2));
-    await waitFor(() => expect(screen.queryByText("We couldn't check the latest response status.")).toBeNull());
-  });
+    await waitFor(() => expect(getActivities).toHaveBeenCalledTimes(4));
+    await waitFor(() => expect(screen.queryByText(banner)).toBeNull());
+  }, 15_000);
 
   it("interleaves each projected Ally reply with its user turn", async () => {
     const messages = [
