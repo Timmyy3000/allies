@@ -496,6 +496,9 @@ ALLIES_CHAT_CURSOR_TTL_SECONDS = env_bounded_int(
 
 ALLIES_AUTH_FAKE_PROVIDER_ENABLED = env_bool("ALLIES_AUTH_FAKE_PROVIDER_ENABLED", False)
 ALLIES_BETA_INVITES_REQUIRED = env_bool("ALLIES_BETA_INVITES_REQUIRED", True)
+# Self-hosted owners: verified emails (or "@domain.com") that may sign up
+# without an invite while invites stay required for everyone else.
+ALLIES_SIGNUP_ALLOWED_EMAILS = env_list("ALLIES_SIGNUP_ALLOWED_EMAILS")
 ALLIES_AUTH_INVITE_CLAIM_LIMIT = env_bounded_int(
     "ALLIES_AUTH_INVITE_CLAIM_LIMIT", 10, 1, 600
 )
