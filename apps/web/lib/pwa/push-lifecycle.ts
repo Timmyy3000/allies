@@ -41,6 +41,10 @@ export function createPushLifecycle(client: CloudClient, run: RunCloudOperation)
   const stopPresence = () => { if (heartbeat) clearInterval(heartbeat); heartbeat = null; active = null; };
   const cancel = () => { generation += 1; operation?.abort(); operation = null; stopPresence(); };
   const fail = () => publish({ status: "failed", message: "Notifications need recovery. Try again.", available: !!config?.enabled });
+  // Brave ships with its push service off, so subscribing fails until the user enables it.
+  const failEnable = () => "brave" in navigator
+    ? publish({ status: "failed", message: "Brave blocks notifications by default. Turn on \"Use Google services for push messaging\" in brave://settings/privacy, restart Brave, then try again.", available: !!config?.enabled })
+    : fail();
   async function presence(event?: Event) {
     const binding = active;
     if (!binding || !account || !belongsTo(binding, scopeOf(account))) return;
@@ -219,7 +223,7 @@ export function createPushLifecycle(client: CloudClient, run: RunCloudOperation)
         await register(nextAccount, captured, state, false); return;
       }
       publish({ status: "off", message: "Approvals, routines and replies on this browser.", available: true });
-    } catch { if (captured === generation) fail(); }
+    } catch { if (captured === generation) failEnable(); }
   }
   function enable() {
     if (!account || !config?.enabled || !registration) return Promise.resolve();
@@ -258,7 +262,7 @@ export function createPushLifecycle(client: CloudClient, run: RunCloudOperation)
           state = await workerMessage(workerAtStart, { type: "PUSH_STATE" }); check();
         }
         await register(currentAccount, captured, state, true);
-      } catch { if (captured === generation) fail(); }
+      } catch { if (captured === generation) failEnable(); }
     })();
   }
   async function retryLocalCleanup() {
