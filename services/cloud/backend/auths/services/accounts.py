@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from auths.config import beta_invites_required
+from auths.config import beta_invites_required, signup_email_allowlisted
 from auths.exceptions import InviteRequired, InviteValidation
 from auths.models import ExternalIdentity, User, UserProfile
 from auths.providers.base import VerifiedIdentity
@@ -63,7 +63,9 @@ def resolve_or_create_user(identity: VerifiedIdentity) -> UserBootstrap:
         created = False
         invite = None
         if existing is None:
-            if beta_invites_required():
+            if beta_invites_required() and not (
+                identity.email_verified and signup_email_allowlisted(identity.email)
+            ):
                 invite = lock_invite_for_signup(email=_verified_signup_email(identity))
                 # The grant lock serializes same-grant callbacks. Recheck the
                 # immutable provider identity after waiting on it.

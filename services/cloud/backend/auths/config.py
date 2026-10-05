@@ -149,6 +149,15 @@ def beta_invites_required() -> bool:
     return bool(setting("ALLIES_BETA_INVITES_REQUIRED", True))
 
 
+def signup_email_allowlisted(email: str) -> bool:
+    email = email.strip().lower()
+    domain = "@" + email.rpartition("@")[2]
+    allowed = {
+        item.strip().lower() for item in setting("ALLIES_SIGNUP_ALLOWED_EMAILS", [])
+    }
+    return bool(email) and (email in allowed or domain in allowed)
+
+
 def invite_claim_limit() -> int:
     return int(setting("ALLIES_AUTH_INVITE_CLAIM_LIMIT", 10))
 
