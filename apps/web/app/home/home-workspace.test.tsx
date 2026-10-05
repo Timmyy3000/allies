@@ -452,6 +452,30 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     expect(screen.queryByText(/I will keep that with the rest of today/)).toBeNull();
   });
 
+  it("shows the load error when the full read fails behind a cached preview", async () => {
+    const preview = {
+      id: "00000000-0000-4000-8000-000000000005",
+      allyId: ally.id,
+      messages: [{
+        id: "00000000-0000-4000-8000-000000000006",
+        sender: "assistant" as const,
+        content: "Cached preview reply",
+        sequence: 1,
+        status: "completed" as const,
+        createdAt: "2026-08-20T16:00:00Z",
+      }],
+      nextCursor: null,
+    };
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async (_workspaceId: string, _allyId: string, options?: { limit?: number }) => {
+        if (options?.limit === 50) throw { kind: "network" };
+        return preview;
+      }),
+    }, <AllyHomePage />);
+    expect(await screen.findByText("Cached preview reply")).toBeTruthy();
+    expect(await screen.findByText("We couldn't open this conversation.", {}, { timeout: 4000 })).toBeTruthy();
+  });
+
   it("keeps unknown Ally IDs honest", async () => {
     const page = <AllyHomePage />;
     renderHome([ally], "not-owned", {}, page);
