@@ -1,0 +1,479 @@
+<!DOCTYPE html><html lang="en" xml:lang="en"><head><meta name="viewport" content="width=device-width">
+<link  rel="preconnect" href="https://cdn.divriots.com" crossorigin>
+<style>
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('https://cdn.divriots.com/fonts/inter/v3.19/Inter.var.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('https://cdn.divriots.com/fonts/inter/v3.19/Inter.var.woff2') format('woff2');
+  font-variation-settings: 'slnt' -10;
+}</style>
+
+<style>
+@font-face {
+  font-family: "Open Runde";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('https://cdn.divriots.com/fonts/inter/v3.19/Inter.var.woff2') format('woff2');
+  ascent-override: 93.75%;
+  descent-override: 27.27%;
+  line-gap-override: 0.00%;
+}
+@font-face {
+  font-family: "Open Runde";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('https://cdn.divriots.com/fonts/inter/v3.19/Inter.var.woff2') format('woff2');
+  font-variation-settings: 'slnt' -10;
+  ascent-override: 93.75%;
+  descent-override: 27.27%;
+  line-gap-override: 0.00%;
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('https://cdn.divriots.com/fonts/inter/v3.19/Inter.var.woff2') format('woff2');
+  ascent-override: 92.31%;
+  descent-override: 27.03%;
+  line-gap-override: 0.00%;
+}
+@font-face {
+  font-family: "SF Pro Display";
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('https://cdn.divriots.com/fonts/inter/v3.19/Inter.var.woff2') format('woff2');
+  font-variation-settings: 'slnt' -10;
+  ascent-override: 92.31%;
+  descent-override: 27.03%;
+  line-gap-override: 0.00%;
+}</style>
+
+<style media="all">
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  -webkit-font-smoothing: auto;
+}
+
+button {
+  -webkit-font-smoothing: inherit;
+  -moz-osx-font-smoothing: inherit;
+  -webkit-appearance: none;
+}
+* {
+  padding: 0;
+  margin: 0;
+}a {
+  color: inherit;
+  text-decoration: inherit;
+}
+input {
+  border: none;
+  font: inherit;
+  outline: none;
+  background-color: inherit;
+}
+button {
+  border-style: none;
+  width: auto;
+  overflow: visible;
+  background: transparent;
+  font: inherit;
+  line-height: normal;
+  color: inherit;
+}
+textarea {
+  font: inherit;
+  background-color: inherit;
+}
+select {
+  font: inherit;
+  background-color: inherit;
+}
+img {
+  display: block;
+}
+picture {
+  display: block;
+}
+video {
+  display: block;
+}
+canvas {
+  display: block;
+}
+svg {
+  display: block;
+}
+
+[data-visible='false']{
+  display:none!important;
+}
+
+.before-hidden::before {
+  display:none;
+}
+
+.after-hidden::after {
+  display:none;
+}
+
+.before-visible::before {
+  content: "";
+}
+
+.after-visible::after {
+  content: "";
+}
+
+.text {
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+</style>
+
+<meta charset="utf-8"></head><body style="display: grid;background-color: #fff;">
+  <div style="border-radius: 10px 10px 0px 0px;background-color: #fff;overflow: hidden;width: 1512px;min-width: 1512px;max-width: 1512px;min-height: 982px;max-height: 982px;position: relative;margin: 0px auto;">
+    <div style="border-width: 0px 1px 0px 0px;border-style: solid;border-color: #e8e8e8;background-color: #fff;overflow: hidden;top: 0px;right: 1080px;width: 432px;height: 982px;position: absolute;">
+      <div style="border-radius: 100px;background-color: #f0f0f0;overflow: hidden;left: 36px;top: 150px;width: 360px;height: 48px;position: absolute;">
+        <div style="display: flex;flex-direction: row;grid-column-gap: 8px;align-items: center;justify-content: flex-start;left: 18px;top: calc(-12px + 50%);width: min-content;position: absolute;">
+          <div style="overflow: hidden;width: 24px;height: 24px;position: relative;flex-shrink: 0;">
+            <img data-figma-node-id="384:8391" data-figma-asset="Group" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574629/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group.svg" alt="Group" width="19" height="19" style="left: 10.4%;top: 10.4%;right: 10.4%;bottom: 10.4%;width: 79.2%;height: 79.2%;position: absolute;" />
+          </div>
+          <span class="text" style="display: inline;text-align: left;font-size: 16px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 600;font-stretch: 100%;letter-spacing: -0.58px;color: #757575;width: max-content;position: relative;flex-shrink: 0;">Search</span>
+        </div>
+      </div>
+      <div style="display: flex;flex-direction: row;grid-column-gap: 12px;align-items: center;justify-content: flex-start;left: 36px;top: 226px;width: min-content;position: absolute;">
+        <div style="border-radius: 100px;background-color: #ff5800;display: flex;flex-direction: row;grid-column-gap: 10px;align-items: center;justify-content: center;width: min-content;position: relative;flex-shrink: 0;padding: 8px 12px;">
+          <span class="text" style="display: inline;text-align: left;font-size: 14px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 600;font-stretch: 100%;letter-spacing: -0.62px;color: #fff;width: max-content;position: relative;flex-shrink: 0;">My allies</span>
+        </div>
+        <div style="border-radius: 100px;background-color: #f3f3f3;display: flex;flex-direction: row;grid-column-gap: 10px;align-items: center;justify-content: center;width: min-content;position: relative;flex-shrink: 0;padding: 8px 12px;">
+          <span class="text" style="display: inline;text-align: left;font-size: 14px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 600;font-stretch: 100%;letter-spacing: -0.61px;color: #757575;width: max-content;position: relative;flex-shrink: 0;">Routines</span>
+        </div>
+      </div>
+      <div style="display: flex;flex-direction: row;grid-column-gap: 12px;align-items: center;justify-content: flex-start;left: 36px;top: 283px;width: min-content;position: absolute;">
+        <div style="overflow: hidden;width: 49.3px;height: 48px;position: relative;flex-shrink: 0;">
+          <div style="border-radius: 32px;background-color: #3446e9;overflow: hidden;left: 0px;top: 0px;width: 49.3px;height: 48px;position: absolute;">
+            <div style="overflow: hidden;left: calc(-15px + 50%);top: calc(-16.5px + 50%);width: 30.2px;height: 33px;position: absolute;">
+              <img data-figma-node-id="384:7834" data-figma-asset="fill" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574630/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/fill.svg" alt="fill" width="30" height="33" style="left: -3.7%;top: -3.4%;right: -3.2%;bottom: -3%;width: 106.9%;height: 106.4%;position: absolute;" />
+              <div style="overflow: hidden;left: calc(-11px + 50%);top: 7.6px;width: 12.7px;height: 8.9px;position: absolute;">
+                <div style="overflow: hidden;left: 0px;top: 0px;width: 4.8px;height: 8.9px;position: absolute;">
+                  <svg width="4.747260093688966" height="8.912921905517578" viewBox="0 0 4.747260093688966 8.912921905517578" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0.1%;top: 0px;right: 0px;bottom: 0px;width: 99.9%;height: 100%;position: absolute;">
+                    <path d="M2.3736 0C3.6846 0 4.7473 1.9955 4.7473 4.4565 4.7473 6.9174 3.6846 8.9129 2.3736 8.9129 1.0626 8.9129 0 6.9174 0 4.4565 0 1.9955 1.0626 0 2.3736 0Z" style="fill-rule: nonzero;fill: #000;" />
+                  </svg>
+                  <div style="overflow: hidden;left: 0px;top: 0.1%;right: 0.1%;bottom: 0.1%;width: 99.9%;height: 99.9%;position: absolute;">
+                    <div style="overflow: hidden;left: -23.7%;top: 29.1%;right: 53%;bottom: 28.5%;width: 70.7%;height: 42.3%;position: absolute;mask-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNSIgaGVpZ2h0PSI5IiB2aWV3Qm94PSIwIDAgNSA5IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiBzdHlsZT0ibGVmdDogMHB4O3RvcDogMHB4O3JpZ2h0OiAwcHg7Ym90dG9tOiAwcHg7dHJhbnNmb3JtOiBtYXRyaXgoMSwwLDAsMSwwLDApO3RyYW5zZm9ybS1vcmlnaW46IDAgMDsiPjxkZWZzPjxjbGlwUGF0aCBpZD0iZGVmXzAiPjxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSI0Ljc0NzI2MDA5MzY4ODk2NSIgaGVpZ2h0PSI4LjkwMjczNDc1NjQ2OTcyNyI+PC9yZWN0PjwvY2xpcFBhdGg+PC9kZWZzPjxnIGlkPSJtYXNrX3VuZGVmaW5lZCIgbWFza1VuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeD0iMCIgeT0iMCIgd2lkdGg9IjQuNzQ3MjYwMDkzNjg4OTY1IiBoZWlnaHQ9IjguOTAyNzM0NzU2NDY5NzI3IiBzdHlsZT0ibWFzay10eXBlOiBsdW1pbmFuY2U7Ij48ZyBzdHlsZT0iY2xpcC1wYXRoOiB1cmwoI2RlZl8wKTsiPjxwYXRoIGQ9Ik0yLjM3ODQgMEMzLjY4MjcgMCA0Ljc0NzMgMS45ODYzIDQuNzQ3MyA0LjQ1MTQgNC43NDczIDYuOTE2NCAzLjY4MjcgOC45MDI3IDIuMzc4NCA4LjkwMjcgMS4wNjQ1IDguOTAyNyAwIDYuOTE2NCAwIDQuNDUxNCAwIDEuOTg2MyAxLjA2NDUgMCAyLjM3ODQgMFoiIHN0eWxlPSJmaWxsLXJ1bGU6IG5vbnplcm87ZmlsbDogIzAwMDsiIC8+PC9nPjwvZz48L3N2Zz4=&quot;);mask-repeat: no-repeat;mask-type: luminance;mask-position: 1.1px -2.6px;">
+                      <svg width="3.7696335315704346" height="3.35665" viewBox="0 0 3.7696335315704346 3.35665" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="transform-origin: 0 0;transform: rotate(90deg);left: 100%;top: 0px;right: -112.3%;bottom: 11%;width: 112.3%;height: 89%;position: absolute;">
+                        <path d="M2.0314 0.261l1.5976 2.8453c0.0629 0.112-0.0181 0.2504-0.1465 0.2504h-3.1953c-0.1285 0-0.2095-0.1384-0.1466-0.2504l1.5976-2.8453c0.0642-0.1144 0.2289-0.1144 0.2932 0z" style="fill-rule: nonzero;fill: #fff;" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+                <div style="overflow: hidden;left: 7.9px;top: 0px;width: 4.7px;height: 8.9px;position: absolute;">
+                  <svg width="4.747260093688966" height="8.912921905517578" viewBox="0 0 4.747260093688966 8.912921905517578" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0px;top: 0px;right: 0px;bottom: 0px;width: 100%;height: 100%;position: absolute;">
+                    <path d="M2.3736 0C3.6846 0 4.7473 1.9955 4.7473 4.4565 4.7473 6.9174 3.6846 8.9129 2.3736 8.9129 1.0626 8.9129 0 6.9174 0 4.4565 0 1.9955 1.0626 0 2.3736 0Z" style="fill-rule: nonzero;fill: #000;" />
+                  </svg>
+                  <div style="overflow: hidden;left: 0px;top: 0.1%;right: 0px;bottom: 0.1%;width: 100%;height: 99.9%;position: absolute;">
+                    <div style="overflow: hidden;left: -23.7%;top: 29.1%;right: 53%;bottom: 28.5%;width: 70.7%;height: 42.3%;position: absolute;mask-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNSIgaGVpZ2h0PSI5IiB2aWV3Qm94PSIwIDAgNSA5IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiBzdHlsZT0ibGVmdDogMHB4O3RvcDogMHB4O3JpZ2h0OiAwcHg7Ym90dG9tOiAwcHg7dHJhbnNmb3JtOiBtYXRyaXgoMSwwLDAsMSwwLDApO3RyYW5zZm9ybS1vcmlnaW46IDAgMDsiPjxkZWZzPjxjbGlwUGF0aCBpZD0iZGVmXzAiPjxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSI0Ljc0NzI2MDA5MzY4ODk2NSIgaGVpZ2h0PSI4LjkwMjczNDc1NjQ2OTcyNyI+PC9yZWN0PjwvY2xpcFBhdGg+PC9kZWZzPjxnIGlkPSJtYXNrX3VuZGVmaW5lZCIgbWFza1VuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeD0iMCIgeT0iMCIgd2lkdGg9IjQuNzQ3MjYwMDkzNjg4OTY1IiBoZWlnaHQ9IjguOTAyNzM0NzU2NDY5NzI3IiBzdHlsZT0ibWFzay10eXBlOiBsdW1pbmFuY2U7Ij48ZyBzdHlsZT0iY2xpcC1wYXRoOiB1cmwoI2RlZl8wKTsiPjxwYXRoIGQ9Ik0yLjM3ODQgMEMzLjY4MjcgMCA0Ljc0NzMgMS45ODYzIDQuNzQ3MyA0LjQ1MTQgNC43NDczIDYuOTE2NCAzLjY4MjcgOC45MDI3IDIuMzc4NCA4LjkwMjcgMS4wNjQ1IDguOTAyNyAwIDYuOTE2NCAwIDQuNDUxNCAwIDEuOTg2MyAxLjA2NDUgMCAyLjM3ODQgMFoiIHN0eWxlPSJmaWxsLXJ1bGU6IG5vbnplcm87ZmlsbDogIzAwMDsiIC8+PC9nPjwvZz48L3N2Zz4=&quot;);mask-repeat: no-repeat;mask-type: luminance;mask-position: 1.1px -2.6px;">
+                      <svg width="3.7696335315704346" height="3.35665" viewBox="0 0 3.7696335315704346 3.35665" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="transform-origin: 0 0;transform: rotate(90deg);left: 100%;top: 0px;right: -112.3%;bottom: 11%;width: 112.3%;height: 89%;position: absolute;">
+                        <path d="M2.0314 0.261l1.5976 2.8453c0.0629 0.112-0.0181 0.2504-0.1465 0.2504h-3.1953c-0.1285 0-0.2095-0.1384-0.1466-0.2504l1.5976-2.8453c0.0642-0.1144 0.2289-0.1144 0.2932 0z" style="fill-rule: nonzero;fill: #fff;" />
+                      </svg>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="border-width: 1px;border-style: solid;border-color: #fff;border-radius: 50%;background-color: #12c25b;left: 37px;top: 35px;aspect-ratio: 1;width: auto;height: 10px;position: absolute;">
+          </div>
+        </div>
+        <div style="display: flex;flex-direction: column;row-gap: 6px;align-items: start;justify-content: flex-start;width: min-content;position: relative;flex-shrink: 0;">
+          <span class="text" style="display: inline;text-align: left;font-size: 18px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 600;font-stretch: 100%;letter-spacing: -0.75px;color: #121212;width: max-content;position: relative;flex-shrink: 0;">timi</span>
+          <span class="text" style="display: inline;text-align: left;font-size: 14px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.48px;color: #757575;width: 299px;position: relative;flex-shrink: 0;">Think of me as your always-available partner for brainstorming,</span>
+        </div>
+      </div>
+      <span class="text" style="display: inline;text-align: right;font-size: 12px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.44px;color: #a0a0a0;top: 285px;right: 36px;width: max-content;position: absolute;">12:20 PM</span>
+      <div style="display: flex;flex-direction: row;grid-column-gap: 12px;align-items: center;justify-content: flex-start;left: 36px;top: 355px;width: min-content;position: absolute;">
+        <div style="overflow: hidden;width: 49.3px;height: 48px;position: relative;flex-shrink: 0;">
+          <div style="border-radius: 32px;background-color: #fd304f;overflow: hidden;left: 0px;top: 0px;width: 49.3px;height: 48px;position: absolute;">
+            <img data-figma-node-id="384:7859" data-figma-asset="Vector" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574633/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/vector.svg" alt="Vector" width="33" height="32" style="left: 13.6%;top: 13.5%;right: 13.9%;bottom: 13.9%;width: 72.5%;height: 72.7%;position: absolute;" />
+            <div style="overflow: hidden;left: 20.9px;top: 15.6px;width: 14.7px;height: 8.4px;position: absolute;">
+              <div style="overflow: hidden;left: 0px;top: 0px;width: 4.9px;height: 8.4px;position: absolute;">
+                <svg width="4.87788724899292" height="8.399999618530273" viewBox="0 0 4.87788724899292 8.399999618530273" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0.1%;top: 0px;right: 0px;bottom: 0px;width: 99.9%;height: 100%;position: absolute;">
+                  <path d="M2.4389 0C3.786 0 4.8779 1.8806 4.8779 4.2 4.8779 6.5194 3.786 8.4 2.4389 8.4 1.0919 8.4 0 6.5194 0 4.2 0 1.8806 1.0919 0 2.4389 0Z" style="fill-rule: nonzero;fill: #000;" />
+                </svg>
+                <div style="overflow: hidden;left: 0px;top: 0.1%;right: 0.1%;bottom: 0.1%;width: 99.9%;height: 99.9%;position: absolute;">
+                  <div style="overflow: hidden;left: -23.7%;top: 29.1%;right: 53%;bottom: 28.5%;width: 70.7%;height: 42.3%;position: absolute;mask-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNSIgaGVpZ2h0PSI4LjM5MDM5OTkzMjg2MTMyOCIgdmlld0JveD0iMCAwIDUgOC4zOTAzOTk5MzI4NjEzMjgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHByZXNlcnZlQXNwZWN0UmF0aW89Im5vbmUiIHN0eWxlPSJsZWZ0OiAwcHg7dG9wOiAwcHg7cmlnaHQ6IDBweDtib3R0b206IDBweDt0cmFuc2Zvcm06IG1hdHJpeCgxLDAsMCwxLDAsMCk7dHJhbnNmb3JtLW9yaWdpbjogMCAwOyI+PGRlZnM+PGNsaXBQYXRoIGlkPSJkZWZfMCI+PHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjQuODc3ODg3MjQ4OTkyOTIiIGhlaWdodD0iOC4zOTAzOTk5MzI4NjEzMjgiPjwvcmVjdD48L2NsaXBQYXRoPjwvZGVmcz48ZyBpZD0ibWFza191bmRlZmluZWQiIG1hc2tVbml0cz0idXNlclNwYWNlT25Vc2UiIHg9IjAiIHk9IjAiIHdpZHRoPSI0Ljg3Nzg4NzI0ODk5MjkyIiBoZWlnaHQ9IjguMzkwMzk5OTMyODYxMzI4IiBzdHlsZT0ibWFzay10eXBlOiBsdW1pbmFuY2U7Ij48ZyBzdHlsZT0iY2xpcC1wYXRoOiB1cmwoI2RlZl8wKTsiPjxwYXRoIGQ9Ik0yLjQ0MzkgMEMzLjc4NDEgMCA0Ljg3NzkgMS44NzIgNC44Nzc5IDQuMTk1MiA0Ljg3NzkgNi41MTg0IDMuNzg0MSA4LjM5MDQgMi40NDM5IDguMzkwNCAxLjA5MzggOC4zOTA0IDAgNi41MTg0IDAgNC4xOTUyIDAgMS44NzIgMS4wOTM4IDAgMi40NDM5IDBaIiBzdHlsZT0iZmlsbC1ydWxlOiBub256ZXJvO2ZpbGw6ICMwMDA7IiAvPjwvZz48L2c+PC9zdmc+&quot;);mask-repeat: no-repeat;mask-type: luminance;mask-position: 1.2px -2.4px;">
+                    <svg width="3.5526986122131348" height="3.449011325836182" viewBox="0 0 3.5526986122131348 3.449011325836182" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="transform-origin: 0 0;transform: rotate(90deg);left: 100%;top: 0px;right: -103%;bottom: 2.9%;width: 103%;height: 97.1%;position: absolute;">
+                      <path d="M1.7763 0L3.5527 3.449H0L1.7763 0Z" style="fill-rule: nonzero;fill: #fff;" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div style="overflow: hidden;left: 9.9px;top: 0px;width: 4.9px;height: 8.4px;position: absolute;">
+                <svg width="4.87788724899292" height="8.399999618530273" viewBox="0 0 4.87788724899292 8.399999618530273" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0.1%;top: 0px;right: 0px;bottom: 0px;width: 99.9%;height: 100%;position: absolute;">
+                  <path d="M2.4389 0C3.786 0 4.8779 1.8806 4.8779 4.2 4.8779 6.5194 3.786 8.4 2.4389 8.4 1.0919 8.4 0 6.5194 0 4.2 0 1.8806 1.0919 0 2.4389 0Z" style="fill-rule: nonzero;fill: #000;" />
+                </svg>
+                <div style="overflow: hidden;left: 0px;top: 0.1%;right: 0.1%;bottom: 0.1%;width: 99.9%;height: 99.9%;position: absolute;">
+                  <div style="overflow: hidden;left: -23.7%;top: 29.1%;right: 53%;bottom: 28.5%;width: 70.7%;height: 42.3%;position: absolute;mask-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNSIgaGVpZ2h0PSI4LjM5MDM5OTkzMjg2MTMyOCIgdmlld0JveD0iMCAwIDUgOC4zOTAzOTk5MzI4NjEzMjgiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHByZXNlcnZlQXNwZWN0UmF0aW89Im5vbmUiIHN0eWxlPSJsZWZ0OiAwcHg7dG9wOiAwcHg7cmlnaHQ6IDBweDtib3R0b206IDBweDt0cmFuc2Zvcm06IG1hdHJpeCgxLDAsMCwxLDAsMCk7dHJhbnNmb3JtLW9yaWdpbjogMCAwOyI+PGRlZnM+PGNsaXBQYXRoIGlkPSJkZWZfMCI+PHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjQuODc3ODg3MjQ4OTkyOTIiIGhlaWdodD0iOC4zOTAzOTk5MzI4NjEzMjgiPjwvcmVjdD48L2NsaXBQYXRoPjwvZGVmcz48ZyBpZD0ibWFza191bmRlZmluZWQiIG1hc2tVbml0cz0idXNlclNwYWNlT25Vc2UiIHg9IjAiIHk9IjAiIHdpZHRoPSI0Ljg3Nzg4NzI0ODk5MjkyIiBoZWlnaHQ9IjguMzkwMzk5OTMyODYxMzI4IiBzdHlsZT0ibWFzay10eXBlOiBsdW1pbmFuY2U7Ij48ZyBzdHlsZT0iY2xpcC1wYXRoOiB1cmwoI2RlZl8wKTsiPjxwYXRoIGQ9Ik0yLjQ0MzkgMEMzLjc4NDEgMCA0Ljg3NzkgMS44NzIgNC44Nzc5IDQuMTk1MiA0Ljg3NzkgNi41MTg0IDMuNzg0MSA4LjM5MDQgMi40NDM5IDguMzkwNCAxLjA5MzggOC4zOTA0IDAgNi41MTg0IDAgNC4xOTUyIDAgMS44NzIgMS4wOTM4IDAgMi40NDM5IDBaIiBzdHlsZT0iZmlsbC1ydWxlOiBub256ZXJvO2ZpbGw6ICMwMDA7IiAvPjwvZz48L2c+PC9zdmc+&quot;);mask-repeat: no-repeat;mask-type: luminance;mask-position: 1.2px -2.4px;">
+                    <svg width="3.5526986122131348" height="3.449011325836182" viewBox="0 0 3.5526986122131348 3.449011325836182" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="transform-origin: 0 0;transform: rotate(90deg);left: 100%;top: 0px;right: -103%;bottom: 2.9%;width: 103%;height: 97.1%;position: absolute;">
+                      <path d="M1.7763 0L3.5527 3.449H0L1.7763 0Z" style="fill-rule: nonzero;fill: #fff;" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="border-width: 1px;border-style: solid;border-color: #fff;border-radius: 50%;background-color: #12c25b;left: 37px;top: 35px;aspect-ratio: 1;width: auto;height: 10px;position: absolute;">
+          </div>
+        </div>
+        <div style="display: flex;flex-direction: column;row-gap: 6px;align-items: start;justify-content: flex-start;width: min-content;position: relative;flex-shrink: 0;">
+          <span class="text" style="display: inline;text-align: left;font-size: 18px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 600;font-stretch: 100%;letter-spacing: -0.80px;color: #121212;width: max-content;position: relative;flex-shrink: 0;">Sally</span>
+          <span class="text" style="display: inline;text-align: left;font-size: 14px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.48px;color: #757575;width: 299px;position: relative;flex-shrink: 0;">Welcome! I am your ally, and I am thrilled to announce</span>
+        </div>
+      </div>
+      <span class="text" style="display: inline;text-align: right;font-size: 12px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.43px;color: #a0a0a0;left: 350px;top: 357px;width: max-content;position: absolute;">9:40 AM</span>
+      <div style="border-radius: 75.8px;background-color: #ff5800;display: flex;flex-direction: row;grid-column-gap: 12.6px;align-items: center;justify-content: center;left: calc(132px + 50%);top: 84px;width: min-content;position: absolute;padding: 12.6px;">
+        <div style="overflow: hidden;width: 22.7px;height: 22.7px;position: relative;flex-shrink: 0;">
+          <img data-figma-node-id="384:8386" data-figma-asset="Group" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574636/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group-2.svg" alt="Group" width="16" height="16" style="left: 13.9%;top: 13.9%;right: 13.9%;bottom: 13.9%;width: 72.2%;height: 72.2%;position: absolute;" />
+        </div>
+      </div>
+      <div style="display: flex;flex-direction: row;grid-column-gap: 12px;align-items: center;justify-content: flex-start;left: 36px;bottom: 48px;width: min-content;position: absolute;">
+        <div style="overflow: hidden;width: 40px;height: 40px;position: relative;flex-shrink: 0;">
+          <div style="border-radius: 50%;background-color: #f0f0f0;top: 0px;right: 0px;aspect-ratio: 1;width: auto;height: 40px;position: absolute;">
+          </div>
+          <span class="text" style="display: inline;text-align: left;font-size: 20px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 600;font-stretch: 100%;letter-spacing: -0.50px;color: #000;left: calc(-13px + 50%);top: 8px;width: max-content;position: absolute;">SD</span>
+        </div>
+        <span class="text" style="display: inline;text-align: left;font-size: 18px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 600;font-stretch: 100%;letter-spacing: -0.91px;color: #121212;width: max-content;position: relative;flex-shrink: 0;">Sam Dickson</span>
+      </div>
+      <div style="overflow: hidden;left: 36px;top: 84px;width: 48px;height: 48px;position: absolute;" data-figma-node-id="384:8439" data-figma-asset="iOS -Grid">
+        <div style="background-color: #f18d8d;left: 0px;top: 0px;right: 0px;bottom: 0px;width: 100%;height: 100%;position: absolute;mask-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHZpZXdCb3g9IjAgMCA0OCA0OCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgcHJlc2VydmVBc3BlY3RSYXRpbz0ibm9uZSIgc3R5bGU9ImxlZnQ6IDBweDt0b3A6IDBweDt0cmFuc2Zvcm06IG1hdHJpeCgxLDAsMCwxLDAsMCk7dHJhbnNmb3JtLW9yaWdpbjogMCAwOyI+PGcgaWQ9Im1hc2tfdW5kZWZpbmVkIiBtYXNrVW5pdHM9InVzZXJTcGFjZU9uVXNlIiB4PSIwIiB5PSIwIiB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHN0eWxlPSJtYXNrLXR5cGU6IGFscGhhOyI+PHBhdGggZD0iTTExLjY0MzcgMEwzNi4zNTYzIDBBMTEuNjQzNyAxMS42NDM3IDAgMCAxIDQ4IDExLjY0MzdMNDggMzYuMzU2M0ExMS42NDM3IDExLjY0MzcgMCAwIDEgMzYuMzU2MyA0OEwxMS42NDM3IDQ4QTExLjY0MzcgMTEuNjQzNyAwIDAgMSAwIDM2LjM1NjNMMCAxMS42NDM3QTExLjY0MzcgMTEuNjQzNyAwIDAgMSAxMS42NDM3IDBaIiBzdHlsZT0iZmlsbC1ydWxlOiBub256ZXJvO2ZpbGw6ICNjNGM0YzQ7IiAvPjwvZz48L3N2Zz4=&quot;);mask-repeat: no-repeat;mask-type: alpha;mask-position: 0px 0px;">
+          <div style="background-image: linear-gradient(180deg, #e8ebee 0%, #ced3db 100%);background-blend-mode: normal;left: 0px;top: 0px;right: 0px;bottom: 0px;width: 100%;height: 100%;position: absolute;">
+          </div>
+          <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0px;top: 0px;width: 48px;height: 48px;opacity: 0.4;position: absolute;">
+            <defs>
+              <clipPath id="def_0_1">
+                <rect x=0 y=0 width=48 height=48>
+                </rect>
+              </clipPath>
+              <mask id="def_1" maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48" style="mask-type: luminance;">
+                <path d="M0 0L48 0 48 48 0 48Z" style="fill-rule: nonzero;fill: white;" />
+              </mask>
+            </defs>
+            <g style="opacity: 0.4;clip-path: url(#def_0_1);">
+              <path d="M48.5426 48.4014l-3.5-3.5h3.0584v-0.2h-3.2v-11.6h3.2v-0.2h-3.2v-8.8h3.2v-0.2h-3.2v-8.8h3.2v-0.2h-3.2v-11.6h3.2v-0.2h-3.0584l3.1-3.1-0.1416-0.1412-3.1 3.1v-3.0588h-0.2v3.2h-11.6v-3.2h-0.2v3.2h-8.8v-3.2h-0.2v3.2h-8.8v-3.2h-0.2v3.2h-11.6v-3.2h-0.2v3.0588l-3.1-3.1-0.1416 0.1412 3.1004 3.1h-3.0588v0.2h3.2v11.6h-3.2v0.2h3.2v8.8h-3.2v0.2h3.2v8.8h-3.2v0.2h3.2v11.6h-3.2v0.2h3.0588l-3.1004 3.1 0.1416 0.1416 3.1-3.1v3.0584h0.2v-3.2h11.6v3.2h0.2v-3.2h8.8v3.2h0.2v-3.2h8.8v3.2h0.2v-3.2h11.6v3.2h0.2v-3.0584l3.5 3.5zM11.1039 24.1014c0.0264 3.4092 1.382 6.5056 3.5728 8.8h-9.1404c-1.2896-2.6648-2.0172-5.6496-2.0324-8.8zM15.1016 33.3261c2.2944 2.1908 5.3908 3.5464 8.8 3.5728v7.6c-3.1504-0.0152-6.1352-0.7428-8.8-2.0324zM24.1016 36.8989c3.4092-0.0264 6.5056-1.382 8.8-3.5728v9.1404c-2.6648 1.2896-5.6496 2.0172-8.8 2.0324zM14.6767 15.1014c-2.1908 2.2944-3.5464 5.3908-3.5728 8.8h-7.6c0.0152-3.1504 0.7428-6.1352 2.0328-8.8zM32.9016 14.6765c-2.2944-2.1908-5.3908-3.5464-8.8-3.5728v-7.6c3.1504 0.0152 6.1352 0.7428 8.8 2.0328zM23.9016 11.1037c-3.4092 0.0264-6.5056 1.382-8.8 3.5728v-9.14c2.6648-1.29 5.6496-2.0176 8.8-2.0328zM36.8983 23.9014c-0.026-3.4092-1.382-6.5056-3.5728-8.8h9.1404c1.2896 2.6648 2.0172 5.6496 2.0324 8.8zM44.4983 24.1014c-0.0152 3.1504-0.7428 6.1352-2.0324 8.8h-9.1404c2.1908-2.2944 3.5468-5.3908 3.5728-8.8zM5.4136 33.1014c0.9968 2.0276 2.3144 3.8692 3.888 5.458l-6.0008 6.0008v-11.4588zM44.5604 3.3014l-6.0008 6.0008c-1.5888-1.5736-3.4304-2.8912-5.458-3.888v-2.1128zM33.1016 42.5886c2.0276-0.9968 3.8692-2.3144 5.458-3.888l6.0008 6.0008h-11.4588zM3.3008 3.443l6.0008 6.0004c-1.5736 1.5888-2.8912 3.4308-3.888 5.458h-2.1128zM14.9011 5.4142c-2.0272 0.9968-3.8692 2.3144-5.458 3.888l-6.0004-6.0008h11.4584zM3.4427 44.7014l6.0004-6.0008c1.5888 1.5736 3.4308 2.8912 5.458 3.888v2.1128zM44.7009 44.5602l-6.0004-6.0008c1.5736-1.5888 2.8912-3.4304 3.8876-5.458h2.1128zM42.5881 14.9014c-0.9964-2.0272-2.314-3.8692-3.8876-5.458l6.0004-6.0004v11.4584zM23.7604 23.9013h-8.6588v-8.6588zM23.7604 24.1014l-8.6588 8.6588v-8.6588zM24.1016 24.2425l8.6588 8.6588h-8.6588zM24.1016 23.7602v-8.6588h8.6588zM24.2422 23.9014l8.6584-8.6584v8.6584zM32.9006 24.1014v8.6584l-8.6584-8.6584zM23.9006 23.7598l-8.6584-8.6584h8.6584zM23.9006 24.243v8.6584h-8.6584zM33.1016 33.2426l5.3168 5.3168c-1.5504 1.5352-3.344 2.8228-5.3168 3.8044zM33.1016 14.7602v-9.1212c1.9728 0.9816 3.7664 2.2692 5.3168 3.8044zM14.7592 33.1014l-5.3168 5.3164c-1.5352-1.55-2.8228-3.3436-3.8044-5.3164zM14.7592 14.9013h-9.1212c0.9816-1.9724 2.2692-3.7664 3.8044-5.3164zM33.2422 33.1014h9.1208c-0.9812 1.9728-2.2692 3.7664-3.8044 5.3164zM33.2422 14.9013l5.3164-5.3164c1.5352 1.55 2.8228 3.344 3.8044 5.3164zM14.9011 33.243v9.1208c-1.9724-0.9816-3.7664-2.2692-5.3164-3.8044zM14.9011 14.7598l-5.3164-5.3164c1.55-1.5352 3.344-2.8228 5.3164-3.8044zM33.1016 24.1014h3.5976c-0.0264 3.3972-1.3936 6.4796-3.5976 8.7464zM33.1016 23.9014v-8.746c2.204 2.2664 3.5712 5.3488 3.5976 8.746zM23.901 33.1014v3.5976c-3.3972-0.0264-6.4796-1.3936-8.746-3.5976zM24.1016 33.1014h8.746c-2.2664 2.204-5.3488 3.5712-8.746 3.5976zM14.901 24.1014v8.746c-2.2036-2.2664-3.5708-5.3488-3.5976-8.746zM14.901 23.9014h-3.5976c0.0268-3.3972 1.394-6.4796 3.5976-8.746zM24.1016 14.9013v-3.5976c3.3972 0.0268 6.4796 1.394 8.746 3.5976zM23.901 14.9013h-8.746c2.2664-2.2036 5.3488-3.5708 8.746-3.5976zM32.9016 3.3014v2.0144c-2.6692-1.2764-5.6528-1.9968-8.8-2.012v-0.0024zM23.9016 3.3014v0.0024c-3.1472 0.0152-6.1308 0.7356-8.8 2.012v-2.0144zM15.1016 44.7014v-2.0144c2.6692 1.2768 5.6528 1.9968 8.8 2.012v0.0024zM3.3008 15.1014h2.0144c-1.2768 2.6692-1.9968 5.6528-2.012 8.8h-0.0024zM24.1016 44.7014v-0.0024c3.1472-0.0152 6.1308-0.7352 8.8-2.012v2.0144zM3.3008 24.1014h0.0024c0.0152 3.1476 0.7352 6.1308 2.012 8.8h-2.0144zM44.7015 23.9014h-0.0024c-0.0148-3.1472-0.7352-6.1308-2.0116-8.8h2.014zM44.7015 32.9014h-2.014c1.2764-2.6692 1.9968-5.6524 2.0116-8.8h0.0024z" style="fill-rule: evenodd;opacity: 0.5;fill: #fff;mask: url(#def_1);" />
+            </g>
+          </svg>
+          <div style="overflow: hidden;left: 0px;top: 0px;width: 48px;height: 48px;opacity: 0.4;position: absolute;">
+            <div style="border-width: 0.1px;border-style: solid;border-color: #fff;border-radius: 3.4px;left: 16.8%;top: 4.3%;right: 16.7%;bottom: 4.2%;width: 66.5%;height: 91.5%;opacity: 0.72;mix-blend-mode: normal;isolation: isolate;position: absolute;">
+            </div>
+            <div style="border-width: 0.1px;border-style: solid;border-color: #fff;border-radius: 3.4px;left: 10.5%;top: 10.5%;right: 10.4%;bottom: 10.4%;width: 79%;height: 79%;opacity: 0.72;mix-blend-mode: normal;isolation: isolate;position: absolute;">
+            </div>
+            <div style="border-width: 0.1px;border-style: solid;border-color: #fff;border-radius: 3.4px;left: 4.3%;top: 16.8%;right: 4.2%;bottom: 16.7%;width: 91.5%;height: 66.5%;opacity: 0.72;mix-blend-mode: normal;isolation: isolate;position: absolute;">
+            </div>
+            <img data-figma-node-id="384:8438" data-figma-asset="bg" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574638/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/bg.svg" alt="bg" width="48" height="48" style="left: 4.2%;top: 4.2%;right: 4.1%;bottom: 4.1%;width: 91.7%;height: 91.7%;position: absolute;" />
+            <img data-figma-node-id="384:8496" data-figma-asset="Center Circle" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574647/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/center-circle.svg" alt="Center Circle" width="20" height="20" style="left: 29.4%;top: 29.4%;right: 29.3%;bottom: 29.3%;width: 41.4%;height: 41.4%;position: absolute;" />
+            <div style="border-width: 0.1px;border-style: solid;border-color: #fff;left: 35.5%;top: 35.5%;right: 35.4%;bottom: 35.4%;width: 29.1%;height: 29.1%;position: absolute;">
+            </div>
+            <svg width="48.046875" height="48.046875" viewBox="0 0 48.046875 48.046875" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0px;top: 0px;right: 0px;bottom: 0px;width: 100%;height: 100%;position: absolute;">
+              <defs>
+                <clipPath id="def_0_2">
+                  <rect x=0 y=0 width=48.046875 height=48.046875>
+                  </rect>
+                </clipPath>
+              </defs>
+              <g style="clip-path: url(#def_0_2);">
+                <path d="M17.1094 0.0469V48.0469" style="stroke: #fff;stroke-width: 0.09504103660583496;stroke-linecap: square;" />
+                <path d="M24.0469 0V48" style="stroke: #fff;stroke-width: 0.09504103660583496;stroke-linecap: square;" />
+                <path d="M30.9844 0V48" style="stroke: #fff;stroke-width: 0.09504103660583496;stroke-linecap: square;" />
+                <path d="M48.0469 17.1094H0.0469" style="stroke: #fff;stroke-width: 0.09504103660583496;stroke-linecap: square;" />
+                <path d="M48 24.0469H0" style="stroke: #fff;stroke-width: 0.09504103660583496;stroke-linecap: square;" />
+                <path d="M48.0469 30.9844H0.0469" style="stroke: #fff;stroke-width: 0.09504103660583496;stroke-linecap: square;" />
+                <path d="M0.0469 0.0469L48.0469 48.0469" style="stroke: #fff;stroke-width: 0.09504103660583496;stroke-linecap: square;" />
+                <path d="M48.0469 0.0469L0.0469 48.0469" style="stroke: #fff;stroke-width: 0.09504103660583496;stroke-linecap: square;" />
+              </g>
+            </svg>
+          </div>
+          <div style="overflow: hidden;left: 3.8px;top: 3.8px;width: 40.3px;height: 40.3px;position: absolute;">
+            <div style="border-radius: 50%;background-image: linear-gradient(180deg, #f5f5f6 0%, #eeeef1 100%);background-blend-mode: normal;left: 0px;top: 0px;right: 0px;bottom: 0px;width: 100%;height: 100%;position: absolute;filter: drop-shadow(0px 0px 0.5px rgba(0,0,0,0.1));box-shadow: 0px 0px 0.5px rgba(255,255,255,0.5) inset;">
+            </div>
+            <div style="overflow: hidden;left: 5.7px;top: 5.7px;width: 28.9px;height: 28.9px;position: absolute;filter: drop-shadow(0px 0.2px 1.1px rgba(37,9,58,0.3));backface-visibility: hidden;transform: translateZ(0);">
+              <div style="border-radius: 50%;background-image: linear-gradient(-33.1deg, rgba(0,0,0,0.19) 13.2%, rgba(0,0,0,0) 41.9%), linear-gradient(145.1deg, #9444fb 15.2%, #4d08a4 85.2%);background-blend-mode: normal, normal;left: 9.2%;top: 9.2%;right: 9.2%;bottom: 9.2%;width: 81.6%;height: 81.6%;position: absolute;box-shadow: 0px 0.2px 1px rgba(0,0,0,0.3),0px -0.3px 1px rgba(255,255,255,0.3),0px 0px 1px rgba(18,1,55,0.5) inset;">
+              </div>
+              <div style="border-radius: 50%;background-image: linear-gradient(145.1deg, #40e5da 15.2%, rgba(35,216,205,0) 85.2%);background-blend-mode: normal;transform-origin: 0 0;transform: rotate(-15deg);left: 0px;top: 21.1%;right: 18.4%;bottom: -2.8%;width: 81.6%;height: 81.6%;mix-blend-mode: lighten;position: absolute;box-shadow: 0px 0.5px 0.4px #fff inset;">
+              </div>
+              <div style="border-radius: 50%;background-image: linear-gradient(145.1deg, rgba(148,68,251,0) 15.2%, #4d08a4 85.2%);background-blend-mode: normal;transform-origin: 0 0;transform: rotate(-15deg);left: 0px;top: 21.1%;right: 18.4%;bottom: -2.8%;width: 81.6%;height: 81.6%;mix-blend-mode: darken;position: absolute;box-shadow: 0px -0.5px 0.5px rgba(0,0,0,0.15) inset;">
+              </div>
+            </div>
+          </div>
+          <div style="background-color: #ff5800;overflow: hidden;left: calc(-24.3px + 50%);top: calc(-24.3px + 50%);width: 48.7px;height: 48.7px;position: absolute;">
+          </div>
+        </div>
+        <div style="overflow: hidden;left: calc(-14.7px + 50%);top: calc(-16px + 50%);width: 29.3px;height: 32px;position: absolute;mask-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHZpZXdCb3g9IjAgMCA0OCA0OCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIiB4bWxuczp4bGluaz0iaHR0cDovL3d3dy53My5vcmcvMTk5OS94bGluayIgcHJlc2VydmVBc3BlY3RSYXRpbz0ibm9uZSIgc3R5bGU9ImxlZnQ6IDBweDt0b3A6IDBweDt0cmFuc2Zvcm06IG1hdHJpeCgxLDAsMCwxLDAsMCk7dHJhbnNmb3JtLW9yaWdpbjogMCAwOyI+PGcgaWQ9Im1hc2tfdW5kZWZpbmVkIiBtYXNrVW5pdHM9InVzZXJTcGFjZU9uVXNlIiB4PSIwIiB5PSIwIiB3aWR0aD0iNDgiIGhlaWdodD0iNDgiIHN0eWxlPSJtYXNrLXR5cGU6IGFscGhhOyI+PHBhdGggZD0iTTExLjY0MzcgMEwzNi4zNTYzIDBBMTEuNjQzNyAxMS42NDM3IDAgMCAxIDQ4IDExLjY0MzdMNDggMzYuMzU2M0ExMS42NDM3IDExLjY0MzcgMCAwIDEgMzYuMzU2MyA0OEwxMS42NDM3IDQ4QTExLjY0MzcgMTEuNjQzNyAwIDAgMSAwIDM2LjM1NjNMMCAxMS42NDM3QTExLjY0MzcgMTEuNjQzNyAwIDAgMSAxMS42NDM3IDBaIiBzdHlsZT0iZmlsbC1ydWxlOiBub256ZXJvO2ZpbGw6ICNjNGM0YzQ7IiAvPjwvZz48L3N2Zz4=&quot;);mask-repeat: no-repeat;mask-type: alpha;mask-position: -9.3px -8px;">
+          <img data-figma-node-id="384:8515" data-figma-asset="fill" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574655/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/fill-2.svg" alt="fill" width="29" height="32" style="left: -3.7%;top: -3.4%;right: -3.2%;bottom: -3%;width: 106.9%;height: 106.4%;position: absolute;" />
+          <div style="overflow: hidden;left: calc(-10.7px + 50%);top: 7.4px;width: 12.3px;height: 8.6px;position: absolute;">
+            <div style="overflow: hidden;left: 0px;top: 0px;width: 4.6px;height: 8.6px;position: absolute;">
+              <svg width="4.603404045104981" height="8.64283275604248" viewBox="0 0 4.603404045104981 8.64283275604248" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0.1%;top: 0px;right: 0px;bottom: 0px;width: 99.9%;height: 100%;position: absolute;">
+                <path d="M2.3017 0C3.573 0 4.6034 1.935 4.6034 4.3214 4.6034 6.7078 3.573 8.6428 2.3017 8.6428 1.0304 8.6428 0 6.7078 0 4.3214 0 1.935 1.0304 0 2.3017 0Z" style="fill-rule: nonzero;fill: #000;" />
+              </svg>
+              <div style="overflow: hidden;left: 0px;top: 0.1%;right: 0.1%;bottom: 0.1%;width: 99.9%;height: 99.9%;position: absolute;">
+                <div style="overflow: hidden;left: -23.7%;top: 29.1%;right: 53%;bottom: 28.5%;width: 70.7%;height: 42.3%;position: absolute;mask-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNSIgaGVpZ2h0PSI5IiB2aWV3Qm94PSIwIDAgNSA5IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiBzdHlsZT0ibGVmdDogMHB4O3RvcDogMHB4O3JpZ2h0OiAwcHg7Ym90dG9tOiAwcHg7dHJhbnNmb3JtOiBtYXRyaXgoMSwwLDAsMSwwLDApO3RyYW5zZm9ybS1vcmlnaW46IDAgMDsiPjxkZWZzPjxjbGlwUGF0aCBpZD0iZGVmXzAiPjxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSI0LjYwMzQwNDA0NTEwNDk4MDUiIGhlaWdodD0iOC42MzI5NTU1NTExNDc0NjEiPjwvcmVjdD48L2NsaXBQYXRoPjwvZGVmcz48ZyBpZD0ibWFza191bmRlZmluZWQiIG1hc2tVbml0cz0idXNlclNwYWNlT25Vc2UiIHg9IjAiIHk9IjAiIHdpZHRoPSI0LjYwMzQwNDA0NTEwNDk4MDUiIGhlaWdodD0iOC42MzI5NTU1NTExNDc0NjEiIHN0eWxlPSJtYXNrLXR5cGU6IGx1bWluYW5jZTsiPjxnIHN0eWxlPSJjbGlwLXBhdGg6IHVybCgjZGVmXzApOyI+PHBhdGggZD0iTTIuMzA2NiAwQzMuNTcxMyAwIDQuNjAzNiAxLjkyNjEgNC42MDM2IDQuMzE2NCA0LjYwMzYgNi43MDY4IDMuNTcxMyA4LjYzMjkgMi4zMDY2IDguNjMyOSAxLjAzMjUgOC42MzI5IDAuMDAwMiA2LjcwNjggMC4wMDAyIDQuMzE2NCAwLjAwMDIgMS45MjYxIDEuMDMyNSAwIDIuMzA2NiAwWiIgc3R5bGU9ImZpbGwtcnVsZTogbm9uemVybztmaWxsOiAjMDAwOyIgLz48L2c+PC9nPjwvc3ZnPg==&quot;);mask-repeat: no-repeat;mask-type: luminance;mask-position: 1.1px -2.5px;">
+                  <svg width="3.655402183532715" height="3.254932403564453" viewBox="0 0 3.655402183532715 3.254932403564453" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="transform-origin: 0 0;transform: rotate(90deg);left: 100%;top: 0px;right: -112.3%;bottom: 11%;width: 112.3%;height: 89%;position: absolute;">
+                    <path d="M1.9698 0.2531l1.5493 2.759c0.061 0.1087-0.0175 0.2428-0.1422 0.2428h-3.0984c-0.1246 0-0.2031-0.1341-0.1422-0.2428l1.5493-2.759c0.0623-0.1109 0.222-0.1109 0.2842 0z" style="fill-rule: nonzero;fill: #fff;" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+            <div style="overflow: hidden;left: 7.7px;top: 0px;width: 4.6px;height: 8.6px;position: absolute;">
+              <svg width="4.603404045104981" height="8.64283275604248" viewBox="0 0 4.603404045104981 8.64283275604248" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0px;top: 0px;right: 0px;bottom: 0px;width: 100%;height: 100%;position: absolute;">
+                <path d="M2.3017 0C3.573 0 4.6034 1.935 4.6034 4.3214 4.6034 6.7078 3.573 8.6428 2.3017 8.6428 1.0304 8.6428 0 6.7078 0 4.3214 0 1.935 1.0304 0 2.3017 0Z" style="fill-rule: nonzero;fill: #000;" />
+              </svg>
+              <div style="overflow: hidden;left: 0px;top: 0.1%;right: 0px;bottom: 0.1%;width: 100%;height: 99.9%;position: absolute;">
+                <div style="overflow: hidden;left: -23.7%;top: 29.1%;right: 53%;bottom: 28.5%;width: 70.7%;height: 42.3%;position: absolute;mask-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNSIgaGVpZ2h0PSI5IiB2aWV3Qm94PSIwIDAgNSA5IiBmaWxsPSJub25lIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiBwcmVzZXJ2ZUFzcGVjdFJhdGlvPSJub25lIiBzdHlsZT0ibGVmdDogMHB4O3RvcDogMHB4O3JpZ2h0OiAwcHg7Ym90dG9tOiAwcHg7dHJhbnNmb3JtOiBtYXRyaXgoMSwwLDAsMSwwLDApO3RyYW5zZm9ybS1vcmlnaW46IDAgMDsiPjxkZWZzPjxjbGlwUGF0aCBpZD0iZGVmXzAiPjxyZWN0IHg9IjAiIHk9IjAiIHdpZHRoPSI0LjYwMzQwNDA0NTEwNDk4MDUiIGhlaWdodD0iOC42MzI5NTU1NTExNDc0NjEiPjwvcmVjdD48L2NsaXBQYXRoPjwvZGVmcz48ZyBpZD0ibWFza191bmRlZmluZWQiIG1hc2tVbml0cz0idXNlclNwYWNlT25Vc2UiIHg9IjAiIHk9IjAiIHdpZHRoPSI0LjYwMzQwNDA0NTEwNDk4MDUiIGhlaWdodD0iOC42MzI5NTU1NTExNDc0NjEiIHN0eWxlPSJtYXNrLXR5cGU6IGx1bWluYW5jZTsiPjxnIHN0eWxlPSJjbGlwLXBhdGg6IHVybCgjZGVmXzApOyI+PHBhdGggZD0iTTIuMzA2NCAwQzMuNTcxMSAwIDQuNjAzNCAxLjkyNjEgNC42MDM0IDQuMzE2NSA0LjYwMzQgNi43MDY4IDMuNTcxMSA4LjYzMyAyLjMwNjQgOC42MzMgMS4wMzIzIDguNjMzIDAgNi43MDY4IDAgNC4zMTY1IDAgMS45MjYxIDEuMDMyMyAwIDIuMzA2NCAwWiIgc3R5bGU9ImZpbGwtcnVsZTogbm9uemVybztmaWxsOiAjMDAwOyIgLz48L2c+PC9nPjwvc3ZnPg==&quot;);mask-repeat: no-repeat;mask-type: luminance;mask-position: 1.1px -2.5px;">
+                  <svg width="3.655402183532715" height="3.254932403564453" viewBox="0 0 3.655402183532715 3.254932403564453" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="transform-origin: 0 0;transform: rotate(90deg);left: 100%;top: 0px;right: -112.3%;bottom: 11%;width: 112.3%;height: 89%;position: absolute;">
+                    <path d="M1.9698 0.2531l1.5493 2.759c0.061 0.1087-0.0175 0.2428-0.1422 0.2428h-3.0984c-0.1246 0-0.2031-0.1341-0.1422-0.2428l1.5493-2.759c0.0623-0.1109 0.222-0.1109 0.2842 0z" style="fill-rule: nonzero;fill: #fff;" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="border-width: 0px 0px 1px;border-style: solid;border-color: #e8e8e8;background-color: #fff;overflow: hidden;top: 52px;right: 0px;width: 1080px;height: 52px;position: absolute;">
+      <div style="display: flex;flex-direction: row;grid-column-gap: 8px;align-items: center;justify-content: flex-start;left: calc(-63px + 50%);top: calc(-12px + 50%);width: min-content;position: absolute;">
+        <div style="overflow: hidden;width: 24px;height: 24px;position: relative;flex-shrink: 0;">
+          <img data-figma-node-id="384:8710" data-figma-asset="Group" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574656/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group-3.svg" alt="Group" width="21" height="21" style="left: 5.6%;top: 5.6%;right: 5.5%;bottom: 5.5%;width: 88.9%;height: 88.9%;position: absolute;" />
+        </div>
+        <span class="text" style="display: inline;text-align: left;font-size: 16px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.65px;color: #757575;width: max-content;position: relative;flex-shrink: 0;">Sally settings</span>
+      </div>
+    </div>
+    <div style="left: 0px;top: 0px;width: 1512px;height: 52px;position: absolute;">
+      <svg width="1512.0000000000002" height="52" viewBox="0 0 1512.0000000000002 52" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0px;top: 0px;right: 0px;width: 100%;height: 52px;position: absolute;backdrop-filter: blur(calc(68px / 2));box-shadow: 0px -1px 0px rgba(0,0,0,0.1) inset,0px 1px 0px rgba(255,255,255,0.2) inset;">
+        <path d="M0 10v42h1512v-42c0-5.5229-4.4771-10-10-10h-1492c-5.5229 0-10 4.4771-10 10z" style="fill-rule: evenodd;fill: #fff;" />
+      </svg>
+      <div style="overflow: hidden;left: 1393px;top: 16px;width: 98.5px;height: 19px;position: absolute;">
+        <img data-figma-node-id="I384:7201;13:267" data-figma-asset="Frame 2" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574657/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/frame-2.svg" alt="Frame 2" width="98" height="19" style="top: calc(-10.5px + 50%);right: 0px;width: 98.5px;height: 20px;position: absolute;" />
+      </div>
+      <div style="overflow: hidden;left: 580px;top: 12px;width: 392px;height: 28px;position: absolute;">
+        <div style="display: flex;flex-direction: row;grid-column-gap: 18px;align-items: center;justify-content: flex-start;left: calc(-196px + 50%);top: calc(-14px + 50%);width: min-content;position: absolute;">
+          <img data-figma-node-id="384:8497" data-figma-asset="Rectangle" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574649/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/rectangle-4.svg" alt="Rectangle" width="14" height="14" style="width: 14px;height: 17px;position: relative;flex-shrink: 0;" />
+          <div style="border-radius: 5px;background-color: #f2f2f2;width: 360px;height: 28px;position: relative;flex-shrink: 0;">
+            <svg width="0" height="0" viewBox="0 0 0 0" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="transform-origin: 0 0;transform: scale(NaN,NaN);left: 0px;top: 0px;width: 0px;height: 0px;position: absolute;">
+            </svg>
+            <img data-figma-node-id="384:7850" data-figma-asset="Ellipse 16" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574632/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/ellipse-16.svg" alt="Ellipse 16" width="10" height="10" style="top: calc(-5.5px + 50%);right: 6.6px;width: 10.3px;height: 12.3px;position: absolute;" />
+            <div style="display: flex;flex-direction: row;grid-column-gap: 6px;align-items: center;justify-content: flex-start;left: calc(-92px + 50%);top: calc(-7.5px + 50%);width: min-content;position: absolute;">
+              <div style="overflow: hidden;width: 8.9px;height: 13px;position: relative;flex-shrink: 0;">
+                <svg width="8.948888778686523" height="13.002145767211914" viewBox="0 0 8.948888778686523 13.002145767211914" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0px;top: 0px;right: 0px;bottom: 0px;width: 100%;height: 100%;position: absolute;">
+                  <path d="M1.3177 13.0021H7.6312C8.5152 13.0021 8.9489 12.5685 8.9489 11.6094V6.7554C8.9489 5.9048 8.5986 5.4627 7.898 5.3793V3.728C7.898 1.1676 6.18 0 4.4786 0 2.7689 0 1.0592 1.1676 1.0592 3.728V5.4044C0.4003 5.5295 0 5.9631 0 6.7554V11.6094C0 12.5685 0.442 13.0021 1.3177 13.0021ZM2.4353 3.5779C2.4353 2.085 3.3861 1.3177 4.4786 1.3177 5.5628 1.3177 6.5219 2.085 6.5219 3.5779V5.3626L2.4353 5.371V3.5779Z" style="fill-rule: nonzero;fill: #9e9e9e;" />
+                </svg>
+              </div>
+              <div style="display: flex;flex-direction: row;grid-column-gap: 10px;align-items: center;justify-content: flex-start;width: min-content;position: relative;flex-shrink: 0;">
+                <span class="text" style="display: inline;text-align: left;font-size: 13px;font-family: &quot;SF Pro Display&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;color: #4c4c4c;width: max-content;position: relative;flex-shrink: 0;letter-spacing: -0.62px;">https://twitter.com/imeronn</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="overflow: hidden;left: 20px;top: 18px;width: 167.5px;height: 15px;position: absolute;">
+        <svg width="19.084402084350586" height="15" viewBox="0 0 19.084402084350586 15" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 79px;top: calc(-7.5px + 50%);width: 19.1px;height: 15px;position: absolute;">
+          <path d="M2.6235 15H16.4609C18.2202 15 19.0844 14.1358 19.0844 12.4074V2.5926C19.0844 0.8642 18.2202 0 16.4609 0H2.6235C0.8745 0 0 0.8642 0 2.5926V12.4074C0 14.1358 0.8745 15 2.6235 15ZM2.644 13.5082C1.9033 13.5082 1.4815 13.1173 1.4815 12.3354V2.6646C1.4815 1.893 1.9033 1.4918 2.644 1.4918H6.2243V13.5082H2.644ZM16.4403 1.4918C17.1811 1.4918 17.6029 1.893 17.6029 2.6646V12.3354C17.6029 13.1173 17.1811 13.5082 16.4403 13.5082H7.6749V1.4918H16.4403ZM4.6708 4.4753C4.9486 4.4753 5.1852 4.2284 5.1852 3.9609 5.1852 3.6934 4.9486 3.4671 4.6708 3.4671H3.0556C2.7881 3.4671 2.5514 3.6934 2.5514 3.9609 2.5514 4.2284 2.7881 4.4753 3.0556 4.4753H4.6708ZM4.6708 6.5329C4.9486 6.5329 5.1852 6.2963 5.1852 6.0185 5.1852 5.751 4.9486 5.5247 4.6708 5.5247H3.0556C2.7881 5.5247 2.5514 5.751 2.5514 6.0185 2.5514 6.2963 2.7881 6.5329 3.0556 6.5329H4.6708ZM4.6708 8.5905C4.9486 8.5905 5.1852 8.3539 5.1852 8.0864 5.1852 7.8189 4.9486 7.5926 4.6708 7.5926H3.0556C2.7881 7.5926 2.5514 7.8189 2.5514 8.0864 2.5514 8.3539 2.7881 8.5905 3.0556 8.5905H4.6708Z" style="fill-rule: nonzero;fill: #767676;" />
+        </svg>
+        <svg width="8" height="14.5" viewBox="0 0 8 14.5" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 126.1px;top: 0.7px;width: 8px;height: 14.5px;position: absolute;">
+          <path d="M6.5 0L0 6.5 6.5 13" transform=" translate(0.9230769230769231 0.8365384615384616)" style="stroke: #737373;stroke-width: 1.5;stroke-linecap: round;stroke-linejoin: round;" />
+        </svg>
+        <svg width="8" height="14.5" viewBox="0 0 8 14.5" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="transform-origin: 0 0;transform: rotate(-180deg);left: 166.6px;top: 13.7px;width: 8px;height: 14.5px;position: absolute;">
+          <path d="M6.5 0L0 6.5 6.5 13" transform=" translate(0.9230769230769231 0.8365384615384616)" style="stroke: #bfbfbf;stroke-width: 1.5;stroke-linecap: round;stroke-linejoin: round;" />
+        </svg>
+        <img data-figma-node-id="I384:7201;13:286" data-figma-asset="Lighter" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574664/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/lighter.svg" alt="Lighter" width="52" height="12" style="left: 0px;top: 13.3%;right: 69%;bottom: 6.7%;width: 31%;height: 80%;position: absolute;" />
+      </div>
+    </div>
+    <div style="border-radius: 100px;background-color: #f3f3f3;overflow: hidden;left: 672px;bottom: 48px;width: 600px;height: 60px;position: absolute;">
+      <span class="text" style="display: inline;text-align: left;font-size: 16px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.46px;color: #a0a0a0;left: 48px;top: calc(-9px + 50%);width: max-content;position: absolute;">Reply Sally</span>
+      <div style="border-radius: 24px;background-color: #d9d9d9;overflow: hidden;top: calc(-18px + 50%);right: 12px;width: 37px;height: 36px;position: absolute;">
+        <div style="overflow: hidden;left: calc(-8.5px + 50%);top: calc(-9px + 50%);width: 18px;height: 18px;position: absolute;">
+          <svg width="14" height="18" viewBox="0 0 14 18" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 11.1%;top: 0px;right: 11.1%;bottom: 0px;width: 77.8%;height: 100%;position: absolute;">
+            <defs>
+              <clipPath id="def_0_5">
+                <rect x=0 y=0 width=14 height=18>
+                </rect>
+              </clipPath>
+            </defs>
+            <g style="clip-path: url(#def_0_5);">
+              <path d="M3 4C3 1.7909 4.7908 0 7 0 9.2092 0 11 1.7909 11 4V7.5C11 9.7091 9.2092 11.5 7 11.5 4.7908 11.5 3 9.7091 3 7.5V4Z" style="fill-rule: evenodd;fill: rgba(117,117,117,0.4);" />
+              <path d="M11 5.0001V6.5001H7.75C7.3358 6.5001 7 6.1643 7 5.7501 7 5.3359 7.3358 5.0001 7.75 5.0001H11Z" style="fill-rule: nonzero;fill: #757575;" />
+              <path d="M0.75 6.75C1.1642 6.75 1.5 7.0858 1.5 7.5 1.5 10.5318 3.9682 13 7 13 10.0318 13 12.5 10.5318 12.5 7.5 12.5 7.0858 12.8358 6.75 13.25 6.75 13.6642 6.75 14 7.0858 14 7.5 14 11.1069 11.2588 14.0848 7.75 14.4601V16.5H10.25C10.6642 16.5 11 16.8358 11 17.25 11 17.6642 10.6642 18 10.25 18H3.75C3.3358 18 3 17.6642 3 17.25 3 16.8358 3.3358 16.5 3.75 16.5H6.25V14.4601C2.7412 14.0848 0 11.1069 0 7.5 0 7.0858 0.3358 6.75 0.75 6.75Z" style="fill-rule: nonzero;fill: #757575;" />
+            </g>
+          </svg>
+        </div>
+      </div>
+      <div style="overflow: hidden;left: 12px;top: calc(-12px + 50%);width: 24px;height: 24px;position: absolute;">
+        <img data-figma-node-id="I384:7201;13:273" data-figma-asset="Vector" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574658/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/vector-2.svg" alt="Vector" width="14" height="17" style="left: 13.9%;top: 13.9%;right: 13.9%;bottom: 13.9%;width: 72.2%;height: 72.2%;position: absolute;" />
+      </div>
+    </div>
+    <div style="overflow: hidden;left: 672px;top: 128px;width: 600px;height: 460px;position: absolute;">
+      <div style="display: flex;flex-direction: column;row-gap: 18px;align-items: start;justify-content: flex-start;left: 0px;top: 0px;width: min-content;position: absolute;">
+        <div style="display: flex;flex-direction: row;grid-column-gap: 6px;align-items: center;justify-content: center;width: min-content;position: relative;flex-shrink: 0;">
+          <div style="border-radius: 24px;background-color: #fd304f;overflow: hidden;width: 37px;height: 36px;position: relative;flex-shrink: 0;">
+            <img data-figma-node-id="384:8509" data-figma-asset="Group 1" src="https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574653/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group-1.svg" alt="Group 1" width="29" height="29" style="left: 13.6%;top: 13.5%;right: 13.9%;bottom: 13.9%;width: 72.5%;height: 72.7%;position: absolute;" />
+            <div style="overflow: hidden;left: 15.7px;top: 11.7px;width: 11.1px;height: 6.3px;position: absolute;">
+              <div style="overflow: hidden;left: 0px;top: 0px;width: 3.7px;height: 6.3px;position: absolute;">
+                <svg width="3.6584153175354004" height="6.299999713897706" viewBox="0 0 3.6584153175354004 6.299999713897706" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0.1%;top: 0px;right: 0px;bottom: 0px;width: 99.9%;height: 100%;position: absolute;">
+                  <path d="M1.8292 0C2.8395 0 3.6584 1.4105 3.6584 3.15 3.6584 4.8895 2.8395 6.3 1.8292 6.3 0.8189 6.3 0 4.8895 0 3.15 0 1.4105 0.8189 0 1.8292 0Z" style="fill-rule: nonzero;fill: #000;" />
+                </svg>
+                <div style="overflow: hidden;left: 0px;top: 0.1%;right: 0px;bottom: 0.1%;width: 99.9%;height: 99.9%;position: absolute;">
+                  <div style="overflow: hidden;left: -23.7%;top: 29.1%;right: 53%;bottom: 28.5%;width: 70.7%;height: 42.3%;position: absolute;mask-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNCIgaGVpZ2h0PSI2LjI5Mjc5OTk0OTY0NTk5NiIgdmlld0JveD0iMCAwIDQgNi4yOTI3OTk5NDk2NDU5OTYiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHByZXNlcnZlQXNwZWN0UmF0aW89Im5vbmUiIHN0eWxlPSJsZWZ0OiAwcHg7dG9wOiAwcHg7cmlnaHQ6IDBweDtib3R0b206IDBweDt0cmFuc2Zvcm06IG1hdHJpeCgxLDAsMCwxLDAsMCk7dHJhbnNmb3JtLW9yaWdpbjogMCAwOyI+PGRlZnM+PGNsaXBQYXRoIGlkPSJkZWZfMCI+PHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjMuNjU4NDE1MzE3NTM1NDAwNCIgaGVpZ2h0PSI2LjI5Mjc5OTk0OTY0NTk5NiI+PC9yZWN0PjwvY2xpcFBhdGg+PC9kZWZzPjxnIGlkPSJtYXNrX3VuZGVmaW5lZCIgbWFza1VuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeD0iMCIgeT0iMCIgd2lkdGg9IjMuNjU4NDE1MzE3NTM1NDAwNCIgaGVpZ2h0PSI2LjI5Mjc5OTk0OTY0NTk5NiIgc3R5bGU9Im1hc2stdHlwZTogbHVtaW5hbmNlOyI+PGcgc3R5bGU9ImNsaXAtcGF0aDogdXJsKCNkZWZfMCk7Ij48cGF0aCBkPSJNMS44MzI5IDBDMi44MzggMCAzLjY1ODQgMS40MDQgMy42NTg0IDMuMTQ2NCAzLjY1ODQgNC44ODg4IDIuODM4IDYuMjkyOCAxLjgzMjkgNi4yOTI4IDAuODIwNCA2LjI5MjggMCA0Ljg4ODggMCAzLjE0NjQgMCAxLjQwNCAwLjgyMDQgMCAxLjgzMjkgMFoiIHN0eWxlPSJmaWxsLXJ1bGU6IG5vbnplcm87ZmlsbDogIzAwMDsiIC8+PC9nPjwvZz48L3N2Zz4=&quot;);mask-repeat: no-repeat;mask-type: luminance;mask-position: 0.9px -1.8px;">
+                    <svg width="2.6645240783691406" height="2.5867586135864262" viewBox="0 0 2.6645240783691406 2.5867586135864262" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="transform-origin: 0 0;transform: rotate(90deg);left: 100%;top: 0px;right: -103%;bottom: 2.9%;width: 103%;height: 97.1%;position: absolute;">
+                      <path d="M1.3323 0L2.6645 2.5868H0L1.3323 0Z" style="fill-rule: nonzero;fill: #fff;" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+              <div style="overflow: hidden;left: 7.4px;top: 0px;width: 3.7px;height: 6.3px;position: absolute;">
+                <svg width="3.6584153175354004" height="6.299999713897706" viewBox="0 0 3.6584153175354004 6.299999713897706" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="left: 0.1%;top: 0px;right: 0px;bottom: 0px;width: 99.9%;height: 100%;position: absolute;">
+                  <path d="M1.8292 0C2.8395 0 3.6584 1.4105 3.6584 3.15 3.6584 4.8895 2.8395 6.3 1.8292 6.3 0.8189 6.3 0 4.8895 0 3.15 0 1.4105 0.8189 0 1.8292 0Z" style="fill-rule: nonzero;fill: #000;" />
+                </svg>
+                <div style="overflow: hidden;left: 0px;top: 0.1%;right: 0px;bottom: 0.1%;width: 99.9%;height: 99.9%;position: absolute;">
+                  <div style="overflow: hidden;left: -23.7%;top: 29.1%;right: 53%;bottom: 28.5%;width: 70.7%;height: 42.3%;position: absolute;mask-image: url(&quot;data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNCIgaGVpZ2h0PSI2LjI5Mjc5OTk0OTY0NTk5NiIgdmlld0JveD0iMCAwIDQgNi4yOTI3OTk5NDk2NDU5OTYiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyIgeG1sbnM6eGxpbms9Imh0dHA6Ly93d3cudzMub3JnLzE5OTkveGxpbmsiIHByZXNlcnZlQXNwZWN0UmF0aW89Im5vbmUiIHN0eWxlPSJsZWZ0OiAwcHg7dG9wOiAwcHg7cmlnaHQ6IDBweDtib3R0b206IDBweDt0cmFuc2Zvcm06IG1hdHJpeCgxLDAsMCwxLDAsMCk7dHJhbnNmb3JtLW9yaWdpbjogMCAwOyI+PGRlZnM+PGNsaXBQYXRoIGlkPSJkZWZfMCI+PHJlY3QgeD0iMCIgeT0iMCIgd2lkdGg9IjMuNjU4NDE1MzE3NTM1NDAwNCIgaGVpZ2h0PSI2LjI5Mjc5OTk0OTY0NTk5NiI+PC9yZWN0PjwvY2xpcFBhdGg+PC9kZWZzPjxnIGlkPSJtYXNrX3VuZGVmaW5lZCIgbWFza1VuaXRzPSJ1c2VyU3BhY2VPblVzZSIgeD0iMCIgeT0iMCIgd2lkdGg9IjMuNjU4NDE1MzE3NTM1NDAwNCIgaGVpZ2h0PSI2LjI5Mjc5OTk0OTY0NTk5NiIgc3R5bGU9Im1hc2stdHlwZTogbHVtaW5hbmNlOyI+PGcgc3R5bGU9ImNsaXAtcGF0aDogdXJsKCNkZWZfMCk7Ij48cGF0aCBkPSJNMS44MzI5IDBDMi44MzggMCAzLjY1ODQgMS40MDQgMy42NTg0IDMuMTQ2NCAzLjY1ODQgNC44ODg4IDIuODM4IDYuMjkyOCAxLjgzMjkgNi4yOTI4IDAuODIwNCA2LjI5MjggMCA0Ljg4ODggMCAzLjE0NjQgMCAxLjQwNCAwLjgyMDQgMCAxLjgzMjkgMFoiIHN0eWxlPSJmaWxsLXJ1bGU6IG5vbnplcm87ZmlsbDogIzAwMDsiIC8+PC9nPjwvZz48L3N2Zz4=&quot;);mask-repeat: no-repeat;mask-type: luminance;mask-position: 0.9px -1.8px;">
+                    <svg width="2.6645240783691406" height="2.5867586135864262" viewBox="0 0 2.6645240783691406 2.5867586135864262" fill="none" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="none" style="transform-origin: 0 0;transform: rotate(90deg);left: 100%;top: 0px;right: -103%;bottom: 2.9%;width: 103%;height: 97.1%;position: absolute;">
+                      <path d="M1.3323 0L2.6645 2.5868H0L1.3323 0Z" style="fill-rule: nonzero;fill: #fff;" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <span class="text" style="display: inline;text-align: left;font-size: 18px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 600;font-stretch: 100%;letter-spacing: -0.80px;color: #121212;width: max-content;position: relative;flex-shrink: 0;">Sally</span>
+        </div>
+        <span class="text" style="display: inline;text-align: left;line-height: 22px;font-size: 16px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.49px;color: #121212;width: 600px;position: relative;flex-shrink: 0;">Welcome! I am your ally, and I am thrilled to help you make your day easier, more productive, and fun. Think of me as your always-available partner for brainstorming, writing, learning, and organising. <br><br>No task is too big or too small, and I am constantly learning new ways to assist you better. Let us collaborate and build something great together.</span>
+      </div>
+      <div style="border-radius: 30px;background-color: #ff2d55;display: flex;flex-direction: column;row-gap: 0px;align-items: center;justify-content: center;top: 210px;right: 0px;width: min-content;position: absolute;padding: 10px 12px;">
+        <span class="text" style="display: inline;text-align: right;line-height: 18.2px;font-size: 14px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.47px;color: #fff;width: 100%;position: relative;flex-shrink: 0;">i want a sandwich</span>
+      </div>
+      <span class="text" style="display: inline;text-align: left;line-height: 22px;font-size: 16px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.49px;color: #121212;left: 0px;top: 272px;width: 600px;position: absolute;">Okay. What kind of sandwich do you want and which store would you like to order from? </span>
+      <span class="text" style="display: inline;text-align: left;line-height: 22px;font-size: 16px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.49px;color: #121212;left: 0px;top: 438px;width: 600px;position: absolute;">Got it! I’ll look for citysubs and let you know what’s on their menu.</span>
+      <div style="border-radius: 20px;background-color: #ff2d55;display: flex;flex-direction: column;row-gap: 0px;align-items: center;justify-content: center;left: 321px;top: 340px;width: 279px;position: absolute;padding: 10px 12px;">
+        <span class="text" style="display: inline;text-align: left;line-height: 18.2px;font-size: 14px;font-family: &quot;Open Runde&quot;, Inter, system-ui, sans-serif;font-weight: 500;font-stretch: 100%;letter-spacing: -0.49px;color: #fff;width: 100%;position: relative;flex-shrink: 0;">i don’t know but check their menu, i only get their 6 inch subs, i think i want the chicken sub but let me what’s available</span>
+      </div>
+    </div>
+  </div>
+<script type="application/json" id="figma-assets">[{"nodeId":"384:8391","name":"Group","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574629/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group.svg","bounds":{"x":56.5,"y":164.5,"w":19,"h":19}},{"nodeId":"384:7834","name":"fill","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574630/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/fill.svg","bounds":{"x":45.6,"y":290.5,"w":30.24,"h":33}},{"nodeId":"384:7850","name":"Ellipse 16","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574632/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/ellipse-16.svg","bounds":{"x":73,"y":318,"w":10,"h":10}},{"nodeId":"384:7859","name":"Vector","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574633/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/vector.svg","bounds":{"x":43.98,"y":362.78,"w":33.31,"h":32.45}},{"nodeId":"384:7875","name":"Ellipse 16","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574634/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/ellipse-16-2.svg","bounds":{"x":73,"y":390,"w":10,"h":10}},{"nodeId":"384:8386","name":"Group","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574636/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group-2.svg","bounds":{"x":363.79,"y":99.79,"w":16.42,"h":16.42}},{"nodeId":"384:8378","name":"Ellipse 14","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574637/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/ellipse-14.svg","bounds":{"x":36,"y":894,"w":40,"h":40}},{"nodeId":"384:8438","name":"bg","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574638/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/bg.svg","bounds":{"x":36,"y":84,"w":48,"h":48}},{"nodeId":"384:8439","name":"iOS -Grid","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574640/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/ios-grid.svg","bounds":{"x":36,"y":84,"w":48,"h":48}},{"nodeId":"384:8492","name":"Rectangle","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574642/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/rectangle.svg","bounds":{"x":44.06,"y":86.06,"w":31.97,"h":43.97}},{"nodeId":"384:8493","name":"Rectangle","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574643/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/rectangle-2.svg","bounds":{"x":41.06,"y":89.06,"w":37.97,"h":37.97}},{"nodeId":"384:8494","name":"Rectangle","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574645/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/rectangle-3.svg","bounds":{"x":38.06,"y":92.06,"w":43.97,"h":31.97}},{"nodeId":"384:8495","name":"Oval","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574646/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/oval.svg","bounds":{"x":38.06,"y":86.06,"w":43.97,"h":43.97}},{"nodeId":"384:8496","name":"Center Circle","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574647/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/center-circle.svg","bounds":{"x":50.16,"y":98.16,"w":19.78,"h":19.78}},{"nodeId":"384:8497","name":"Rectangle","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574649/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/rectangle-4.svg","bounds":{"x":53.06,"y":101.06,"w":13.97,"h":13.97}},{"nodeId":"384:8498","name":"lines","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574650/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/lines.svg","bounds":{"x":36,"y":84,"w":48.05,"h":48.05}},{"nodeId":"384:8508","name":"Ellipse 4","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574651/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/ellipse-4.svg","bounds":{"x":39.84,"y":87.84,"w":40.31,"h":40.31}},{"nodeId":"384:8509","name":"Group 1","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574653/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group-1.svg","bounds":{"x":45.55,"y":93.55,"w":28.91,"h":28.91}},{"nodeId":"384:8515","name":"fill","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574655/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/fill-2.svg","bounds":{"x":45.33,"y":92,"w":29.33,"h":32}},{"nodeId":"384:8710","name":"Group","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574656/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group-3.svg","bounds":{"x":910.33,"y":67.33,"w":21.34,"h":21.34}},{"nodeId":"I384:7201;13:267","name":"Frame 2","kind":"vector","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574657/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/frame-2.svg","bounds":{"x":1393,"y":16,"w":98.47,"h":19}},{"nodeId":"I384:7201;13:273","name":"Vector","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574658/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/vector-2.svg","bounds":{"x":580,"y":17.5,"w":14,"h":17}},{"nodeId":"I384:7201;13:276","name":"refresh.alt","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574660/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/refresh-alt.svg","bounds":{"x":955.66,"y":21,"w":9.34,"h":11.29}},{"nodeId":"I384:7201;13:278","name":"Medium-S","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574661/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/medium-s.svg","bounds":{"x":700,"y":20,"w":8.95,"h":13}},{"nodeId":"I384:7201;13:283","name":"Vector","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574662/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/vector-3.svg","bounds":{"x":99,"y":18,"w":19.08,"h":15}},{"nodeId":"I384:7201;13:286","name":"Lighter","kind":"vector","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574664/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/lighter.svg","bounds":{"x":20,"y":20,"w":52,"h":12}},{"nodeId":"384:8402","name":"Group","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574665/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group-4.svg","bounds":{"x":1235,"y":895,"w":14,"h":18}},{"nodeId":"384:8407","name":"Group","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574667/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/group-5.svg","bounds":{"x":687.33,"y":895.33,"w":17.33,"h":17.33}},{"nodeId":"384:8415","name":"Vector","kind":"icon","imageUrl":"https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788574668/figma-screens/batch_mtnr5g8w_npmoz/dashboard-ui-push/assets/vector-4.svg","bounds":{"x":677.99,"y":133.83,"w":24.98,"h":24.34}}]</script>
+</body></html>

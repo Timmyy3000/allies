@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mobile post-onboarding notifications and Allies home</title>
+    <style>
+      :root { color-scheme: light; font-family: Arial, sans-serif; line-height: 1.55; --ink: #171717; --muted: #666; --line: #e5e5e5; --orange: #ff5800; --soft: #fff4ee; }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: var(--ink); background: #fff; }
+      main { max-width: 900px; margin: 0 auto; padding: 56px 24px 88px; }
+      h1 { margin: 0 0 10px; font-size: 34px; line-height: 1.08; }
+      h2 { margin: 42px 0 12px; font-size: 22px; line-height: 1.2; }
+      h3 { margin: 28px 0 8px; font-size: 17px; line-height: 1.25; }
+      p, li { max-width: 72ch; }
+      .lede { color: var(--muted); }
+      .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 28px 0; }
+      .meta div { border-top: 2px solid var(--ink); padding-top: 8px; }
+      .meta dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .04em; }
+      .meta dd { margin: 4px 0 0; }
+      .callout { padding: 16px 18px; border-left: 4px solid var(--orange); background: var(--soft); }
+      .callout p { margin: 0; }
+      .section { border-top: 1px solid var(--line); padding-top: 16px; margin-top: 24px; }
+      ul, ol { padding-left: 22px; }
+      li + li { margin-top: 6px; }
+      table { width: 100%; border-collapse: collapse; margin: 14px 0 24px; font-size: 14px; }
+      th, td { border-bottom: 1px solid var(--line); padding: 10px 8px; text-align: left; vertical-align: top; }
+      th { font-weight: 700; }
+      code { font-family: Consolas, monospace; font-size: .92em; }
+      @media (max-width: 680px) { main { padding: 36px 18px 64px; } h1 { font-size: 29px; } .meta { grid-template-columns: 1fr; gap: 12px; } table { display: block; overflow-x: auto; } th, td { min-width: 170px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Mobile post-onboarding notifications and Allies home</h1>
+      <p class="lede">Restore the notification prompt, request native permission, and continue into a lightweight Allies roster using the completed Ally already held by onboarding.</p>
+      <dl class="meta">
+        <div><dt>Platform</dt><dd>Expo SDK 57 / React Native</dd></div>
+        <div><dt>Native boundary</dt><dd>OS notification permission</dd></div>
+        <div><dt>Data boundary</dt><dd>Flow-local single Ally</dd></div>
+      </dl>
+      <div class="callout"><p><strong>Core constraint:</strong> the native permission request is real, but push delivery, token registration, Cloud roster loading, and durable mock catalogs remain out of scope.</p></div>
+
+      <h2>Feature overview</h2>
+      <ul>
+        <li>Restore the notification card to its static approved skeleton bars.</li>
+        <li>Use <code>expo-notifications</code> to request OS permission from Allow notifications.</li>
+        <li>Continue after Allow or I’ll do this later into a finished-looking Allies home.</li>
+        <li>Show the selected Ally from the existing onboarding state and let Make an ally restart local creation.</li>
+      </ul>
+
+      <h2>Flow contract</h2>
+      <table>
+        <thead><tr><th>State</th><th>Entry</th><th>Behavior</th><th>Exit</th></tr></thead>
+        <tbody>
+          <tr><td><code>notifications</code></td><td>Basics completion</td><td>Static notification preview, explanatory copy, and two actions</td><td>Allow requests OS permission; Later skips it</td></tr>
+          <tr><td><code>allies</code></td><td>Either notification action</td><td>Shows the flow-owned Ally row, profile/create/search treatments, and last-message preview</td><td>Make an ally returns to <code>welcome</code></td></tr>
+        </tbody>
+      </table>
+
+      <h2>Implementation phases</h2>
+      <section class="section"><h3>1. Restore the visual and state contract</h3><p>Add the <code>allies</code> state and transition assertions. Replace the notification block shimmer with static <code>#D9D9D9</code> bars while preserving the established card, copy, and button measurements.</p></section>
+      <section class="section"><h3>2. Add the native permission boundary</h3><p>Install the Expo SDK 57 compatible notifications package, configure its plugin, create the Android channel before the request, and always continue after the request attempt.</p></section>
+      <section class="section"><h3>3. Add the Allies roster</h3><p>Build the roster from the existing flow-owned Ally. Reuse <code>OnboardingAllyPreview</code> and <code>PrimaryButton</code>; normalize and bound the greeting preview; keep search and account controls visual until their product contracts exist.</p></section>
+      <section class="section"><h3>4. Validate</h3><p>Run focused onboarding tests, mobile lint, mobile typecheck, Expo config validation, and <code>git diff --check</code>. Test the OS prompt only with a rebuilt native binary containing the module.</p></section>
+
+      <h2>Acceptance criteria</h2>
+      <ol>
+        <li>The notification card matches the approved static visual and has no dominant shimmer overlay.</li>
+        <li>Allow notifications calls the native permission API and prepares an Android channel when required.</li>
+        <li>I’ll do this later does not request permission.</li>
+        <li>Granted, denied, and failed permission attempts all reach the Allies roster.</li>
+        <li>The roster shows the completed Ally’s color, shape, name, bounded greeting preview, presence, time, and Make an ally action.</li>
+        <li>Make an ally resets the local flow without adding a second data model.</li>
+        <li>No push token, network request, password, or durable fake catalog is introduced.</li>
+      </ol>
+
+      <h2>Boundaries and risks</h2>
+      <p>Cloud remains the owner of durable Allies and notification preferences. The local row is a temporary display of the Ally completed in this flow. Adding <code>expo-notifications</code> is a native dependency change, so an OTA cannot add it to an already installed binary; build a compatible binary before device testing.</p>
+
+      <h2>Test plan</h2>
+      <ul>
+        <li><code>bun test apps/mobile/src/features/onboarding</code></li>
+        <li><code>bun --filter mobile lint</code></li>
+        <li><code>bun --filter mobile typecheck</code></li>
+        <li><code>bunx expo config --type public --json</code></li>
+        <li><code>git diff --check</code></li>
+      </ul>
+    </main>
+  </body>
+</html>

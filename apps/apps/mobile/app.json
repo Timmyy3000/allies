@@ -1,0 +1,69 @@
+{
+  "expo": {
+    "name": "allies",
+    "slug": "allies",
+    "version": "1.0.4",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "checkAutomatically": "ON_LOAD",
+      "url": "https://u.expo.dev/86620283-5712-4c7d-b8d9-c7b89f0dc81c"
+    },
+    "orientation": "portrait",
+    "icon": "./assets/allies/icons/allies-app-icon.png",
+    "scheme": "mobile",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "icon": "./assets/allies/icons/allies-app-icon.png",
+      "bundleIdentifier": "come.alliesai.alllies"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FF5800",
+        "foregroundImage": "./assets/allies/icons/allies-adaptive-foreground.png",
+        "monochromeImage": "./assets/allies/icons/allies-adaptive-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "come.alliesai.alllies"
+    },
+    "web": {
+      "output": "static",
+      "favicon": "./assets/allies/icons/allies-app-icon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      "expo-image",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#FF5800",
+          "image": "./assets/allies/icons/allies-app-icon.png",
+          "imageWidth": 180,
+          "resizeMode": "contain"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "cameraPermission": false,
+          "microphonePermission": false,
+          "photosPermission": "Allow Allies to use your photos for your profile avatar."
+        }
+      ],
+      "expo-secure-store",
+      "expo-notifications"
+    ],
+    "experiments": {
+      "typedRoutes": true,
+      "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "86620283-5712-4c7d-b8d9-c7b89f0dc81c"
+      }
+    }
+  }
+}

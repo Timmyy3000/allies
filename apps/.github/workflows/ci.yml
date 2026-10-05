@@ -1,0 +1,171 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, staging, prod, prod-fastlane, web/feat/chat-frames]
+  workflow_dispatch:
+    inputs:
+      visual_snapshots:
+        description: Compare the approved screenshot baselines
+        type: boolean
+        default: false
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
+    outputs:
+      source_sha:
+        description: "The exact source commit checked by this workflow"
+        value: ${{ jobs.quality.outputs.source_sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Types, tests, lint and mobile
+    runs-on: ubuntu-24.04
+    env:
+      NEXT_PUBLIC_CLOUD_API_URL: https://cloud.invalid
+      EXPO_PUBLIC_CLOUD_API_URL: https://cloud.invalid
+      CHAT_FRAMES_PORT: 3011
+    outputs:
+      source_sha: ${{ steps.record_source.outputs.sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+      - name: Record validated source SHA
+        id: record_source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Select validation scope
+        id: scope
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_FULL: ${{ github.event_name != 'pull_request' || github.base_ref != 'dev' }}
+        run: |
+          if [ "$CI_FULL" != "true" ] && git show "$CI_BASE_SHA:scripts/ci-scope.ts" > "$RUNNER_TEMP/ci-scope.ts"; then
+            bun "$RUNNER_TEMP/ci-scope.ts" >> "$GITHUB_OUTPUT"
+          else
+            printf 'web=true\nmobile=true\nbrowsers=true\nmotion=true\n' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Verify pinned Cloud contract
+        run: bun run cloud:check
+      - name: Type check workspaces
+        run: bun run typecheck
+      - name: Run focused tests
+        run: bun run test:run
+      - name: Lint web and mobile
+        run: bun run lint
+      - name: Export mobile iOS bundle
+        if: steps.scope.outputs.mobile == 'true'
+        run: bun run bundle:mobile
+
+  web:
+    name: Web build and browser tests
+    runs-on: ubuntu-24.04
+    env:
+      NEXT_PUBLIC_CLOUD_API_URL: https://cloud.invalid
+      NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE: stream
+      EXPO_PUBLIC_CLOUD_API_URL: https://cloud.invalid
+      CHAT_FRAMES_PORT: 3011
+    outputs:
+      source_sha: ${{ steps.record_source.outputs.sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+      - name: Record validated source SHA
+        id: record_source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.20
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+      - name: Select validation scope
+        id: scope
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_FULL: ${{ github.event_name != 'pull_request' || github.base_ref != 'dev' }}
+        run: |
+          if [ "$CI_FULL" != "true" ] && git show "$CI_BASE_SHA:scripts/ci-scope.ts" > "$RUNNER_TEMP/ci-scope.ts"; then
+            bun "$RUNNER_TEMP/ci-scope.ts" >> "$GITHUB_OUTPUT"
+          else
+            printf 'web=true\nmobile=true\nbrowsers=true\nmotion=true\n' >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build web
+        if: steps.scope.outputs.web == 'true'
+        run: bun run build:web
+      - name: Install pinned Playwright browsers
+        if: steps.scope.outputs.web == 'true'
+        env:
+          FULL_BROWSERS: ${{ steps.scope.outputs.browsers }}
+        run: |
+          browsers="chromium webkit"
+          if [ "$FULL_BROWSERS" = "true" ]; then browsers="$browsers firefox"; fi
+          bun --cwd apps/web playwright install --with-deps $browsers
+      - name: Verify production Home flows
+        if: steps.scope.outputs.web == 'true'
+        run: bun run --cwd apps/web test:home-smoke
+      - name: Verify Ally SVG playback in Chromium and WebKit
+        if: steps.scope.outputs.motion == 'true'
+        run: bun run --cwd apps/web test:ally-motion
+      - name: Run chat frame regression tests
+        id: chat_frames
+        if: steps.scope.outputs.web == 'true'
+        env:
+          FULL_BROWSERS: ${{ steps.scope.outputs.browsers }}
+          CHAT_FRAME_RASTER: ${{ github.event_name == 'workflow_dispatch' && inputs.visual_snapshots && 'true' || 'false' }}
+        run: |
+          if [ "$FULL_BROWSERS" = "true" ]; then bun run test:chat-frames
+          else bun run test:chat-frames --project=chat-chromium; fi
+      - name: Validate chat frame artifacts
+        if: ${{ always() && steps.chat_frames.outcome != 'skipped' }}
+        working-directory: apps/web
+        shell: bash
+        run: |
+          test -d playwright-report/chat-frames
+          test -d test-results/chat-frames
+          test -s test-output/chat-frames/summary.json
+          test -d tests/chat-frames/__screenshots__/chat-chromium
+          baseline_count="$(find tests/chat-frames/__screenshots__/chat-chromium -type f -name '*.png' | wc -l)"
+          test "$baseline_count" -eq 25
+
+  quality:
+    name: Interface CI suite
+    if: ${{ always() }}
+    needs: [checks, web]
+    runs-on: ubuntu-24.04
+    outputs:
+      source_sha: ${{ steps.gate.outputs.source_sha }}
+    steps:
+      - name: Require both lanes on the same commit
+        id: gate
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          CHECKS_SHA: ${{ needs.checks.outputs.source_sha }}
+          WEB_SHA: ${{ needs.web.outputs.source_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CHECKS_RESULT" = success
+          test "$WEB_RESULT" = success
+          [[ "$CHECKS_SHA" =~ ^[a-f0-9]{40}$ ]]
+          test "$CHECKS_SHA" = "$WEB_SHA"
+          echo "source_sha=$CHECKS_SHA" >> "$GITHUB_OUTPUT"

@@ -1,0 +1,334 @@
+# Allies Live Activity Streaming Plan
+
+## Feature Overview
+
+- Problem: The Home workspace currently polls Cloud activity snapshots every 500 ms. That adds visible update quantization and leaves the browser repeatedly asking for unchanged state, even though Cloud already has ordered, cursor-replayable activities.
+- Target users: Authenticated Allies users who are watching a conversation while an Ally is replying, including users who refresh, change tabs, lose network, or switch between Allies.
+- Source docs/specs: `allies-interface/.agent/sse-streaming/sse-streaming-brief.md`; Nabu `projects/allies/engineering/specs/conversation-and-streaming.md`, `projects/allies/engineering/specs/foundry-continuity-layer.md`, and `projects/allies/engineering/decisions/decision-log.md` (CLD-006 accepted on 2026-08-31); Interface `apps/web/app/home/home-workspace.tsx`; Cloud `backend/activities/api/register.py` and `backend/activities/services/projection.py`; Foundry `backend/runtime/services/event_delivery.py` and `backend/runtime/management/commands/publish_event_deliveries.py`.
+- Success outcome: The authenticated web client receives ordered Cloud activity updates over a bounded SSE connection with signed cursor resume, then uses the existing replay/polling path to recover every disconnect, gap, expiry, terminal, or unsupported-stream case. Foundry and Hermes ownership remain unchanged.
+
+This plan is the accepted implementation contract for the live activity stream. It preserves the active Interface branch `web/retry-message-recovery`, the Cloud and Foundry local Docker worktrees, the running preview stack, and all unrelated dirty changes. Product code and PRs are authorized within this bounded scope; deployment enablement and merging remain separate approvals.
+
+CLD-006 is a hard prerequisite, not an implementation detail. Before any SSE
+work begins, the dedicated Cloud CLD-006 worktree/branch must contain the
+accepted signed activity cursor, replay service, cursor error mapping, and
+passing CLD-006 service/API tests. The stream route must import those canonical
+helpers from that Cloud change; it must not copy, fork, or invent a second
+cursor serializer/parser. If the checked-out Cloud source is only the bounded
+snapshot route, stop at this gate and complete/review CLD-006 in its own Cloud
+boundary first. The current Interface preview branch remains the consumer
+worktree; Foundry remains unchanged.
+
+## User Stories
+
+1. As an authenticated user, I want one selected Ally conversation to update as activities arrive, so that a reply feels live instead of being quantized by browser polling.
+2. As a user who refreshes, loses network, suspends a tab, or switches Allies, I want the conversation to resume from the last accepted cursor without duplicate or missing text, so that the timeline remains trustworthy.
+3. As an operator, I want bounded authenticated streams, privacy-safe failure categories, and a polling fallback, so that SSE cannot exhaust Cloud workers or turn a transport failure into data loss.
+
+## Scope
+
+### In Scope
+
+- A Cloud-owned, authenticated, conversation-scoped SSE endpoint that reuses the verified CLD-006 signed activity cursor and canonical replay service.
+- A narrow web status-aware fetch streaming adapter and Home workspace state machine that apply validated activity events through the existing global-sequence projector. Native `EventSource` is deliberately not used because it hides HTTP status and JSON error bodies.
+- Signed `Last-Event-ID`/query-cursor resume, duplicate/gap/expiry handling, heartbeat, cancellation, and bounded connection lifetime. The current adapter reports transport failure to the existing bounded replay/polling fallback; reconnect backoff and shared capacity admission remain deployment gates.
+- Compatibility with the existing bounded-tail snapshot, cursor replay endpoint, message send/retry behavior, markdown streaming, Ally isolation, and current accessibility states.
+- Cloud/Interface contract tests, stream-parser tests, local Docker Cloud → Foundry → Fly/Hermes browser validation, and timing evidence.
+- SSE is enabled by default in Cloud and the web client; setting the Cloud flag to `false` remains the explicit rollback/fallback mode.
+- A race-free hydration/ready handshake and append-between-hydration/open proof.
+
+### Temporary bounded preview fan-out exception
+
+- Rule: AL-07 (bounded request work must be measured or explicitly dispositioned).
+- Scope: The roster preview intentionally issues at most 32 conversation-preview requests because each Ally row needs an independent latest-message summary.
+- Reason: The current Cloud contract has no batch-preview endpoint; a batching change would cross the Cloud/Web boundary and is outside this focused slice.
+- Risk: Preview latency and request volume grow with the first 32 Allies, although the fan-out is capped and does not affect conversation replay or message delivery.
+- Owner and revisit: Interface maintainers; measure preview request latency/volume in the next roster performance pass or replace with a Cloud batch endpoint before materially increasing the preview cap.
+
+### Out of Scope
+
+- Direct Interface connections to Foundry, Hermes, Fly, or runtime addresses.
+- Replacing durable Cloud activity projection, CLD-006 replay, cursor signing, or message history pagination.
+- Changing Foundry's event vocabulary, runtime execution, publisher ordering, publisher cadence, or Hermes generation behavior. Foundry is a validation dependency only in this slice.
+- WebSockets, general realtime infrastructure, Postgres `LISTEN/NOTIFY`, a queue/broker redesign, or a production ASGI migration.
+- Mobile UI/transport cutover; shared client types must continue to compile for mobile.
+- New database tables or migrations.
+- Production enablement, deployment changes, merges, or releases.
+
+### Dependencies and Assumptions
+
+- CLD-006's activity replay contract is the source of truth: `Activity.sequence` is conversation-global, cursors are signed/expiring/conversation-scoped, and gaps are explicit repair conditions.
+- Cloud remains the customer-facing stream owner; browser authentication is the existing HttpOnly access cookie plus `withCredentials`, and a GET stream does not require CSRF.
+- The current Cloud process is Django behind synchronous Gunicorn `gthread` workers. A stream therefore consumes a bounded worker thread; global capacity is coordinated through the existing Redis deployment rather than treated as process-local. SSE is the default web transport, with the Cloud flag providing the explicit rollback to replay/polling while capacity and reconnect soak evidence are collected.
+- The first implementation may check persisted Cloud activities on a short server-side interval. It does not claim provider-token improvement and must not expose Hermes or Foundry identifiers. Each read is bounded and no database transaction spans a sleep or network write.
+- The local validation surface remains the running Interface preview at `localhost:3000`, Cloud at `localhost:8000`, Foundry at `localhost:8100`, the existing tunnel, and Fly/Hermes.
+
+## Contract and Shape Definitions
+
+### Function and Service Shapes
+
+| Location | Symbol | Signature | Inputs and validation | Return value | Side effects / errors |
+| --- | --- | --- | --- | --- | --- |
+| Cloud `backend/activities/services/stream.py` (new narrow module) | `iter_activity_stream` | `iter_activity_stream(*, user, workspace_id: UUID, conversation_id: UUID, cursor: str \| None, last_event_id: str \| None, limits: ActivityStreamLimits, disconnect: Callable[[], bool]) -> Iterator[bytes]` | Reuse the verified CLD-006 `read_activity_snapshot` and cursor parser. Prefer a valid `Last-Event-ID` on reconnect; otherwise use the query cursor. Enforce conversation scope, cursor max 512 bytes, event/byte/lifetime limits, and a disconnect check. | UTF-8 SSE frames for `ready`, `activity`, `terminal`, `heartbeat`, or safe `error`. | Performs bounded read-only projection reads; never writes activity state. Emits no customer text in logs. Ends on terminal, limit, disconnect, expiry, or safe failure. The WSGI generator catches `GeneratorExit`, `BrokenPipeError`, `ConnectionResetError`, and equivalent `OSError` pipe/reset codes; `finally` releases the global Redis reservation and closes stale DB connections. |
+| Cloud `backend/activities/api/register.py` | `ActivityController.stream` | `GET /workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream(...) -> StreamingHttpResponse \| JsonResponse` | Cookie-authenticated session and workspace capability; optional signed `cursor`; `Last-Event-ID` is an opaque signed cursor. Reject malformed, expired, cross-conversation, and gap cursors with existing privacy-safe categories before opening the stream. | `200 text/event-stream` with no-cache/no-transform headers, or existing JSON error envelope for pre-stream failures. | Owns HTTP boundary and cancellation; sets `X-Accel-Buffering: no`, `Vary: Origin`, and credentialed CORS; never contacts Foundry. A heartbeat/activity boundary rechecks session/capability and closes safely after revocation. |
+| Web `apps/web/lib/allies/activity-stream.ts` (new) | `readActivityStream` | `readActivityStream(options: ActivityStreamOptions) -> ActivityStreamHandle` | Browser `fetch` with `credentials: "include"`, `Accept: text/event-stream`, optional initial cursor, explicit `Last-Event-ID`, AbortSignal, and typed callbacks. No Authorization header, CSRF token, runtime address, or Hermes ID. | Handle with `close()`; callbacks receive validated `ActivityStreamEvent` values and status-aware HTTP errors. | No native `EventSource` retry loop is introduced. A failed or stalled request reports fallback to the existing bounded replay/polling path, with an idle timeout preventing stranded turns. |
+| Web `apps/web/app/home/home-workspace.tsx` | `applyActivityStreamEvent` (local callback) | `(event: ActivityStreamEvent) -> void` | Accept only the selected conversation, valid Cloud activity schema, monotonic/deduplicated global sequence, and a cursor that validates against the event. | Updated projection, resume cursor, and explicit stream state. | Applies through `projectActivitySnapshot`/a single-activity equivalent; terminal events stop active-turn UI and trigger normal conversation revalidation. |
+
+### API and Transport Contracts
+
+| Consumer | Method and path / event | Authentication and authorization | Request schema | Success response schema | Error responses / retry semantics |
+| --- | --- | --- | --- | --- | --- |
+| Interface web | `GET /api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream` | Existing authenticated browser session cookie; Cloud rechecks workspace/conversation capability on every connection and at bounded heartbeat/activity boundaries. CORS credentials remain enabled for the exact configured Interface origin; response includes `Vary: Origin`. | Query `cursor?: string` (signed CLD-006 activity cursor, max 512). On adapter reconnect, `Last-Event-ID` carries the last accepted opaque cursor and takes precedence over the query value after validation. | `200`, `Content-Type: text/event-stream`, `Cache-Control: no-cache, no-transform`, `X-Accel-Buffering: no`; ordered SSE frames below. | Because native `EventSource` is not used, the fetch reader can inspect HTTP status and parse the existing JSON error envelope: `401` session invalid, `404` unavailable/foreign scope, `409` `activity_cursor_gap`, `410` `activity_cursor_expired`, `422` `activity_cursor_invalid`, `429/503` stream unavailable/capacity. Network/reader failures use bounded adapter reconnect; expiry restarts from origin once; gap shows repair; invalid/auth errors stop; unsupported/failing stream falls back to bounded replay polling. |
+| Cloud stream | `event: ready` | Same connection authorization. | None beyond cursor selection. | `id: <opaque-signed-cursor>` and `data: {"conversation_id":"uuid","cursor":"<opaque-signed-cursor>","high_water_sequence":123}`. On open, Cloud validates the hydration cursor, takes a fresh fixed high-water snapshot, and sends `ready` before replaying `sequence > hydration_cursor` through that boundary. `high_water_sequence` is the one canonical high-water field; the route does not emit a second `latest_sequence` alias. If no cursor is supplied, Cloud starts at the current retained tail rather than replaying unbounded history; Interface hydrates history through CLD-006 first. | A pre-stream cursor error is an HTTP error. A post-open serialization/runtime issue emits `stream.error` and closes; the client uses replay/polling. `ready` does not advance the cursor beyond the accepted hydration position. |
+| Cloud stream | `event: activity` | Same connection authorization and conversation scope. | Server-selected persisted activity after the accepted cursor. | `id: <signed-cursor>` and `data: {"conversation_id":"uuid","activity":{"id":"uuid","message_id":"uuid","sequence":124,"conversation_turn_ordinal":5,"kind":"assistant_delta","text":"…","state":"running","created_at":"2026-08-31T12:00:00Z"},"cursor":"<signed-cursor>"}`. One frame represents one persisted activity; order is ascending global `sequence`. | Duplicate IDs are harmless and deduplicated. A detected retention gap emits `stream.error` with `activity_cursor_gap`, then closes. Unknown/malformed activity payloads fail closed. |
+| Cloud stream | `event: terminal` | Same connection authorization. | Server emits after a persisted terminal activity/state for the selected conversation. | `id: <signed-cursor>` and `data: {"conversation_id":"uuid","state":"completed"|"failed","cursor":"<signed-cursor>"}`. | Client ends the stream, clears active-turn state, and uses existing normal conversation invalidation. A later send opens a new stream from the stored cursor. |
+| Cloud stream | `: heartbeat` | Same connection authorization. | No data. | Comment frame `: heartbeat\n\n` at most every 15 seconds while no activity is available. | Client updates its liveness deadline; no cursor advances on a heartbeat. Missing heartbeat/connection close enters bounded reconnect. |
+| Cloud stream | `event: stream.error` | Same connection authorization. | Safe low-cardinality code only. | `data: {"code":"activity_cursor_expired"|"activity_cursor_gap"|"activity_cursor_invalid"|"session_invalid"|"activity_unavailable"|"stream_unavailable"|"stream_lifetime_expired"}`; no token, message text, runtime data, or exception. | Client maps to existing normalized error behavior, closes, and chooses one origin restart, repair UI, or polling fallback. |
+
+Representative first connection:
+
+```http
+GET /api/v1/workspaces/9a.../conversations/4b.../activities/stream?cursor=eyJ2Ijox... HTTP/1.1
+Accept: text/event-stream
+Cookie: allies_access=...
+Last-Event-ID: eyJ2Ijox...
+```
+
+Representative stream:
+
+```text
+event: ready
+id: eyJ2IjoxLCJ0IjoiYWN0aXZpdHki...
+data: {"conversation_id":"4b...","cursor":"eyJ2Ijox...","high_water_sequence":123}
+
+event: activity
+id: eyJ2IjoxLCJ0IjoiYWN0aXZpdHki...
+data: {"conversation_id":"4b...","activity":{"id":"7c...","message_id":"8d...","sequence":124,"conversation_turn_ordinal":5,"kind":"assistant_delta","text":"Hello","state":"running","created_at":"2026-08-31T12:00:00Z"},"cursor":"eyJ2Ijox..."}
+
+: heartbeat
+
+event: terminal
+id: eyJ2IjoxLCJ0IjoiYWN0aXZpdHki...
+data: {"conversation_id":"4b...","state":"completed","cursor":"eyJ2Ijox..."}
+```
+
+The stream's `id` is an opaque, signed CLD-006 resume hint, not a raw Foundry ID or an unsigned sequence. The web reader never derives activity state from the ID alone: every activity is schema-validated and projected by global sequence, and reconnect is server-authoritatively reconciled through the same replay rules. `Last-Event-ID` is checked for signature, expiry, conversation, and retention gap exactly as the replay endpoint checks a query cursor. If both headers are present, `Last-Event-ID` wins because it reflects the last event the reader accepted; the server does not merge two cursors. Native `EventSource` is not used, so there is one retry owner and no browser-native retry racing the adapter's backoff.
+
+### Hydration and ready handshake
+
+The Interface first hydrates CLD-006 replay pages from origin and retains the
+final server-issued `resume_cursor` (`H0`). It then opens the stream with `H0`.
+Cloud validates `H0`, obtains a fresh fixed high-water sequence (`H1`) as the
+first stream operation, emits `ready` with the accepted starting cursor and
+`H1`, and replays every persisted activity where `sequence > H0` and
+`sequence <= H1`. The stream then checks for appends after `H1` on the next
+bounded read. If the connection drops after `ready` but before an activity is
+applied, reconnecting with the last accepted ID replays the same range; the
+Interface projector deduplicates it. This handshake covers an append between
+the final hydration page and stream open without opening a race window.
+
+Required race tests append an activity (a) after the final hydration response
+but before the stream request, (b) after Cloud takes `H1` but before `ready` is
+read, and (c) after `ready` while the stream is idle. Each case must render the
+activity exactly once, advance the cursor only after acceptance, and recover
+after a disconnect at every boundary.
+
+### Data Shapes and Invariants
+
+#### Database Models
+
+Not applicable. SSE is stateless over existing Cloud `Activity` and projection rows; no migration or new persisted stream record is needed.
+
+#### Enums
+
+| Type / category | Enum | Location | Members / representation | Validation and invariants | Compatibility notes |
+| --- | --- | --- | --- | --- | --- |
+| Stream state | `ActivityStreamStatus` | Web `apps/web/lib/allies/activity-stream.ts` | `idle`, `connecting`, `open`, `reconnecting`, `fallback`, `closed` | Only the selected conversation may own a non-closed stream. Terminal/error transitions are explicit; stale callbacks cannot update a newer conversation generation. | Web-only view state; mobile and existing Cloud contracts unchanged. |
+| Stream event kind | `ActivityStreamEventKind` | Cloud contract and web parser | `ready`, `activity`, `terminal`, `stream.error` | Unknown event names fail closed; heartbeats are comments and do not enter the event union. | Additive SSE contract; JSON replay remains authoritative fallback. |
+| Stream error code | `ActivityStreamErrorCode` | Cloud contract and web parser | `activity_cursor_expired`, `activity_cursor_gap`, `activity_cursor_invalid`, `session_invalid`, `activity_unavailable`, `stream_unavailable`, `stream_lifetime_expired` | Closed low-cardinality set; each code maps to one recovery path and contains no customer or runtime detail. | Additive stream-only vocabulary; existing Cloud error envelope remains for pre-stream responses. |
+
+#### API Request Schemas
+
+| Type / category | Request schema | Location | Fields and types | Required / nullable / defaults | Validation and invariants | Compatibility notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Query schema | `ActivityStreamQuery` | Cloud `backend/activities/api/register.py` | `cursor: str \| None` | Optional; max 512; default origin/tail behavior | Must be a signed CLD-006 activity cursor for this conversation; message cursors, tampered values, and cross-conversation values are rejected. | New route; existing snapshot query is unchanged. |
+| Header input | `Last-Event-ID` | Cloud stream boundary | Opaque string | Optional; browser supplies it on reconnect | When present, parse as signed activity cursor and prefer it over query `cursor`; never echo malformed input. | Standard SSE reconnect mechanism; clients without it can use query `cursor`. |
+
+#### API Response Schemas
+
+| Type / category | Response schema | Location | Fields and types | Required / nullable / defaults | Validation and invariants | Compatibility notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| SSE ready data | `ActivityStreamReady` | Cloud stream contract / web parser | `conversation_id: UUID`, `cursor: str`, `high_water_sequence: int` | All required; high-water sequence nonnegative | Cursor scope matches conversation; no history flood; this is the sole high-water field. | Additive, stream-only. |
+| SSE activity data | `ActivityStreamActivity` | Cloud stream contract / web parser | `conversation_id: UUID`, `activity: ActivityResponse`, `cursor: str` | All required; activity text/payload retains existing bounds | Cursor advances only after the corresponding persisted global activity sequence; activity is safe product data only. | Reuses existing activity shape; replay remains source of recovery. |
+| SSE terminal data | `ActivityStreamTerminal` | Cloud stream contract / web parser | `conversation_id: UUID`, `state: completed \| failed`, `cursor: str` | All required | Terminal is emitted only from persisted Cloud state; stream then closes. | Existing message/activity terminal semantics remain. |
+| SSE error data | `ActivityStreamError` | Cloud stream contract / web parser | `code: ActivityStreamErrorCode` | Required; no details | Closed low-cardinality set; no token, exception, prompt, URL, or runtime ID. | Maps to existing `CloudError` categories and polling/replay recovery. |
+
+#### Temporary / Internal Shapes
+
+| Type / category | Shape | Location | Fields and types | Lifetime / visibility | Validation, security, and invariants | Compatibility / rotation notes |
+| --- | --- | --- | --- | --- | --- | --- |
+| Temporary/internal shape | `ActivityStreamLimits` | Cloud settings/service | `activity_check_interval_seconds`, `heartbeat_seconds`, `max_lifetime_seconds`, `max_events`, `max_bytes`, `max_connections`, `reservation_ttl_seconds`, `reservation_heartbeat_seconds` | Process/config lifetime; never serialized | Positive bounded values. `activity_check_interval_seconds` is server-side persisted-activity check cadence while one stream is open, not browser polling; heartbeat and Redis renewal cadences are separate. Global connection cap protects synchronous worker capacity; bytes/events/lifetime are hard stops; Redis reservation TTL exceeds heartbeat interval. | Local flag enables conservative values; production values require capacity evidence. |
+| Temporary/internal shape | `ActivityStreamReservation` | Cloud `backend/activities/services/stream_capacity.py` (new narrow module) | Opaque slot key, random lease token, expiry | Redis-only for one stream; never serialized or logged | Global Redis slot reservation acquired atomically, renewed at heartbeat/activity boundaries, released idempotently in generator `finally`, and reclaimed by TTL. Redis unavailability fails closed. | Existing Redis deployment; no new datastore or schema. |
+| Temporary/internal shape | `ActivityStreamHandle` | Web adapter | `close(): void`, `status`, `conversationId` | Selected conversation lifetime; never persisted | Abort-safe, idempotent close; callbacks ignored after generation changes. | No mobile dependency. |
+| Temporary/internal shape | `ActivityStreamReconnectState` | Web adapter | `attempt`, `nextDelayMs`, `lastCursor`, `failureWindow` | One stream attempt; reset on activity/healthy open | Exponential backoff 250 ms → 30 s max, jittered; after two failures/10 s, enter polling fallback. Native browser retry is disabled because the fetch reader is the sole retry owner. | Cursor remains the sole resume authority. |
+
+#### Service Primitives
+
+| Type / category | Primitive | Location | Signature | Inputs and validation | Return value | Lock/transaction ownership, side effects, and errors |
+| --- | --- | --- | --- | --- | --- | --- |
+| Service primitive | Canonical CLD-006 replay read | Cloud `backend/activities/services/projection.py` | `read_activity_snapshot(..., replay=True, cursor=..., stream_high_water: int \| None = None) -> ActivitySnapshot` | Existing authorized conversation plus signed cursor; bounded page and high-water rules. The only allowed stream-specific extension is an explicit high-water input/return that reuses the same cursor parser and query semantics. | Ordered persisted activities and updated cursor metadata | Read-only bounded query; uses global `Activity.sequence`, raises existing gap/expired/invalid/not-found exceptions. No parallel `read_activity_stream_page` abstraction or cursor implementation. |
+| Service primitive | `parse_activity_stream_event` | Web stream adapter/parser | `(eventName: string, id: string, data: string) -> ActivityStreamEvent` | SSE framing, JSON size, schema, event kind, cursor scope delegated to Cloud | Typed event or safe parser error | No side effects; rejects malformed/oversized/unknown data before projection. |
+| Service primitive | `reserve_activity_stream_slot` | Cloud `backend/activities/services/stream_capacity.py` | `reserve_activity_stream_slot(*, limits: ActivityStreamLimits) -> ActivityStreamReservation` | Existing Redis, global slot limit, opaque lease token | Reservation or typed unavailable result | Atomic global reservation across workers/replicas; TTL and heartbeat reclaim stale slots; metrics never include token or conversation ID. |
+| Service primitive | `release_activity_stream_slot` | Cloud `backend/activities/services/stream_capacity.py` | `release_activity_stream_slot(reservation: ActivityStreamReservation) -> None` | Same opaque token; idempotent | None | Deletes only the matching slot token; called from generator `finally` on terminal, abort, broken pipe, timeout, and server error. |
+
+### Frontend Interaction Shapes
+
+| UI entry point | Hook / action signature | State shape and transitions | API input/output mapping | Loading, error, empty, and permission behavior |
+| --- | --- | --- | --- | --- |
+| Home conversation selection/send | `startConversationStream(conversationId, cursor?) -> void` | `idle -> connecting -> open`; `open -> reconnecting -> open`; repeated failures -> `fallback`; terminal/selection/abort -> `closed` | Selected Cloud workspace/conversation and resume cursor -> status-aware fetch stream; `activity` -> existing projection; `terminal` -> active turn stop and normal refetch. | Connecting uses existing working state; open is silent; reconnecting shows a small non-blocking reconnect status; fallback restores existing bounded polling/error/retry UI; unauthorized/foreign conversations remain existing unavailable behavior. |
+| Home visibility/lifecycle | `pauseConversationStream(reason) -> void` / `resumeConversationStream() -> void` | Visible open stream closes on hidden/switch; visible selection reconnects from last cursor. | `AbortSignal`/generation guards prevent stale events from mutating the next Ally. | No user text loss; follow-latest and draft state remain unchanged. |
+
+## Phases
+
+### Phase 0 — Verify the CLD-006 Cloud prerequisite and worktree boundary
+
+- Goal: Establish one authoritative signed activity-cursor implementation before adding any SSE route.
+- Work items:
+  - Inspect the dedicated Cloud CLD-006 worktree/branch and verify the signed cursor serializer/parser, global-sequence replay/high-water service, `activity_cursor_gap`/`activity_cursor_expired`/`activity_cursor_invalid` mappings, OpenAPI output, and focused tests are present and green.
+  - If the current Cloud checkout is only the bounded snapshot route, stop and complete/review CLD-006 in its own Cloud worktree/commit first. SSE implementation may begin only after that commit is available to the active local-staging worktree; do not copy helpers into Interface or create a second cursor contract.
+  - Record the exact Cloud commit/ref consumed by the stream plan, preserve the Interface `web/retry-message-recovery` branch and Foundry `ft/local-fly-docker` worktree, and keep all existing dirty retry/design changes intact.
+- Impacted files/systems: Cloud CLD-006 worktree and its `backend/activities/services/projection.py`, activity API/schema/tests, generated OpenAPI; no Interface or Foundry product files in this gate.
+- Exit criteria: One named Cloud CLD-006 source/ref is authoritative, its replay tests and `make check`/lint pass, and the stream plan's imports point to those helpers. No duplicate cursor serializer/parser exists.
+
+### Phase 1 — Cloud SSE boundary
+
+- Goal: Add a feature-flagged, authenticated, bounded SSE endpoint that reuses CLD-006 replay semantics without changing Foundry or the legacy JSON endpoint.
+- Work items:
+  - Add stream limits and `ALLIES_ACTIVITY_SSE_ENABLED` configuration with safe defaults; keep the flag false in deployment defaults and true only in the local preview env. Use a 90-second maximum lifetime, 15-second heartbeat, `activity_check_interval_seconds=0.25` for a short server-side persisted-activity check (never browser polling), 45-second Redis reservation TTL renewed every 10 seconds or on activity, explicit event/byte caps, and a globally coordinated slot cap. The activity check cadence is independent of heartbeat emission and Redis lease renewal.
+  - Add a narrow stream iterator that performs bounded read-only replay reads, executes the hydration/ready high-water handshake, emits `ready`/`activity`/`terminal`/heartbeat frames, checks disconnects, and closes on limits. Use the canonical CLD-006 cursor parser and projection errors; never hold a database transaction across a sleep or network write.
+  - Implement the global stream capacity registry with existing Redis: atomically reserve one of `max_connections` opaque slots, renew the reservation, release only the matching token in generator `finally`, and reclaim stale reservations by TTL. Redis failure returns a safe `503` before opening the stream. Emit metrics for acquire/release/reclaim/reject, active occupancy, duration, events, bytes, and close reason without cursor/message/runtime values.
+  - Register the conversation-scoped route with cookie-session authorization, exact credentialed CORS (including `Last-Event-ID` in the allowed request headers), `Vary: Origin`, no-cache/no-buffering headers, JSON pre-stream errors, and privacy-safe post-open errors. At each heartbeat/activity boundary revalidate session and conversation capability; on revocation emit `session_invalid`/`activity_unavailable` and close before sending more activities. Document `text/event-stream` in OpenAPI without exposing internal runtime fields.
+  - Handle actual Django/Gunicorn WSGI lifecycle: do not invent an ASGI-only `is_disconnected` API; WSGI write exceptions and generator close are authoritative. Catch `GeneratorExit`, `BrokenPipeError`, `ConnectionResetError`, and `OSError` with EPIPE/ECONNRESET equivalents as disconnects; use `finally` for reservation release and `close_old_connections`; ensure Gunicorn `WEB_TIMEOUT` exceeds the 90-second stream lifetime. Verify proxy idle timeout is greater than the 15-second heartbeat interval and record it as a deployment gate; ASGI migration/capacity remains a production release decision, not part of this slice.
+  - Add Cloud tests for authorization, exact CORS/cookie/`Vary: Origin` headers, mid-stream session/capability revocation, all cursor classes, hydration/open append races, event ordering, resume from `Last-Event-ID`, duplicate/reconnect, heartbeat, terminal close, malformed data, connection/lifetime/event/byte bounds, Redis reservation TTL/release/reclaim, concurrent workers, disabled/capacity responses, cancellation/broken pipes, and default snapshot compatibility. Add no migration.
+- Impacted files/systems: `allies-cloud` local-staging worktree `backend/activities/api/{register.py,schemas.py}`, `backend/activities/services/{projection.py,stream.py}`, `backend/config/settings.py`, `backend/config/openapi.py`, activity/config tests, and local env documentation.
+- Exit criteria: Cloud focused tests and OpenAPI checks pass; a status-aware client can hold a local stream, receive handshaked and ordered activity frames/heartbeats, resume with `Last-Event-ID`, detect status-coded pre-stream failures, release capacity on a real client close, and terminate safely. Foundry files remain unchanged.
+
+### Phase 2 — Typed web adapter and fallback state machine
+
+- Goal: Replace only the active Home live-activity transport with SSE while retaining replay hydration and polling as authoritative recovery.
+- Work items:
+  - Add a pure SSE frame parser/schema mapper and a status-aware `fetch` streaming reader in the web app (not the shared mobile client) with `credentials: "include"`, explicit `Last-Event-ID`, abort/visibility handling, cursor tracking, idle timeout, and fallback classification. Do not use native `EventSource`: it exposes only `open`/`message`/`error` and hides HTTP status/JSON error bodies. The existing bounded replay/polling path remains the recovery owner until deployment capacity gates are complete.
+  - Refactor Home so initial history hydration still uses CLD-006 replay; after hydration, open the fetch stream from the stored cursor only while an active turn exists. Apply each validated activity through the existing global-sequence projector and dedupe rules. Use the `ready` high-water handshake and explicit append-between-hydration/open tests to prove no race.
+  - Stop the existing 500 ms interval while SSE is healthy. Resume the existing bounded replay polling loop after unsupported/failed stream, expiry-origin restart, gap repair, malformed event, terminal close without a new active turn, or explicit user retry. Preserve message send/retry, markdown streaming, scrolling, drafts, accessible live regions, and Ally isolation.
+  - Add Interface tests for parser framing, schema/bounds, activity ordering/dedupe, stale conversation generations, cursor monotonicity, reconnect/backoff with one retry owner, hidden-tab cancellation, terminal handling, status-aware 401/404/409/410/422/429/503 mapping, malformed stream errors, and polling fallback. Keep shared cloud-client and mobile typechecks green.
+- Impacted files/systems: `apps/web/lib/allies/activity-stream.ts` (new), `apps/web/app/home/home-workspace.tsx`, Home tests/styles only if state copy needs a small affordance, and web test fixtures. `packages/cloud-client` changes are limited to shared activity event schemas/types if reuse is proven necessary.
+- Exit criteria: deterministic Interface tests prove no duplicate/missing visible activities across reconnect and no polling while SSE is open; fallback remains bounded and existing recovery controls work; no direct Foundry/Hermes dependency exists.
+
+### Phase 3 — Local browser proof and timing evidence
+
+- Goal: Validate the complete live path with the existing preview worktrees and quantify transport/render improvement separately from Hermes generation speed.
+- Work items:
+  - Restart only the local Cloud backend if needed to load the stream route; keep Interface, Foundry, event publisher, tunnel, Postgres, Redis, and Fly/Hermes setup unchanged.
+  - Sign in in the existing browser, select Shaka or another disposable Ally, send a bounded prompt, and capture `send accepted`, Cloud stream open, first SSE activity, each activity receipt, projection application, first rendered text, terminal, and stream close timestamps. Confirm network shows `text/event-stream` and no recurring `/activities` GET while the stream is open.
+  - Force a stream disconnect/offline transition, refresh during an active reply, switch Allies, hide/show the tab, and disable the flag/route to prove cursor resume, no duplicates, terminal continuity, and polling fallback. Exercise cursor expiry/gap with deterministic tests rather than mutating real user history.
+  - Compare the same turn's Hermes/Fly-to-Foundry, Foundry-to-Cloud, Cloud-to-browser, and browser-render timings. SSE is successful only if it removes polling quantization; it is not a claim that Hermes time-to-first-token or tokens/second improved. Gate local performance at p95 Cloud-projection-to-browser receipt ≤300 ms and p95 receipt-to-render ≤300 ms, with no recurring activity GET while the stream is healthy.
+  - Keep production enablement blocked pending an eight-stream, two-Cloud-worker soak proving zero lost/duplicate global sequences, shared capacity admission, stale reservation reclamation, and two-second reconnect convergence.
+- Impacted files/systems: running local Docker services, browser DevTools/network evidence, and sanitized test notes only. No production or remote state change.
+- Exit criteria: browser proof demonstrates ordered incremental updates, refresh/disconnect recovery, Ally isolation, no duplicate visible text, safe fallback, and captured timing evidence with credentials/cursors/customer text redacted. Quantitative latency, convergence, zero-loss/duplication, occupancy, and concurrency gates pass; production enablement remains blocked until proxy timeout and ASGI/capacity decisions are explicit.
+
+## Acceptance Criteria
+
+1. The verified CLD-006 Cloud implementation is the only signed activity-cursor/replay source, and its dedicated worktree/commit and focused tests pass before SSE code begins.
+2. An authorized web client can open one selected conversation stream and receive ordered Cloud activities over `text/event-stream` without a 500 ms browser polling loop while SSE is healthy.
+3. Hydration followed by the `ready` high-water handshake includes appends at every boundary; reconnect with the last accepted opaque SSE ID is reconciled by server-authoritative replay without duplicate or lost visible activities.
+4. Cursor expiry, retention gap, malformed/tampered/cross-conversation cursor, unauthorized access, mid-stream session/capability revocation, unsupported stream, connection close, heartbeat timeout, terminal state, and capacity/lifetime limits have explicit privacy-safe HTTP/event/UI behavior and a bounded replay/polling fallback.
+5. Cloud remains the only customer-facing stream owner; Interface never calls Foundry, Hermes, Fly, or runtime addresses; Foundry event vocabulary and event-publisher behavior remain unchanged.
+6. Global Redis stream reservations are atomically acquired, renewed, released in generator cleanup, and reclaimed by TTL; concurrent multi-worker tests show no occupancy or worker leak.
+7. Existing message send/retry, markdown streaming, chronology, scrolling, draft preservation, accessibility live regions, Ally switching, refresh continuity, and mobile shared-client compilation remain green.
+8. Cloud and Interface focused tests, type/lint/OpenAPI checks, and the local Docker Cloud → Foundry → Fly/Hermes browser proof pass quantitative latency (p95 projection-to-receipt ≤300 ms, p95 receipt-to-render ≤300 ms), two-second reconnect convergence, zero sequence loss/duplication, and eight-stream occupancy/soak gates; no PR, push, merge, deploy, or migration occurs.
+
+## Backend Considerations (if applicable)
+
+### Query Optimization Plan
+
+- Hotspots/endpoints: New Cloud conversation activity stream and existing `read_activity_snapshot` replay reads.
+- Query-shape choices: Reuse indexed `Activity.conversation_id, sequence` ordering and CLD-006 fixed high-water bounds; fetch at most the configured page/event limit per server tick; do not perform per-row relation queries. The stream iterator must not hold database transactions across sleeps or network writes.
+- Expected query-count change: One bounded read per stream tick while an active stream is open; browser request count falls from 500 ms polling to one long-lived request. Measure active-stream count and query latency before production enablement. The global Redis slot reservation is acquired once, renewed at heartbeat/activity boundaries, and released in generator `finally`.
+- Measurement/monitoring plan: Privacy-safe structured fields only: route/status, stream duration, event count, bytes, heartbeat count, close reason, cursor category, query duration, reservation acquire/release/reclaim/reject, active occupancy, and peak occupancy. Worker/replica context may come from normal logging resource metadata, but is not part of the reservation shape. Never log cursor values, message text, cookies, prompts, reservation tokens, or provider/runtime identifiers. Quantitative local gates are p95 projection-to-receipt ≤300 ms and p95 receipt-to-render ≤300 ms.
+
+### N+1 Prevention
+
+- Relation access map: Stream reads `Activity` rows and the existing conversation/message state needed by `read_activity_snapshot`; no new relation traversal.
+- Prefetch/select plan per endpoint/service: Preserve the projection service's existing bounded queryset and indexes; use `.values`/schema mapping only where already established. No per-activity message fetch.
+- N+1 regression guardrails: Query-count assertions in stream service tests for empty, one-page, multi-activity, and terminal reads; bounded byte/event tests; no transaction held during generator sleep; concurrent-stream tests assert bounded queries per tick and no leaked DB connections after disconnect.
+
+### Detailed Unit Test Cases
+
+- Happy path: ready frame from a stored cursor, ordered activities, assistant delta grouping, terminal frame/close, heartbeat between activity batches, no-history tail start, append between hydration/open and after ready.
+- Validation and bad input: missing/invalid/tampered/wrong-version/wrong-type/message cursor, cross-conversation cursor, expired cursor, retention gap, unknown event name, oversized frame/data, invalid JSON/activity state, and conflicting query/`Last-Event-ID` (header wins only after validation).
+- Auth/RBAC boundaries: no session, expired session, foreign workspace/conversation, capability revoked between reconnects and mid-stream, exact configured CORS credentials/`Vary: Origin`, preflight for `Last-Event-ID`, and no Foundry/runtime data in any response.
+- Idempotency/retry behavior: repeated `Last-Event-ID`, reconnect after partial activity batch, stream close at lifetime/event/byte cap, duplicate Cloud activity, terminal replay, connection-cap rejection, and disabled flag.
+- Failure-path behavior: actual WSGI generator close, `GeneratorExit`, broken pipe/reset `OSError`, database read failure, serializer failure, heartbeat/proxy timeout, Gunicorn timeout boundary, Redis unavailable, 503/429, and fallback-compatible safe error frame; reservation release/reclaim is asserted after every outcome.
+
+## Frontend Considerations (if applicable)
+
+### Data Path
+
+- User action entry: Home selects an Ally or sends a message; existing send acceptance and replay hydration remain unchanged.
+- Client route/component: `HomeWorkspace` owns one stream handle and generation per selected conversation; the new web adapter owns fetch-stream framing/reconnect only.
+- Client API route/proxy: Browser fetch calls Cloud's versioned stream route directly through the existing configured Cloud base URL with `credentials: "include"`; no Next proxy or runtime address is introduced. The adapter explicitly sends `Last-Event-ID`; native EventSource is not used.
+- Backend endpoint: Cloud `GET .../activities/stream` emits product-safe activity events sourced from persisted Cloud projection.
+- Response → UI model mapping: Parse JSON/schema, map `ActivityResponse` to existing `ActivityViewModel`, feed global-sequence projector, update cursor only after accepted event, and preserve one assistant turn per message/ordinal.
+- Error/loading/retry path: `connecting` and `reconnecting` are non-blocking status; safe errors choose origin restart, repair UI, or existing bounded polling. Existing send/retry controls remain authoritative for message recovery.
+
+### State Management Considerations
+
+- State ownership by layer: Cloud owns durable activities/cursors; the web adapter owns connection lifecycle; Home owns selected-conversation stream status, cursor ref, and projection; React Query continues to own message/conversation server cache; no credentials enter state stores.
+- Source of truth vs derived state: Persisted Cloud activity sequence and signed cursor are authoritative; DOM text, stream status, and projection are derived. Never advance the cursor from a heartbeat, malformed event, or stale conversation.
+- Caching/invalidation approach: Keep replay cursor in per-conversation ref/state; invalidate normal conversation query only on terminal as today; dedupe by global sequence and conversation generation. Do not cache an open EventSource in a global store.
+- Concurrency and dedupe handling: Abort/close on Ally switch, logout, hidden tab, or unmount; ignore callbacks from stale generation; allow one stream request per selected conversation; the adapter is the sole retry owner (no native EventSource retry); repeated frames and reconnect replays are idempotent through the existing projector.
+
+## Test Plan
+
+- Unit tests: Cloud stream iterator/framing/limits/error mapping; Redis reservation/TTL/release; actual WSGI disconnect/finally cleanup; web SSE parser, status-aware fetch reader, schema mapper, reconnect state, and projector integration.
+- Integration/API tests: Django authenticated streaming response, cursor/`Last-Event-ID` replay, hydration/open race, exact CORS/cache/`Vary: Origin` headers and preflight, mid-stream revocation, gap/expiry/auth/capacity paths, and OpenAPI contract snapshot. Interface fetch-reader mock tests cover HTTP status/body classification, one retry owner, polling suppression/fallback, and no duplicate connections.
+- Regression checks: Existing Cloud activity tests and CLD-006 replay suite; existing Home send/retry/markdown/refresh/Ally-isolation tests; shared cloud-client tests; mobile typecheck.
+- Manual verification checklist:
+  - Sign in and open `/home`; select one Ally with an active turn.
+  - Confirm one `text/event-stream` fetch request and no 500 ms `/activities` GET loop while open.
+  - Send a message; observe first activity, incremental markdown, terminal state, and cursor progression.
+  - Refresh or force offline during reply; verify resume, chronology, and no duplicate text.
+  - Switch Allies during a stream; verify prior callbacks cannot mutate the new timeline.
+  - Hide/show tab; verify bounded close/reconnect and draft preservation.
+  - Disable SSE; verify replay polling fallback and existing error/retry affordances.
+  - Run narrow and desktop viewport checks; ensure reconnect status/live-region copy remains accessible and does not shift the composer unexpectedly.
+  - Capture sanitized timing evidence for Hermes/Fly → Foundry → Cloud → browser receipt → render; calculate p95 projection-to-receipt ≤300 ms and receipt-to-render ≤300 ms, two-second reconnect convergence, zero lost/duplicate sequences, and stream occupancy/reclamation.
+- Commands:
+  - Cloud: `make check`, `make lint`, `make test APP=activities/tests`, `make test APP=config/tests/test_api_contract.py`.
+  - Interface: `bun run cloud:check`, `bun run test:run -- packages/cloud-client/test/activity-projection.test.ts packages/cloud-client/test/allies.test.ts apps/web/app/home/home-workspace.test.tsx apps/web/lib/allies/activity-stream.test.ts`, `bun run typecheck`, `bun run lint:web`, `bun --filter mobile typecheck`, `bun run build:web`.
+  - Local stack: existing Docker Compose commands for `allies-cloud-local-staging` and `allies-foundry-local-fly`; run an eight-stream/two-worker soak and ten disconnect cycles; browser network/console evidence only after deterministic checks.
+
+## Risks and Mitigations
+
+- Risk: Synchronous Gunicorn threads are exhausted by long-lived streams. Mitigation: cap globally coordinated Redis reservations/lifetime/bytes/events, close on hidden tabs, measure query and connection occupancy, and require an explicit ASGI/capacity decision for scaling. Rollback is the Cloud flag plus existing replay/polling.
+- Risk: `Last-Event-ID`/query cursor precedence or stale callbacks duplicate/skip activity. Mitigation: treat SSE IDs as opaque hints only, use the server-authoritative CLD-006 replay path on reconnect, apply global-sequence dedupe, use generation guards, and retain replay polling as repair. The status-aware fetch reader is the sole retry owner; native EventSource auto-retry is not combined with it.
+- Risk: Proxy buffering or idle timeouts hide events, or WSGI fails to notify a generator promptly. Mitigation: no-cache/no-transform and `X-Accel-Buffering: no`, 15-second heartbeats, actual `GeneratorExit`/broken-pipe/reset handling with `finally` cleanup, local tunnel/proxy proof, and safe reconnect on missing heartbeat. Production proxy idle timeout and Gunicorn timeout/lifetime alignment remain release gates.
+- Risk: SSE implementation masks Hermes/Fly generation slowness. Mitigation: record separate provider, Foundry, Cloud, network, projection, and render timestamps; success means smoother transport, not faster model output.
+- Risk: Browser/EventSource cannot send custom bearer or CSRF headers. Mitigation: use existing HttpOnly cookie session with `withCredentials`; keep native/mobile bearer and CSRF-protected mutations out of this GET route; test CORS and revoked sessions.
+- Risk: Native EventSource exposes only `open`/`message`/`error` and hides HTTP status/JSON error bodies, causing generic handling or duplicate retry loops. Mitigation: use one status-aware `fetch` streaming reader with `credentials: "include"`, explicit `Last-Event-ID`, one adapter-owned backoff, and tests for each HTTP error plus one-connection-at-a-time behavior.
+- Risk: Stream serializer or parser accepts unsafe/oversized/unknown data. Mitigation: reuse existing bounded activity schemas, strict event union, max event/byte limits, privacy-safe error categories, and fail-closed tests.
+- Risk: Stream opens while no active turn and misses a newly sent turn. Mitigation: hydrate first, open only for active turns, open a fresh stream after send acceptance from the current resume cursor, and recover any race through replay before/around connection establishment.
+- Risk: Capability or session revocation during an open stream leaks later activities. Mitigation: recheck at each activity/heartbeat boundary, emit a safe error, close before another activity, and test revocation mid-stream through the real session resolver.
+- Risk: A process-local cap gives each worker/replica an unsafe global capacity. Mitigation: use Redis slot reservations with 45-second TTL, 10-second renewal, idempotent `finally` release, stale-slot reclamation, and multi-worker/concurrent occupancy tests; Redis failure fails closed.
+- Risk: CLD-006 is absent or diverges in the active Cloud checkout. Mitigation: Phase 0 blocks SSE until one dedicated Cloud worktree/commit and focused replay tests are verified; the stream route imports canonical helpers and never creates a second cursor implementation.
+- Risk: Existing dirty retry/design changes are overwritten during implementation. Mitigation: work only in the active preview worktrees, inspect status before every phase, keep SSE diffs isolated, and do not reset or discard unrelated files.
+- Rollback/fallback: Set `ALLIES_ACTIVITY_SSE_ENABLED=false`; Home resumes the existing CLD-006 replay/polling transport without schema or data rollback. No Foundry rollback or migration is expected.
+
+## Validation Basis
+
+- Repository evidence: current Interface `home-workspace.tsx` polls every 500 ms and already owns replay cursors, projection, abort, terminal, and fallback-adjacent states; Cloud's activity controller exposes the bounded JSON snapshot route and must first provide the verified CLD-006 replay helpers; Cloud runs sync Gunicorn `gthread` with a 120-second web timeout; Foundry's publisher uses a bounded batch of 20 and a one-second local watch but remains outside the product change.
+- Deployment/auth evidence: Cloud settings currently derive `CORS_ALLOWED_ORIGINS` from `CSRF_TRUSTED_ORIGINS`, set `CORS_ALLOW_CREDENTIALS = True`, expose `X-CSRFToken`/`X-Request-ID`, and use secure/SameSite session cookies by environment. The SSE change must add/verify `Last-Event-ID` in allowed headers and assert exact `Access-Control-Allow-Origin`, `Access-Control-Allow-Credentials: true`, and `Vary: Origin` behavior for `http://localhost:3000`; wildcard origins are not permitted. Mid-stream revocation must be tested through the session/capability resolver, not only mocked callbacks.
+- Canonical product/architecture evidence: Nabu conversation/streaming ownership requires Interface → Cloud, Cloud → Foundry, and Foundry/runtime → Hermes boundaries; reconnect uses Allies cursors rather than old Hermes streams; CLD-006 accepted global activity cursor/replay semantics and explicitly deferred SSE until replay was proven.
+- Deterministic checks required before local proof: Phase 0 CLD-006 commit/ref verification; the Cloud and Interface commands listed above; generated OpenAPI parity; no migration drift; focused stream/replay, WSGI cleanup, Redis capacity, CORS, and fetch-reader tests.
+- Quantitative local gates: p95 Cloud projection-to-browser receipt ≤300 ms; p95 receipt-to-render ≤300 ms; ten forced disconnect/reconnect cycles converge within two seconds of network restoration; persisted and rendered global sequence sets are identical with zero duplicate visible activities; eight concurrent streams across two Cloud workers for at least two minutes stay within the global cap, reclaim stale reservations within TTL plus one heartbeat, and return occupancy/worker resources to zero after close.
+- Live proof required before any production discussion: current local Docker Cloud → Foundry → Fly/Hermes path, authenticated browser, stream/network evidence, forced disconnect/refresh/switch/fallback scenarios, and sanitized transport-to-render timings. Production enablement remains blocked until the deployment-specific proxy idle timeout and the ASGI-versus-gthread capacity decision are explicit and measured.
