@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="470" height="470" viewBox="0 0 470 470" fill="none" role="img" aria-label="Waking rocky">
+<title>Waking rocky</title><style>
+@keyframes wake-head {
+  0% { transform:rotate(-1deg) translateY(0px) scale(1); }
+  38% { transform:rotate(1.5deg) translateY(-7px) scale(.99,1.02); }
+  100% { transform:rotate(0deg) translateY(0px) scale(1); }
+}
+@keyframes wake-open {
+  0%,12% { d:path('M27.463 52 C38 52 48 43 54 44 C60 53 41 65 27.463 65 C13 65 -6 53 0 44 C6 43 16 52 27.463 52 Z'); }
+  100% { d:path('M27.463 0 C42.6315 0 54.926 21.1764 54.926 47.2929 C54.926 73.4094 42.6315 94.5858 27.463 94.5858 C12.2946 94.5858 0 73.4094 0 47.2929 C0 21.1764 12.2946 0 27.463 0 Z'); }
+}
+@keyframes wake-pupil {
+  0%,20% { opacity:0; }
+  75%,100% { opacity:1; }
+}
+@keyframes wake-z-one {
+  0% { transform:translate(335px,108.333px) rotate(-3.667deg) scale(.58333); opacity:1; }
+  65%,100% { transform:translate(362px,76px) rotate(-.3deg) scale(.803); opacity:0; }
+}
+@keyframes wake-z-two {
+  0% { transform:translate(370px,66.667px) rotate(.667deg) scale(.86667); opacity:.95238; }
+  85%,100% { transform:translate(405px,25px) rotate(5deg) scale(1.15); opacity:0; }
+}
+.head { transform-origin:235px 320px; animation:wake-head 1.4s cubic-bezier(.37,0,.63,1) both; }
+.eye-shape { animation:wake-open 1.4s cubic-bezier(.37,0,.63,1) both; }
+.pupil { animation:wake-pupil 1.4s ease-in-out both; }
+.z-one { animation:wake-z-one 1.4s linear both; }
+.z-two { animation:wake-z-two 1.4s linear both; }
+@media (prefers-reduced-motion:reduce) {
+  .head,.eye-shape,.pupil { animation:none; }
+  .z-one,.z-two { animation:none; opacity:0; }
+}
+</style>
+<g class="head"><g id="head" transform="translate(35 45)">
+<path id="fill_rocky" d="M236.388 0.001174C333.629 -0.634247 432.685 256.846 389.661 338.447C362.362 390.223 269.235 380.672 188.155 376.502C107.076 372.331 10.291 377.443 1.01721 299.823C-13.9246 174.762 139.148 0.636595 236.388 0.001174Z" fill="white" stroke="black" stroke-width="27.3251" />
+<g id="eyes" transform="translate(117 118.022)">
+<g id="eye_l">
+<path id="Vector" transform="translate(0.0280072 2.85647e-05)" d="M27.463 0C42.6315 0 54.926 21.1764 54.926 47.2929C54.926 73.4094 42.6315 94.5858 27.463 94.5858C12.2946 94.5858 0 73.4094 0 47.2929C0 21.1764 12.2946 0 27.463 0Z" fill="black" class="eye-shape" mask="url(#cutout-l)" />
+<mask id="cutout-l" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="-100" y="-100" width="300" height="300" style="mask-type:luminance"><rect x="-100" y="-100" width="300" height="300" fill="white" /><g class="pupil">
+<g id="Group" transform="translate(-19.418 27.507)">
+<path id="Vector_3" transform="translate(38.8364 1.36737e-05) rotate(90)" d="M20.0021 0L40.0041 38.8366H0L20.0021 0Z" fill="black" />
+</g>
+</g>
+</mask></g>
+<g id="eye_r" transform="translate(110.962)">
+<path id="Vector_4" transform="translate(0.0275791 3.39287e-05)" d="M27.463 0C42.6315 0 54.926 21.1764 54.926 47.2929C54.926 73.4094 42.6315 94.5858 27.463 94.5858C12.2946 94.5858 0 73.4094 0 47.2929C0 21.1764 12.2946 0 27.463 0Z" fill="black" class="eye-shape" mask="url(#cutout-r)" />
+<mask id="cutout-r" maskUnits="userSpaceOnUse" maskContentUnits="userSpaceOnUse" x="-100" y="-100" width="300" height="300" style="mask-type:luminance"><rect x="-100" y="-100" width="300" height="300" fill="white" /><g class="pupil">
+<g id="Group_2" transform="translate(-19.418 27.507)">
+<path id="Vector_6" transform="translate(38.8363 9.07536e-06) rotate(90)" d="M20.0021 0L40.0041 38.8366H0L20.0021 0Z" fill="black" />
+</g>
+</g>
+</mask></g>
+</g>
+</g>
+</g>
+<g stroke="black" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"><g class="z-one"><path d="M0 0 H27 L0 29 H27" stroke="white" stroke-width="15" /><path d="M0 0 H27 L0 29 H27" /></g><g class="z-two"><path d="M0 0 H27 L0 29 H27" stroke="white" stroke-width="15" /><path d="M0 0 H27 L0 29 H27" /></g></g>
+</svg>

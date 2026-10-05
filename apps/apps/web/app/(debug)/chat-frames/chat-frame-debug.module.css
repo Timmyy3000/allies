@@ -1,0 +1,99 @@
+.page {
+  width: 100%;
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.debugRail {
+  gap: 16px;
+}
+
+.debugStatus {
+  display: flex;
+  min-height: 96px;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  box-sizing: border-box;
+  padding: 20px;
+  border-radius: 24px;
+  color: #121212;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -1px;
+  line-height: 28px;
+  text-align: center;
+}
+
+.debugStatusSuccess {
+  background: #e9faee;
+  color: #08752a;
+}
+
+.debugStatusWarning {
+  color: #fd304f;
+}
+
+.debugStatus .debugStatusCopy {
+  max-width: 280px;
+}
+
+.debugStatusAvatar {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.debugImageButton {
+  display: block;
+  width: 100%;
+  height: 220px;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  border-radius: 20px;
+  background: linear-gradient(135deg, #e5d3be 0%, #a8754f 42%, #ffe08d 100%);
+  cursor: pointer;
+}
+
+.debugImageButton:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 3px;
+}
+
+.debugImageShape {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background:
+    radial-gradient(ellipse at 50% 48%, rgba(255, 252, 225, 0.85) 0 12%, transparent 13%),
+    radial-gradient(ellipse at 32% 60%, rgba(138, 57, 22, 0.7) 0 22%, transparent 23%),
+    radial-gradient(ellipse at 68% 64%, rgba(98, 42, 20, 0.72) 0 24%, transparent 25%);
+}
+
+.debugActionLink {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 24px;
+  background: transparent;
+  color: var(--chat-accent);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.debugComposerSubmit {
+  color: transparent;
+}
+
+@media (min-width: 1024px) {
+  .page {
+    min-width: 680px;
+  }
+}

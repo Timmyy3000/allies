@@ -1,0 +1,64 @@
+{
+  "source": "apps/web/waitlist-auth/_html/welcome-allies-1.html",
+  "frame_style_snip": "background-color: #fff;overflow: hidden;width: 375px;min-width: 375px;max-width: 375px;min-height: 812px;max-height: 812px;position: relative;margin: 0px auto;",
+  "image_count": 1,
+  "images": [
+    {
+      "index": 0,
+      "alt": "Vector",
+      "filename": "01-vector.png",
+      "bytes": 372,
+      "path": "apps/web/app/(onboarding)/_images/from-html/waitlist-auth/welcome-allies-1/01-vector.png"
+    }
+  ],
+  "top_level_children": [
+    {
+      "top": null,
+      "left": 0.0,
+      "width": null,
+      "height": 34.0,
+      "opacity": null,
+      "texts": [],
+      "img_count": 0,
+      "svg_count": 0,
+      "bytes": 262
+    },
+    {
+      "top": 0.0,
+      "left": 0.0,
+      "width": null,
+      "height": 44.0,
+      "opacity": null,
+      "texts": [
+        "9:41"
+      ],
+      "img_count": 0,
+      "svg_count": 3,
+      "bytes": 3901
+    },
+    {
+      "top": 337.0,
+      "left": 33.0,
+      "width": 309.0,
+      "height": null,
+      "opacity": null,
+      "texts": [
+        "Looking good, Tolani",
+        "We\u2019re done with the basics, one more thing"
+      ],
+      "img_count": 1,
+      "svg_count": 4,
+      "bytes": 7155
+    }
+  ],
+  "texts": [
+    "9:41",
+    "Looking good, Tolani",
+    "We\u2019re done with the basics, one more thing"
+  ],
+  "bans": [
+    "Do not use dangerouslySetInnerHTML for this design",
+    "Do not invent padding or substitute images",
+    "Convert every visible node to JSX"
+  ]
+}

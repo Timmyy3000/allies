@@ -1,0 +1,1087 @@
+.settingsOverlay {
+  --chat-ink: var(--text-primary);
+  --chat-muted: var(--text-secondary);
+  --chat-surface: var(--surface);
+  --chat-accent: #ff5800;
+  color: var(--text-primary);
+}
+
+.settingsContent {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 18px;
+  overflow-y: auto;
+  color: var(--text-primary);
+  height: min(520px, calc(100dvh - 180px));
+  position: relative;
+}
+
+.settingsView {
+  display: flex;
+  width: 100%;
+  min-height: 100%;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.settingsIntro {
+  margin: 12px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.settingsField {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settingsField label {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settingsInput {
+  width: 100%;
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 11px 14px;
+  border: 1px solid var(--divider);
+  border-radius: 14px;
+  outline: 0;
+  background: var(--surface);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 16px;
+}
+
+.settingsInput:focus-visible {
+  border-color: var(--chat-accent);
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 2px;
+}
+
+.settingsInput[aria-invalid="true"] {
+  border-color: #d2553d;
+}
+
+.settingsInput:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.settingsHelp {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.settingsMessages {
+  min-height: 20px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.settingsMessages p {
+  margin: 0;
+}
+
+.settingsMessages [role="alert"] {
+  color: #c84f3f;
+}
+
+.deleteWarning,
+.deleteStatus {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 6px;
+}
+
+.deleteWarning h3,
+.deleteStatus h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 22px;
+}
+
+.deleteWarning p,
+.deleteStatus p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.deleteButton {
+  min-height: 46px;
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 0 18px;
+  border: 1px solid #c84f3f;
+  border-radius: 60px;
+  background: transparent;
+  color: #c84f3f;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.deleteButton:hover:not(:disabled) {
+  background: rgb(200 79 63 / 9%);
+}
+
+.deleteButton:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 3px;
+}
+
+.deleteButton:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.deleteWarning {
+  margin-top: 10px;
+  padding: 16px;
+  border: 1px solid rgb(200 79 63 / 35%);
+  border-radius: 16px;
+  background: rgb(200 79 63 / 6%);
+}
+
+.deleteWarning .settingsField {
+  margin-top: 8px;
+}
+
+.deleteWarning code {
+  overflow-wrap: anywhere;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-weight: 650;
+}
+
+.deleteStatus {
+  margin-top: 12px;
+  padding: 18px 16px;
+  border: 1px solid var(--divider);
+  border-radius: 16px;
+  background: var(--surface-secondary);
+}
+
+.deletionError {
+  margin: 0;
+  color: #c84f3f;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.settingsContent button:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+:global(:root[data-theme="dark"]) .settingsMessages [role="alert"] {
+  color: #f09a8a;
+}
+:global(:root[data-theme="dark"]) .deleteButton,
+:global(:root[data-theme="dark"]) .deletionError {
+  color: #f09a8a;
+}
+:global(:root[data-theme="dark"]) .deleteButton {
+  border-color: #f09a8a;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.settingsOverlay > section {
+  position: relative;
+  padding: 0;
+  overflow: hidden;
+}
+
+.settingsOverlay .settingsContent {
+  height: auto;
+  max-height: none;
+  flex: 1 1 auto;
+  gap: 0;
+  padding: 16px 20px 32px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.profileTopBar {
+  display: flex;
+  justify-content: flex-start;
+  padding-bottom: 8px;
+}
+
+.profileBack {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f3f3f3;
+  color: #121212;
+  cursor: pointer;
+}
+
+.profileBack svg {
+  width: 20px;
+  height: 20px;
+}
+
+.profilePage {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.profileIdentity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.profileIdentity h3 {
+  margin: 8px 0 0;
+  color: var(--text-primary);
+  font-size: 32px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  line-height: 38px;
+  text-align: center;
+}
+
+.profileAvatar {
+  position: relative;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+}
+
+.profileAvatarFallback {
+  display: grid;
+  width: 136px;
+  height: 136px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-secondary);
+  color: var(--text-secondary);
+  font-size: 32px;
+}
+
+.profileAvatarBadge {
+  position: absolute;
+  right: 0;
+  bottom: 2px;
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 3px solid var(--panel);
+  border-radius: 50%;
+  background: #121212;
+  color: #fff;
+}
+
+.profileAvatarBadge svg,
+.profileLabelPill svg {
+  width: 18px;
+  height: 18px;
+}
+
+.profileLabelPill {
+  display: inline-flex;
+  max-width: 100%;
+  min-height: 44px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 20px;
+  border: 0;
+  border-radius: 60px;
+  background: #f3f3f3;
+  color: #121212;
+  font: inherit;
+  font-size: 17px;
+  cursor: pointer;
+}
+
+.profileLabelPill span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.profileLabelPill svg {
+  flex: 0 0 auto;
+  color: #757575;
+}
+
+.profileSection {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.profileSectionHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 4px;
+}
+
+.profileSectionHead h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+}
+
+.profileSectionHead span {
+  margin: 0;
+  color: #a0a0a0;
+  font-size: 14px;
+}
+
+.profileList {
+  overflow: hidden;
+  border-radius: 20px;
+  background: #f7f7f7;
+}
+
+.profileDisclosure + .profileDisclosure {
+  border-top: 1px solid rgb(18 18 18 / 7%);
+}
+
+.profileDisclosure summary {
+  display: flex;
+  min-height: 60px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  color: var(--text-primary);
+  font-size: 18px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.profileDisclosure summary::-webkit-details-marker {
+  display: none;
+}
+
+.profileDisclosure summary::after {
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-right: 1.5px solid #a0a0a0;
+  border-bottom: 1.5px solid #a0a0a0;
+  content: "";
+  transform: rotate(45deg);
+  transition: transform 0.16s ease;
+}
+
+.profileDisclosure[open] summary::after {
+  margin-top: 4px;
+  transform: rotate(-135deg);
+}
+
+.profileDisclosure p {
+  margin: 0;
+  padding: 0 20px 18px;
+  color: #757575;
+  font-size: 16px;
+  line-height: 23px;
+  white-space: pre-wrap;
+}
+
+.profileRoutines {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.routineRow {
+  display: flex;
+  width: 100%;
+  min-height: 76px;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 18px 14px 16px;
+  border: 0;
+  border-radius: 20px;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.routineRowIcon,
+.routineSheetIcon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+}
+
+.routineRowIcon {
+  width: 44px;
+  height: 44px;
+}
+
+.routineRowIcon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.routineRowCopy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.routineRowCopy strong {
+  overflow: hidden;
+  font-size: 18px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routineRowCopy span {
+  overflow: hidden;
+  color: #757575;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.routineRow > svg {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+}
+
+.profileViewAll,
+.profileInlineError button {
+  align-self: flex-start;
+  padding: 4px;
+  border: 0;
+  background: transparent;
+  color: #ff5800;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.profileInlineError {
+  margin: 0;
+  padding: 0 4px;
+  color: #757575;
+  font-size: 15px;
+}
+
+.routineSkeleton {
+  height: 76px;
+  border-radius: 20px;
+  background: #f7f7f7;
+  animation: routinePulse 1.2s ease-in-out infinite alternate;
+}
+
+@keyframes routinePulse {
+  to {
+    opacity: 0.55;
+  }
+}
+
+.profileDeleteRow {
+  width: 100%;
+  min-height: 60px;
+  padding: 0 20px;
+  border: 0;
+  background: transparent;
+  color: #d92d20;
+  font: inherit;
+  font-size: 18px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.subsheetScrim {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: flex;
+  align-items: flex-end;
+  padding: 12px;
+  background: rgb(0 0 0 / 40%);
+}
+
+.subsheet {
+  display: flex;
+  width: 100%;
+  max-height: 100%;
+  flex-direction: column;
+  box-sizing: border-box;
+  padding: 24px 20px 20px;
+  overflow-y: auto;
+  border-radius: 30px;
+  background: var(--panel);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 24%);
+}
+
+.subsheetHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.subsheetHead h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  line-height: 30px;
+}
+
+.subsheetClose {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: #f3f3f3;
+  color: #121212;
+  cursor: pointer;
+}
+
+.subsheetClose svg {
+  width: 18px;
+  height: 18px;
+}
+
+.labelInput {
+  width: 100%;
+  min-height: 56px;
+  box-sizing: border-box;
+  padding: 0 18px;
+  border: 1.5px solid #ff5800;
+  border-radius: 16px;
+  outline: 0;
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 18px;
+}
+
+.labelInput[aria-invalid="true"] {
+  border-color: #d92d20;
+}
+
+.labelCount {
+  margin: 10px 0 16px;
+  padding: 0 2px;
+  color: #a0a0a0;
+  font-size: 15px;
+}
+
+.subsheetPrimary {
+  width: 100%;
+  min-height: 56px;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 60px;
+  background: #ff5800;
+  color: #fff;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.subsheetPrimary:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.lookPicker {
+  width: 100%;
+  min-height: 0;
+  margin: 0 0 8px;
+  cursor: grab;
+}
+
+.lookPicker :global(.onboarding-look-avatar-window) {
+  margin-top: 0;
+}
+
+.lookPicker :global(.onboarding-look-dots) {
+  margin-top: 24px;
+}
+
+.lookPicker :global(.onboarding-look-colors) {
+  justify-content: space-between;
+  gap: 6px;
+  overflow: visible;
+  width: 100%;
+  margin: 24px 0 0;
+  padding: 0;
+}
+
+.routineSheetIcon {
+  width: 60px;
+  height: 60px;
+}
+
+.routineSheetIcon svg {
+  width: 28px;
+  height: 28px;
+}
+
+.routineSheetTitle {
+  margin: 0 0 16px;
+  color: var(--text-primary);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+}
+
+.routineFacts {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0 0 20px;
+}
+
+.routineFacts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: 17px;
+}
+
+.routineFacts dt {
+  color: #757575;
+}
+
+.routineFacts dd {
+  margin: 0;
+  color: var(--text-primary);
+  text-align: right;
+}
+
+.routinePrompt {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px 18px;
+  border-radius: 16px;
+  background: #f5f5f5;
+}
+
+.routinePrompt span {
+  color: #757575;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.routinePrompt p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 16px;
+  line-height: 23px;
+  white-space: pre-wrap;
+}
+
+.routineDeleteInChat {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+  border: 0;
+  border-radius: 60px;
+  background: #f3f3f3;
+  color: #d92d20;
+  font: inherit;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.routineDeleteInChat svg {
+  width: 16px;
+  height: 16px;
+}
+
+.profileBack:focus-visible,
+.profileAvatar:focus-visible,
+.profileLabelPill:focus-visible,
+.profileDisclosure summary:focus-visible,
+.routineRow:focus-visible,
+.profileViewAll:focus-visible,
+.profileDeleteRow:focus-visible,
+.subsheetClose:focus-visible,
+.subsheetPrimary:focus-visible,
+.routineDeleteInChat:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  .settingsOverlay {
+    padding: 0;
+  }
+
+  .settingsOverlay > section {
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+    box-shadow: none;
+    animation: none;
+  }
+
+  .settingsOverlay .settingsContent {
+    padding-top: calc(12px + env(safe-area-inset-top));
+    padding-bottom: calc(32px + env(safe-area-inset-bottom));
+  }
+}
+
+@media (min-width: 768px) {
+  .settingsOverlay > section {
+    width: min(calc(100% - 48px), 600px);
+    height: min(900px, calc(100dvh - 48px));
+    max-width: none;
+    max-height: none;
+  }
+
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .routineSkeleton,
+  .profileDisclosure summary::after {
+    animation: none;
+    transition: none;
+  }
+}
+
+:global(:root[data-theme="dark"]) .profileList,
+:global(:root[data-theme="dark"]) .routineSkeleton,
+:global(:root[data-theme="dark"]) .routinePrompt {
+  background: rgb(255 255 255 / 6%);
+}
+:global(:root[data-theme="dark"]) .profileBack,
+:global(:root[data-theme="dark"]) .profileLabelPill,
+:global(:root[data-theme="dark"]) .subsheetClose,
+:global(:root[data-theme="dark"]) .routineDeleteInChat {
+  background: rgb(255 255 255 / 10%);
+  color: var(--text-primary);
+}
+:global(:root[data-theme="dark"]) .profileAvatarBadge {
+  background: #fff;
+  color: #121212;
+}
+:global(:root[data-theme="dark"]) .profileDisclosure + .profileDisclosure {
+  border-top-color: rgb(255 255 255 / 8%);
+}
+:global(:root[data-theme="dark"]) .profileDeleteRow,
+:global(:root[data-theme="dark"]) .routineDeleteInChat {
+  color: #f09a8a;
+}
+
+.accessRow {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  gap: 14px;
+  padding: 0 20px 0 16px;
+  cursor: pointer;
+}
+
+.accessLogo {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  box-sizing: border-box;
+  padding: 9px;
+  border: 1px solid rgb(18 18 18 / 8%);
+  border-radius: 12px;
+  background: #fff;
+}
+
+.accessCopy {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.accessCopy strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.accessCopy small {
+  overflow: hidden;
+  color: #757575;
+  font-size: 15px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accessConnect {
+  min-height: 40px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 60px;
+  background: #ff5800;
+  color: #fff;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.accessSwitch {
+  position: relative;
+  width: 52px;
+  height: 32px;
+  flex: 0 0 52px;
+  margin: 0;
+  border-radius: 60px;
+  background: #e5e5e5;
+  appearance: none;
+  cursor: pointer;
+  transition: background 0.16s ease;
+}
+
+.accessSwitch::after {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 20%);
+  content: "";
+  transition: transform 0.16s ease;
+}
+
+.accessSwitch:checked {
+  background: var(--access-accent, #ff5800);
+}
+
+.accessSwitch:checked::after {
+  transform: translateX(20px);
+}
+
+.accessSwitch:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.accessNotice {
+  margin: 0;
+  padding: 0 4px;
+  color: #12803a;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.accessSwitch:focus-visible,
+.accessConnect:focus-visible {
+  outline: 2px solid var(--chat-accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .accessSwitch,
+  .accessSwitch::after {
+    transition: none;
+  }
+}
+
+:global(:root[data-theme="dark"]) .accessSwitch:not(:checked) {
+  background: rgb(255 255 255 / 18%);
+}
+:global(:root[data-theme="dark"]) .accessNotice {
+  color: #6fdc8c;
+}
+
+/* DSN-011 20: Access and Safe inputs keep the profile's section spacing. */
+.profileSections {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.accessRow + .accessRow,
+.safeInputLoginRow + .safeInputLoginRow {
+  border-top: 1px solid var(--divider);
+}
+
+.safeInputOpen {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.siteTile,
+.siteTileLarge {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  flex: 0 0 44px;
+  box-sizing: border-box;
+  place-items: center;
+  border: 1px solid var(--divider);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.siteMark {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 8px;
+  background: #1b2430;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.siteTileLarge {
+  width: 80px;
+  height: 80px;
+  flex-basis: 80px;
+  border-radius: 24px;
+}
+
+.siteTileLarge .siteMark {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  font-size: 24px;
+}
+
+/* DSN-011 17: Safe input detail. */
+.safeInputIdentity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  margin: -12px 0 28px;
+  text-align: center;
+}
+
+.safeInputIdentity strong {
+  margin-top: 6px;
+  color: var(--text-primary);
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.4px;
+}
+
+.safeInputIdentity small {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.safeInputDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #12c25b;
+}
+
+.subsheet .profileSectionHead {
+  margin-bottom: 12px;
+}
+
+.safeInputLoginHead {
+  margin-top: 28px;
+}
+
+.safeInputLoginRow {
+  display: flex;
+  width: 100%;
+  min-height: 56px;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 18px;
+  box-sizing: border-box;
+  border: 0;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  text-align: left;
+}
+
+button.safeInputLoginRow {
+  cursor: pointer;
+}
+
+.safeInputChevron {
+  margin-left: auto;
+  color: var(--text-muted);
+}
+
+.safeInputDelete {
+  width: 100%;
+  min-height: 50px;
+  margin-top: 24px;
+  border: 0;
+  border-radius: 60px;
+  background: var(--surface);
+  color: #e5352b;
+  font: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  cursor: pointer;
+}

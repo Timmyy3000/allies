@@ -1,0 +1,783 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  --chat-accent: #fd304f;
+}
+.backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(0 0 0 / 40%);
+  border: 0;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+:global(:root[data-theme="dark"]) .backdrop {
+  background: rgb(0 0 0 / 55%);
+}
+
+.surface {
+  position: absolute;
+  overflow: hidden;
+  background: var(--canvas);
+  color: var(--text-primary);
+  border-radius: 28px;
+  box-shadow:
+    0 18px 70px #0002,
+    0 2px 8px #00000009;
+  transform-origin: bottom left;
+  left: max(20px, calc((100vw - 780px) / 2));
+  bottom: calc(94px + env(safe-area-inset-bottom));
+}
+.menuSurface {
+  width: 222px;
+  height: 190px;
+}
+.expanded {
+  width: min(calc(100vw - 40px), 440px);
+  height: min(580px, 74dvh);
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  border-radius: 30px;
+}
+.panel {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+.menu {
+  padding: 11px;
+}
+.menu button {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  height: 56px;
+  padding: 0 12px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  border-radius: 16px;
+  font-size: 16px;
+}
+.menu button:hover {
+  background: var(--surface);
+}
+.menu button > span {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.surface button {
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition:
+    transform 0.18s,
+    background 0.18s;
+}
+.surface button:active {
+  transform: scale(0.96);
+}
+.surface button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -3px;
+}
+.surface svg,
+.documentThumb svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.heading {
+  position: relative;
+  z-index: 1;
+  height: 72px;
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.heading strong {
+  font-weight: 500;
+  font-size: 16px;
+}
+.heading button,
+.cameraControls button {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+}
+.body {
+  height: calc(100% - 150px);
+  overflow: auto;
+  padding: 0 14px 18px;
+  overscroll-behavior: contain;
+}
+.browse {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: var(--surface);
+  width: 100%;
+  padding: 16px;
+  border-radius: 17px;
+  text-align: left;
+  font-size: 14px;
+}
+.sectionLabel {
+  font-size: 10px;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 18px 4px 10px;
+  margin: 0;
+}
+.grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 5px;
+}
+.photo {
+  position: relative;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface);
+}
+.photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.check {
+  flex: none;
+  width: 23px;
+  height: 23px;
+  border: 1.5px solid #ccc;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  background: #ffffffc9;
+  color: white;
+}
+.photo .check {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+}
+.selected .check {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 13px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--surface);
+  background: transparent;
+  text-align: left;
+}
+.fileIcon {
+  width: 42px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--surface);
+  display: grid;
+  place-items: center;
+  color: var(--text-muted);
+}
+.fileName {
+  flex: 1;
+  font-size: 13px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.fileName small {
+  display: block;
+  font-size: 11px;
+  margin-top: 5px;
+  color: var(--text-muted);
+}
+.footer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 14px;
+  background: var(--canvas);
+}
+.footer button {
+  width: 100%;
+  height: 48px;
+  border: 0;
+  border-radius: 18px;
+  background: var(--text-primary);
+  color: var(--canvas);
+  font-size: 14px;
+}
+.footer button:disabled {
+  background: var(--surface);
+  color: var(--text-muted);
+  cursor: default;
+}
+.cameraSurface {
+  background: #dcd8ca;
+}
+.cameraImage {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.cameraSurface .heading {
+  color: white;
+}
+.cameraSurface .heading strong {
+  font-size: 12px;
+  background: #0003;
+  padding: 8px 12px;
+  border-radius: 16px;
+}
+.cameraSurface .heading button,
+.cameraControls button {
+  background: #0004;
+  color: white;
+}
+.cameraControls {
+  position: absolute;
+  bottom: 24px;
+  left: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+}
+.cameraControls .shutter {
+  width: 74px;
+  height: 74px;
+  border: 5px solid #ffffff66;
+  background: white;
+  background-clip: padding-box;
+  box-shadow: 0 0 0 1px #fff8;
+}
+.cameraNote {
+  position: absolute;
+  bottom: 118px;
+  text-align: center;
+  width: 100%;
+  font-size: 12px;
+  color: white;
+  text-shadow: 0 1px 5px #000;
+}
+.tray {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  max-width: 100%;
+  padding: 0 0 10px;
+  scrollbar-width: none;
+}
+.thumb {
+  position: relative;
+  display: inline-flex;
+  width: 88px;
+  height: 88px;
+  flex: 0 0 88px;
+  border-radius: 18px;
+  overflow: hidden;
+  background: var(--surface-secondary);
+}
+.thumb > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  outline: 1px solid #0000001a;
+  outline-offset: -1px;
+}
+.documentThumb {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  padding: 10px;
+  width: 100%;
+}
+.documentThumb small {
+  font-size: 9px;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.flyer {
+  position: fixed;
+  z-index: 100;
+  pointer-events: none;
+  object-fit: cover;
+  border-radius: 24px;
+  background: #eee;
+  color: #212121;
+  overflow: hidden;
+  font: 14px sans-serif;
+  box-shadow: 0 12px 30px #0002;
+}
+.notice {
+  position: fixed;
+  z-index: 110;
+  left: 50%;
+  top: 70px;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 32px);
+  padding: 14px 18px;
+  border-radius: 20px;
+  background: #212121;
+  color: white;
+  font-size: 12px;
+  box-shadow: 0 8px 25px #0002;
+}
+@media (prefers-reduced-motion: reduce) {
+  .surface button {
+    transition: none;
+  }
+}
+.flyer > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.flyer > .documentThumb {
+  height: 100%;
+  background: var(--surface-secondary, #eee);
+}
+.flyer > .documentThumb svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  flex-shrink: 0;
+}
+.tray {
+  position: relative;
+}
+.thumb {
+  will-change: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+}
+.tray .thumb > button {
+  position: absolute;
+  right: 0;
+  top: 0;
+  width: 32px !important;
+  height: 32px !important;
+  min-height: 32px;
+  flex: none !important;
+  border: 0;
+  border-radius: 0 0 0 14px;
+  background: #21212199 !important;
+  color: white !important;
+  font-size: 20px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.transfer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 190px;
+  max-width: 100%;
+  margin-bottom: 8px;
+}
+.transferFile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px;
+  border-radius: 14px;
+  background: #ffffff24;
+}
+.transferFile > button:first-child {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-align: left;
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  padding: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+.transferFile svg,
+.fileLink svg {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  flex: none;
+}
+.transferFile small {
+  display: block;
+  font-size: 11px;
+  opacity: 0.7;
+  margin-top: 4px;
+  min-height: 13px;
+}
+.transferFile > button {
+  min-width: 36px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 50%;
+  background: #ffffff33;
+  color: inherit;
+}
+.transferFile > button:disabled {
+  cursor: default;
+}
+.transferFileDetails {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+}
+.transferFileThumbnail {
+  display: grid;
+  flex: none;
+  place-items: center;
+}
+.transferFileName {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.transferBundle {
+  display: block;
+  overflow: hidden;
+  width: min(100%, 360px);
+  border-radius: 16px;
+  background: #ffffff1a;
+  box-shadow: inset 0 0 0 1px #ffffff12;
+}
+.transferBundle > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 54px;
+  padding: 8px 10px;
+  cursor: pointer;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.transferBundleLabel {
+  flex: 1;
+  min-width: 0;
+}
+.transferBundleLabel strong,
+.transferBundleLabel small {
+  display: block;
+}
+.transferBundleLabel strong {
+  font-size: 13px;
+  font-weight: 550;
+}
+.transferBundleLabel small {
+  margin-top: 3px;
+  font-size: 11px;
+  opacity: .7;
+}
+.transferBundleIcon {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  flex: none;
+  place-items: center;
+  border-radius: 10px;
+  background: #ffffff1c;
+}
+.transferBundleIcon svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.transferBundleChevron {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  flex: none;
+  place-items: center;
+}
+.transferBundleChevron svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.transferBundleReveal {
+  display: block;
+  overflow: hidden;
+}
+.transferBundleFiles {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: min(280px, 38dvh);
+  padding: 2px 6px 7px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: #fff transparent;
+}
+.transferBundleFiles::-webkit-scrollbar {
+  width: 8px;
+}
+.transferBundleFiles::-webkit-scrollbar-track,
+.transferBundleFiles::-webkit-scrollbar-corner {
+  background: transparent;
+}
+.transferBundleFiles::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: #fff;
+  background-clip: padding-box;
+}
+.transferBundleFiles::-webkit-scrollbar-button {
+  display: none;
+  width: 0;
+  height: 0;
+}
+.transferBundleFiles .transferFile {
+  min-width: 0;
+  padding: 3px 5px;
+  border-radius: 11px;
+  background: transparent;
+}
+.transferBundleFiles .transferFile:hover {
+  background: #ffffff12;
+}
+.transferActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.transferActions button,
+.publications button {
+  padding: 8px 12px;
+  min-height: 36px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--surface);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+.transferError {
+  font-size: 12px;
+  line-height: 1.4;
+}
+.reselect {
+  font-size: 11px;
+  max-width: 90px;
+}
+.reselect input {
+  width: 90px;
+  font-size: 10px;
+}
+.filePreview {
+  position: absolute;
+  inset: 5dvh max(16px, calc((100vw - 780px) / 2));
+  border-radius: 28px;
+  background: var(--canvas);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: hidden;
+  color: var(--text-primary);
+  box-shadow: 0 18px 70px #0002;
+}
+.filePreview header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.filePreview strong {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.filePreview header button {
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface);
+  font-size: 22px;
+}
+.filePreview p {
+  font-size: 13px;
+  margin: 0;
+}
+.previewBody {
+  display: grid;
+  min-height: 0;
+  flex: 1;
+}
+.previewContent {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+.previewContent > img {
+  min-height: 0;
+  flex: 1;
+  object-fit: contain;
+  width: 100%;
+}
+.previewContent > iframe {
+  width: 100%;
+  flex: 1;
+  min-height: 0;
+  border: 0;
+}
+.previewContent pre {
+  white-space: pre-wrap;
+  overflow: auto;
+  flex: 1;
+  padding: 14px;
+  background: var(--surface);
+  border-radius: 14px;
+  font-size: 12px;
+}
+.previewError {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.previewError span {
+  flex: 1;
+}
+.previewError button {
+  flex: none;
+  min-height: 34px;
+  padding: 7px 11px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
+@media (prefers-reduced-motion: reduce) {
+  .transferBundleChevron,
+  .transferBundleReveal {
+    transition: none;
+  }
+}
+.filePreview footer {
+  margin-top: auto;
+}
+.filePreview footer button {
+  width: 100%;
+  height: 46px;
+  background: var(--text-primary);
+  color: var(--canvas);
+  border: 0;
+  border-radius: 16px;
+}
+.notice button {
+  background: transparent;
+  color: inherit;
+  border: 0;
+  margin-left: 12px;
+  min-width: 32px;
+  min-height: 32px;
+}
+.publications {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 0;
+  font-size: 13px;
+}
+.fileLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.cameraSurface:not(:has(video)) {
+  background: #545951;
+}
+.cameraSurface .shutter:disabled {
+  opacity: 0.35;
+}
+
+.savedDraft {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  padding: 8px 12px;
+  border-radius: 16px;
+  background: var(--surface);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
+.savedDraft span {
+  flex: 1;
+  min-width: 120px;
+}
+.savedDraft button {
+  border: 0;
+  background: var(--canvas);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 8px;
+  cursor: pointer;
+}
+.transferFile img {
+  width: 48px;
+  height: 48px;
+  object-fit: cover;
+  border-radius: 10px;
+  flex: none;
+}

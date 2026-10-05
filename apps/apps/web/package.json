@@ -1,0 +1,55 @@
+{
+  "name": "web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --webpack",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "typecheck": "tsc --noEmit",
+    "verify:chat-frames": "bun tests/chat-frames/verify-chat-frame-runtime.ts && bun tests/chat-frames/verify-chat-frame-manifest.ts --mode=prebaseline && bun tests/chat-frames/verify-production-bundle-boundary.ts",
+    "verify:chat-frames:prebaseline": "bun tests/chat-frames/verify-chat-frame-runtime.ts && bun tests/chat-frames/verify-chat-frame-manifest.ts --mode=prebaseline",
+    "verify:chat-frames:signoff": "bun tests/chat-frames/verify-chat-frame-runtime.ts && bun tests/chat-frames/verify-chat-frame-manifest.ts --mode=signoff && bun tests/chat-frames/verify-production-bundle-boundary.ts",
+    "test:chat-frames": "bun run verify:chat-frames && playwright test --config playwright.chat-frames.config.ts",
+    "test:chat-frames:update": "bun run verify:chat-frames:prebaseline && playwright test --config playwright.chat-frames.config.ts --project=chat-chromium --update-snapshots",
+    "test:ally-motion": "playwright test --config playwright.ally-motion.config.ts",
+    "test:home-smoke": "playwright test --config playwright.home-smoke.config.ts"
+  },
+  "dependencies": {
+    "@allies/ally-motion": "workspace:*",
+    "@allies/cloud-client": "workspace:*",
+    "@tanstack/react-query": "^5.85.5",
+    "cuelume": "^0.2.4",
+    "generative-loaders": "^0.1.1",
+    "iconsax-reactjs": "0.0.8",
+    "input-otp": "^1.5.0",
+    "motion": "^13.1.0",
+    "next": "16.2.12",
+    "posthog-js": "^1.417.3",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "streamdown": "^2.6.0",
+    "zod": "^4.1.5",
+    "zustand": "^5.0.15"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.62.1",
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.12",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  },
+  "ignoreScripts": [
+    "sharp",
+    "unrs-resolver"
+  ],
+  "trustedDependencies": [
+    "sharp",
+    "unrs-resolver"
+  ]
+}

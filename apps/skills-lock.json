@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "skills": {
+    "adversarial-review": {
+      "source": "timmyy3000/skills",
+      "sourceType": "github",
+      "skillPath": "skills/adversarial-review/SKILL.md",
+      "computedHash": "3b55e855319b05c3dbf31c03b29a0397036af26a14308c7aa98e0b3af9720952"
+    },
+    "better-docs": {
+      "source": "timmyy3000/skills",
+      "sourceType": "github",
+      "skillPath": "skills/better-docs/SKILL.md",
+      "computedHash": "21e3cd18e52501eb556e0b01d5bcb5d876f1b967a062283ddbe0e3fff70ada35"
+    },
+    "code-review": {
+      "source": "timmyy3000/skills",
+      "sourceType": "github",
+      "skillPath": "skills/code-review/SKILL.md",
+      "computedHash": "88d2eb3f434af56eeff3802a048763d8c8bea0812ab71d6e2348a9807d998948"
+    },
+    "create-pr": {
+      "source": "timmyy3000/skills",
+      "sourceType": "github",
+      "skillPath": "skills/create-pr/SKILL.md",
+      "computedHash": "5466eb2bc2a0382ca66dd624a42d7813a77d535d3be5af63ec61b311977e7c58"
+    },
+    "kickoff": {
+      "source": "timmyy3000/skills",
+      "sourceType": "github",
+      "skillPath": "skills/kickoff/SKILL.md",
+      "computedHash": "681df4112387a2cf46ba0514ffdc565c00a19b72281aad05549814242cc216f8"
+    },
+    "nabu": {
+      "source": "timmyy3000/skills",
+      "sourceType": "github",
+      "skillPath": "skills/nabu/SKILL.md",
+      "computedHash": "0fd1494bdbc39f65581d19a9be2b91ad235e72a983bc463eabfe8264562a6650"
+    },
+    "plan-it": {
+      "source": "timmyy3000/skills",
+      "sourceType": "github",
+      "skillPath": "skills/plan-it/SKILL.md",
+      "computedHash": "506277ed840b145ae9eebbecc692510409169028538ed56ca0edfbd701dc8ebd"
+    },
+    "ship-it": {
+      "source": "timmyy3000/skills",
+      "sourceType": "github",
+      "skillPath": "skills/ship-it/SKILL.md",
+      "computedHash": "fee2bd92b8b30f8d100cf2c8da16870e4c7d80a41c74796fc4ff3da1f95c4d9b"
+    },
+    "simplicity-review": {
+      "source": "timmyy3000/skills",
+      "sourceType": "github",
+      "skillPath": "skills/simplicity-review/SKILL.md",
+      "computedHash": "40cfeccd5ab094ded51e0d03c475f4e1ddbd5331ed59a6e799f34cf532223057"
+    },
+    "task-master": {
+      "source": "timmyy3000/skills",
+      "sourceType": "github",
+      "skillPath": "skills/task-master/SKILL.md",
+      "computedHash": "86f20a68bcde0fecd1805124871aa055c6572e16c9d9f4281d3d686075b3501b"
+    }
+  }
+}

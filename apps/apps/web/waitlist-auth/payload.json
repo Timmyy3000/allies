@@ -1,0 +1,25 @@
+{
+  "description": "des",
+  "screens": [
+    {
+      "screenId": "auth-allies-1",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788536361/figma-screens/batch_mtn4dagx_xeit5/auth-allies-1.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1788536372/figma-screens/batch_mtn4dagx_xeit5/auth-allies-1.html"
+    },
+    {
+      "screenId": "welcome-allies-1",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788536372/figma-screens/batch_mtn4dagx_xeit5/welcome-allies-1.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1788536376/figma-screens/batch_mtn4dagx_xeit5/welcome-allies-1.html"
+    },
+    {
+      "screenId": "auth-allies-2",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788536377/figma-screens/batch_mtn4dagx_xeit5/auth-allies-2.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1788536387/figma-screens/batch_mtn4dagx_xeit5/auth-allies-2.html"
+    },
+    {
+      "screenId": "allow-notifications-allies",
+      "imageUrl": "https://res.cloudinary.com/dsxwnm3ib/image/upload/v1788549807/figma-screens/batch_mtncdh94_qyahc/allow-notifications-allies.png",
+      "htmlUrl": "https://res.cloudinary.com/dsxwnm3ib/raw/upload/v1788549811/figma-screens/batch_mtncdh94_qyahc/allow-notifications-allies.html"
+    }
+  ]
+}
