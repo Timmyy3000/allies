@@ -2,18 +2,15 @@ name: CI
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, edited, ready_for_review]
+    branches: [main]
+    paths:
+      - "services/foundry/**"
+      - ".github/workflows/foundry.yml"
   push:
-    branches: [dev, staging, prod, prod-fastlane]
-  workflow_call:
-    inputs:
-      ref:
-        required: false
-        type: string
-    outputs:
-      source_sha:
-        description: "The exact source commit checked by this workflow"
-        value: ${{ jobs.check.outputs.source_sha }}
+    branches: [main]
+    paths:
+      - "services/foundry/**"
+      - ".github/workflows/foundry.yml"
 
 permissions:
   contents: read
@@ -41,41 +38,41 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: backend/.python-version
+          python-version-file: services/foundry/backend/.python-version
       - name: Install uv
         uses: astral-sh/setup-uv@v5
       - name: Install dependencies
-        working-directory: backend
+        working-directory: services/foundry/backend
         run: uv sync --locked
       - name: Install runtime dependencies
-        run: uv sync --locked --project runtime
+        run: uv sync --locked --project services/foundry/runtime
       - name: Run repository validation
-        run: uv run --locked --project backend python scripts/validate.py
+        run: cd services/foundry && uv run --locked --project backend python scripts/validate.py
 
       - name: Verify runtime image dependencies
-        run: docker build --tag allies/runtime:ci --file runtime/Dockerfile runtime
+        run: docker build --tag allies/runtime:ci --file services/foundry/runtime/Dockerfile services/foundry/runtime
 
       - name: Verify deployed runtime identity and file access
-        run: uv run --locked --project backend python scripts/check_runtime_identity.py allies/runtime:ci
+        run: cd services/foundry && uv run --locked --project backend python scripts/check_runtime_identity.py allies/runtime:ci
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: |
-            backend/coverage.xml
-            runtime/coverage.xml
+            services/foundry/backend/coverage.xml
+            services/foundry/runtime/coverage.xml
 
       - name: Apply migrations
-        working-directory: backend
+        working-directory: services/foundry/backend
         run: uv run --locked python manage.py migrate --noinput
 
       - name: Verify migrations are applied
-        working-directory: backend
+        working-directory: services/foundry/backend
         run: uv run --locked python manage.py migrate --check
 
       - name: Verify production configuration
-        working-directory: backend
+        working-directory: services/foundry/backend
         env:
           DJANGO_DEBUG: "false"
           DJANGO_SECRET_KEY: ci-only-production-check
