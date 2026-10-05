@@ -296,7 +296,7 @@ const conversationOptionsSchema = z.object({
   limit: z.number().int().min(1).max(100).optional(),
   cursor: z.string().min(1).max(512).optional(),
 });
-const activityLimitSchema = z.number().int().min(1).max(200);
+const activityLimitSchema = z.number().int().min(1).max(1000);
 const activityOptionsSchema = z.object({
   limit: activityLimitSchema.optional(),
   cursor: z.string().min(1).max(512).optional(),

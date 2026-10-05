@@ -24,6 +24,7 @@ from activities.models import (
 )
 from activities.services import projection as projection_service
 from activities.services.projection import (
+    MAX_ACTIVITY_SNAPSHOT,
     parse_activity_cursor,
     project_foundry_event,
     read_activity_snapshot,
@@ -1011,7 +1012,7 @@ def test_activity_snapshot_is_bounded_and_capability_scoped(conversation_records
             user=user,
             workspace_id=workspace.id,
             conversation_id=conversation.id,
-            limit=201,
+            limit=MAX_ACTIVITY_SNAPSHOT + 1,
         )
 
     foreign_user = User.objects.create_user()

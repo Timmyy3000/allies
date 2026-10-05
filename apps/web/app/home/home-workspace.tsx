@@ -1928,10 +1928,10 @@ function ConversationPane({
           workspaceId,
           targetConversationId,
           {
-            limit: 200,
+            limit: 1000,
             replay: true,
-            // Opening a chat only replays activity for the messages it shows.
-            ...(cursor ? { cursor } : { recentMessages: 50 }),
+            // Opening a chat replays activity for its recent turns only.
+            ...(cursor ? { cursor } : { recentMessages: 10 }),
           },
           controllerSignal,
         ), {

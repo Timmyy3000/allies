@@ -238,7 +238,7 @@ class ActivityController(ControllerBase):
         request: HttpRequest,
         workspace_id: CanonicalUUID,
         conversation_id: CanonicalUUID,
-        limit: int = Query(200, ge=1, le=200),
+        limit: int = Query(200, ge=1, le=1000),
         cursor: str | None = Query(None, max_length=512),
         replay: bool = Query(False),
         recent_messages: int | None = Query(None, ge=1, le=200),
