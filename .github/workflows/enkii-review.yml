@@ -6,7 +6,7 @@ on:
   pull_request_target:
     types: [opened, synchronize, reopened]
     # Review release and development branch targets, including branch-to-branch PRs.
-    branches: [main]
+    branches: [nightly, stable]
   issue_comment:
     types: [created]
 
