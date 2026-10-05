@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
+from runtime.management.commands.activate_fly_workspace import Command as Activation
 from runtime.models import Workspace, WorkspaceProvisioningPhase
 from runtime.providers.domain import AppSpec
 from runtime.providers.fly import deterministic_resource_names
@@ -31,7 +32,9 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("workspace_id", type=UUID)
-        parser.add_argument("--volume", required=True, help="Provider volume id to bind")
+        parser.add_argument(
+            "--volume", required=True, help="Provider volume id to bind"
+        )
 
     def handle(self, *args, workspace_id, volume, **options):
         provider = runtime_power_provider()
@@ -39,18 +42,31 @@ class Command(BaseCommand):
         if store is None:
             raise CommandError("rehoming needs a provider with a local secret store")
         workspace = Workspace.objects.get(pk=workspace_id)
-        if workspace.provisioning_phase != WorkspaceProvisioningPhase.IDLE:
-            raise CommandError("workspace provisioning is not idle")
-        source = workspace.machine_generation
         names = deterministic_resource_names(workspace.id)
-        Workspace.objects.filter(pk=workspace.id).update(
-            fly_app_ref=names.app, volume_ref=volume
-        )
+        if workspace.provisioning_phase == WorkspaceProvisioningPhase.IDLE:
+            source = workspace.machine_generation
+            Workspace.objects.filter(pk=workspace.id).update(
+                fly_app_ref=names.app, volume_ref=volume
+            )
+        else:
+            # Resume an interrupted rehome at its recorded target generation.
+            source = workspace.provisioning_source_generation
+            if workspace.volume_ref != volume or source is None:
+                raise CommandError(
+                    "workspace is busy with another provisioning operation"
+                )
+        target = source + 1
         provider.ensure_app(AppSpec(names.app, "local", "local"))
 
-        handle = ProofCredentialBootstrap(store).prepare(
-            workspace.id, names.app, generation=source + 1, operation_id=uuid4()
-        )
+        credential = Activation._active_credential(workspace.id, target)
+        if credential is None:
+            handle = ProofCredentialBootstrap(store).prepare(
+                workspace.id, names.app, generation=target, operation_id=uuid4()
+            )
+        else:
+            handle = Activation._credential_handle(
+                workspace.id, names.app, target, credential
+            )
         dependencies = ProofDependencyCredentialBootstrap(
             store, provider_api_key=os.environ["PROFILE_PROVISIONING_API_KEY"]
         ).prepare(names.app)
