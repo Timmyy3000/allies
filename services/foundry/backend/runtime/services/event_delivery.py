@@ -661,6 +661,13 @@ def _validated_cloud_url(value: object) -> str | None:
         and parsed.hostname
         and parsed.hostname.lower() == "host.docker.internal"
     )
+    # Self-hosted: a single-label Docker service name on the private network.
+    local_proof_cloud = local_proof_cloud or bool(
+        parsed is not None
+        and parsed.scheme.lower() == "http"
+        and parsed.hostname
+        and "." not in parsed.hostname
+    )
     if (
         parsed.scheme.lower() != "https"
         and not local_proof_cloud
