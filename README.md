@@ -99,6 +99,10 @@ cd deploy && docker compose up -d --build
 
 Migrations run automatically on startup.
 
+## Roadmap
+
+See [`docs/roadmap/ROADMAP.md`](docs/roadmap/ROADMAP.md).
+
 ## Releases and branches
 
 | Branch | Purpose | Versions |
