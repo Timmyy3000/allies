@@ -6,6 +6,8 @@ export const THEME_STORAGE_KEY = "allies.theme";
 const DARK_QUERY = "(prefers-color-scheme: dark)";
 const WIPE_MS = 450;
 const CROSSFADE_MS = 150;
+// Mirrors --canvas in globals.css so browser chrome matches the page.
+export const THEME_COLORS: Record<ResolvedTheme, string> = { light: "#ffffff", dark: "#111111" };
 
 export function parseThemePreference(value: unknown): ThemePreference {
   return THEME_PREFERENCES.includes(value as ThemePreference) ? value as ThemePreference : "system";
@@ -35,10 +37,11 @@ function applyTheme(preference: ThemePreference) {
   const theme = resolveTheme(preference, window.matchMedia(DARK_QUERY).matches);
   document.documentElement.dataset.theme = theme;
   document.documentElement.dataset.themePreference = preference;
+  document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]').forEach((meta) => { meta.content = THEME_COLORS[theme]; });
 }
 
 /** Runs before first paint and keeps `system` in step with the OS. Mirrors applyTheme. */
-export const THEME_INIT_SCRIPT = `(()=>{var k=${JSON.stringify(THEME_STORAGE_KEY)},q=matchMedia(${JSON.stringify(DARK_QUERY)}),r=document.documentElement;function p(){try{var v=localStorage.getItem(k);return v==="light"||v==="dark"?v:"system"}catch(e){return"system"}}function a(){var v=p();r.dataset.theme=v==="system"?(q.matches?"dark":"light"):v;r.dataset.themePreference=v}a();q.addEventListener("change",a)})()`;
+export const THEME_INIT_SCRIPT = `(()=>{var k=${JSON.stringify(THEME_STORAGE_KEY)},c=${JSON.stringify(THEME_COLORS)},q=matchMedia(${JSON.stringify(DARK_QUERY)}),r=document.documentElement;function p(){try{var v=localStorage.getItem(k);return v==="light"||v==="dark"?v:"system"}catch(e){return"system"}}function a(){var v=p();var t=v==="system"?(q.matches?"dark":"light"):v;r.dataset.theme=t;r.dataset.themePreference=v;document.querySelectorAll('meta[name="theme-color"]').forEach(function(m){m.content=c[t]})}a();q.addEventListener("change",a);document.addEventListener("DOMContentLoaded",a)})()`;
 
 type ViewTransitionDocument = Document & {
   startViewTransition?: (update: () => void) => { ready: Promise<void> };

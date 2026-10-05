@@ -59,7 +59,7 @@ export function AllyLookPicker({
     _event: MouseEvent | TouchEvent | PointerEvent,
     info: { offset: { x: number }; velocity: { x: number } },
   ) => {
-    const intent = info.offset.x || info.velocity.x;
+    const intent = Math.abs(info.velocity.x) > 200 ? info.velocity.x : info.offset.x;
     if (Math.abs(intent) < 36 && Math.abs(info.velocity.x) < 400) {
       setIsDragging(false);
       return;
@@ -82,7 +82,7 @@ export function AllyLookPicker({
   const trackX = `${-carouselIndex * (100 / carouselShapes.length)}%`;
   const trackTransition = prefersReducedMotion || isRebasing
     ? { duration: 0 }
-    : { type: "spring" as const, stiffness: 280, damping: 32, mass: 0.72 };
+    : { type: "spring" as const, bounce: 0.15, duration: 0.4 };
 
   return (
     <div
@@ -109,7 +109,7 @@ export function AllyLookPicker({
           initial={false}
           transition={trackTransition}
           className="onboarding-look-track"
-          style={{ x: trackX, width: `${carouselShapes.length * 100}%` }}
+          style={{ width: `${carouselShapes.length * 100}%` }}
         >
           {carouselShapes.map((avatarShape, index) => (
             <div

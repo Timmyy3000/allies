@@ -733,8 +733,10 @@ button.newAllyButton {
   transition: background-color 150ms ease, transform 150ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.allyRow:hover {
-  background: var(--wash);
+@media (hover: hover) and (pointer: fine) {
+  .allyRow:hover {
+    background: var(--wash);
+  }
 }
 
 .allyRow:active {
@@ -745,8 +747,10 @@ button.newAllyButton {
   background: var(--selected);
 }
 
-.allyRowSelected:hover {
-  background: var(--selected);
+@media (hover: hover) and (pointer: fine) {
+  .allyRowSelected:hover {
+    background: var(--selected);
+  }
 }
 
 .allyAvatarWrap {
@@ -896,8 +900,10 @@ button.newAllyButton {
   text-decoration: none;
 }
 
-.accountLink:hover {
-  background: rgba(18, 18, 18, 0.045);
+@media (hover: hover) and (pointer: fine) {
+  .accountLink:hover {
+    background: rgba(18, 18, 18, 0.045);
+  }
 }
 
 .accountMark {
@@ -1327,8 +1333,10 @@ button.newAllyButton {
   cursor: pointer;
 }
 
-.queuedMessages button:hover {
-  background: rgba(239, 64, 86, 0.09);
+@media (hover: hover) and (pointer: fine) {
+  .queuedMessages button:hover {
+    background: rgba(239, 64, 86, 0.09);
+  }
 }
 
 .queuedMessages svg {

@@ -7,7 +7,7 @@ import {
   type MouseEvent,
   type ReactNode,
 } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, useReducedMotion, type PanInfo } from "motion/react";
 
 const PAGE_QUERY = "(max-width: 1023px)";
 
@@ -40,6 +40,8 @@ export default function OnboardingDrawer({
 }) {
   const isPageOverlay = useIsPageOverlay();
   const panelRef = useRef<HTMLDivElement>(null);
+  const layerRef = useRef<HTMLDivElement>(null);
+  const reducedMotion = useReducedMotion();
   const pageOverlayWasOpen = useRef(false);
 
   useEffect(() => {
@@ -114,6 +116,11 @@ export default function OnboardingDrawer({
     if (event.target === event.currentTarget) onClose();
   };
 
+  const handleDragEnd = (_event: unknown, info: PanInfo) => {
+    const width = layerRef.current?.offsetWidth ?? window.innerWidth;
+    if (info.velocity.x > 500 || info.offset.x > width * 0.35) onClose();
+  };
+
   const panel = (
     <div
       ref={panelRef}
@@ -159,7 +166,12 @@ export default function OnboardingDrawer({
           />
           <motion.div
             key="onboarding-drawer-layer"
+            ref={layerRef}
             className="onboarding-drawer-layer"
+            drag={reducedMotion ? false : "x"}
+            dragConstraints={{ left: 0, right: 0 }}
+            dragElastic={{ left: 0, right: 0.5 }}
+            onDragEnd={handleDragEnd}
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}

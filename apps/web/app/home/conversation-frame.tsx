@@ -1,6 +1,7 @@
 "use client";
 
 import { Streamdown } from "streamdown";
+import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { RoutineUserText, routineLinkComponents } from "./routine-mention";
 import { ShinyText } from "../../components/text-animations/shiny-text";
 import { useEffect, useRef, useState, type Ref, type UIEvent, type ReactNode } from "react";
@@ -42,6 +43,7 @@ import {
 } from "./conversation-frame-primitives";
 import styles from "./conversation-frame.module.css";
 import { playInteractionSound } from "../../lib/interaction-sounds";
+import { EASE_OUT } from "../../lib/motion";
 
 const EMPTY_ROUTINE_ITEMS: NonNullable<ProductionConversationFrameModel["routineItems"]> = [];
 
@@ -166,6 +168,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
   const topDate = formatConversationDateDivider(visibleMessages[0]?.createdAt ?? "");
   const [scrolledAway, setScrolledAway] = useState(false);
   const [showJumpLatest, setShowJumpLatest] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
   const followVisualViewportRef = useRef(false);
   const handleScroll = (event: UIEvent<HTMLDivElement>) => {
     const canvas = event.currentTarget;
@@ -451,13 +454,21 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
             </>
           )}
         </ConversationRail>
-        {showJumpLatest ? (
-          <div className={styles.frameJumpLatestWrap} aria-live="polite">
-            <button type="button" className={styles.frameJumpLatest} onClick={jumpToLatest}>
-              Jump to latest ↓
-            </button>
-          </div>
-        ) : null}
+        <AnimatePresence>
+          {showJumpLatest ? (
+            <motion.div
+              className={styles.frameJumpLatestWrap}
+              aria-live="polite"
+              initial={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, scale: 0.96 }}
+              animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: 0.2, ease: EASE_OUT } }}
+              exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, transition: { duration: 0.15, ease: EASE_OUT } }}
+            >
+              <button type="button" className={styles.frameJumpLatest} onClick={jumpToLatest}>
+                Jump to latest ↓
+              </button>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
       </ConversationCanvas>
 
       {!model.timeline.accessCopy ? <ConversationPresence ally={model.ally} state={actorState} stateReady={stateReady}

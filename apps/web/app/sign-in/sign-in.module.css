@@ -37,8 +37,10 @@
   transition: transform 150ms ease-out, background-color 150ms ease-out;
 }
 
-.googleButton:hover:not(:disabled) {
-  background: #ed5000;
+@media (hover: hover) and (pointer: fine) {
+  .googleButton:hover:not(:disabled) {
+    background: #ed5000;
+  }
 }
 
 .googleButton:active:not(:disabled) {
