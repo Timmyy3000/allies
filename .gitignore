@@ -61,3 +61,4 @@ deploy/compose.override.yaml
 # Local agent and review artifacts
 .lavish/
 .agents/skills/
+roadmap/
