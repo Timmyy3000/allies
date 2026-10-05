@@ -205,11 +205,13 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
       shell.toggleAttribute("data-keyboard-open", focused && unzoomed
         && Math.max(restingHeight, window.innerHeight) - viewport.height > 100);
       if (!textareaIsFocused()) {
-        shell.style.removeProperty("--chat-viewport-height");
+        shell.style.removeProperty("--chat-keyboard");
         shell.style.removeProperty("--chat-viewport-offset");
         return;
       }
-      shell.style.setProperty("--chat-viewport-height", `${Math.round(viewport.height)}px`);
+      // The shell keeps its full height so messages scroll behind the keyboard;
+      // only the composer lifts by whatever the keyboard covers.
+      shell.style.setProperty("--chat-keyboard", `${Math.max(0, Math.round(shell.clientHeight - viewport.height))}px`);
       shell.style.setProperty("--chat-viewport-offset", `${Math.round(viewport.offsetTop)}px`);
       window.cancelAnimationFrame(frame);
       if (followVisualViewportRef.current) {
@@ -228,6 +230,25 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
       sync();
     };
     const handleFocusOut = () => window.requestAnimationFrame(sync);
+    // Chromium can overlay the keyboard natively; env(keyboard-inset-height) then lifts the composer.
+    const virtualKeyboard = (navigator as Navigator & { virtualKeyboard?: { overlaysContent: boolean } }).virtualKeyboard;
+    if (virtualKeyboard) virtualKeyboard.overlaysContent = true;
+    const composer = shell.querySelector<HTMLElement>(`.${styles.frameComposerArea}`);
+    const composerObserver = composer && typeof ResizeObserver !== "undefined" ? new ResizeObserver(() => {
+      shell.style.setProperty("--chat-composer-height", `${composer.offsetHeight}px`);
+    }) : null;
+    if (composer) composerObserver?.observe(composer);
+    // ponytail: web cannot drag the keyboard with the finger; dismiss once a downward drag is clear.
+    let touchStartY = 0;
+    const handleTouchStart = (event: TouchEvent) => { touchStartY = event.touches[0]?.clientY ?? 0; };
+    const handleTouchMove = (event: TouchEvent) => {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLTextAreaElement && shell.contains(focused)
+        && (event.touches[0]?.clientY ?? 0) - touchStartY > 40
+        && !composer?.contains(event.target as Node)) focused.blur();
+    };
+    shell.addEventListener("touchstart", handleTouchStart, { passive: true });
+    shell.addEventListener("touchmove", handleTouchMove, { passive: true });
     shell.addEventListener("focusin", handleFocusIn);
     shell.addEventListener("focusout", handleFocusOut);
     viewport.addEventListener("resize", sync);
@@ -241,8 +262,13 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
       viewport.removeEventListener("resize", sync);
       viewport.removeEventListener("scroll", sync);
       window.removeEventListener("resize", sync);
+      shell.removeEventListener("touchstart", handleTouchStart);
+      shell.removeEventListener("touchmove", handleTouchMove);
+      composerObserver?.disconnect();
+      if (virtualKeyboard) virtualKeyboard.overlaysContent = false;
       shell.removeAttribute("data-keyboard-open");
-      shell.style.removeProperty("--chat-viewport-height");
+      shell.style.removeProperty("--chat-keyboard");
+      shell.style.removeProperty("--chat-composer-height");
       shell.style.removeProperty("--chat-viewport-offset");
     };
   }, []);
