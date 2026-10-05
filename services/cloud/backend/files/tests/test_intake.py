@@ -23,6 +23,7 @@ from files.exceptions import (
     FileValidation,
 )
 from files.inspection import FileInspection
+from files.inspection import inspect_file as inspect_content
 from files.models import (
     FileIOOutcome,
     FileStagingObject,
@@ -434,6 +435,7 @@ def test_inspection_worker_promotes_only_the_isolated_runner_result(
 ):
     file, data = _validating_file(admission)
     settings.ALLIES_FILE_INSPECTION_ENABLED = True
+    settings.ALLIES_FILE_MALWARE_SCAN = True
     settings.ALLIES_FILE_SCANNER_HOST = "scanner.internal"
     seen = {}
 
@@ -673,3 +675,21 @@ def test_foreign_file_scope_is_not_reported_as_a_storage_fault(admission):
             content_length="3",
             stream=BytesIO(data),
         )
+
+
+@pytest.mark.django_db
+def test_inspection_without_malware_scan_still_validates_file_type(admission, settings):
+    file, _ = _validating_file(admission)
+    settings.ALLIES_FILE_INSPECTION_ENABLED = True
+    settings.ALLIES_FILE_MALWARE_SCAN = False
+    seen = {}
+
+    def inspector(*, name, source, size, scanner_config):
+        seen["scanner_config"] = scanner_config
+        return inspect_content(name=name, source=source, size=size, scanner=None)
+
+    assert inspect_due_files(limit=20, inspector=inspector) == 1
+    file.refresh_from_db()
+    assert seen["scanner_config"] is None
+    assert file.state == FileState.REJECTED
+    assert not file.safe_error_code.startswith("scanner_")

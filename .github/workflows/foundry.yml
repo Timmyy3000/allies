@@ -19,6 +19,7 @@ jobs:
   check:
     name: Backend and runtime checks
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     env:
       # CI uses the explicit local-development database path. Production
       # deployments must provide DJANGO_DEBUG=false, DJANGO_SECRET_KEY, and

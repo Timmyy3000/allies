@@ -592,6 +592,9 @@ ALLIES_FILE_STORAGE_SECRET_ACCESS_KEY = os.environ.get(
     "ALLIES_FILE_STORAGE_SECRET_ACCESS_KEY", ""
 )
 ALLIES_FILE_INSPECTION_ENABLED = env_bool("ALLIES_FILE_INSPECTION_ENABLED", True)
+# ClamAV malware scanning of uploads. Off by default for self-hosted instances,
+# where uploaders are the instance's own users; turn on and run ClamAV otherwise.
+ALLIES_FILE_MALWARE_SCAN = env_bool("ALLIES_FILE_MALWARE_SCAN", False)
 
 # Managed Gmail (provider-neutral passthrough, Gmail first). Grants default
 # to none and sends require consent plus approval, so the rollout flag ships
@@ -1064,7 +1067,7 @@ if not DEBUG:
             missing.append("HTTPS ALLIES_R2_ENDPOINT_URL")
     if ALLIES_FILE_ADMISSION_ENABLED and not ALLIES_FILE_STORAGE_ENABLED:
         missing.append("ALLIES_FILE_STORAGE_ENABLED for file admission")
-    if ALLIES_FILE_INSPECTION_ENABLED and not ALLIES_FILE_SCANNER_HOST.strip():
+    if ALLIES_FILE_MALWARE_SCAN and not ALLIES_FILE_SCANNER_HOST.strip():
         missing.append("ALLIES_FILE_SCANNER_HOST for file inspection")
     if ALLIES_FILE_ADMISSION_ENABLED and ALLIES_FILE_STORAGE_CAPACITY_BYTES <= 0:
         missing.append("positive ALLIES_FILE_STORAGE_CAPACITY_BYTES for file admission")

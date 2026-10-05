@@ -19,6 +19,7 @@ jobs:
   check:
     name: Django checks and tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     outputs:
       source_sha: ${{ steps.record_source.outputs.sha }}
     steps:
@@ -83,6 +84,7 @@ jobs:
   postgresql-auth:
     name: PostgreSQL UUID schema and concurrency
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     services:
       postgres:
         image: postgres:17

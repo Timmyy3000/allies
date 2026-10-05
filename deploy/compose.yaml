@@ -28,6 +28,7 @@ x-cloud: &cloud
     ALLIES_AUTH_NATIVE_ENABLED: "false"
     ALLIES_WAITLIST_ENABLED: "false"
     ALLIES_PUSH_VAPID_CONTACT: https://${ALLIES_DOMAIN}
+    ALLIES_FILE_SCANNER_HOST: clamav
   depends_on:
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }
@@ -73,6 +74,19 @@ services:
       test: ["CMD-SHELL", "pg_isready -U allies -d allies_cloud"]
       interval: 3s
       retries: 20
+    restart: unless-stopped
+
+  # Optional upload malware scanning (~1 GB RAM): set ALLIES_FILE_MALWARE_SCAN=true
+  # and start with `docker compose --profile clamav up -d`.
+  clamav:
+    image: clamav/clamav:stable
+    profiles: [clamav]
+    volumes:
+      - clamav:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      start_period: 300s
     restart: unless-stopped
 
   redis:
@@ -164,6 +178,7 @@ services:
 volumes:
   postgres:
   redis:
+  clamav:
 
 networks:
   default:
