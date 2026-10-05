@@ -27,7 +27,7 @@ permissions:
 jobs:
   checks:
     name: Types, tests, lint and mobile
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     env:
       NEXT_PUBLIC_CLOUD_API_URL: https://cloud.invalid
       EXPO_PUBLIC_CLOUD_API_URL: https://cloud.invalid
@@ -74,7 +74,7 @@ jobs:
 
   web:
     name: Web build and browser tests
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     env:
       NEXT_PUBLIC_CLOUD_API_URL: https://cloud.invalid
       NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE: stream
@@ -150,7 +150,7 @@ jobs:
     name: Interface CI suite
     if: ${{ always() }}
     needs: [checks, web]
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     outputs:
       source_sha: ${{ steps.gate.outputs.source_sha }}
     steps:
