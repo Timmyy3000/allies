@@ -9,6 +9,7 @@ monotonic, so leases and profile receipts from the old host are fenced off.
 from __future__ import annotations
 
 import os
+from base64 import b64encode
 from uuid import UUID, uuid4
 
 from django.conf import settings
@@ -21,10 +22,14 @@ from runtime.providers.fly import deterministic_resource_names
 from runtime.services.continuity_proof import (
     ProofCredentialBootstrap,
     ProofDependencyCredentialBootstrap,
+    ProofDependencyCredentialHandle,
     proof_workspace_spec,
 )
 from runtime.services.runtime_provider import runtime_power_provider
 from runtime.services.workspaces import WorkspaceLifecycle, WorkspaceSpec
+
+HERMES_KEY = "ALLIES_FND008_HERMES_KEY"
+PROVIDER_KEY = "ALLIES_FND008_OPENAI_KEY"
 
 
 class Command(BaseCommand):
@@ -67,9 +72,21 @@ class Command(BaseCommand):
             handle = Activation._credential_handle(
                 workspace.id, names.app, target, credential
             )
-        dependencies = ProofDependencyCredentialBootstrap(
-            store, provider_api_key=os.environ["PROFILE_PROVISIONING_API_KEY"]
-        ).prepare(names.app)
+        provider_key = os.environ["PROFILE_PROVISIONING_API_KEY"]
+        if (store.app_dir(names.app) / HERMES_KEY).exists():
+            # The volume keeps the Hermes key it booted with; reuse it.
+            store.stage(
+                names.app, PROVIDER_KEY, b64encode(provider_key.encode()).decode()
+            )
+            dependencies = ProofDependencyCredentialHandle(
+                app_ref=names.app,
+                hermes_key_secret_name=HERMES_KEY,
+                provider_key_secret_name=PROVIDER_KEY,
+            )
+        else:
+            dependencies = ProofDependencyCredentialBootstrap(
+                store, provider_api_key=provider_key
+            ).prepare(names.app)
         base = WorkspaceSpec(
             organization="local",
             region="local",
