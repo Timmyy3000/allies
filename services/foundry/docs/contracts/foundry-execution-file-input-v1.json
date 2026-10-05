@@ -1,0 +1,82 @@
+{
+  "schema_version": "v1",
+  "commands": {
+    "files_only": {
+      "schema_version": "v1",
+      "kind": "execution.command",
+      "producer": "cloud",
+      "service_identity": "cloud-service",
+      "scope": {
+        "kind": "workspace",
+        "cloud_workspace_id": "550e8400-e29b-41d4-a716-446655440010"
+      },
+      "cloud": {
+        "ally_id": "550e8400-e29b-41d4-a716-446655440011",
+        "conversation_id": "550e8400-e29b-41d4-a716-446655440012",
+        "message_id": "550e8400-e29b-41d4-a716-446655440013",
+        "cloud_binding_id": "550e8400-e29b-41d4-a716-446655440014"
+      },
+      "source_kind": "conversation_message",
+      "issued_at": "2026-09-09T00:00:00Z",
+      "deadline_at": "2026-09-09T00:00:05Z",
+      "command_id": "550e8400-e29b-41d4-a716-446655440016",
+      "idempotency_key": "550e8400-e29b-41d4-a716-446655440017",
+      "conversation_turn_ordinal": 3,
+      "payload": {
+        "kind": "execution_input",
+        "text": "",
+        "files": [
+          {
+            "file_id": "550e8400-e29b-41d4-a716-446655440015",
+            "name": "report.pdf",
+            "media_type": "application/pdf",
+            "size": 1200,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "fingerprint": "canonical-json-sha256:v1:0665719e18b0bd0de140b88c693eb75acfa9de395b1415de3c7d46f91e5952cd"
+    },
+    "bootstrap_plus_files": {
+      "schema_version": "v1",
+      "kind": "execution.command",
+      "producer": "cloud",
+      "service_identity": "cloud-service",
+      "scope": {
+        "kind": "workspace",
+        "cloud_workspace_id": "550e8400-e29b-41d4-a716-446655440010"
+      },
+      "cloud": {
+        "ally_id": "550e8400-e29b-41d4-a716-446655440011",
+        "conversation_id": "550e8400-e29b-41d4-a716-446655440012",
+        "message_id": "550e8400-e29b-41d4-a716-446655440013",
+        "cloud_binding_id": "550e8400-e29b-41d4-a716-446655440014"
+      },
+      "source_kind": "conversation_message",
+      "issued_at": "2026-09-09T00:00:00Z",
+      "deadline_at": "2026-09-09T00:00:05Z",
+      "command_id": "550e8400-e29b-41d4-a716-446655440018",
+      "idempotency_key": "550e8400-e29b-41d4-a716-446655440019",
+      "conversation_turn_ordinal": 2,
+      "payload": {
+        "kind": "execution_input",
+        "text": "",
+        "bootstrap": {
+          "kind": "assistant_message",
+          "message_id": "550e8400-e29b-41d4-a716-446655440020",
+          "text": "Hello, what should we work on first?"
+        },
+        "files": [
+          {
+            "file_id": "550e8400-e29b-41d4-a716-446655440015",
+            "name": "report.pdf",
+            "media_type": "application/pdf",
+            "size": 1200,
+            "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ]
+      },
+      "fingerprint": "canonical-json-sha256:v1:0ab8c3b31b9bcc7556175418032ed762b66f1a9b740076df179c4c88d0867f5d"
+    }
+  }
+}

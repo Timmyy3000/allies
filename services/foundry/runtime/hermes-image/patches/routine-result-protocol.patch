@@ -1,0 +1,100 @@
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -136,4 +136,37 @@ logger = logging.getLogger(__name__)
+ 
+ 
++_ALLIES_ROUTINE_RESULT_HEADER = "X-Allies-Routine-Result"
++_ALLIES_ROUTINE_RESULT_TOOLSET = "allies-routine-result"
++_ALLIES_ROUTINE_RESULT_SYSTEM_PROMPT = (
++    "You are executing a scheduled Allies routine. Complete the user's task. "
++    "Before ending, call allies_routine_result exactly once with the final "
++    "typed outcome, bounded report text, and references. That tool call is "
++    "the only authoritative result. If the task cannot be completed, use "
++    "outcome 'failed'. Do not end the turn without this tool call."
++)
++
++
++def _allies_routine_enabled_toolsets(
++    toolsets: list[str] | set[str], *, routine_result: bool
++) -> list[str]:
++    from toolsets import get_toolset_names
++
++    enabled: list[str] = []
++    for toolset in toolsets:
++        if toolset == _ALLIES_ROUTINE_RESULT_TOOLSET:
++            continue
++        if not routine_result and toolset in {"all", "*"}:
++            enabled.extend(
++                name
++                for name in get_toolset_names()
++                if name != _ALLIES_ROUTINE_RESULT_TOOLSET
++            )
++            continue
++        enabled.append(toolset)
++    if routine_result:
++        enabled.append(_ALLIES_ROUTINE_RESULT_TOOLSET)
++    return list(dict.fromkeys(enabled))
++
++
+ def _hermes_version() -> str:
+     """Return the canonical Hermes Agent version string.
+@@ -2536,5 +2546,6 @@ class APIServerAdapter(BasePlatformAdapter):
+         route: Optional[Dict[str, Any]] = None,
+         session_model: Optional[str] = None,
+         confirmed_runtime_lock: bool = False,
++        routine_result: bool = False,
+     ) -> Any:
+         """
+@@ -2805,5 +2824,14 @@ class APIServerAdapter(BasePlatformAdapter):
+ 
+         user_config = _load_gateway_config()
+-        enabled_toolsets = sorted(_get_platform_tools(user_config, "api_server"))
++        enabled_toolsets = _allies_routine_enabled_toolsets(
++            sorted(_get_platform_tools(user_config, "api_server")),
++            routine_result=routine_result,
++        )
+ 
++        # Apply the private toolset as a final subtraction in ordinary mode.
++        # This keeps a user-defined composite toolset from reintroducing the
++        # routine-only result tool after enabled-toolset resolution.
++        disabled_toolsets = (
++            [] if routine_result else [_ALLIES_ROUTINE_RESULT_TOOLSET]
++        )
+         max_iterations = _current_max_iterations()
+@@ -2826,3 +2835,4 @@ class APIServerAdapter(BasePlatformAdapter):
+             "ephemeral_system_prompt": ephemeral_system_prompt or None,
+             "enabled_toolsets": enabled_toolsets,
++            "disabled_toolsets": disabled_toolsets,
+             "session_id": session_id,
+@@ -3647,3 +3660,8 @@ class APIServerAdapter(BasePlatformAdapter):
+         if system_prompt is not None and not isinstance(system_prompt, str):
+             return web.json_response(_openai_error("system_message must be a string", code="invalid_system_message"), status=400)
++        routine_result_requested = (
++            request.headers.get(_ALLIES_ROUTINE_RESULT_HEADER, "").strip() == "1"
++        )
++        if routine_result_requested:
++            system_prompt = _ALLIES_ROUTINE_RESULT_SYSTEM_PROMPT
+         # Runtime selection — mirrors _handle_session_chat (lock wins,
+@@ -3737,7 +3757,8 @@ class APIServerAdapter(BasePlatformAdapter):
+                     requested_runtime=runtime_request.get("requested") or {},
+                     route_source=runtime_request.get("route_source") or "global",
+                     confirmed_runtime_lock=lock_active,
+                     agent_ref=agent_ref,
+                     approval_context=approval_context,
++                    routine_result=routine_result_requested,
+                     **agent_overrides,
+                 )
+@@ -5969,5 +5987,6 @@ class APIServerAdapter(BasePlatformAdapter):
+         route_source: str = "global",
+         confirmed_runtime_lock: bool = False,
+         approval_context: Optional[Dict[str, Any]] = None,
++        routine_result: bool = False,
+     ) -> tuple:
+         """
+@@ -6014,4 +6033,5 @@ class APIServerAdapter(BasePlatformAdapter):
+                         route=route,
+                         session_model=session_model,
+                         confirmed_runtime_lock=confirmed_runtime_lock,
++                        routine_result=routine_result,
+                     )

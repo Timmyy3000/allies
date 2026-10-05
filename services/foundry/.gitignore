@@ -1,0 +1,38 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Django local state
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Environment and test output
+.env
+.env.*
+!.env.example
+env.fly.local
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Generated, hash-verified image build inputs.
+runtime/hermes-image/wheelhouse/*
+!runtime/hermes-image/wheelhouse/.gitkeep
+
+# Local agent planning, review, evidence, and rendered artifacts
+.agent/
+.lavish/
+.forest/

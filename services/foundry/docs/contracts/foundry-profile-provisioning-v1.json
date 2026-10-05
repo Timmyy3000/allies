@@ -1,0 +1,21 @@
+{
+  "request": {
+    "version": 1,
+    "workspace_id": "00000000-0000-4000-8000-000000000001",
+    "binding_id": "00000000-0000-4000-8000-000000000002",
+    "ally_ref": "00000000-0000-4000-8000-000000000003",
+    "operation_id": "00000000-0000-4000-8000-000000000004",
+    "request_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "name": "Mira",
+    "job": "Study partner",
+    "personality": "Calm, curious, and specific."
+  },
+  "receipt": {
+    "version": 1,
+    "binding_id": "00000000-0000-4000-8000-000000000002",
+    "operation_id": "00000000-0000-4000-8000-000000000004",
+    "request_fingerprint": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "status": "pending",
+    "evidence_digest": "4e378b1ea9688897004f9e4d7b475ff26951f2647cea6da6117da97e0acf999e"
+  }
+}

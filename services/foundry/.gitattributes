@@ -1,0 +1,2 @@
+runtime/hermes-image/patches/*.patch text eol=lf -whitespace
+runtime/hermes-image/*.sh text eol=lf

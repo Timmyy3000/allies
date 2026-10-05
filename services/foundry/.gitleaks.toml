@@ -1,0 +1,4 @@
+title = "Allies Foundry Gitleaks configuration"
+
+[extend]
+useDefault = true

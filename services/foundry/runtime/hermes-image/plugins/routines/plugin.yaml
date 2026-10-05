@@ -1,0 +1,7 @@
+name: allies-routines
+version: 0.1.0
+description: Manage Cloud-owned Allies schedules from the active conversation
+author: Allies
+kind: backend
+provides_tools:
+  - allies_routines

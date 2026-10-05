@@ -1,0 +1,10 @@
+diff --git a/docker/stage2-hook.sh b/docker/stage2-hook.sh
+--- a/docker/stage2-hook.sh
++++ b/docker/stage2-hook.sh
+@@ -588,4 +588,6 @@ if [ -z "${AGENT_BROWSER_EXECUTABLE_PATH:-}" && \\
+     fi
+ fi
+ 
++/opt/hermes/docker/allies-volume-boundary.sh
++
+ echo "[stage2] Setup complete; starting user services"

@@ -1,0 +1,7 @@
+{
+  "events": [
+    {"event": "run.started", "data": {"profile_id": "ally-a", "session_id": "session-a", "run_id": "run-a", "seq": 1}},
+    {"event": "assistant.delta", "data": {"profile_id": "ally-a", "session_id": "session-a", "run_id": "run-a", "seq": 2}},
+    {"event": "run.completed", "data": {"profile_id": "ally-a", "session_id": "session-a", "run_id": "run-a", "seq": 3}}
+  ]
+}

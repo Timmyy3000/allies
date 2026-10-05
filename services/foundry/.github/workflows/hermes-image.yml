@@ -1,0 +1,125 @@
+name: Validate Allies Runtime Images
+
+on:
+  pull_request:
+    paths:
+      - "runtime/**"
+      - "backend/pyproject.toml"
+      - "backend/uv.lock"
+      - "scripts/check_runtime_identity.py"
+      - "scripts/runtime_release.py"
+      - "scripts/integrations/railway/update_runtime_images.py"
+      - "scripts/tests/test_runtime_release.py"
+      - "scripts/tests/test_railway_runtime_images.py"
+      - "scripts/runtime_image_cleanup.py"
+      - "scripts/tests/test_runtime_image_cleanup.py"
+      - ".github/workflows/hermes-image.yml"
+      - ".github/workflows/runtime-publish.yml"
+      - ".github/workflows/runtime-promote.yml"
+      - ".github/workflows/storage-cleanup.yml"
+      - "Makefile"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Build and smoke-test runtime pair
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version-file: backend/.python-version
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@e58605a9b6da7c637471fab8847a5e5a6b8df081
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c
+
+      - name: Validate runtime release boundaries
+        run: |
+          uv run --locked --project backend python -m pytest scripts/tests -q
+          uv run --locked --project backend ruff check scripts/runtime_release.py scripts/runtime_image_cleanup.py scripts/integrations/railway scripts/tests
+
+      - name: Test provider policy boundary
+        env:
+          PYTHONPATH: runtime/hermes-image/provider
+        run: uvx --from pytest==8.4.2 --with PyYAML==6.0.3 pytest runtime/hermes-image/provider/tests/test_provider.py runtime/hermes-image/tests -q
+
+      - name: Prepare hash-locked offline wheelhouse
+        run: make hermes-image-wheelhouse
+
+      - name: Prove wheel hashes are enforced
+        run: |
+          set -euo pipefail
+          cp -a runtime/hermes-image/wheelhouse /tmp/corrupt-wheelhouse
+          printf 'corrupt' >> /tmp/corrupt-wheelhouse/mnemosyne_hermes-0.5.0-py3-none-any.whl
+          if python runtime/hermes-image/verify_wheelhouse.py \
+            runtime/hermes-image/requirements.lock /tmp/corrupt-wheelhouse; then
+            echo "corrupted wheel unexpectedly passed hash verification" >&2
+            exit 1
+          fi
+
+      - name: Build Hermes attested OCI output
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=true \
+            --sbom=true \
+            --output type=oci,dest=/tmp/allies-hermes-mnemosyne.oci.tar \
+            --build-arg SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            --tag allies/hermes-mnemosyne:ci \
+            --file runtime/hermes-image/Dockerfile \
+            runtime/hermes-image
+          test -s /tmp/allies-hermes-mnemosyne.oci.tar
+
+      - name: Load Hermes image for local checks
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --sbom=false \
+            --load \
+            --build-arg SOURCE_DATE_EPOCH="$(git show -s --format=%ct HEAD)" \
+            --tag allies/hermes-mnemosyne:ci \
+            --file runtime/hermes-image/Dockerfile \
+            runtime/hermes-image
+
+      - name: Build runtime attested OCI output
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=true \
+            --sbom=true \
+            --output type=oci,dest=/tmp/allies-runtime.oci.tar \
+            --tag allies/runtime:ci \
+            --file runtime/Dockerfile \
+            runtime
+          test -s /tmp/allies-runtime.oci.tar
+
+      - name: Load runtime image for local checks
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --sbom=false \
+            --load \
+            --tag allies/runtime:ci \
+            --file runtime/Dockerfile \
+            runtime
+
+      - name: Allow unprivileged user namespaces for bwrap
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Run the complete runtime smoke suite
+        run: sh runtime/hermes-image/smoke_release.sh allies/hermes-mnemosyne:ci allies/runtime:ci
