@@ -38,7 +38,6 @@ export function AllySettingsClient({ allyId }: { allyId: string }) {
       (operationSignal) => session.client.getAlly(workspaceId!, allyId, operationSignal), { signal },
     ),
     enabled: session.state.status === "signed-in" && Boolean(workspaceId),
-    retry: false,
   });
   if (session.state.status === "signed-out") return null;
   const error = session.state.status === "unavailable" || account.isError || ally.isError;

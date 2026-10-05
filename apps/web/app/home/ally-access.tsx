@@ -55,7 +55,6 @@ function AccessRow({ workspaceId, allyId, provider, returnedFailure }: {
       (operationSignal) => session.client.getIntegrationConnection(workspaceId, provider, operationSignal),
       { signal },
     ),
-    retry: false,
   });
   const [problem, setProblem] = useState<IntegrationAccessProblem | null>(null);
   const [pendingLevel, setPendingLevel] = useState<IntegrationGrantLevel | null>(null);

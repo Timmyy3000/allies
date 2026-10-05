@@ -32,7 +32,6 @@ export function AccountConnections({ workspaceId, allies }: { workspaceId: strin
         (operationSignal: Signal) => session.client.getIntegrationConnection(workspaceId, provider, operationSignal),
         { signal },
       ),
-      retry: false,
     })),
   });
   const [open, setOpen] = useState<IntegrationProvider | null>(null);
