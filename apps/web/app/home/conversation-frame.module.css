@@ -66,9 +66,9 @@
     bottom: calc(var(--chat-composer-height, 72px) + var(--chat-keyboard-lift) + 12px);
   }
 
-  .frameProduction .frameComposerArea {
+  .frameProduction.frameProduction .frameComposerArea {
     position: absolute;
-    z-index: 3;
+    z-index: 4;
     inset: auto 0 var(--chat-keyboard-lift);
     background: transparent;
   }
