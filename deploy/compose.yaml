@@ -131,6 +131,13 @@ services:
     depends_on:
       foundry-migrate: { condition: service_completed_successfully }
 
+  # Built here for Foundry to launch per workspace; never runs on its own.
+  runtime-image:
+    build: ../services/foundry/runtime
+    image: allies/runtime:local
+    deploy:
+      replicas: 0
+
   web:
     build:
       context: ..
