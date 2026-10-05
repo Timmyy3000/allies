@@ -135,4 +135,4 @@ tests for behavior changes, and make sure CI passes. Read `AGENTS.md` and
 
 ## License
 
-Not yet chosen. Until a license is added, all rights are reserved.
+Apache License 2.0. See [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
