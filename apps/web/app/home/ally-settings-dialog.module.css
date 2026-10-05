@@ -133,8 +133,10 @@
   cursor: pointer;
 }
 
-.deleteButton:hover:not(:disabled) {
-  background: rgb(200 79 63 / 9%);
+@media (hover: hover) and (pointer: fine) {
+  .deleteButton:hover:not(:disabled) {
+    background: rgb(200 79 63 / 9%);
+  }
 }
 
 .deleteButton:focus-visible {
@@ -397,7 +399,7 @@
   border-bottom: 1.5px solid #a0a0a0;
   content: "";
   transform: rotate(45deg);
-  transition: transform 0.16s ease;
+  transition: transform 0.16s var(--ease-out);
 }
 
 .profileDisclosure[open] summary::after {
@@ -745,6 +747,23 @@
 }
 
 .profileBack:focus-visible,
+.profileViewAll,
+.profileDeleteRow,
+.subsheetClose,
+.subsheetPrimary {
+  transition: transform 160ms var(--ease-out);
+}
+
+.profileViewAll:active,
+.subsheetClose:active,
+.subsheetPrimary:not(:disabled):active {
+  transform: scale(0.97);
+}
+
+.profileDeleteRow:active {
+  transform: scale(0.98);
+}
+
 .profileAvatar:focus-visible,
 .profileLabelPill:focus-visible,
 .profileDisclosure summary:focus-visible,
@@ -898,7 +917,7 @@
   background: #fff;
   box-shadow: 0 1px 3px rgb(0 0 0 / 20%);
   content: "";
-  transition: transform 0.16s ease;
+  transition: transform 0.16s var(--ease-out);
 }
 
 .accessSwitch:checked {

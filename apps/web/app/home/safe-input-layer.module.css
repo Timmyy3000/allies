@@ -27,7 +27,7 @@
   background: #141414;
   color: #fff;
   font-family: var(--font-open-runde), sans-serif;
-  animation: rise 0.25s ease-out;
+  animation: rise 0.25s var(--ease-out);
 }
 
 .sheet form {
@@ -276,10 +276,13 @@
   cursor: grab;
   touch-action: none;
   user-select: none;
+  transition: transform 150ms var(--ease-out), box-shadow 150ms var(--ease-out);
 }
 
 .pip:active {
   cursor: grabbing;
+  transform: scale(1.04);
+  box-shadow: 0 20px 48px rgb(0 0 0 / 0.3);
 }
 
 .pipBar {
@@ -341,7 +344,7 @@
   background: var(--canvas);
   color: var(--text-primary);
   font-family: var(--font-open-runde), sans-serif;
-  animation: rise 0.25s ease-out;
+  animation: rise 0.25s var(--ease-out);
 }
 
 .browserHead {
@@ -435,5 +438,9 @@
   .sheet,
   .browserExpanded {
     animation: none;
+  }
+
+  .pip:active {
+    transform: none;
   }
 }

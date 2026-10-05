@@ -242,7 +242,7 @@
   --chat-scroll-thumb: transparent;
   scrollbar-width: thin;
   scrollbar-color: var(--chat-scroll-thumb) transparent;
-  transition: --chat-scroll-thumb 400ms ease;
+  transition: --chat-scroll-thumb var(--dur-base) var(--ease-out);
   min-width: 0;
   min-height: 0;
   overflow-x: hidden;
@@ -322,6 +322,11 @@
   cursor: pointer;
   pointer-events: auto;
   box-shadow: 0 8px 28px rgba(18, 18, 18, 0.22);
+  transition: transform 160ms var(--ease-out);
+}
+
+.frameJumpLatest:active {
+  transform: scale(0.97);
 }
 
 .frameJumpLatest:focus-visible {
@@ -463,7 +468,7 @@
 
 .framePresenceColor {
   filter: saturate(1) brightness(1);
-  transition: filter 1400ms ease;
+  transition: filter 300ms var(--ease-out);
 }
 
 .framePresenceColor[data-muted="true"] {
@@ -560,9 +565,11 @@
   border-radius: 6px;
 }
 
-.frameAssistantMessage [data-streamdown="table-wrapper"] button:not([data-streamdown="link"]):hover {
-  color: var(--text-primary);
-  background: var(--surface);
+@media (hover: hover) and (pointer: fine) {
+  .frameAssistantMessage [data-streamdown="table-wrapper"] button:not([data-streamdown="link"]):hover {
+    color: var(--text-primary);
+    background: var(--surface);
+  }
 }
 
 .frameAssistantMessage [data-streamdown="table"] {
@@ -910,7 +917,7 @@
   width: 12px;
   height: 12px;
   place-items: center;
-  transition: transform 180ms ease;
+  transition: transform 180ms var(--ease-out);
 }
 
 .frameActivity[open] .frameActivityChevron { transform: rotate(180deg); }
@@ -1188,7 +1195,7 @@
 }
 
 .frameComposerContent { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-.frameProduction .frameComposer[data-attachment-enabled="true"] { max-height: none; transition: border-radius 460ms cubic-bezier(.22,1,.36,1), padding-top 460ms cubic-bezier(.22,1,.36,1); }
+.frameProduction .frameComposer[data-attachment-enabled="true"] { max-height: none; transition: border-radius 240ms cubic-bezier(.22,1,.36,1), padding-top 240ms cubic-bezier(.22,1,.36,1); }
 .frameProduction .frameComposer[data-has-attachments="true"] { border-radius: 24px; padding-top: 10px; }
 .frameProduction .frameComposer button.frameAttachButton { width: 36px; height: 36px; flex: 0 0 36px; background: transparent; color: var(--chat-ink); border-radius: 50%; }
 .frameProduction .frameComposer button.frameAttachButton img { filter: var(--mono-icon-filter); width: 15px; height: 15px; }
@@ -1249,7 +1256,7 @@
   color: var(--text-primary);
   font-family: var(--font-open-runde), "Open Runde", sans-serif;
 }
-.framePasteDialog::backdrop { background: rgb(0 0 0 / 40%); backdrop-filter: blur(6px); }
+.framePasteDialog::backdrop { background: rgb(0 0 0 / 40%); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
 .framePasteHeading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .framePasteHeading h2 { margin: 0; font-size: 22px; font-weight: 600; letter-spacing: -0.7px; }
 .framePasteDialog p { margin: 12px 0; color: var(--text-secondary); font-size: 14px; }
@@ -1341,6 +1348,22 @@
   color: #8f3100;
   font-size: 13px;
   line-height: 18px;
+  transition: opacity var(--dur-base) var(--ease-out), transform var(--dur-base) var(--ease-out);
+}
+
+@starting-style {
+  .frameError {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  @starting-style {
+    .frameError {
+      transform: none;
+    }
+  }
 }
 
 .frameError button {
@@ -1491,7 +1514,9 @@
   cursor: pointer;
 }
 
-.approvalHistoryRow:hover { background: var(--chat-surface, var(--canvas)); }
+@media (hover: hover) and (pointer: fine) {
+  .approvalHistoryRow:hover { background: var(--chat-surface, var(--canvas)); }
+}
 .approvalHistoryRow:focus-visible { outline: 2px solid var(--chat-accent); outline-offset: 3px; }
 .approvalHistoryStatus { flex: 1; }
 
@@ -2001,11 +2026,13 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background-color 160ms ease, transform 160ms ease;
+  transition: background-color 160ms ease, transform 160ms var(--ease-out);
 }
 
-.frameRoutineCard:hover {
-  background: color-mix(in srgb, var(--chat-surface) 84%, var(--chat-accent));
+@media (hover: hover) and (pointer: fine) {
+  .frameRoutineCard:hover {
+    background: color-mix(in srgb, var(--chat-surface) 84%, var(--chat-accent));
+  }
 }
 
 .frameRoutineCard:active {
@@ -2101,7 +2128,9 @@
 .frameRoutineRunLink svg { width: 18px; height: 18px; flex: 0 0 18px; }
 .frameRoutineRunName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 28ch; }
 .frameRoutineRunStatus { flex-shrink: 0; white-space: nowrap; }
-.frameRoutineRunLink:hover { color: var(--chat-accent); }
+@media (hover: hover) and (pointer: fine) {
+  .frameRoutineRunLink:hover { color: var(--chat-accent); }
+}
 .frameRoutineRunLink:focus-visible { outline: 2px solid currentColor; outline-offset: 4px; border-radius: 4px; }
 
 .frameRoutineMention {
@@ -2122,7 +2151,9 @@
 
 .frameRoutineMention svg { width: 18px; height: 18px; flex: 0 0 18px; }
 .frameRoutineMention span { overflow-wrap: anywhere; }
-.frameRoutineMention:hover { text-decoration: underline; }
+@media (hover: hover) and (pointer: fine) {
+  .frameRoutineMention:hover { text-decoration: underline; }
+}
 .frameRoutineMention:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 
 .frameFileMention {
@@ -2159,8 +2190,10 @@
 }
 
 .frameFileMention span { overflow-wrap: anywhere; }
-.frameFileMention:hover { text-decoration-color: currentColor; }
-.frameFileMention:active { scale: 0.96; }
+@media (hover: hover) and (pointer: fine) {
+  .frameFileMention:hover { text-decoration-color: currentColor; }
+}
+.frameFileMention:active { scale: 0.97; }
 .frameFileMention:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
 
 .frameRoutineProjection {
@@ -2316,7 +2349,7 @@
   border-right: 1.5px solid currentColor;
   border-bottom: 1.5px solid currentColor;
   transform: rotate(45deg) translateY(-2px);
-  transition: transform 160ms ease;
+  transition: transform 160ms var(--ease-out);
 }
 
 .frameRoutinePromptTrigger[aria-expanded="true"] {

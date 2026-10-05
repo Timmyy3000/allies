@@ -113,6 +113,10 @@ export function ClaimInviteClient() {
     duration: reducedMotion ? 0 : 0.22,
     ease: [0.22, 1, 0.36, 1] as const,
   };
+  const successInitial = reducedMotion ? { opacity: 0 } : { opacity: 0, y: 6, scale: 0.98 };
+  const successTransition = reducedMotion
+    ? { duration: 0.2 }
+    : { type: "spring" as const, duration: 0.45, bounce: 0.15 };
 
   return (
     <main className={styles.page}>
@@ -125,10 +129,10 @@ export function ClaimInviteClient() {
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={currentStep}
-            initial={{ opacity: 0, y: reducedMotion ? 0 : 8 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={currentStep === "success" ? successInitial : { opacity: 0, y: reducedMotion ? 0 : 8 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: reducedMotion ? 0 : -6 }}
-            transition={transition}
+            transition={currentStep === "success" ? successTransition : transition}
           >
             <h1 id="claim-invite-title">
               {currentStep === "success" ? "You're in" : "Claim your invite"}
@@ -139,11 +143,16 @@ export function ClaimInviteClient() {
                 : "Enter your invite code to get started."}
             </p>
             {currentStep === "success" ? (
-              <div className={styles.successAction}>
+              <motion.div
+                className={styles.successAction}
+                initial={successInitial}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{ ...successTransition, delay: 0.06 }}
+              >
                 <Link href="/" className={styles.primaryAction}>
                   Go home
                 </Link>
-              </div>
+              </motion.div>
             ) : (
               <form
                 className={styles.form}

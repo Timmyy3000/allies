@@ -15,6 +15,10 @@
 }
 
 :root {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --dur-fast: 140ms;
+  --dur-base: 200ms;
   --background: #ffffff;
   --foreground: #171717;
   --canvas: #ffffff;
@@ -116,12 +120,18 @@ body {
   border: 1px solid var(--divider);
   border-radius: 50%;
   background: var(--surface);
-  transition: background-color 150ms ease, transform 150ms ease;
+  transition: background-color 150ms ease, transform 160ms var(--ease-out);
 }
 
-.landing-google-sign-in:hover {
-  background: var(--surface-secondary);
-  transform: translateY(-1px);
+.landing-google-sign-in:active {
+  transform: scale(0.97);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .landing-google-sign-in:hover {
+    background: var(--surface-secondary);
+    transform: translateY(-1px);
+  }
 }
 
 .landing-google-sign-in::after {
@@ -1246,6 +1256,7 @@ textarea::placeholder {
 [data-streamdown="link-safety-modal"] {
   padding: 20px;
   background: rgb(0 0 0 / 40%);
+  -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
   color: var(--text-primary);
   font-family: var(--font-open-runde), "Open Runde", sans-serif;
@@ -1328,7 +1339,9 @@ textarea::placeholder {
   color: #fff;
 }
 
-[data-streamdown="link-safety-modal"] button:hover { filter: brightness(0.94); }
+@media (hover: hover) and (pointer: fine) {
+  [data-streamdown="link-safety-modal"] button:hover { filter: brightness(0.94); }
+}
 [data-streamdown="link-safety-modal"] button:focus-visible {
   outline: 2px solid var(--active-chat-accent, #ff5800);
   outline-offset: 3px;
@@ -1764,7 +1777,7 @@ textarea::placeholder {
 .onboarding-chip,
 .onboarding-pop {
   transition:
-    transform 180ms ease,
+    transform 180ms var(--ease-out),
     background-color 180ms ease,
     color 180ms ease;
 }
@@ -1778,8 +1791,8 @@ textarea::placeholder {
 .ally-mark,
 .ally-mark-face {
   transition:
-    width 320ms ease,
-    height 320ms ease,
+    width 240ms var(--ease-out),
+    height 240ms var(--ease-out),
     background-color 240ms ease;
 }
 

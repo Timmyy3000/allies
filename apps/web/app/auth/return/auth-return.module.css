@@ -42,7 +42,7 @@
   margin: 0;
   font-size: clamp(38px, 7vw, 64px);
   font-weight: 700;
-  letter-spacing: -3px;
+  letter-spacing: -0.045em;
   line-height: 0.98;
   text-wrap: balance;
 }
@@ -101,8 +101,10 @@
   cursor: pointer;
 }
 
-.retryButton:hover {
-  background: #ed5000;
+@media (hover: hover) and (pointer: fine) {
+  .retryButton:hover {
+    background: #ed5000;
+  }
 }
 
 .signInLink {
@@ -110,8 +112,10 @@
   box-shadow: 0 0 0 1px rgb(255 88 0 / 0.25);
 }
 
-.signInLink:hover {
-  background: rgb(255 88 0 / 0.08);
+@media (hover: hover) and (pointer: fine) {
+  .signInLink:hover {
+    background: rgb(255 88 0 / 0.08);
+  }
 }
 
 .retryButton:active,

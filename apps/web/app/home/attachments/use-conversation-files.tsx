@@ -11,6 +11,7 @@ import {
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useQueryClient } from "@tanstack/react-query";
 import { conversationQueryKey } from "../../../lib/allies/queries";
+import { EASE_OUT } from "../../../lib/motion";
 import type {
   MessageFile,
   MessageViewModel,
@@ -245,23 +246,29 @@ export function useConversationFiles(
             />
           )}
         </AnimatePresence>
-        {error && (
-          <div
-            className={styles.notice}
-            role="alert"
-            aria-live="assertive"
-            aria-atomic="true"
-          >
-            {error}
-            <button
-              type="button"
-              onClick={() => setError("")}
-              aria-label="Dismiss file error"
+        <AnimatePresence>
+          {error && (
+            <motion.div
+              className={styles.notice}
+              role="alert"
+              aria-live="assertive"
+              aria-atomic="true"
+              style={{ x: "-50%" }}
+              initial={{ opacity: 0, y: reduced ? 0 : -8 }}
+              animate={{ opacity: 1, y: 0, transition: { duration: 0.22, ease: EASE_OUT } }}
+              exit={{ opacity: 0, y: reduced ? 0 : -8, transition: { duration: 0.16, ease: EASE_OUT } }}
             >
-              ×
-            </button>
-          </div>
-        )}
+              {error}
+              <button
+                type="button"
+                onClick={() => setError("")}
+                aria-label="Dismiss file error"
+              >
+                ×
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
         <AnimatePresence initial={false}>{preview && (
           <PrivateFilePreview
             key={preview.id}

@@ -356,7 +356,7 @@ export function AttachmentPicker({
       style={{ "--accent": accent } as CSSProperties}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      exit={{ opacity: 0, transition: { duration: reduced ? 0 : 0.14 } }}
       transition={{ duration: reduced ? 0 : 0.22 }}
     >
       <button
@@ -373,10 +373,10 @@ export function AttachmentPicker({
         aria-modal="true"
         aria-label="Attachments"
         className={`${styles.surface} ${mode === "menu" ? styles.menuSurface : styles.expanded} ${mode === "camera" ? styles.cameraSurface : ""}`}
-        transition={{ type: "spring", duration: reduced ? 0 : 0.48, bounce: 0 }}
+        transition={{ type: "spring", duration: reduced ? 0 : 0.28, bounce: 0 }}
         initial={{ opacity: 0, y: 12, scale: 0.96 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
-        exit={{ opacity: 0, y: 6, scale: 0.98 }}
+        exit={{ opacity: 0, y: 6, scale: 0.98, transition: { duration: reduced ? 0 : 0.15 } }}
         onKeyDown={(event) => {
           if (event.key === "Escape") onClose();
           if (event.key === "Tab") {
@@ -416,7 +416,7 @@ export function AttachmentPicker({
                       setMode(item);
                       setError("");
                     }}
-                    whileTap={{ scale: 0.96 }}
+                    whileTap={{ scale: 0.97 }}
                   >
                     <span>
                       <FileIcon name={item} />
