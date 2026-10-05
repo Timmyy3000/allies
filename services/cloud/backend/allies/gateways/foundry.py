@@ -179,11 +179,14 @@ def _foundry_origin() -> tuple[str, str]:
     token = str(getattr(settings, "ALLIES_FOUNDRY_SERVICE_TOKEN", ""))
     try:
         parsed = urlparse(origin)
-        local_http = (
-            bool(getattr(settings, "DEBUG", False))
-            and parsed.scheme == "http"
-            and parsed.hostname
-            in {"localhost", "127.0.0.1", "host.docker.internal", "foundry"}
+        # A single-label hostname is a private Docker service name (self-hosted).
+        local_http = parsed.scheme == "http" and (
+            (
+                bool(getattr(settings, "DEBUG", False))
+                and parsed.hostname
+                in {"localhost", "127.0.0.1", "host.docker.internal"}
+            )
+            or bool(parsed.hostname and "." not in parsed.hostname)
         )
         safe_origin = (
             (parsed.scheme == "https" or local_http)
