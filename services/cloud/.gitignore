@@ -1,0 +1,34 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Django local state
+db.sqlite3
+db.sqlite3-journal
+media/
+staticfiles/
+
+# Environment and test output
+.env
+.env.*
+!.env.example
+!.env.deploy.example
+env.staging
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local agent and review surfaces; durable counterparts belong in docs/.
+.agent/
+.lavish/
+.forest/
