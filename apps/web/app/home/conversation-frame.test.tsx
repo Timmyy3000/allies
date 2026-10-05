@@ -816,7 +816,7 @@ describe("ConversationFrame", () => {
     expect(() => render(<ConversationFrame model={{ ...model, activityGroups: [{ ...model.activityGroups[0], entries: [entry] }] }} actions={actions} />)).not.toThrow();
   });
 
-  it("fits the focused conversation to the visual viewport and follows the latest message", () => {
+  it("lifts the composer over the keyboard and follows the latest message", () => {
     const viewport = new EventTarget() as VisualViewport;
     const requestFrame = vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
       callback(0);
@@ -835,11 +835,12 @@ describe("ConversationFrame", () => {
       scrollTop: { configurable: true, value: 180, writable: true },
       scrollTo: { configurable: true, value: scrollTo },
     });
+    Object.defineProperty(shell, "clientHeight", { configurable: true, value: 800 });
 
     act(() => screen.getByRole("textbox").focus());
     act(() => viewport.dispatchEvent(new Event("resize")));
 
-    expect(shell.style.getPropertyValue("--chat-viewport-height")).toBe("480px");
+    expect(shell.style.getPropertyValue("--chat-keyboard")).toBe("320px");
     expect(shell.style.getPropertyValue("--chat-viewport-offset")).toBe("24px");
     expect(scrollTo).toHaveBeenCalledWith({ top: 600 });
     scrollTo.mockClear();
@@ -848,10 +849,10 @@ describe("ConversationFrame", () => {
     act(() => viewport.dispatchEvent(new Event("resize")));
     expect(scrollTo).not.toHaveBeenCalled();
     act(() => screen.getByRole("textbox").blur());
-    expect(shell.style.getPropertyValue("--chat-viewport-height")).toBe("");
+    expect(shell.style.getPropertyValue("--chat-keyboard")).toBe("");
     expect(shell.style.getPropertyValue("--chat-viewport-offset")).toBe("");
     view.unmount();
-    expect(shell.style.getPropertyValue("--chat-viewport-height")).toBe("");
+    expect(shell.style.getPropertyValue("--chat-keyboard")).toBe("");
     expect(shell.style.getPropertyValue("--chat-viewport-offset")).toBe("");
     requestFrame.mockRestore();
     Object.defineProperty(window, "visualViewport", { configurable: true, value: undefined });

@@ -51,8 +51,37 @@
   }
 
   .frameProduction {
-    height: var(--chat-viewport-height, 100%);
+    --chat-keyboard-lift: max(var(--chat-keyboard, 0px), env(keyboard-inset-height, 0px));
+    grid-template-rows: minmax(0, 1fr);
     translate: 0 var(--chat-viewport-offset, 0);
+  }
+
+  /* Messages scroll the full height, under the floating composer and the keyboard. */
+  .frameProduction .frameCanvas {
+    padding-bottom: calc(var(--chat-composer-height, 72px) + var(--chat-keyboard-lift) + 16px);
+    scroll-padding-bottom: calc(var(--chat-composer-height, 72px) + var(--chat-keyboard-lift) + 16px);
+  }
+
+  .frameProduction .frameJumpLatestWrap {
+    bottom: calc(var(--chat-composer-height, 72px) + var(--chat-keyboard-lift) + 12px);
+  }
+
+  .frameProduction .frameComposerArea {
+    position: absolute;
+    z-index: 3;
+    inset: auto 0 var(--chat-keyboard-lift);
+    background: transparent;
+  }
+
+  /* Glass approximation: blur + saturation with a specular rim. */
+  .frameProduction .frameComposer {
+    background: color-mix(in srgb, var(--chat-surface) 45%, transparent);
+    -webkit-backdrop-filter: blur(28px) saturate(160%);
+    backdrop-filter: blur(28px) saturate(160%);
+    box-shadow:
+      inset 0 1px 0 rgb(255 255 255 / 0.45),
+      inset 0 0 0 0.5px rgb(255 255 255 / 0.18),
+      0 8px 24px rgb(0 0 0 / 0.12);
   }
 
   .frameDesktopFade {
