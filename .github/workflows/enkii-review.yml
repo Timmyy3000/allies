@@ -18,7 +18,7 @@ concurrency:
 jobs:
   review:
     name: ${{ github.event_name == 'pull_request' && github.event.action == 'edited' && github.event.changes.base == null && 'Ignored PR metadata edit' || 'enkii review' }}
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     if: |
       (
         github.event_name == 'pull_request'

@@ -1679,7 +1679,7 @@ async def test_worker_forwards_a_long_stream_beyond_legacy_513_event_limit(
         ]
     )
     foundry, transport = client(*responses)
-    worker = FoundryWorker(foundry, LongHermes(), renew_interval=0.1)
+    worker = FoundryWorker(foundry, LongHermes(), renew_interval=30)
 
     result = await worker.run(max_turns=1)
 
