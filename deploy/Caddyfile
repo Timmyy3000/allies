@@ -1,3 +1,10 @@
+{
+	# Keep X-Forwarded-* from the TLS proxy in front (private networks only).
+	servers {
+		trusted_proxies static private_ranges
+	}
+}
+
 # Path routing for the one public origin. TLS terminates in front of this proxy.
 :80 {
 	@cloud path /api/* /admin/* /static/*
