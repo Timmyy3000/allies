@@ -536,7 +536,7 @@ function SkipStoryButton({
       data-testid="skip-story"
       aria-label="Skip story animation"
       onClick={onClick}
-      whileTap={{ scale: 0.96 }}
+      whileTap={{ scale: 0.97 }}
       transition={{ duration: 0.16, ease: "easeOut" }}
       style={{
         position: "absolute",

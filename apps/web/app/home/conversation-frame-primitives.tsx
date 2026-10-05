@@ -991,7 +991,7 @@ export function BottomSheet({
     const root = dialogRef.current;
     if (!reducedMotion && root?.animate && sheetRef.current?.animate) {
       closingRef.current = true;
-      const options = { duration: 160, easing: "ease-in", fill: "forwards" as const };
+      const options = { duration: 140, easing: "cubic-bezier(0.23, 1, 0.32, 1)", fill: "forwards" as const };
       const animations = [
         root.animate([{ opacity: 1 }, { opacity: 0 }], options),
         sheetRef.current.animate([{ transform: "translateY(0)" }, { transform: "translateY(8px)" }], options),

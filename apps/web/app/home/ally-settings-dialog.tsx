@@ -10,6 +10,7 @@ import { AllyAvatar } from "../../components/ally-avatar";
 import { AllyLookPicker } from "../../components/ally-look-picker";
 import { allyAppearanceKey, resolveAllyAppearance, type ResolvedAllyAppearance } from "../../lib/allies/appearance";
 import type { IntegrationReturn } from "../../lib/integrations/integration-connect";
+import { EASE_OUT } from "../../lib/motion";
 import { useSession } from "../../lib/session/session-context";
 import { alliesQueryKey } from "../../lib/allies/query-keys";
 import { WAITLIST_APPEARANCE_CATALOG_VERSION, WAITLIST_COLORS } from "../../lib/waitlist/catalog";
@@ -588,7 +589,7 @@ export function AllySettingsDialog({
               aria-labelledby="ally-subsheet-title"
               initial={reducedMotion ? false : { y: 24, opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
-              transition={{ duration: reducedMotion ? 0 : .18, ease: "easeOut" }}
+              transition={{ duration: reducedMotion ? 0 : .18, ease: EASE_OUT }}
             >
               <div className={styles.subsheetHead}>
                 {panel === "routine" ? (
@@ -692,6 +693,7 @@ function ProfileRoutines({
   onExpand: () => void;
   onOpenRoutine: (routineId: string) => void;
 }) {
+  const reducedMotion = useReducedMotion();
   const head = (meta?: string) => (
     <div className={styles.profileSectionHead}>
       <h4 id="ally-routines-title">Routines</h4>
@@ -725,18 +727,21 @@ function ProfileRoutines({
     <section className={styles.profileSection} aria-labelledby="ally-routines-title">
       {head(`${active} active`)}
       <div className={styles.profileRoutines}>
-        {visible.map((routine) => {
+        {visible.map((routine, index) => {
           const paused = routine.scheduleState === "paused";
           const detail = paused
             ? "Paused"
             : [formatRoutineSchedule(routine.schedule, false), relativeNextRun(routine.nextRunAt)].filter(Boolean).join(" · ");
           return (
-            <button
+            <motion.button
               key={routine.routineId}
               type="button"
               className={styles.routineRow}
               style={{ background: `${accent}14` }}
               onClick={() => onOpenRoutine(routine.routineId)}
+              initial={index >= PROFILE_ROUTINE_PREVIEW && !reducedMotion ? { opacity: 0, y: 4 } : false}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2, ease: EASE_OUT, delay: Math.min((index - PROFILE_ROUTINE_PREVIEW) * 0.04, 0.24) }}
             >
               <span className={styles.routineRowIcon} style={{ color: accent, background: `${accent}24` }} aria-hidden="true"><TimerIcon /></span>
               <span className={styles.routineRowCopy}>
@@ -744,7 +749,7 @@ function ProfileRoutines({
                 <span style={{ color: paused ? undefined : accent }}>{detail}</span>
               </span>
               <ChevronRightIcon />
-            </button>
+            </motion.button>
           );
         })}
       </div>

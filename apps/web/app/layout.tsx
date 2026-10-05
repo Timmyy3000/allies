@@ -5,7 +5,7 @@ import "generative-loaders/styles.css";
 import "streamdown/styles.css";
 import "./globals.css";
 import AppProviders from "./providers";
-import { THEME_INIT_SCRIPT } from "../lib/theme/theme";
+import { THEME_COLORS, THEME_INIT_SCRIPT } from "../lib/theme/theme";
 
 const openRunde = localFont({
   src: [
@@ -95,8 +95,11 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#ffffff",
-  colorScheme: "light",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: THEME_COLORS.light },
+    { media: "(prefers-color-scheme: dark)", color: THEME_COLORS.dark },
+  ],
+  colorScheme: "light dark",
 };
 
 export default function RootLayout({

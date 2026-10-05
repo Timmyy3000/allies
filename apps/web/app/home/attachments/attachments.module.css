@@ -60,8 +60,10 @@
   border-radius: 16px;
   font-size: 16px;
 }
-.menu button:hover {
-  background: var(--surface);
+@media (hover: hover) and (pointer: fine) {
+  .menu button:hover {
+    background: var(--surface);
+  }
 }
 .menu button > span {
   display: grid;
@@ -77,11 +79,11 @@
   cursor: pointer;
   touch-action: manipulation;
   transition:
-    transform 0.18s,
-    background 0.18s;
+    transform 0.18s var(--ease-out),
+    background-color 0.18s;
 }
 .surface button:active {
-  transform: scale(0.96);
+  transform: scale(0.97);
 }
 .surface button:focus-visible {
   outline: 2px solid var(--accent);
@@ -591,8 +593,10 @@
   border-radius: 11px;
   background: transparent;
 }
-.transferBundleFiles .transferFile:hover {
-  background: #ffffff12;
+@media (hover: hover) and (pointer: fine) {
+  .transferBundleFiles .transferFile:hover {
+    background: #ffffff12;
+  }
 }
 .transferActions {
   display: flex;
