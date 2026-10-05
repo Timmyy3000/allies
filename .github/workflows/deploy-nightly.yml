@@ -1,0 +1,52 @@
+name: Deploy nightly
+
+on:
+  push:
+    branches: [nightly]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy to the reference instance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    # Forks and copies of this repository have no deploy target.
+    if: github.repository == 'Timmyy3000/allies'
+    steps:
+      - name: Update the instance
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          # The server key restricts this login to deploy/update.sh.
+          ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=accept-new "root@$DEPLOY_HOST" nightly
+
+      - name: Check the public site
+        run: |
+          curl --fail --silent --retry 10 --retry-delay 6 --retry-all-errors \
+            https://allies.timi.click/api/v1/health > /dev/null
+
+      - name: Notify
+        if: always()
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          STATUS: ${{ job.status }}
+          SHA: ${{ github.sha }}
+          SUBJECT: ${{ github.event.head_commit.message }}
+        run: |
+          [ -n "$NTFY_TOPIC" ] || exit 0
+          if [ "$STATUS" = success ]; then title="allies.timi.click is on nightly ${SHA:0:7}"; tags=white_check_mark
+          else title="Nightly deploy ${STATUS}: ${SHA:0:7}"; tags=x; fi
+          curl --silent -H "Title: $title" -H "Tags: $tags" \
+            -H "Click: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            -d "$(printf '%s' "$SUBJECT" | head -n1)" "https://ntfy.sh/$NTFY_TOPIC" > /dev/null

@@ -93,8 +93,7 @@ needs an invite.
 ### Updating
 
 ```sh
-cd allies && git pull
-cd deploy && docker compose up -d --build
+allies/deploy/update.sh stable    # or nightly
 ```
 
 Migrations run automatically on startup.
