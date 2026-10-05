@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { isCloudError } from "@allies/cloud-client";
-import { AlliesLoading } from "@/components/allies-loading";
+import { SettingsSkeleton } from "@/components/loading-skeletons";
 import { BackButton } from "@/components/back-button";
 import { currentAccountQueryOptions } from "@/lib/account/account-query";
 import { useSession } from "@/lib/session/session-context";
@@ -43,7 +43,7 @@ export function AllySettingsClient({ allyId }: { allyId: string }) {
   if (session.state.status === "signed-out") return null;
   const error = session.state.status === "unavailable" || account.isError || ally.isError;
   const missing = isCloudError(ally.error) && (ally.error.kind === "forbidden" || ally.error.kind === "not-found");
-  if (!error && (session.state.status !== "signed-in" || !ally.data)) return <AlliesLoading label="Loading ally settings" />;
+  if (!error && (session.state.status !== "signed-in" || !ally.data)) return <SettingsSkeleton label="Loading ally settings" />;
 
   return <main className={styles.page}><div className={styles.shell}>
     <header className={styles.header}>

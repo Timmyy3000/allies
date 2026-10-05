@@ -8,7 +8,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { isCloudError, type AccountViewModel } from "@allies/cloud-client";
 
-import { AlliesLoading } from "@/components/allies-loading";
+import { SettingsSkeleton } from "@/components/loading-skeletons";
 import { BackButton } from "@/components/back-button";
 import {
   AVATAR_READ_QUERY_KEY,
@@ -115,11 +115,11 @@ export function AccountClient() {
     enabled: signedIn && Boolean(account),
   });
 
-  if (session.state.status === "unknown" || session.state.status === "restoring") return <AlliesLoading label="Restoring your account" />;
+  if (session.state.status === "unknown" || session.state.status === "restoring") return <SettingsSkeleton label="Loading your account" />;
   if (session.state.status === "signed-out") return null;
   if (session.state.status === "unavailable") return <UnavailableAccount onRetry={() => void restore()} />;
   if (accountQuery.isError) return <UnavailableAccount onRetry={() => void accountQuery.refetch()} />;
-  if (!account || accountQuery.isPending) return <AlliesLoading label="Restoring your account" />;
+  if (!account || accountQuery.isPending) return <SettingsSkeleton label="Loading your account" />;
 
   const workspaceId = account.workspace.id;
   const allies = alliesQuery.data ?? [];

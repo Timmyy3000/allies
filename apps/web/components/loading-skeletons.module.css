@@ -1,0 +1,125 @@
+.bone {
+  display: block;
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 9%, transparent);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bone, .splashMark { animation: none; }
+}
+
+.splash {
+  display: grid;
+  flex: 1;
+  min-height: 100dvh;
+  place-items: center;
+}
+
+.splashMark {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.home {
+  display: flex;
+  flex: 1;
+  min-height: 100dvh;
+  color: var(--text-secondary, #888);
+}
+
+.homeList {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  width: 100%;
+  padding: 20px 16px;
+}
+
+.homePane {
+  display: none;
+}
+
+@media (min-width: 900px) {
+  .homeList {
+    width: 360px;
+    flex-shrink: 0;
+  }
+  .homePane {
+    display: block;
+    flex: 1;
+  }
+}
+
+.search {
+  height: 40px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.avatar {
+  width: 48px;
+  height: 48px;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.rowCopy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.lineShort { width: 40%; height: 12px; }
+.lineLong { width: 80%; height: 12px; }
+
+.settings {
+  flex: 1;
+  min-height: 100dvh;
+  color: var(--text-secondary, #888);
+}
+
+.settingsShell {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 20px 16px;
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.back { width: 36px; height: 36px; border-radius: 50%; }
+.title { width: 140px; height: 20px; }
+.hero { height: 96px; border-radius: 20px; }
+.section { height: 140px; border-radius: 20px; }
+
+.messages {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding-block: 16px;
+  color: var(--chat-muted, #888);
+}
+
+.bubble { height: 38px; border-radius: 18px; }
+.bubbleIn { width: 62%; }
+.bubbleOut { width: 44%; align-self: flex-end; }
+.bubbleTall { height: 64px; }
+.bubbleNarrow { width: 30%; }

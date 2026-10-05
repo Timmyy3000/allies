@@ -59,6 +59,35 @@ function OperationProbe() {
 describe("SessionProvider", () => {
   afterEach(cleanup);
 
+  it("revalidates an existing session without returning to a restoring state", async () => {
+    const queryClient = new QueryClient();
+    let resolveSecond: ((value: typeof account) => void) | undefined;
+    const getCurrentAccount = vi.fn()
+      .mockResolvedValueOnce(account)
+      .mockImplementationOnce(() => new Promise<typeof account>((resolve) => { resolveSecond = resolve; }));
+    const client = {
+      getCurrentAccount,
+      getCsrf: vi.fn(async () => "a".repeat(32)),
+      refreshSession: vi.fn(async () => undefined),
+      logout: vi.fn(async () => undefined),
+    } as unknown as CloudClient;
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SessionProvider client={client} csrf={createCloudCsrfTokenOwner()}>
+          <RestoreProbe />
+        </SessionProvider>
+      </QueryClientProvider>,
+    );
+    screen.getByRole("button", { name: "Restore now" }).click();
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("signed-in"));
+    screen.getByRole("button", { name: "Restore now" }).click();
+    await waitFor(() => expect(getCurrentAccount).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId("status").textContent).toBe("signed-in");
+    resolveSecond?.(account);
+    await waitFor(() => expect(screen.getByTestId("status").textContent).toBe("signed-in"));
+  });
+
   it("starts unknown and restores explicitly into Query-owned account state", async () => {
     const queryClient = new QueryClient();
     let resolveAccount: ((value: typeof account) => void) | undefined;

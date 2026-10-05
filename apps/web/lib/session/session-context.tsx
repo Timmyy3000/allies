@@ -35,14 +35,19 @@ export function SessionProvider({
   const queryClient = useQueryClient();
   const [state, setState] = useState<RootSessionState>({ status: "unknown" });
   const operationGeneration = useRef(0);
+  const signedIn = useRef(false);
   const push = useMemo(() => createPushLifecycle(client, adapter.runCloudOperation), [client, adapter]);
   useEffect(() => push.start(), [push]);
 
   const restore = useCallback(async () => {
     const restoreGeneration = ++operationGeneration.current;
-    setState({ status: "restoring" });
+    const revalidating = signedIn.current;
+    // Already signed in: revalidate in the background so navigation never flashes a full-page loader.
+    if (!revalidating) setState({ status: "restoring" });
     const nextState = await adapter.restore();
     if (restoreGeneration !== operationGeneration.current) return;
+    if (revalidating && nextState.status === "unavailable") return;
+    signedIn.current = nextState.status === "signed-in";
     if (nextState.status === "signed-in") {
       void push.recover(nextState.account);
       queryClient.setQueryData(CURRENT_ACCOUNT_QUERY_KEY, nextState.account);
@@ -59,6 +64,7 @@ export function SessionProvider({
 
   const logout = useCallback(async () => {
     const logoutGeneration = ++operationGeneration.current;
+    signedIn.current = false;
     const pushCleanupConfirmed = await push.logout();
     if (logoutGeneration !== operationGeneration.current) return { status: "signed-out" as const, serverConfirmed: false, pushCleanupConfirmed };
     const result = { ...await adapter.logout(), pushCleanupConfirmed };
@@ -79,6 +85,7 @@ export function SessionProvider({
         && (error.kind === "unauthorized" || error.status === 401)
       ) {
         const cleanupGeneration = ++operationGeneration.current;
+        signedIn.current = false;
         await push.logout();
         if (cleanupGeneration === operationGeneration.current) {
           removePrivateAccountQueries(queryClient);
