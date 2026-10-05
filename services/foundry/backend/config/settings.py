@@ -299,6 +299,13 @@ if (
         and cloud_url.hostname
         and cloud_url.hostname.lower() == "host.docker.internal"
     )
+    # Self-hosted: a single-label Docker service name on the private network.
+    local_proof_cloud = local_proof_cloud or bool(
+        cloud_url is not None
+        and cloud_url.scheme.lower() == "http"
+        and cloud_url.hostname
+        and "." not in cloud_url.hostname
+    )
     if (
         cloud_url is None
         or cloud_url.scheme.lower() != "https"
