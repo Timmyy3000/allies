@@ -47,7 +47,8 @@ x-foundry: &foundry
     ALLIES_RUNTIME_PROVIDER: docker
     ALLIES_DOCKER_NETWORK: allies
     ALLIES_DOCKER_SECRETS_DIR: /var/lib/allies/secrets
-    ALLIES_RUNTIME_IDLE_STOP_ENABLED: "true"
+    # Own hardware: keep runtimes warm (cold wake takes ~45s). Set true to save RAM.
+    ALLIES_RUNTIME_IDLE_STOP_ENABLED: ${ALLIES_RUNTIME_IDLE_STOP_ENABLED:-false}
     # Locally built images are tags, not digests; roll them out by redeploying.
     ALLIES_RUNTIME_IMAGE_UPDATES_ENABLED: "false"
     ALLIES_DOCKER_APPARMOR_PROFILE: ${ALLIES_DOCKER_APPARMOR_PROFILE:-unconfined}
