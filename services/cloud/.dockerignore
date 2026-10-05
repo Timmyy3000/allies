@@ -1,0 +1,15 @@
+.git
+.github
+.agent
+.enkii
+.forest
+.lavish
+backend/.venv
+backend/.pytest_cache
+backend/.ruff_cache
+backend/__pycache__
+backend/db.sqlite3
+backend/media
+backend/staticfiles
+env.staging
+*.pyc

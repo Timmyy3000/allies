@@ -1,0 +1,23 @@
+# Product field name, not a credential.
+74024a6023d8aa9d11ef5d96533740673c133c78:backend/allies/services/onboarding.py:generic-api-key:70
+# Synthetic provider idempotency key in the tenant-boundary test, not a credential.
+1cb456d929f6e3985875d204d3751315d7ba8e64:backend/chat/tests/test_services.py:generic-api-key:447
+# Django ORM lookup kwarg, not a credential (Gmail connect-session idempotency filter).
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/services/google_oauth.py:generic-api-key:159
+# Test-only generated vault keys (Fernet.generate_key), not real credentials.
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_grants.py:generic-api-key:32
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_vault.py:generic-api-key:18
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_vault.py:generic-api-key:27
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_vault.py:generic-api-key:45
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_google_oauth.py:generic-api-key:71
+# Django ORM lookup kwarg, not a credential (mirrors the idempotency-key precedent above).
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/services/google_oauth.py:generic-api-key:159
+# Test-only Fernet key material removed at the source (tests now generate keys);
+# historic fingerprints below cover the pre-fix commit still in the scan range.
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_grants.py:generic-api-key:32
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_vault.py:generic-api-key:18
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_vault.py:generic-api-key:27
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_vault.py:generic-api-key:45
+137495949b9d0ec8944e965f231bb50646f64156:backend/integrations/tests/test_google_oauth.py:generic-api-key:71
+# Synthetic provider key used only as a BYOS test fixture, not a credential.
+614e9ddf21ecea637519d356f26802067dc129ad:backend/model_keys/tests/test_model_keys.py:generic-api-key:22

@@ -1,0 +1,1 @@
+"""Waitlist HTTP API."""
