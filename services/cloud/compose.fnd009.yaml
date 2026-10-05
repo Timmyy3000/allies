@@ -1,0 +1,60 @@
+name: fnd009-cloud-proof
+
+# Proof-only configuration.  It replaces env.staging with deterministic local
+# values and keeps the same migrate/Gunicorn/Celery commands from compose.yaml.
+x-fnd009-environment: &fnd009-environment
+  DATABASE_URL: postgresql://allies:allies-local-only@postgres:5432/allies
+  CACHE_URL: redis://redis:6379/0
+  ALLIES_ENVIRONMENT: local-staging
+  DJANGO_DEBUG: "true"
+  DJANGO_SECRET_KEY: fnd009-cloud-secret-key-local-only-32-bytes
+  DJANGO_ALLOWED_HOSTS: localhost,127.0.0.1,backend,host.docker.internal
+  ALLIES_TRUSTED_ORIGINS: http://localhost:${FND009_INTERFACE_PORT:?FND009_INTERFACE_PORT is required},http://127.0.0.1:${FND009_INTERFACE_PORT}
+  ALLIES_RAILWAY_PROXY_MODE: "false"
+  ALLIES_AUTH_GOOGLE_ENABLED: "false"
+  ALLIES_AUTH_NATIVE_ENABLED: "false"
+  ALLIES_AUTH_FAKE_PROVIDER_ENABLED: "true"
+  ALLIES_AUTH_JWT_KEY: fnd009-cloud-jwt-key-local-only-32-bytes
+  ALLIES_AUTH_DIGEST_KEY: fnd009-cloud-digest-key-local-only-32-bytes
+  ALLIES_WAITLIST_ENABLED: "false"
+  ALLIES_R2_ENABLED: "false"
+  ALLIES_RUNTIME_INTENT_ENABLED: "true"
+  ALLIES_RUNTIME_INTENT_RATE_LIMIT: "20"
+  ALLIES_RUNTIME_INTENT_RATE_PERIOD_SECONDS: "60"
+  ALLIES_FOUNDRY_URL: http://host.docker.internal:${FND009_FOUNDRY_PORT:?FND009_FOUNDRY_PORT is required}
+  ALLIES_FOUNDRY_SERVICE_TOKEN: fnd009-cloud-service-token-local-only-32-bytes
+  ALLIES_FOUNDRY_EXECUTION_ENABLED: "true"
+  ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN: fnd009-event-service-token-local-only-32-bytes
+  ALLIES_ACTIVITY_SSE_ENABLED: "true"
+  ALLIES_ONBOARDING_ATTEMPT_TTL_SECONDS: "3600"
+
+networks:
+  default:
+    name: ${FND009_CLOUD_NETWORK:?FND009_CLOUD_NETWORK is required}
+
+services:
+  migrate:
+    env_file: !reset []
+    environment: *fnd009-environment
+    volumes:
+      - ./scripts:/proof:ro
+
+  backend:
+    env_file: !reset []
+    environment: *fnd009-environment
+    volumes:
+      - ./scripts:/proof:ro
+    ports: !override
+      - "127.0.0.1:${FND009_CLOUD_PORT:?FND009_CLOUD_PORT is required}:8000"
+
+  worker:
+    env_file: !reset []
+    environment: *fnd009-environment
+    volumes:
+      - ./scripts:/proof:ro
+
+  beat:
+    env_file: !reset []
+    environment: *fnd009-environment
+    volumes:
+      - ./scripts:/proof:ro

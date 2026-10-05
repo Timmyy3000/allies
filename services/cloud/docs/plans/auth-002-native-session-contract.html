@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f5f6f2">
+  <title>AUTH-002: Native session contract</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f5f6f2;
+      --surface: #fff;
+      --ink: #171817;
+      --muted: #5d625e;
+      --line: #d9ddd6;
+      --accent: #e85d2a;
+      --accent-soft: #fff0e9;
+      --blue: #1f61c9;
+      --green: #167447;
+      --warning: #8b5b00;
+    }
+    *, *::before, *::after { box-sizing: border-box; }
+    html { scroll-behavior: smooth; background: var(--paper); }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: "Geist", "Segoe UI", sans-serif;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: inherit; text-underline-offset: 3px; }
+    a:focus-visible, button:focus-visible { outline: 3px solid var(--blue); outline-offset: 3px; }
+    code, pre, .mono { font-family: "Geist Mono", Consolas, monospace; }
+    code { overflow-wrap: anywhere; }
+    .skip { position: fixed; top: 10px; left: 10px; z-index: 5; padding: 8px 12px; background: var(--ink); color: #fff; transform: translateY(-150%); }
+    .skip:focus { transform: translateY(0); }
+    .shell { width: min(1180px, calc(100% - 36px)); margin: 0 auto; }
+    header { padding: 28px 0 18px; border-bottom: 1px solid var(--line); }
+    .masthead { display: flex; justify-content: space-between; gap: 24px; align-items: baseline; color: var(--muted); font-size: 13px; }
+    .identity { color: var(--ink); font-weight: 700; letter-spacing: -.02em; }
+    .meta { display: flex; gap: 18px; flex-wrap: wrap; }
+    .opening { padding: 70px 0 48px; border-bottom: 1px solid var(--line); }
+    .opening-grid { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr); gap: 48px; align-items: end; }
+    .kicker { margin: 0 0 16px; color: var(--accent); font-size: 13px; font-weight: 700; }
+    h1 { max-width: 850px; margin: 0; font-size: clamp(44px, 7vw, 86px); line-height: .98; letter-spacing: -.065em; }
+    .lede { max-width: 680px; margin: 22px 0 0; color: #414641; font-size: clamp(18px, 2vw, 22px); }
+    .decision { padding: 20px; border-left: 4px solid var(--accent); background: var(--surface); }
+    .decision strong { display: block; margin-bottom: 7px; }
+    .decision p { margin: 0; color: var(--muted); }
+    .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-top: 42px; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+    .stat { min-height: 100px; padding: 16px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface); }
+    .stat-label { color: var(--muted); font-size: 12px; }
+    .stat-value { margin: 8px 0 0; font-weight: 700; }
+    nav { position: sticky; top: 0; z-index: 4; border-bottom: 1px solid var(--line); background: rgba(245,246,242,.96); backdrop-filter: blur(8px); }
+    nav .shell { display: flex; gap: 18px; overflow-x: auto; padding: 11px 0; }
+    nav a { flex: 0 0 auto; color: var(--muted); font-size: 13px; text-decoration: none; }
+    nav a:hover { color: var(--ink); text-decoration: underline; }
+    main { padding-bottom: 72px; }
+    section { padding: 62px 0 0; scroll-margin-top: 56px; }
+    .section-head { display: grid; grid-template-columns: minmax(0, .8fr) minmax(0, 1.2fr); gap: 32px; align-items: start; margin-bottom: 24px; }
+    h2 { margin: 0; font-size: clamp(28px, 4vw, 44px); line-height: 1.05; letter-spacing: -.045em; }
+    h3 { margin: 0 0 8px; font-size: 19px; line-height: 1.15; letter-spacing: -.025em; }
+    h4 { margin: 22px 0 8px; font-size: 15px; }
+    p { max-width: 70ch; }
+    .section-head p { margin: 0; color: var(--muted); }
+    .flow { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+    .flow-step { min-height: 150px; padding: 16px; border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); background: var(--surface); }
+    .flow-step strong { display: block; margin-bottom: 10px; font-size: 15px; }
+    .flow-step span { color: var(--muted); font-size: 13px; }
+    .grid-2, .grid-3 { display: grid; gap: 16px; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .block { min-width: 0; padding: 20px; border: 1px solid var(--line); background: var(--surface); }
+    .block h3 { margin-top: 0; }
+    ul, ol { padding-left: 22px; }
+    li + li { margin-top: 7px; }
+    .muted { color: var(--muted); }
+    .callout { margin: 20px 0; padding: 18px 20px; border: 1px solid #f0c6b4; background: var(--accent-soft); }
+    .callout strong { color: #9e3d16; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); background: var(--surface); }
+    table { width: 100%; min-width: 720px; border-collapse: collapse; font-size: 14px; }
+    caption { padding: 14px 16px; color: var(--muted); text-align: left; font-size: 13px; }
+    th, td { padding: 13px 14px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { background: #edf0ea; color: #4c534e; font-size: 12px; font-weight: 700; }
+    tr:last-child td { border-bottom: 0; }
+    .phase-list { display: grid; gap: 12px; }
+    .phase { display: grid; grid-template-columns: 64px minmax(0, .8fr) minmax(0, 1.2fr); gap: 18px; padding: 20px; border: 1px solid var(--line); background: var(--surface); }
+    .phase-number { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: var(--ink); color: #fff; font-weight: 700; }
+    .phase:nth-child(2) .phase-number { background: var(--accent); }
+    .phase:nth-child(3) .phase-number { background: var(--blue); }
+    .phase:nth-child(4) .phase-number { background: var(--green); }
+    .phase:nth-child(5) .phase-number { background: var(--warning); }
+    .phase .exit { padding-left: 16px; border-left: 3px solid var(--line); color: var(--muted); }
+    pre { overflow: auto; margin: 0; padding: 18px; border: 1px solid #303330; background: #1d1f1d; color: #f4f5f2; font-size: 12px; line-height: 1.6; }
+    .check-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 22px; }
+    .check { position: relative; padding-left: 26px; }
+    .check::before { content: ""; position: absolute; top: .62em; left: 2px; width: 9px; height: 9px; border: 2px solid var(--green); border-radius: 50%; }
+    .source-list { columns: 2; column-gap: 36px; }
+    .source-list li { break-inside: avoid; }
+    footer { padding: 28px 0 44px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+    :where(.opening-grid,.stats,.flow,.grid-2,.grid-3,.phase,.check-list) > * { min-width: 0; }
+    :where(h1,h2,h3,h4,p,li,td,th,code) { overflow-wrap: anywhere; }
+    @media (max-width: 900px) {
+      .opening-grid, .section-head, .grid-3 { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .phase { grid-template-columns: 52px minmax(0, 1fr); }
+      .phase .exit { grid-column: 2; }
+    }
+    @media (max-width: 620px) {
+      .shell { width: min(100% - 24px, 1180px); }
+      .opening { padding-top: 48px; }
+      .masthead { align-items: flex-start; flex-direction: column; gap: 8px; }
+      .stats, .grid-2, .check-list { grid-template-columns: 1fr; }
+      .flow { grid-template-columns: 1fr; }
+      .phase { grid-template-columns: 1fr; }
+      .phase .exit { grid-column: 1; padding-left: 0; padding-top: 14px; border-top: 3px solid var(--line); border-left: 0; }
+      .source-list { columns: 1; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+    @media (prefers-color-scheme: dark) {
+      :root { color-scheme: dark; --paper: #171917; --surface: #202320; --ink: #f3f5f0; --muted: #b5bcb5; --line: #3b413c; --accent-soft: #3c241b; }
+      .lede { color: #d4d8d3; }
+      th { background: #2b302c; color: #d3d8d2; }
+      .callout { border-color: #7d442a; }
+      .callout strong { color: #ffb28e; }
+      nav { background: rgba(23,25,23,.96); }
+    }
+  </style>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+  <header>
+    <div class="shell masthead">
+      <div class="identity">Allies Cloud</div>
+      <div class="meta"><span>AUTH-002</span><span>Condensed plan view</span><span>20 August 2026</span></div>
+    </div>
+  </header>
+
+  <div class="shell opening" id="top">
+    <div class="opening-grid">
+      <div>
+        <p class="kicker">Native authentication boundary · condensed view</p>
+        <h1>Cloud publishes the mobile session contract.</h1>
+        <p class="lede">Expo Mobile uses the system browser for Google sign-in, returns with a short-lived one-time Cloud code, and receives a native session without browser cookies, provider tokens, or a client secret in the app.</p>
+      </div>
+      <aside class="decision">
+        <strong>Implementation gate</strong>
+        <p>Native auth stays disabled until owners accept the proposed contract and staging proves Railway identity trust, shared-cache behavior, exact callbacks, migrations, and the Interface boundary.</p>
+      </aside>
+    </div>
+    <div class="stats" aria-label="Plan status">
+      <div class="stat"><div class="stat-label">Planning worker</div><div class="stat-value">Sol-high</div></div>
+      <div class="stat"><div class="stat-label">Independent reviews</div><div class="stat-value">Terra-high</div></div>
+      <div class="stat"><div class="stat-label">Implementation</div><div class="stat-value">LunaMax</div></div>
+      <div class="stat"><div class="stat-label">Current state</div><div class="stat-value">Adversarial findings reconciled</div></div>
+    </div>
+  </div>
+
+  <nav aria-label="Plan sections"><div class="shell">
+    <a href="#contract">Contract</a><a href="#decisions">Decisions</a><a href="#railway">Railway identity</a><a href="#callbacks">Callbacks</a><a href="#transactions">Transactions</a><a href="#interface">Interface</a><a href="#phases">Phases</a><a href="#validation">Validation</a><a href="#risks">Risks</a><a href="#owners">Owner decisions</a>
+  </div></nav>
+
+  <main id="main" class="shell">
+    <section id="contract">
+      <div class="section-head"><h2>The handoff in one flow</h2><p>Cloud remains the confidential Google relying party. Mobile is a public Cloud client and proves possession of its PKCE verifier when it redeems the one-time Cloud code.</p></div>
+      <div class="flow" aria-label="Native sign-in sequence">
+        <div class="flow-step"><strong>1. Start</strong><span>Mobile sends an exact redirect URI, state, and PKCE S256 challenge.</span></div>
+        <div class="flow-step"><strong>2. Browser</strong><span>Cloud returns an authorization URL for the external system browser.</span></div>
+        <div class="flow-step"><strong>3. Google</strong><span>Google returns to Cloud's exact HTTPS callback, not to the app.</span></div>
+        <div class="flow-step"><strong>4. Verify</strong><span>Cloud checks provider state, nonce, issuer, audience, and claims.</span></div>
+        <div class="flow-step"><strong>5. Return</strong><span>Cloud redirects to the exact app URI with code and app state only.</span></div>
+        <div class="flow-step"><strong>6. Exchange</strong><span>Mobile sends the code, verifier, and redirect URI; Cloud issues tokens.</span></div>
+        <div class="flow-step"><strong>7. Operate</strong><span>Access stays in memory; the opaque refresh credential rotates in SecureStore.</span></div>
+      </div>
+    </section>
+
+    <section id="scope">
+      <div class="section-head"><h2>What changes, and what stays out</h2><p>AUTH-002 extends the implemented AUTH-001 account and session foundation. It does not replace browser auth or pull Foundry into the account-access boundary.</p></div>
+      <div class="grid-2">
+        <article class="block"><h3>Included</h3><ul><li>Google through the external system browser.</li><li>Authorization code with PKCE S256 and exact redirect allowlisting.</li><li>Short-lived, single-use hashed Cloud exchange code.</li><li>Short-lived bearer access JWT and rotating opaque refresh credential.</li><li>Refresh hashing, one-winner rotation, reuse detection, family revocation, expiry, logout, rate limits, audit, redaction, migrations, OpenAPI, and tests.</li><li>Published Cloud contract and Interface consumer handoff.</li></ul></article>
+        <article class="block"><h3>Excluded</h3><ul><li>Foundry, Hermes, Fly, Ally, runtime, execution, gateway, conversation, and managed conversation.</li><li>Pre-auth state, account claims, waitlist changes, or pre-auth Ally transfer.</li><li>Google tokens in Interface, client secrets in the app, embedded WebViews, and browser-cookie copying.</li><li>Attestation, DPoP, mTLS, MFA, passkeys, biometrics, push approval, account linking UI, and remote session-list UI.</li><li>Mobile implementation itself; that is INT-008 after this contract is accepted and published.</li></ul></article>
+      </div>
+      <div class="callout"><strong>Foundry dependency result.</strong> AUTH-002 has no Foundry dependency. A required branch-diff check rejects new Foundry, Hermes, Fly, Ally-runtime, or runtime-service imports, packages, settings, jobs, routes, and deployment changes.</div>
+    </section>
+
+    <section id="decisions">
+      <div class="section-head"><h2>Accepted contract decisions</h2><p>The user accepted the Cloud contract and risk decisions. Exact environment-specific redirect and provider setup remains deferred, and native auth stays disabled until that setup is proven.</p></div>
+      <div class="table-wrap"><table><caption>Proposed AUTH-002 decision register</caption><thead><tr><th scope="col">Decision</th><th scope="col">Recommendation</th><th scope="col">Reason</th></tr></thead><tbody>
+        <tr><th scope="row">Browser</th><td>External system browser. No embedded WebView.</td><td>Google credentials and browser cookies stay outside the app.</td></tr>
+        <tr><th scope="row">Proof</th><td>Authorization code with PKCE S256.</td><td>Mobile is a public client and cannot hold a secret.</td></tr>
+        <tr><th scope="row">Production return</th><td>Exact claimed HTTPS app or universal links.</td><td>Operating-system domain verification reduces URI interception risk.</td></tr>
+        <tr><th scope="row">Development return</th><td>Exact registered custom schemes only. No wildcard or Expo proxy callbacks.</td><td>The development exception stays narrow and reviewable.</td></tr>
+        <tr><th scope="row">Google callbacks</th><td>Keep the current browser setting and add a separate native setting. The transaction selects one value and the adapter uses it unchanged.</td><td>Browser and native authorization and token exchange cannot switch callbacks.</td></tr>
+        <tr><th scope="row">Railway identity</th><td>Use only a staging-proven, edge-overwritten <code>X-Real-IP</code> network prefix, HMACed before shared Redis.</td><td>Native routes need a shared non-cookie requester key. Missing or unproved trust fails closed.</td></tr>
+        <tr><th scope="row">Transaction states</th><td><code>pending</code>, <code>claimed</code>, <code>completed</code>, <code>denied</code>, and <code>failed</code>, with a bounded claim lease and terminal retention.</td><td>Provider I/O remains outside locks while callback and cleanup races have one terminal result.</td></tr>
+        <tr><th scope="row">Redirect payload</th><td>One-time Cloud code plus app state. Never tokens.</td><td>URLs can leak through logs, history, and operating-system routing.</td></tr>
+        <tr><th scope="row">Session</th><td>Ten-minute bearer access JWT and rotating opaque refresh credential with 14-day idle / 30-day absolute limits.</td><td>Reuses accepted AUTH-001 boundaries and keeps the native contract additive.</td></tr>
+        <tr><th scope="row">Exchange code</th><td>Sixty seconds and one successful use.</td><td>Mobile receives it immediately; PKCE protects redemption.</td></tr>
+        <tr><th scope="row">Logout</th><td>Refresh proof, optional matching bearer, idempotent 204; clear local credentials on every result.</td><td>Logout still works after access expiry and never revokes an unrelated family.</td></tr>
+        <tr><th scope="row">Lost device</th><td>Use existing privileged family revocation until a later session-manager feature exists.</td><td>Remote session management is outside AUTH-002; owners must accept the residual risk.</td></tr>
+      </tbody></table></div>
+      <p class="muted">The Nabu feature specification is accepted. Every protocol choice in this register remains proposed until its named owners accept it.</p>
+    </section>
+
+    <section>
+      <div class="section-head"><h2>Published API surface</h2><p>Routes are additive under <code>/api/v1/auths/native</code>. Native endpoints do not set auth cookies. Token responses use <code>Cache-Control: no-store</code> and <code>Pragma: no-cache</code>.</p></div>
+      <div class="table-wrap"><table><caption>Contract endpoints for INT-008</caption><thead><tr><th scope="col">Method and path</th><th scope="col">Purpose</th><th scope="col">Success</th><th scope="col">Failure behavior</th></tr></thead><tbody>
+        <tr><th scope="row"><code>POST /api/v1/auths/native/sign-in/{provider}</code></th><td>Validate redirect and PKCE input; begin a Google transaction.</td><td>Authorization URL and expiry.</td><td>Invalid redirect/PKCE, unavailable provider, rate limit, or bounded service failure.</td></tr>
+        <tr><th scope="row"><code>GET /api/v1/auths/native/callback/{provider}</code></th><td>Validate provider callback and resolve the AUTH-001 identity.</td><td>303 to stored app URI with code and state.</td><td>Safe OAuth-style error only; unsafe or unknown state never redirects.</td></tr>
+        <tr><th scope="row"><code>POST /api/v1/auths/native/token</code></th><td>Redeem a code using the PKCE verifier and exact redirect.</td><td>Bearer access token, opaque refresh token, and expiry metadata.</td><td>Consumed, expired, mismatched, malformed, rate-limited, or bounded service error.</td></tr>
+        <tr><th scope="row"><code>POST /api/v1/auths/native/token/refresh</code></th><td>Rotate a native refresh credential.</td><td>New access and refresh pair.</td><td>401 on invalid/expired; reuse revokes the family and requires sign-in.</td></tr>
+        <tr><th scope="row"><code>POST /api/v1/auths/native/logout</code></th><td>Revoke the native family.</td><td>Idempotent 204.</td><td>Local credentials clear even when the server result is uncertain.</td></tr>
+        <tr><th scope="row">Existing account/profile/avatar/Workspace routes</th><td>Accept a native bearer access JWT.</td><td>Existing response shapes and authorization rules.</td><td>Transport-kind mismatch and mixed cookie/bearer input fail closed.</td></tr>
+      </tbody></table></div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2>Security and data invariants</h2><p>The implementation extends existing session services instead of creating a parallel token system.</p></div>
+      <div class="grid-3">
+        <article class="block"><h3>Redirect boundary</h3><p class="muted">Exact URI matching rejects query, fragment, wildcard, user-info, and prefix tricks. Production claimed HTTPS links are preferred. Google always returns to a Cloud-owned callback.</p></article>
+        <article class="block"><h3>One-time values</h3><p class="muted">Native transactions and exchange codes store digests or sealed values, expire quickly, and are consumed under a row lock. Provider and app tokens never appear in redirect URLs or logs.</p></article>
+        <article class="block"><h3>Session boundary</h3><p class="muted">A closed <code>client_kind</code> distinguishes browser and native families. Bearer requests cannot use browser families, and browser cookies cannot use native families.</p></article>
+        <article class="block"><h3>Refresh boundary</h3><p class="muted">Refresh credentials are opaque and hashed. Rotation is one-winner. Reuse revokes the family. Interface serializes refresh and never retries an old token.</p></article>
+        <article class="block"><h3>Persistence boundary</h3><p class="muted">Mobile stores only the opaque refresh credential in Expo SecureStore. Access stays in memory. Zustand, TanStack Query, AsyncStorage, analytics, and ordinary files hold no credential.</p></article>
+        <article class="block"><h3>Operational boundary</h3><p class="muted">Audit events use low-cardinality opaque references. No raw code, token, email, provider claim, redirect query, full IP, request body, or provider response enters logs or analytics.</p></article>
+      </div>
+    </section>
+
+    <section id="railway">
+      <div class="section-head"><h2>Railway identity must be proved before enablement</h2><p>The proposed native requester identity is Railway's edge-provided <code>X-Real-IP</code>, normalized to IPv4 <code>/24</code> or IPv6 <code>/64</code> and HMACed before shared Redis. Client-selected identifiers never contribute.</p></div>
+      <div class="table-wrap"><table><caption>Trust chain and fail-closed behavior</caption><thead><tr><th scope="col">Boundary</th><th scope="col">Required proof</th><th scope="col">Failure</th></tr></thead><tbody>
+        <tr><th scope="row">Public path</th><td>TLS terminates at Railway and no public origin path bypasses its edge.</td><td>Keep native disabled.</td></tr>
+        <tr><th scope="row">Header</th><td>Staging proves Railway overwrites a forged <code>X-Real-IP</code>. The parser accepts one valid address and ignores forwarded, user-agent, request, app-state, PKCE, and installation identifiers.</td><td>Missing, malformed, comma-separated, or unproved input returns <code>503 auth_unavailable</code>.</td></tr>
+        <tr><th scope="row">Shared key</th><td>Pass the normalized prefix as the non-secret identity to the existing <code>check_rate_limit</code> helper. It owns the HMAC, cache-key format, TTL, and cache error behavior for requester, global, code, and family scopes.</td><td>Cache failure returns <code>503</code>. There is no process-local native fallback or parallel key format.</td></tr>
+        <tr><th scope="row">Multi-worker proof</th><td>Forged and rotated headers, two real prefixes, concurrent calls, at least two Gunicorn workers, restart, scale, and cache outage produce the documented shared outcomes.</td><td><code>ALLIES_AUTH_NATIVE_ENABLED</code> remains false.</td></tr>
+      </tbody></table></div>
+      <p class="muted">Counter retention equals each accepted rate window. The global ceiling and requester-prefix rules are accepted. Native auth stays disabled during deferred deployment and identity proof.</p>
+    </section>
+
+    <section id="callbacks">
+      <div class="section-head"><h2>Browser and native callbacks cannot mix</h2><p>The transaction service selects one server setting. The Google adapter uses <code>ProviderFlow.redirect_uri</code> unchanged during authorization and token exchange.</p></div>
+      <div class="table-wrap"><table><caption>Environment registration matrix; values remain owner-supplied</caption><thead><tr><th scope="col">Environment</th><th scope="col">Browser callback</th><th scope="col">Native callback</th><th scope="col">App return registry and proof</th></tr></thead><tbody>
+        <tr><th scope="row">Local</th><td><code>ALLIES_AUTH_GOOGLE_REDIRECT_URI</code>: exact local browser value registered with Google.</td><td><code>ALLIES_AUTH_GOOGLE_NATIVE_REDIRECT_URI</code>: different exact local native value registered with Google.</td><td><code>ALLIES_AUTH_NATIVE_REDIRECT_URIS</code>: exact development-build schemes only; no Expo Go or proxy callback.</td></tr>
+        <tr><th scope="row">Staging</th><td>Owner-supplied exact HTTPS browser value.</td><td>Owner-supplied different exact HTTPS native value.</td><td>Exact claimed HTTPS app links, startup validation, registration inspection, and iOS/Android smoke proof.</td></tr>
+        <tr><th scope="row">Production</th><td>Owner-supplied exact HTTPS browser value.</td><td>Owner-supplied different exact HTTPS native value.</td><td>Exact claimed HTTPS links, domain association, startup validation, and post-deploy smoke proof before enablement.</td></tr>
+      </tbody></table></div>
+      <p class="muted">Negative tests send each transaction to the wrong route and setting. Request fields cannot select a callback. Native configuration failure does not change browser behavior when native auth is off.</p>
+    </section>
+
+    <section id="transactions">
+      <div class="section-head"><h2>Callback work has one terminal owner</h2><p>A short first transaction claims the row. Google I/O runs outside locks. A second transaction finalizes only for the same claim digest. PostgreSQL decides callback-versus-cleanup races.</p></div>
+      <div class="table-wrap"><table><caption>Native authorization transaction states</caption><thead><tr><th scope="col">State</th><th scope="col">Next</th><th scope="col">Result and retry</th><th scope="col">Cleanup</th></tr></thead><tbody>
+        <tr><th scope="row"><code>pending</code></th><td><code>claimed</code>, <code>denied</code>, or <code>failed</code></td><td>Valid code claims once. Valid Google denial returns safe <code>access_denied</code>. Unknown state never redirects.</td><td>Delete only after the ten-minute pending expiry while locked.</td></tr>
+        <tr><th scope="row"><code>claimed</code></th><td><code>completed</code> or <code>failed</code></td><td>One 15-second provider attempt, no automatic provider retry. Duplicate callback gets a safe in-progress response.</td><td>Never delete. After the 30-second lease, mark stale work <code>failed</code>.</td></tr>
+        <tr><th scope="row"><code>completed</code></th><td>Terminal</td><td>Identity and sealed exchange code commit atomically. Response replay returns the same active code without another Google call.</td><td>Retain 24 hours. Delete expired code before its protected transaction.</td></tr>
+        <tr><th scope="row"><code>denied</code></th><td>Terminal</td><td>Return only safe denial and stored app state. Repeat returns the same denial.</td><td>Retain 24 hours.</td></tr>
+        <tr><th scope="row"><code>failed</code></th><td>Terminal</td><td>Timeout, malformed response, rejection, stale claim, or failed finalization returns <code>provider_unavailable</code> or <code>flow_failed</code>. Start a new flow.</td><td>Retain 24 hours.</td></tr>
+      </tbody></table></div>
+      <p class="muted">Race tests cover callback versus callback, finalization versus cleanup before and after lease expiry, code cleanup versus protected transaction deletion, denial, timeout, malformed response, and response loss.</p>
+    </section>
+
+    <section id="interface">
+      <div class="section-head"><h2>Interface receives an executable boundary</h2><p>The generated schema is necessary but not sufficient. <code>@allies/cloud-client</code> adds named methods, exact header rules, and an Interface-owned compilation test.</p></div>
+      <div class="table-wrap"><table><caption>Proposed native client methods</caption><thead><tr><th scope="col">Method</th><th scope="col">Credential rule</th><th scope="col">Failure rule</th></tr></thead><tbody>
+        <tr><th scope="row"><code>beginNativeSignIn</code></th><td>JSON only. No bearer, cookie, or CSRF.</td><td>No automatic retry; a new action creates new state and verifier.</td></tr>
+        <tr><th scope="row"><code>exchangeNativeCode</code></th><td>Code, verifier, and exact redirect in JSON. No bearer or cookie.</td><td>Only typed <code>429</code>/<code>503</code> can retry before expiry. Network uncertainty starts a new sign-in.</td></tr>
+        <tr><th scope="row"><code>refreshNativeSession</code></th><td>Refresh token in JSON. No bearer or cookie. One in-flight request.</td><td>Typed pre-rotation failure can retry. Network uncertainty or reuse clears credentials.</td></tr>
+        <tr><th scope="row"><code>logoutNativeSession</code></th><td>Refresh in JSON; optional matching bearer only from this method.</td><td>Always clear local state. Return <code>serverConfirmed</code>; never replay an old token.</td></tr>
+        <tr><th scope="row">Existing account methods</th><td>Bearer injection only for reviewed account/profile/avatar/Workspace method-and-path pairs.</td><td>One refresh and one replay after <code>401</code>; permission errors do not clear the session.</td></tr>
+      </tbody></table></div>
+      <div class="grid-2">
+        <article class="block"><h3>Bearer allowlist</h3><p class="muted"><code>GET /auths/me</code>, <code>PATCH /auths/me/profile</code>, the four reviewed avatar operations, and <code>GET /workspaces/{workspace_id}</code>. New routes are denied until reviewed.</p></article>
+        <article class="block"><h3>Public exclusions</h3><p class="muted">Native begin, callback, exchange, and refresh; all browser auth; waitlist; health; OpenAPI; Google; app-return links; and direct avatar uploads. Native logout handles its optional bearer explicitly.</p></article>
+      </div>
+      <p class="muted">The Interface-owned <code>native-session-contract.test.ts</code> compiles the four new native-session methods, captures the existing account-method bearer allowlist separately, proves snake-case mappings, and table-tests every error state, including refresh reuse and logout uncertainty.</p>
+    </section>
+
+    <section>
+      <div class="section-head"><h2>Forward upgrade is separate evidence</h2><p>The migration test starts from the current pre-AUTH-002 leaf, <code>auths.0002_externalidentity_email_verification</code>. Fresh migration application does not satisfy this gate.</p></div>
+      <div class="grid-2">
+        <article class="block"><h3>Seed and migrate</h3><p class="muted">Create a user, one browser-era family, and one unused refresh row with a known token digest. Migrate once from the current pre-AUTH-002 leaf to the AUTH-002 leaf, then restore the graph in <code>finally</code>. Normal migration checks cover repeat application.</p></article>
+        <article class="block"><h3>Assert and rotate</h3><p class="muted">Assert <code>client_kind=browser</code>, native schema availability, existing browser access, successful refresh rotation in the same family, and the current reuse regression on SQLite and PostgreSQL.</p></article>
+      </div>
+    </section>
+
+    <section id="phases">
+      <div class="section-head"><h2>Implementation sequence</h2><p>This condensed view maps all five Markdown phases. Each phase has an exit condition. The Cloud implementation is complete; exact provider registration and device-return setup remain deferred follow-up gates.</p></div>
+      <div class="phase-list">
+        <article class="phase"><div class="phase-number">0</div><div><h3>Contract and threat model</h3><p class="muted">The accepted scope covers PKCE rules, token lifetimes, error model, logout proof, rate limits, redaction, lost-device risk, and bearer boundaries. Exact redirect and provider values remain deferred.</p></div><div class="exit"><strong>Exit:</strong> Contract decisions are accepted; exact staging and production values, provider registration, and native enablement evidence remain follow-up work; Foundry is explicitly absent.</div></article>
+        <article class="phase"><div class="phase-number">1</div><div><h3>Native transaction and session primitives</h3><p class="muted">Add native transaction and exchange-code models, indexes, cleanup, client kind, service functions, and migrations. Keep provider I/O outside long database locks.</p></div><div class="exit"><strong>Exit:</strong> Fresh and upgraded SQLite/PostgreSQL migrations pass; row-lock tests prove one completion and one refresh winner.</div></article>
+        <article class="phase"><div class="phase-number">2</div><div><h3>Native Google and token services</h3><p class="muted">Implement begin, callback, exchange, refresh, and logout services. Reuse AUTH-001 identity and session boundaries, and prove callback, exchange, and refresh races on PostgreSQL.</p></div><div class="exit"><strong>Exit:</strong> A deterministic flow proves one user and one native family; replay, verifier, redirect, expiry, provider mix-up, concurrent exchange, and refresh reuse have explicit results.</div></article>
+        <article class="phase"><div class="phase-number">3</div><div><h3>HTTP and bearer boundaries</h3><p class="muted">Add native controllers, schemas, stable errors, bearer transport resolution, reviewed bearer injection, Railway throttling, cache fail-closed behavior, audit events, redaction, and OpenAPI.</p></div><div class="exit"><strong>Exit:</strong> Native and browser transports cannot cross; bearer allowlist and public exclusions pass; browser behavior has no regression.</div></article>
+        <article class="phase"><div class="phase-number">4</div><div><h3>Security proof, publication, and Interface handoff</h3><p class="muted">Run full Cloud and PostgreSQL validation, forward-upgrade migration proof, Railway multi-worker proof, staging OpenAPI generation, deployment-owned app-link and Google-registration checks, and the Interface contract-only test.</p></div><div class="exit"><strong>Exit:</strong> The accepted contract has no guessed fields; deployment and contract evidence is complete; INT-008 can move from blocked to ready and owns later device lifecycle proof.</div></article>
+      </div>
+    </section>
+
+    <section id="validation">
+      <div class="section-head"><h2>Validation evidence</h2><p>The repository make wrappers expect <code>uv</code> on <code>PATH</code>. This environment ran the equivalent commands through <code>python -m uv</code>: 176 tests passed, coverage reached 90.43%, and Ruff, migrations, and formatting passed. PostgreSQL and deployment proof remain separate gates.</p></div>
+      <div class="grid-2">
+        <article class="block"><h3>Cloud quick checks</h3><pre><code>make check
+make lint
+make test APP=auths/tests
+make test APP=config/tests/test_api_contract.py</code></pre></article>
+        <article class="block"><h3>Cloud complete checks</h3><pre><code>uv sync --locked
+uv lock --check
+uv run python manage.py check
+uv run python manage.py makemigrations --check --dry-run
+uv run pytest
+uv run pytest --cov=auths --cov=workspaces --cov-fail-under=90
+uv run ruff check .
+uv run ruff format --check .
+git diff --check</code></pre></article>
+        <article class="block"><h3>PostgreSQL proof</h3><pre><code>Set-Location backend
+uv run pytest -m postgresql</code></pre><p class="muted">SQLite cannot prove row-lock or concurrent-refresh behavior.</p></article>
+        <article class="block"><h3>Interface handoff</h3><pre><code>bun run cloud:fetch
+bun run cloud:check
+bun run typecheck
+bun run test:run</code></pre><p class="muted">Use development builds on iOS and Android. Do not use Expo Go or an embedded WebView for the callback proof.</p></article>
+      </div>
+      <h3>Required test coverage</h3>
+      <div class="check-list">
+        <div class="check">New and returning Google identity, callback, exchange, bearer account, refresh, and logout.</div>
+        <div class="check">Unknown state, provider mix-up, redirect mismatch, plain PKCE, verifier mismatch, and malformed authorization.</div>
+        <div class="check">Callback and exchange replay, transaction/code expiry, concurrent exchange, and concurrent refresh.</div>
+        <div class="check">Refresh reuse, family revocation, logout with valid/expired/revoked credentials, and inactive users.</div>
+        <div class="check">Native bearer on self profile/avatar/Workspace, <code>401 session_invalid</code> after expiry, and non-disclosing foreign Workspace denial.</div>
+        <div class="check">Rate limits, shared-cache failure, bounded cleanup, migration, OpenAPI, and redacted logs.</div>
+      </div>
+    </section>
+
+    <section id="risks">
+      <div class="section-head"><h2>Risks and rollback</h2><p>Native auth stays independently disableable so browser auth can remain available during a native incident.</p></div>
+      <div class="table-wrap"><table><caption>Material risks</caption><thead><tr><th scope="col">Risk</th><th scope="col">Mitigation</th><th scope="col">Fallback</th></tr></thead><tbody>
+        <tr><th scope="row">URI interception</th><td>Claimed HTTPS links, exact allowlists, PKCE, short-lived single-use code.</td><td>Disable the affected redirect and native provider; keep browser auth.</td></tr>
+        <tr><th scope="row">Browser/native token confusion</th><td>Persist session-family client kind and require transport-kind match.</td><td>Revoke affected families and disable native bearer acceptance.</td></tr>
+        <tr><th scope="row">Refresh race</th><td>Serialize client refresh; keep server one-winner reuse detection.</td><td>Clear local session and require sign-in. Do not weaken reuse detection.</td></tr>
+        <tr><th scope="row">Secret leakage</th><td>Typed safe errors, request-body suppression, explicit redaction tests.</td><td>Disable native routes, rotate affected secrets, revoke native families, and follow incident response.</td></tr>
+        <tr><th scope="row">Missing app links</th><td>Keep native disabled until domains and application identifiers are verified.</td><td>Exact development schemes only for development builds.</td></tr>
+        <tr><th scope="row">Lost device</th><td>Short idle and absolute limits plus privileged family revocation.</td><td>Create a separate remote session-management ticket if owners reject the residual risk.</td></tr>
+      </tbody></table></div>
+    </section>
+
+    <section id="owners">
+      <div class="section-head"><h2>Deferred deployment setup</h2><p>The contract and risk decisions are accepted. These environment-specific values and evidence are intentionally handled after the Cloud implementation.</p></div>
+      <div class="grid-2">
+        <article class="block"><h3>Return URIs and provider registration</h3><ol><li>Confirm production iOS and Android claimed HTTPS return URIs, application identifiers, and association files.</li><li>Confirm development custom-scheme URIs.</li><li>Register the exact local, staging, and production Cloud callbacks with Google and decide whether one or separate web clients are required.</li></ol></article>
+        <article class="block"><h3>Enablement evidence</h3><ol><li>Name the deployment owner for native enablement, shared-cache proof, two-worker staging proof, and sanitized smoke evidence.</li><li>Confirm any OpenAPI snapshot version change after the Interface handoff.</li><li>Keep native auth disabled until these checks pass.</li></ol></article>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-head"><h2>Sources and handoff</h2><p>The Markdown plan is the detailed record. This page exposes its main decision path, contract surface, evidence, and gates for review.</p></div>
+      <div class="block">
+        <ul class="source-list">
+          <li>Nabu: <code>projects/allies/index.md</code>, <code>delivery/now.md</code>, <code>EPIC-00.md</code>, and Cloud <code>AUTH-002.md</code>.</li>
+          <li>Nabu: <code>engineering/specs/interface/AUTH-002-cloud-native-session-contract.md</code> and <code>interface/index.md</code>.</li>
+          <li>Local Cloud: <code>AGENTS.md</code>, <code>ENGINEERING_STYLE.md</code>, <code>README.md</code>, <code>Makefile</code>, CI, and <code>docs/templates/PLAN_TEMPLATE.md</code>.</li>
+          <li>Local Cloud implementation: <code>backend/auths/</code>, <code>backend/workspaces/</code>, and <code>backend/config/</code>.</li>
+          <li>Local Interface consumer: mobile session context, Expo configuration, cloud client, and package scripts.</li>
+          <li>RFC 8252, RFC 9700, Google OAuth guidance, and Expo SDK 57 browser/linking guidance.</li>
+        </ul>
+        <div class="callout"><strong>Handoff state.</strong> The Cloud implementation is complete. Terra-high and Enkii review findings were fixed with regression tests, including browser CSRF protection, callback cleanup races, absolute provider deadlines, native error-state mapping, Workspace tenant isolation and expired-bearer <code>401</code> mapping, refresh-proof logout, and structured log redaction. Native auth remains disabled while exact provider registration, app-link values, shared-cache proof, and staging evidence are completed.</div>
+      </div>
+    </section>
+  </main>
+
+  <footer><div class="shell">Allies Cloud · AUTH-002 · Cloud implementation handoff · Native auth disabled pending deferred provider and deployment proof.</div></footer>
+</body>
+</html>
