@@ -1,0 +1,156 @@
+# Self-hosted Allies. From this directory:
+#   cp .env.example .env   # fill it in
+#   docker compose up -d --build
+# The stack serves plain HTTP on 127.0.0.1:${ALLIES_HTTP_PORT}; put a TLS proxy in front.
+name: allies
+
+x-cloud: &cloud
+  build: ../services/cloud
+  image: allies/cloud:local
+  env_file: .env
+  environment: &cloud-env
+    DATABASE_URL: postgresql://allies:${POSTGRES_PASSWORD}@postgres:5432/allies_cloud
+    CACHE_URL: redis://redis:6379/0
+    CELERY_BROKER_URL: redis://redis:6379/1
+    DJANGO_DEBUG: "false"
+    DJANGO_ALLOWED_HOSTS: ${ALLIES_DOMAIN},cloud
+    ALLIES_TRUSTED_ORIGINS: https://${ALLIES_DOMAIN}
+    ALLIES_TRUSTED_PROXY_IPS: 172.16.0.0/12,10.0.0.0/8
+    ALLIES_FOUNDRY_URL: http://foundry:8000
+    ALLIES_FOUNDRY_EXECUTION_ENABLED: "true"
+    ALLIES_RUNTIME_INTENT_ENABLED: "true"
+    ALLIES_ACTIVITY_SSE_ENABLED: "true"
+    ALLIES_AUTH_GOOGLE_REDIRECT_URI: https://${ALLIES_DOMAIN}/api/v1/auths/callback/google
+    ALLIES_GMAIL_REDIRECT_URI: https://${ALLIES_DOMAIN}/api/v1/integrations/gmail/callback
+    ALLIES_AUTH_NATIVE_ENABLED: "false"
+    ALLIES_WAITLIST_ENABLED: "false"
+    ALLIES_PUSH_VAPID_CONTACT: https://${ALLIES_DOMAIN}
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+  restart: unless-stopped
+
+x-foundry: &foundry
+  build: ../services/foundry
+  image: allies/foundry:local
+  env_file: .env
+  environment:
+    DATABASE_URL: postgresql://allies:${POSTGRES_PASSWORD}@postgres:5432/allies_foundry
+    DJANGO_DEBUG: "false"
+    DJANGO_ALLOWED_HOSTS: foundry
+    ALLIES_CLOUD_URL: http://cloud:8000
+    ALLIES_CLOUD_EVENT_DELIVERY_ENABLED: "true"
+    FOUNDRY_ORIGIN: http://foundry:8000
+    ALLIES_RUNTIME_PROVIDER: docker
+    ALLIES_DOCKER_NETWORK: allies
+    ALLIES_DOCKER_SECRETS_DIR: /var/lib/allies/secrets
+    ALLIES_RUNTIME_IDLE_STOP_ENABLED: "true"
+  volumes:
+    - /var/run/docker.sock:/var/run/docker.sock
+    - /var/lib/allies/secrets:/var/lib/allies/secrets
+  depends_on:
+    postgres: { condition: service_healthy }
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: allies
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: allies_cloud
+    volumes:
+      - postgres:/var/lib/postgresql/data
+      - ./postgres-init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U allies -d allies_cloud"]
+      interval: 3s
+      retries: 20
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      retries: 20
+    restart: unless-stopped
+
+  cloud-migrate:
+    <<: *cloud
+    command: ["uv", "run", "python", "manage.py", "migrate", "--noinput"]
+    restart: "no"
+
+  cloud:
+    <<: *cloud
+    command:
+      - sh
+      - -c
+      - >-
+        uv run python manage.py collectstatic --noinput &&
+        exec uv run gunicorn config.wsgi:application --bind 0.0.0.0:8000
+        --worker-class gthread --workers 2 --threads 8 --timeout 900
+        --access-logfile - --error-logfile - --capture-output
+    depends_on:
+      cloud-migrate: { condition: service_completed_successfully }
+
+  cloud-worker:
+    <<: *cloud
+    command: ["uv", "run", "celery", "-A", "config.celery:app", "worker", "--loglevel=INFO",
+              "--pool=prefork", "--concurrency=2", "--max-tasks-per-child=50", "--queues=cloud"]
+    depends_on:
+      cloud-migrate: { condition: service_completed_successfully }
+
+  cloud-beat:
+    <<: *cloud
+    command: ["uv", "run", "celery", "-A", "config.celery:app", "beat", "--loglevel=INFO",
+              "--schedule=/tmp/celerybeat-schedule"]
+    depends_on:
+      cloud-migrate: { condition: service_completed_successfully }
+
+  foundry-migrate:
+    <<: *foundry
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "migrate", "--noinput"]
+    restart: "no"
+
+  foundry:
+    <<: *foundry
+    depends_on:
+      foundry-migrate: { condition: service_completed_successfully }
+
+  foundry-worker:
+    <<: *foundry
+    command: ["uv", "run", "--no-sync", "python", "manage.py", "run_foundry_worker"]
+    depends_on:
+      foundry-migrate: { condition: service_completed_successfully }
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/web.Dockerfile
+      args:
+        NEXT_PUBLIC_CLOUD_API_URL: https://${ALLIES_DOMAIN}
+        NEXT_PUBLIC_SITE_URL: https://${ALLIES_DOMAIN}
+        NEXT_PUBLIC_POSTHOG_HOST: ${POSTHOG_HOST:-}
+        NEXT_PUBLIC_POSTHOG_PROJECT_TOKEN: ${POSTHOG_PROJECT_TOKEN:-}
+    image: allies/web:local
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2-alpine
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "127.0.0.1:${ALLIES_HTTP_PORT:-8080}:80"
+    restart: unless-stopped
+
+volumes:
+  postgres:
+  redis:
+
+networks:
+  default:
+    name: allies
