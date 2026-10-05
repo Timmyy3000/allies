@@ -28,6 +28,7 @@ x-cloud: &cloud
     ALLIES_AUTH_NATIVE_ENABLED: "false"
     ALLIES_WAITLIST_ENABLED: "false"
     ALLIES_PUSH_VAPID_CONTACT: https://${ALLIES_DOMAIN}
+    ALLIES_FILE_SCANNER_HOST: clamav
   depends_on:
     postgres: { condition: service_healthy }
     redis: { condition: service_healthy }
@@ -73,6 +74,17 @@ services:
       test: ["CMD-SHELL", "pg_isready -U allies -d allies_cloud"]
       interval: 3s
       retries: 20
+    restart: unless-stopped
+
+  # Uploads fail closed without a malware scan; ClamAV needs ~1 GB RAM.
+  clamav:
+    image: clamav/clamav:stable
+    volumes:
+      - clamav:/var/lib/clamav
+    healthcheck:
+      test: ["CMD", "clamdcheck.sh"]
+      interval: 30s
+      start_period: 300s
     restart: unless-stopped
 
   redis:
@@ -164,6 +176,7 @@ services:
 volumes:
   postgres:
   redis:
+  clamav:
 
 networks:
   default:
