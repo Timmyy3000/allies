@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { lastAllyHomePath } from "../../lib/navigation/last-ally";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore, type ChangeEvent, type MouseEvent } from "react";
@@ -203,7 +204,7 @@ export function AccountClient() {
     <main className={styles.page}>
       <div className={styles.shell}>
         <header className={styles.header}>
-          <BackButton onClick={() => router.push("/home")} />
+          <BackButton onClick={() => router.push(lastAllyHomePath())} />
           <h1>Settings</h1>
           <span aria-hidden="true" />
         </header>

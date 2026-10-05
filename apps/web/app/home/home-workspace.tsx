@@ -29,6 +29,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type MouseEvent,
 } from "react";
 
 import Onboarding from "../(onboarding)/_components";
@@ -1133,10 +1134,19 @@ function AllyConversationRow({
       className={rowClassName}
       aria-current={selected ? "page" : undefined}
       data-ally-sleeping={sleeping ? "true" : "false"}
+      onClick={switchAllyWithoutRoundTrip}
     >
       {content}
     </Link>
   );
+}
+
+// The ally route renders nothing on the server; switching only needs a URL change.
+function switchAllyWithoutRoundTrip(event: MouseEvent<HTMLAnchorElement>) {
+  if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  const href = event.currentTarget.getAttribute("href");
+  if (href && href !== window.location.pathname) window.history.pushState(null, "", href);
 }
 
 function ConversationPane({

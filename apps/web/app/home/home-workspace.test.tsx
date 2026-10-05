@@ -121,7 +121,7 @@ const readActivityStreamMock = vi.hoisted(() => vi.fn());
 const audio = vi.hoisted(() => ({ play: vi.fn(), setEnabled: vi.fn(), setVolume: vi.fn() }));
 vi.mock("cuelume", () => audio);
 
-vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, push }), useSelectedLayoutSegment: selectedSegment }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, push }), usePathname: () => { const segment = selectedSegment(); return segment ? `/home/${segment}` : "/home"; } }));
 vi.mock("next/link", () => ({
   default: ({
     children,
