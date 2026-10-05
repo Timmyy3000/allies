@@ -2,16 +2,15 @@ name: CI
 
 on:
   pull_request:
-    branches: [dev, staging, prod, prod-fastlane]
-  workflow_call:
-    inputs:
-      ref:
-        required: false
-        type: string
-    outputs:
-      source_sha:
-        description: "The exact source commit checked by this workflow"
-        value: ${{ jobs.check.outputs.source_sha }}
+    branches: [main]
+    paths:
+      - "services/cloud/**"
+      - ".github/workflows/cloud.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/cloud/**"
+      - ".github/workflows/cloud.yml"
 
 permissions:
   contents: read
@@ -36,49 +35,49 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: backend/.python-version
+          python-version-file: services/cloud/backend/.python-version
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv sync --locked
 
       - name: Check lockfile
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv lock --check
 
       - name: Run Django checks
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run python manage.py check
 
       - name: Check for missing migrations
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run python manage.py makemigrations --check --dry-run
 
       - name: Apply migrations
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run python manage.py migrate --noinput
 
       - name: Verify migrations are applied
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run python manage.py migrate --check
 
       - name: Run tests
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run pytest
 
       - name: Enforce AUTH-001 domain coverage
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run pytest --cov=auths --cov=workspaces --cov-fail-under=90
 
       - name: Run Ruff lint
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run ruff check .
 
       - name: Check Ruff formatting
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run ruff format --check .
 
   postgresql-auth:
@@ -111,31 +110,31 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version-file: backend/.python-version
+          python-version-file: services/cloud/backend/.python-version
 
       - name: Install uv
         uses: astral-sh/setup-uv@v5
 
       - name: Install dependencies
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv sync --locked
 
       - name: Apply fresh PostgreSQL migrations
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run python manage.py migrate --noinput
 
       - name: Verify PostgreSQL migration state
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run python manage.py migrate --check
 
       - name: Verify UUID-native schema contract
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run pytest config/tests/test_uuid_schema.py
 
       - name: Run PostgreSQL concurrency tests
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run pytest -m postgresql
 
       - name: Run PostgreSQL file lifecycle regressions
-        working-directory: backend
+        working-directory: services/cloud/backend
         run: uv run pytest files/tests

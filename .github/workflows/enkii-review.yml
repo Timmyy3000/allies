@@ -1,9 +1,12 @@
 name: enkii review
 
 on:
-  pull_request:
+  # Use the trusted base workflow for PR reviews so branch-to-branch PRs can
+  # be reviewed without executing a PR-modified workflow with the API key.
+  pull_request_target:
     types: [opened, synchronize, reopened]
-    branches: [dev, staging, prod, prod-fastlane]
+    # Review release and development branch targets, including branch-to-branch PRs.
+    branches: [main]
   issue_comment:
     types: [created]
 
@@ -14,14 +17,14 @@ permissions:
 
 concurrency:
   group: enkii-pr-${{ github.event.pull_request.number || github.event.issue.number }}-${{ github.event_name }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request_target' }}
 
 jobs:
   review:
     name: enkii review
     runs-on: ubuntu-24.04
     if: |
-      github.event_name == 'pull_request'
+      github.event_name == 'pull_request_target'
       || (
         github.event_name == 'issue_comment'
         && github.event.issue.pull_request != null
@@ -29,11 +32,20 @@ jobs:
         && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.comment.author_association)
       )
     steps:
-      - name: Check out source
+      # Enkki reads the PR source but does not run repository scripts. The
+      # workflow itself comes from the trusted base via pull_request_target.
+      - name: Check out PR source for automatic review
+        if: github.event_name == 'pull_request_target'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: Check out repository for on-demand review
+        if: github.event_name == 'issue_comment'
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-
       - name: Run enkii
         uses: Timmyy3000/enkii@v1
         with:
