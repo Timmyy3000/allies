@@ -1,0 +1,7 @@
+name: allies-file-publication
+version: 0.1.0
+description: Private file publication bridge for marked Allies conversations
+author: Allies
+kind: backend
+provides_tools:
+  - publish_files

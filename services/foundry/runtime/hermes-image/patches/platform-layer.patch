@@ -1,0 +1,50 @@
+diff --git a/agent/system_prompt.py b/agent/system_prompt.py
+index 3a66e1d..f66a30d 100644
+--- a/agent/system_prompt.py
++++ b/agent/system_prompt.py
+@@ -126,6 +126,18 @@ _ALLIES_PROMPT_MARKER_SOUL = "Allies-Prompt-Soul:"
+ _ALLIES_PROMPT_MARKER_PLATFORM = "Allies-Prompt-Platform:"
+ 
+ 
++_ALLIES_PLATFORM_PROMPT_FILE_DEFAULT = "/opt/hermes/allies/PLATFORM.md"
++
++
++def allies_platform_prompt():
++    path = os.environ.get("ALLIES_PLATFORM_PROMPT_FILE", _ALLIES_PLATFORM_PROMPT_FILE_DEFAULT)
++    try:
++        with open(path, encoding="utf-8") as handle:
++            return handle.read().strip()
++    except OSError:
++        return ""
++
++
+ def _allies_prompt_version_file():
+     path = os.environ.get("ALLIES_PROMPT_VERSION_FILE", _ALLIES_PROMPT_VERSION_FILE_DEFAULT)
+     try:
+@@ -162,7 +174,8 @@ def allies_prompt_version_marker(agent):
+ def _allies_platform_version(agent, version_file):
+     platform_key = (agent.platform or "").lower().strip()
+     effective_hint = _resolve_platform_hint(agent, platform_key, PLATFORM_HINTS.get(platform_key, ""))
+-    return hashlib.sha256(f"{version_file}\n{effective_hint}".encode("utf-8")).hexdigest()[:16]
++    platform_prompt = allies_platform_prompt()
++    return hashlib.sha256(f"{version_file}\n{effective_hint}\n{platform_prompt}".encode("utf-8")).hexdigest()[:16]
+ 
+ 
+ def allies_stored_prompt_versions_current(agent, prompt):
+@@ -268,8 +281,14 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None)
+         # Fallback to hardcoded identity
+         stable_parts.append(DEFAULT_AGENT_IDENTITY)
+ 
+-    # Pointer to the hermes-agent skill + docs for user questions about Hermes itself.
+-    stable_parts.append(HERMES_AGENT_HELP_GUIDANCE)
++    # Allies platform layer: rules every Ally follows, owned by the image and
++    # placed after the user-editable soul so the soul cannot relax them.
++    _allies_platform = allies_platform_prompt()
++    if _allies_platform:
++        stable_parts.append(_allies_platform)
++    else:
++        # Pointer to the hermes-agent skill + docs for user questions about Hermes itself.
++        stable_parts.append(HERMES_AGENT_HELP_GUIDANCE)
+ 
+     # Universal task-completion / no-fabrication guidance.  Applied to ALL
+     # models regardless of tool_use_enforcement gating — the failure modes

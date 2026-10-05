@@ -1,0 +1,134 @@
+diff --git a/agent/conversation_loop.py b/agent/conversation_loop.py
+index 0515a31..8def8ca 100644
+--- a/agent/conversation_loop.py
++++ b/agent/conversation_loop.py
+@@ -521,7 +521,11 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
+                 agent.session_id, exc,
+             )
+ 
+-    if stored_prompt and _stored_prompt_matches_runtime(agent, stored_prompt):
++    if (
++        stored_prompt
++        and _stored_prompt_matches_runtime(agent, stored_prompt)
++        and _stored_prompt_versions_current(agent, stored_prompt)
++    ):
+         # Continuing session — reuse the exact system prompt from the
+         # previous turn so the Anthropic cache prefix matches.
+         agent._cached_system_prompt = stored_prompt
+@@ -543,7 +547,7 @@ def _restore_or_build_system_prompt(agent, system_message, conversation_history)
+     if stored_prompt:
+         stored_state = "stale_runtime"
+         logger.info(
+-            "Stored system prompt for session %s has stale runtime identity; "
++            "Stored system prompt for session %s is stale (runtime identity or prompt versions); "
+             "rebuilding for model=%s provider=%s.",
+             agent.session_id,
+             getattr(agent, "model", "") or "",
+@@ -686,6 +690,11 @@ def _stored_prompt_matches_runtime(agent, prompt: str) -> bool:
+     return True
+ 
+ 
++def _stored_prompt_versions_current(agent, prompt):
++    from agent.system_prompt import allies_stored_prompt_versions_current
++    return allies_stored_prompt_versions_current(agent, prompt)
++
++
+ def _get_continuation_prompt(is_partial_stub: bool, dropped_tools: Optional[List[str]] = None) -> str:
+     if is_partial_stub and dropped_tools:
+         tool_list = ", ".join(dropped_tools[:3])
+diff --git a/agent/system_prompt.py b/agent/system_prompt.py
+index 8407a89..3a66e1d 100644
+--- a/agent/system_prompt.py
++++ b/agent/system_prompt.py
+@@ -25,6 +25,7 @@ Pure helpers that read the agent's state.  AIAgent keeps thin forwarders.
+ 
+ from __future__ import annotations
+ 
++import hashlib
+ import json
+ import logging
+ import os
+@@ -119,6 +120,73 @@ def _resolve_platform_hint(agent: Any, platform_key: str, default_hint: str) ->
+     return base
+ 
+ 
++_ALLIES_PROMPT_VERSION_FILE_DEFAULT = "/opt/hermes/.allies-prompt-config-version"
++_ALLIES_PROMPT_ANCHOR = "Conversation started:"
++_ALLIES_PROMPT_MARKER_SOUL = "Allies-Prompt-Soul:"
++_ALLIES_PROMPT_MARKER_PLATFORM = "Allies-Prompt-Platform:"
++
++
++def _allies_prompt_version_file():
++    path = os.environ.get("ALLIES_PROMPT_VERSION_FILE", _ALLIES_PROMPT_VERSION_FILE_DEFAULT)
++    try:
++        with open(path, encoding="utf-8") as handle:
++            content = handle.read().strip()
++    except OSError:
++        return None
++    return content or None
++
++
++def _allies_soul_version():
++    soul_path = os.path.join(str(get_hermes_home()), "SOUL.md")
++    try:
++        with open(soul_path, "rb") as handle:
++            return hashlib.sha256(handle.read()).hexdigest()[:16]
++    except FileNotFoundError:
++        return "absent"
++
++
++def allies_prompt_version_marker(agent):
++    version_file = _allies_prompt_version_file()
++    if version_file is None:
++        return ""
++    try:
++        soul = _allies_soul_version()
++    except OSError:
++        # Unreadable SOUL: emit no markers rather than a false "absent";
++        # the next healthy turn sees a markerless prompt and rebuilds once.
++        return ""
++    platform = _allies_platform_version(agent, version_file)
++    return f"{_ALLIES_PROMPT_MARKER_SOUL} {soul}\n{_ALLIES_PROMPT_MARKER_PLATFORM} {platform}"
++
++
++def _allies_platform_version(agent, version_file):
++    platform_key = (agent.platform or "").lower().strip()
++    effective_hint = _resolve_platform_hint(agent, platform_key, PLATFORM_HINTS.get(platform_key, ""))
++    return hashlib.sha256(f"{version_file}\n{effective_hint}".encode("utf-8")).hexdigest()[:16]
++
++
++def allies_stored_prompt_versions_current(agent, prompt):
++    version_file = _allies_prompt_version_file()
++    if version_file is None:
++        return True
++    try:
++        soul = _allies_soul_version()
++        platform = _allies_platform_version(agent, version_file)
++    except OSError:
++        return True
++    lines = prompt.splitlines()
++    anchor_at = max((i for i, line in enumerate(lines) if line.startswith(_ALLIES_PROMPT_ANCHOR)), default=None)
++    if anchor_at is None:
++        return False
++    tail = lines[anchor_at + 1:]
++    soul_lines = [line.strip() for line in tail if line.startswith(_ALLIES_PROMPT_MARKER_SOUL)]
++    platform_lines = [line.strip() for line in tail if line.startswith(_ALLIES_PROMPT_MARKER_PLATFORM)]
++    if len(soul_lines) != 1 or len(platform_lines) != 1:
++        return False
++    return (soul_lines[0] == f"{_ALLIES_PROMPT_MARKER_SOUL} {soul}"
++        and platform_lines[0] == f"{_ALLIES_PROMPT_MARKER_PLATFORM} {platform}")
++
++
+ _TUI_EMBEDDED_PANE_CLARIFIER = (
+     " You're in its embedded terminal pane, beside the GUI chat — the user can "
+     "select your output (Option-drag on macOS, Shift-drag elsewhere) and press "
+@@ -550,6 +618,9 @@ def build_system_prompt_parts(agent: Any, system_message: Optional[str] = None)
+     if agent.platform:
+         timestamp_line += f"\nPlatform: {agent.platform}"
+     volatile_parts.append(timestamp_line)
++    _allies_marker = allies_prompt_version_marker(agent)
++    if _allies_marker:
++        volatile_parts.append(_allies_marker)
+ 
+     return {
+         "stable":   "\n\n".join(p.strip() for p in stable_parts   if p and p.strip()),

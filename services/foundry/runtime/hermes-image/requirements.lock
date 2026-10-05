@@ -1,0 +1,6 @@
+mnemosyne-hermes==0.5.0 \
+    --hash=sha256:cfabed2f2816c6bfb2a640498cb3338e8debd69e178aa0ab61957688996368bf
+mnemosyne-memory==3.15.1 \
+    --hash=sha256:bc79a6277d2195bba59123292924e8ff5421357c58ee543a23054b8dd97d7484
+PyYAML==6.0.3 \
+    --hash=sha256:0f29edc409a6392443abf94b9cf89ce99889a1dd5376d94316ae5145dfedd5d6

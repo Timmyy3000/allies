@@ -1,0 +1,249 @@
+diff --git a/hermes_state.py b/hermes_state.py
+index 76f4ee2c3..17efaede0 100644
+--- a/hermes_state.py
++++ b/hermes_state.py
+@@ -27,6 +27,7 @@ import sqlite3
+ import sys
+ import threading
+ import time
++import uuid
+ from collections import deque
+ from contextlib import contextmanager
+ from pathlib import Path
+@@ -1683,6 +1683,14 @@ class SessionCompressionInProgressError(CompressionSessionBusyError):
+     """
+ 
+ 
++class SessionBootstrapNotFoundError(RuntimeError):
++    """The requested transcript bootstrap session does not exist."""
++
++
++class SessionBootstrapConflictError(RuntimeError):
++    """The requested session is not empty or has a different bootstrap."""
++
++
+ def _connect_tracked_db(path, tracking_path=None, **kwargs):
+     """``sqlite3.connect`` that registers the open fd for lock-safety.
+ 
+@@ -6378,6 +6386,67 @@ class SessionDB(SessionSearchMixin, SessionSchemaMixin, SessionPortabilityMixin)
+             _do, patience_s=self._TRANSCRIPT_WRITE_PATIENCE_S
+         )
+ 
++    def bootstrap_assistant_message(
++        self, session_id: str, message_id: str, text: str
++    ) -> str:
++        """Insert one exact assistant greeting, or acknowledge its replay."""
++
++        if (
++            not isinstance(session_id, str)
++            or not session_id
++            or not isinstance(message_id, str)
++            or not message_id
++            or not isinstance(text, str)
++            or not text
++        ):
++            raise ValueError("bootstrap fields are invalid")
++        try:
++            if str(uuid.UUID(message_id)) != message_id:
++                raise ValueError
++            if len(text.encode("utf-8")) > 16 * 1024:
++                raise ValueError
++        except (UnicodeEncodeError, ValueError):
++            raise ValueError("bootstrap fields are invalid") from None
++
++        def _do(conn):
++            self._check_transcript_write_guards(conn, session_id, None)
++            session = conn.execute(
++                "SELECT id FROM sessions WHERE id = ?", (session_id,)
++            ).fetchone()
++            if session is None:
++                raise SessionBootstrapNotFoundError(session_id)
++            rows = conn.execute(
++                "SELECT role, content, platform_message_id "
++                "FROM messages WHERE session_id = ? ORDER BY id LIMIT 2",
++                (session_id,),
++            ).fetchall()
++            stored_content = self._encode_content(text)
++            if not rows:
++                conn.execute(
++                    "INSERT INTO messages "
++                    "(session_id, role, content, timestamp, platform_message_id, observed, active) "
++                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
++                    (session_id, "assistant", stored_content, time.time(), message_id, 0, 1),
++                )
++                conn.execute(
++                    "UPDATE sessions SET message_count = message_count + 1 "
++                    "WHERE id = ?",
++                    (session_id,),
++                )
++                return "created"
++            if (
++                len(rows) == 1
++                and rows[0]["role"] == "assistant"
++                and rows[0]["content"] == stored_content
++                and rows[0]["platform_message_id"] == message_id
++            ):
++                return "duplicate"
++            raise SessionBootstrapConflictError(session_id)
++
++        return self._execute_write(
++            _do, patience_s=self._TRANSCRIPT_WRITE_PATIENCE_S
++        )
++
+     def append_messages_batch(
+         self,
+         session_id: str,
+diff --git a/gateway/platforms/api_server.py b/gateway/platforms/api_server.py
+index a756134d9..65d762015 100644
+--- a/gateway/platforms/api_server.py
++++ b/gateway/platforms/api_server.py
+@@ -43,6 +43,7 @@ import asyncio
+ import errno
+ import hashlib
+ import hmac
++import ipaddress
+ import itertools
+ import json
+ from contextlib import contextmanager, nullcontext
+@@ -1999,6 +2000,7 @@ class APIServerAdapter(BasePlatformAdapter):
+             ("DELETE", "/api/sessions/{session_id}", self._handle_delete_session),
+             ("GET", "/api/sessions/{session_id}/messages", self._handle_session_messages),
+             ("POST", "/api/sessions/{session_id}/fork", self._handle_fork_session),
++            ("PUT", "/api/sessions/{session_id}/bootstrap", self._handle_session_bootstrap),
+             ("POST", "/api/sessions/{session_id}/chat", self._handle_session_chat),
+             ("POST", "/api/sessions/{session_id}/chat/stream", self._handle_session_chat_stream),
+             ("POST", "/api/sessions/{session_id}/model", self._handle_session_model_lock),
+@@ -3464,6 +3466,133 @@ class APIServerAdapter(BasePlatformAdapter):
+             "data": [self._message_response(m) for m in messages],
+         })
+ 
++    async def _handle_session_bootstrap(self, request: "web.Request") -> "web.Response":
++        """Persist one exact assistant greeting for a named local profile."""
++        auth_err = self._check_auth(request)
++        if auth_err:
++            return auth_err
++
++        profile = _api_request_profile.get()
++        if (
++            not profile
++            or profile == "default"
++            or request.match_info.get("profile") != profile
++        ):
++            return web.json_response(
++                _openai_error(
++                    "Profile-scoped bootstrap is required",
++                    code="profile_scope_required",
++                ),
++                status=403,
++            )
++
++        peer = getattr(request, "remote", None)
++        if not peer:
++            transport = getattr(request, "transport", None)
++            if transport is not None:
++                peer_info = transport.get_extra_info("peername")
++                if isinstance(peer_info, (tuple, list)):
++                    peer = peer_info[0] if peer_info else None
++                elif isinstance(peer_info, str):
++                    peer = peer_info
++        try:
++            loopback = ipaddress.ip_address(peer).is_loopback
++        except (TypeError, ValueError):
++            loopback = False
++        if not loopback:
++            return web.json_response(
++                _openai_error(
++                    "Transcript bootstrap is loopback-only",
++                    code="loopback_required",
++                ),
++                status=403,
++            )
++
++        body, err = await self._read_json_body(request)
++        if err:
++            return err
++        if set(body) != {"schema_version", "kind", "message_id", "text"}:
++            return web.json_response(
++                _openai_error("Invalid transcript bootstrap", code="invalid_bootstrap"),
++                status=400,
++            )
++        if body.get("schema_version") != "v1" or body.get(
++            "kind"
++        ) != "assistant_transcript_bootstrap":
++            return web.json_response(
++                _openai_error("Invalid transcript bootstrap", code="invalid_bootstrap"),
++                status=400,
++            )
++        raw_message_id = body.get("message_id")
++        try:
++            message_id = str(uuid.UUID(raw_message_id))
++        except (TypeError, ValueError):
++            return web.json_response(
++                _openai_error("Invalid transcript bootstrap", code="invalid_bootstrap"),
++                status=400,
++            )
++        if raw_message_id != message_id:
++            return web.json_response(
++                _openai_error("Invalid transcript bootstrap", code="invalid_bootstrap"),
++                status=400,
++            )
++        text = body.get("text")
++        try:
++            text_bytes = text.encode("utf-8")
++        except (AttributeError, UnicodeError):
++            text_bytes = None
++        if not isinstance(text, str) or not text or text_bytes is None or len(text_bytes) > 16 * 1024:
++            return web.json_response(
++                _openai_error("Invalid transcript bootstrap", code="invalid_bootstrap"),
++                status=400,
++            )
++
++        session_id = request.match_info["session_id"]
++        _, err = await self._get_existing_session_or_404(session_id)
++        if err:
++            return err
++        db = await self._ensure_session_db_async()
++        if db is None:
++            return web.json_response(
++                _openai_error("Session database unavailable", code="session_db_unavailable"),
++                status=503,
++            )
++        from hermes_state import (
++            SessionBootstrapConflictError,
++            SessionBootstrapNotFoundError,
++        )
++        try:
++            result = await asyncio.to_thread(
++                db.bootstrap_assistant_message, session_id, message_id, text
++            )
++        except SessionBootstrapNotFoundError:
++            return web.json_response(
++                _openai_error("Session not found", code="session_not_found"),
++                status=404,
++            )
++        except SessionBootstrapConflictError:
++            return web.json_response(
++                _openai_error(
++                    "Transcript bootstrap conflicts with session history",
++                    code="transcript_bootstrap_conflict",
++                ),
++                status=409,
++            )
++        except ValueError:
++            return web.json_response(
++                _openai_error("Invalid transcript bootstrap", code="invalid_bootstrap"),
++                status=400,
++            )
++        return web.json_response(
++            {
++                "object": "hermes.session.bootstrap",
++                "session_id": session_id,
++                "message_id": message_id,
++                "status": result,
++            },
++            status=201 if result == "created" else 200,
++        )
++
+     async def _handle_fork_session(self, request: "web.Request") -> "web.Response":
+         """POST /api/sessions/{session_id}/fork — branch via current SessionDB primitives."""
+         auth_err = self._check_auth(request)
