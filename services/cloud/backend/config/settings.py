@@ -429,7 +429,9 @@ SECURE_PROXY_SSL_HEADER = (
 USE_X_FORWARDED_HOST = env_bool("ALLIES_TRUST_FORWARDED_HOST", False)
 ALLIES_TRUST_FORWARDED_FOR = env_bool("ALLIES_TRUST_FORWARDED_FOR", False)
 ALLIES_TRUSTED_PROXY_IPS = env_list("ALLIES_TRUSTED_PROXY_IPS")
-SECURE_SSL_REDIRECT = not DEBUG
+# Self-hosted stacks terminate TLS (and redirect) at the edge while services
+# call each other over the private network, so the redirect can be turned off.
+SECURE_SSL_REDIRECT = env_bool("ALLIES_SECURE_SSL_REDIRECT", not DEBUG)
 # Railway performs its private readiness probe over HTTP. Outside Railway
 # mode, health checks use the same HTTPS policy as every other route.
 SECURE_REDIRECT_EXEMPT = [r"^/?api/v1/health$"] if ALLIES_RAILWAY_PROXY_MODE else []
