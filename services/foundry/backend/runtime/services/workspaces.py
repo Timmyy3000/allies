@@ -1575,9 +1575,9 @@ def configure_workspace_provider(provider: WorkspaceProvider) -> None:
 
 def _service() -> WorkspaceLifecycle:
     if _configured_provider is None:
-        from runtime.providers import FlyProvider
+        from runtime.services.runtime_provider import runtime_power_provider
 
-        return WorkspaceLifecycle(FlyProvider())
+        return WorkspaceLifecycle(runtime_power_provider())
     return WorkspaceLifecycle(_configured_provider)
 
 

@@ -224,9 +224,14 @@ def _foundry_origin(value: str) -> str:
         port = parsed.port
     except ValueError as exc:
         raise SettingsError("FOUNDRY_ORIGIN is not a valid URL") from exc
-    is_test_loopback = parsed.scheme == "http" and parsed.hostname == "127.0.0.1"
+    # Plain HTTP stays on a private network: loopback, or a single-label
+    # container name (self-hosted Docker) that public DNS cannot resolve.
+    is_private_http = parsed.scheme == "http" and (
+        parsed.hostname == "127.0.0.1"
+        or bool(parsed.hostname and "." not in parsed.hostname)
+    )
     if (
-        (parsed.scheme != "https" and not is_test_loopback)
+        (parsed.scheme != "https" and not is_private_http)
         or not parsed.hostname
         or parsed.username
         or parsed.password
@@ -235,7 +240,7 @@ def _foundry_origin(value: str) -> str:
         or parsed.path not in ("", "/")
     ):
         raise SettingsError(
-            "FOUNDRY_ORIGIN must be an HTTPS origin or the test loopback origin"
+            "FOUNDRY_ORIGIN must be an HTTPS origin or a private HTTP origin"
         )
     host = parsed.hostname
     if ":" in host:
