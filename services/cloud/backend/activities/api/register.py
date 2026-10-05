@@ -241,6 +241,7 @@ class ActivityController(ControllerBase):
         limit: int = Query(200, ge=1, le=200),
         cursor: str | None = Query(None, max_length=512),
         replay: bool = Query(False),
+        recent_messages: int | None = Query(None, ge=1, le=200),
     ):
         try:
             session = _session(request)
@@ -251,6 +252,7 @@ class ActivityController(ControllerBase):
                 limit=limit,
                 cursor=cursor,
                 replay=replay,
+                recent_messages=recent_messages,
             )
         except SessionInvalid:
             return error_json("session_invalid", "session invalid", 401)

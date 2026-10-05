@@ -26,7 +26,7 @@ const hash = createHash("sha256").update(bytes).digest("hex");
 const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(metadata.retrievedAt) &&
   new Date(`${metadata.retrievedAt}T00:00:00.000Z`).toISOString().startsWith(metadata.retrievedAt);
 const validSource = metadata.source === canonicalSource || (
-  metadata.source === "https://github.com/alliesai/allies-cloud"
+  metadata.source === "https://github.com/Timmyy3000/allies"
   && /^[0-9a-f]{40}$/.test(metadata.sourceRevision ?? "")
   && metadata.sourceDirty === false
 );

@@ -1487,3 +1487,45 @@ def test_stalled_gap_without_receipts_fails_the_turn(conversation_records):
     assert message.status == MessageLifecycle.FAILED
     assert message.retry_allowed is True
     assert FoundryHeldEvent.objects.count() == 0
+
+
+@pytest.mark.django_db
+def test_activity_replay_can_start_at_recent_turns(conversation_records):
+    user, workspace, _ally, _binding, conversation, message = conversation_records
+    later = Message.objects.create(
+        conversation=conversation,
+        sequence=message.sequence + 1,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        status=MessageLifecycle.QUEUED,
+        content="later",
+        send_key_digest="9" * 64,
+        content_fingerprint="9" * 64,
+    )
+    for sequence, turn in ((1, message), (2, message), (3, later), (4, later)):
+        Activity.objects.create(
+            conversation=conversation,
+            message=turn,
+            sequence=sequence,
+            conversation_turn_ordinal=turn.sequence,
+            generation=1,
+            attempt_id=uuid5(EVENT_NAMESPACE, f"recent-attempt-{sequence}"),
+            attempt_sequence=sequence,
+            event_id=uuid5(EVENT_NAMESPACE, f"recent-event-{sequence}"),
+            event_type="message.delta",
+            kind="assistant_delta",
+            text=f"part-{sequence}",
+            state=ProjectionState.RUNNING,
+            event_fingerprint="canonical-json-sha256:v1:" + "c" * 64,
+        )
+
+    recent = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        replay=True,
+        recent_messages=1,
+    )
+    assert [activity.sequence for activity in recent.activities] == [3, 4]
+    resumed = parse_activity_cursor(recent.resume_cursor, conversation.id)
+    assert (resumed.after_sequence, resumed.high_water_sequence) == (4, 4)

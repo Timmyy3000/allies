@@ -1930,7 +1930,8 @@ function ConversationPane({
           {
             limit: 200,
             replay: true,
-            ...(cursor ? { cursor } : {}),
+            // Opening a chat only replays activity for the messages it shows.
+            ...(cursor ? { cursor } : { recentMessages: 50 }),
           },
           controllerSignal,
         ), {
