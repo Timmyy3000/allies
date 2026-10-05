@@ -326,7 +326,7 @@ describe("Ally and conversation Cloud client boundary", () => {
     }, "short")).rejects.toMatchObject({ kind: "bad-request" });
     await expect(client.sendMessage(ids.workspace, ids.conversation, "", "send-key-00000001"))
       .rejects.toMatchObject({ kind: "bad-request" });
-    await expect(client.getActivities(ids.workspace, ids.conversation, 201))
+    await expect(client.getActivities(ids.workspace, ids.conversation, 1001))
       .rejects.toMatchObject({ kind: "bad-request" });
     expect(fetch).not.toHaveBeenCalled();
   });
