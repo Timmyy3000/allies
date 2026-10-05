@@ -141,15 +141,6 @@
   width: max-content;
 }
 
-.allyCreationLimit {
-  max-width: 240px;
-  margin: 0 0 8px;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.4;
-  text-align: center;
-}
-
 .exactMobileCreate:disabled {
   background: var(--surface);
   color: var(--text-secondary);
@@ -1983,4 +1974,11 @@ button.newAllyButton {
   .composer button {
     transition: none;
   }
+}
+
+.allyPreviewSkeleton {
+  width: 70%;
+  max-width: 220px;
+  height: 12px;
+  margin-top: 4px;
 }

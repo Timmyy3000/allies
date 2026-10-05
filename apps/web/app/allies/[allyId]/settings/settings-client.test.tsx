@@ -7,7 +7,7 @@ import { AllySettingsClient } from "./settings-client";
 const mocks = vi.hoisted(() => ({ session: vi.fn(), push: vi.fn(), replace: vi.fn() }));
 vi.mock("@/lib/session/session-context", () => ({ useSession: mocks.session }));
 vi.mock("next/navigation", () => ({ useRouter: () => mocks }));
-vi.mock("@/components/allies-loading", () => ({ AlliesLoading: () => <p>Loading</p> }));
+vi.mock("@/components/loading-skeletons", () => ({ SettingsSkeleton: () => <p>Loading</p> }));
 vi.mock("./settings-details", () => ({ AllySettingsDetails: ({ ally }: { ally: { name: string } }) => <p>{ally.name}</p> }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 

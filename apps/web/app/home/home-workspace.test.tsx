@@ -317,16 +317,16 @@ async function clickSendMessage() {
 describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
   beforeEach(() => stubViewport(desktop));
 
-  it("shows the animated loader immediately until the initial roster is ready", async () => {
+  it("shows the roster skeleton immediately until the initial roster is ready", async () => {
     let resolveAllies!: (value: AllyViewModel[]) => void;
     const getAllies = vi.fn(() => new Promise<AllyViewModel[]>((resolve) => { resolveAllies = resolve; }));
     renderHome([ally], null, { listAllies: getAllies });
-    expect(screen.getByRole("status", { name: "Loading your space" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Loading your Allies" })).toBeTruthy();
     expect(screen.queryByText("My allies")).toBeNull();
     expect(screen.queryByText("Events")).toBeNull();
     await waitFor(() => expect(getAllies).toHaveBeenCalled());
     await act(async () => resolveAllies([ally]));
-    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading your space" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("status", { name: "Loading your Allies" })).toBeNull());
     expect(screen.getByRole("navigation", { name: "Choose an Ally" })).toBeTruthy();
   });
 
@@ -466,23 +466,14 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     expect(screen.getByText("Shape your Ally")).toBeTruthy();
   });
 
-  it.each([false, true])("allows a tenth Ally (desktop: %s)", async (desktop) => {
+  it.each([false, true])("allows creating beyond ten Allies without a count (desktop: %s)", async (desktop) => {
     stubViewport(desktop);
-    renderHome(Array.from({ length: 9 }, (_, index) => ({ ...ally, id: `ally-${index}` })));
+    renderHome(Array.from({ length: 12 }, (_, index) => ({ ...ally, id: `ally-${index}` })));
     const button = await screen.findByRole("button", { name: "Make an Ally" });
     expect((button as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByText("9 / 10 Allies")).toBeTruthy();
+    expect(screen.queryByText(/\/ 10 Allies/)).toBeNull();
     fireEvent.click(button);
     expect(screen.getByText("Shape your Ally")).toBeTruthy();
-  });
-
-  it.each([10, 11])("blocks creation at %s Allies, including the direct route", async (count) => {
-    renderHome(Array.from({ length: count }, (_, index) => ({ ...ally, id: `ally-${index}` })), "new");
-    expect(await screen.findByRole("heading", { name: "Ally limit reached" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Make an Ally" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByText("Shape your Ally")).toBeNull();
-    expect(screen.queryByText("Finish create")).toBeNull();
-    expect(screen.getAllByRole("link", { name: /Mira/ })).toHaveLength(count);
   });
 
   it.each(["home", "ally", "new"])("redirects signed-out visitors from %s without demo content", async (route) => {

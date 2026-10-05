@@ -1,5 +1,6 @@
 "use client";
 
+import { MessagesSkeleton } from "../../components/loading-skeletons";
 import { Streamdown } from "streamdown";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { RoutineUserText, routineLinkComponents } from "./routine-mention";
@@ -301,7 +302,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
           ) : (
             <>
           {model.timeline.isLoading ? (
-            <p className={styles.frameQuietState}>Opening your conversation…</p>
+            <MessagesSkeleton />
           ) : null}
           {model.timeline.loadError ? (
             <FrameError action="Try again" onAction={actions.onRetryConversation}>
@@ -463,8 +464,8 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
               animate={{ opacity: 1, y: 0, scale: 1, transition: { duration: 0.2, ease: EASE_OUT } }}
               exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: 8, transition: { duration: 0.15, ease: EASE_OUT } }}
             >
-              <button type="button" className={styles.frameJumpLatest} onClick={jumpToLatest}>
-                Jump to latest ↓
+              <button type="button" className={styles.frameJumpLatest} onClick={jumpToLatest} aria-label="Jump to latest" title="Jump to latest">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 5v14M6 13l6 6 6-6" /></svg>
               </button>
             </motion.div>
           ) : null}

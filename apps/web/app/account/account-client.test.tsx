@@ -126,7 +126,7 @@ describe("AccountClient", () => {
     setupSession({ state: { status: "unknown" }, restore });
     renderAccount();
 
-    expect(screen.getByRole("status", { name: "Restoring your account" })).toBeTruthy();
+    expect(screen.getByRole("status", { name: "Loading your account" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: /sign in/i })).toBeNull();
     expect(restore).toHaveBeenCalledOnce();
   });

@@ -17,7 +17,7 @@ import { logoutDestination, NOTIFICATION_CLEANUP_NOTICE } from "../lib/session/l
 import { useSession } from "../lib/session/session-context";
 import { WaitlistFlowProvider } from "../lib/waitlist/flow";
 import { OnboardingHandoffScreen } from "../lib/allies/onboarding-handoff-screen";
-import statusStyles from "./app/app.module.css";
+import { QuietSplash } from "../components/loading-skeletons";
 
 
 const subscribeToResume = (notify: () => void) => {
@@ -116,11 +116,5 @@ function LogoutRecovery() {
 }
 
 function HomeResumeStatus({ message }: { message: string }) {
-  return (
-    <main className={statusStyles.statusPage}>
-      <div className={`${statusStyles.statusContent} ${statusStyles.statusPending}`}>
-        <p role="status" aria-live="polite">{message}</p>
-      </div>
-    </main>
-  );
+  return <QuietSplash label={message} />;
 }

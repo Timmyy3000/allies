@@ -91,7 +91,7 @@ describe("public homepage sign-in entry", () => {
 
     render(<HomePageClient />);
 
-    expect(screen.getByRole("status").textContent).toContain("Opening your home");
+    expect(screen.getByRole("status", { name: "Opening your home…" })).toBeTruthy();
     await waitFor(() => expect(routerMock.replace).toHaveBeenCalledWith("/home"));
     expect(screen.queryByTestId("public-onboarding")).toBeNull();
   });
