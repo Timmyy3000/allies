@@ -24,7 +24,7 @@ env:
 jobs:
   artifacts:
     name: Delete workflow artifacts older than 7 days
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       actions: write
@@ -49,7 +49,7 @@ jobs:
   runtime-images:
     name: Delete runtime images nothing needs
     if: github.ref == 'refs/heads/dev'
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     # Read-only here: reads the live image pair, which needs the production configuration token.
     environment: foundry / prod
