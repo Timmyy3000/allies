@@ -1,0 +1,10 @@
+# Lets the Hermes profile sandbox (bwrap) create user namespaces on hosts
+# that restrict them (Ubuntu 24.04+), without lifting the restriction host-wide.
+# Install: sudo cp apparmor-allies-hermes /etc/apparmor.d/allies-hermes
+#          sudo apparmor_parser -r /etc/apparmor.d/allies-hermes
+abi <abi/4.0>,
+include <tunables/global>
+
+profile allies-hermes flags=(unconfined) {
+  userns,
+}
