@@ -1,0 +1,37 @@
+{
+  "name": "allies-interface",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "bun --filter web dev",
+    "dev:mobile": "bun --filter mobile start",
+    "build:web": "bun --filter web build",
+    "lint:web": "bun --filter web lint",
+    "lint:mobile": "bun --filter mobile lint",
+    "lint": "bun run lint:web && bun run lint:mobile",
+    "typecheck": "bun --filter '*' typecheck",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:chat-frames": "bun run --cwd apps/web test:chat-frames",
+    "test:chat-frames:update": "bun run --cwd apps/web test:chat-frames:update",
+    "cloud:fetch": "bun scripts/fetch-cloud-openapi.ts",
+    "cloud:generate": "openapi-typescript packages/cloud-client/openapi/allies-cloud-0.1.0.json -o packages/cloud-client/src/generated/openapi.ts",
+    "cloud:verify": "bun scripts/verify-cloud-openapi.ts",
+    "cloud:check": "bun run cloud:verify && bun run cloud:generate && git diff --exit-code -- packages/cloud-client/src/generated/openapi.ts",
+    "bundle:mobile": "bun --filter mobile export:ios"
+  },
+  "devDependencies": {
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^24.3.0",
+    "jsdom": "^26.1.0",
+    "openapi-typescript": "7.13.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  },
+  "packageManager": "bun@1.2.20"
+}

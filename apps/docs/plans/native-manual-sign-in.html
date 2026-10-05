@@ -1,0 +1,357 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Temporary native manual sign-in plan</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400..600&amp;family=Geist+Mono:wght@400..600&amp;display=swap" rel="stylesheet" referrerpolicy="no-referrer">
+    <link href="https://vercel.com/geist/vercel-brand.css" rel="stylesheet">
+    <style>
+      .vbg-custom-auth-page { --auth-accent: #ff5800; --auth-safe: #15803d; --auth-warn: #b45309; overflow-x: hidden; }
+      .vbg-custom-auth-page, .vbg-custom-auth-page *, .vbg-custom-auth-page *::before, .vbg-custom-auth-page *::after { box-sizing: border-box; }
+      .vbg-custom-auth-page :where(p, h1, h2, h3, li, td, th, code, figcaption) { overflow-wrap: anywhere; }
+      .vbg-custom-auth-hero { display: grid; grid-template-columns: minmax(0, 7fr) minmax(15rem, 4fr); gap: var(--vbg-space-8); align-items: end; padding: var(--vbg-space-12) 0; }
+      .vbg-custom-auth-kicker { color: var(--auth-accent); font: var(--vbg-type-label); margin: 0 0 var(--vbg-space-3); }
+      .vbg-custom-auth-summary { border-left: 3px solid var(--auth-accent); padding-left: var(--vbg-space-5); }
+      .vbg-custom-auth-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--vbg-space-6); }
+      .vbg-custom-auth-card { border: 1px solid var(--vbg-color-border); border-radius: var(--vbg-radius-3); padding: var(--vbg-space-6); min-width: 0; }
+      .vbg-custom-auth-card > * { margin: 0; }
+      .vbg-custom-auth-card > * + * { margin-top: var(--vbg-space-3); }
+      .vbg-custom-auth-card[data-tone="manual"] { border-top: 4px solid var(--auth-accent); }
+      .vbg-custom-auth-status { display: inline-flex; border: 1px solid currentColor; border-radius: 999px; padding: .2rem .55rem; font-size: .78rem; line-height: 1.2; }
+      .vbg-custom-auth-status[data-tone="safe"] { color: var(--auth-safe); }
+      .vbg-custom-auth-status[data-tone="temporary"] { color: var(--auth-warn); }
+      .vbg-custom-auth-table-wrap { overflow-x: auto; border: 1px solid var(--vbg-color-border); border-radius: var(--vbg-radius-3); }
+      .vbg-custom-auth-table { width: 100%; border-collapse: collapse; min-width: 48rem; }
+      .vbg-custom-auth-table th, .vbg-custom-auth-table td { padding: var(--vbg-space-4); border-bottom: 1px solid var(--vbg-color-border); text-align: left; vertical-align: top; overflow-wrap: anywhere; }
+      .vbg-custom-auth-table th { font: var(--vbg-type-label); color: var(--vbg-color-text-secondary); }
+      .vbg-custom-auth-table tr:last-child td { border-bottom: 0; }
+      .vbg-custom-auth-code { font-family: "Geist Mono", ui-monospace, monospace; font-size: .9em; overflow-wrap: anywhere; }
+      .vbg-custom-auth-figure { margin: var(--vbg-space-6) 0 0; }
+      .vbg-custom-auth-figure svg { display: block; width: 100%; height: auto; color: var(--vbg-color-text); }
+      .vbg-custom-auth-figure figcaption { margin-top: var(--vbg-space-3); color: var(--vbg-color-text-secondary); }
+      .vbg-custom-auth-step { fill: var(--vbg-color-background-secondary); stroke: var(--vbg-color-border); stroke-width: 1.5; }
+      .vbg-custom-auth-step-manual { fill: color-mix(in srgb, var(--auth-accent) 12%, var(--vbg-color-background)); stroke: var(--auth-accent); stroke-width: 2; }
+      .vbg-custom-auth-edge { stroke: var(--vbg-color-text-secondary); stroke-width: 1.5; fill: none; marker-end: url(#auth-arrow); }
+      .vbg-custom-auth-edge-safe { stroke: var(--auth-safe); stroke-width: 2; fill: none; marker-end: url(#auth-arrow-safe); }
+      .vbg-custom-auth-svg-label { font: 600 14px Geist, sans-serif; fill: currentColor; }
+      .vbg-custom-auth-svg-detail { font: 400 11px Geist, sans-serif; fill: var(--vbg-color-text-secondary); }
+      .vbg-custom-auth-list { margin: var(--vbg-space-3) 0 0; padding-left: 1.25rem; }
+      .vbg-custom-auth-list li + li { margin-top: var(--vbg-space-2); }
+      .vbg-custom-auth-phases { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--vbg-space-5); }
+      .vbg-custom-auth-phase { border-top: 3px solid var(--auth-accent); padding-top: var(--vbg-space-4); min-width: 0; }
+      .vbg-custom-auth-phase > * { margin: 0; }
+      .vbg-custom-auth-phase > * + * { margin-top: var(--vbg-space-3); }
+      .vbg-custom-auth-callout { background: color-mix(in srgb, var(--auth-accent) 8%, var(--vbg-color-background)); border: 1px solid color-mix(in srgb, var(--auth-accent) 35%, var(--vbg-color-border)); border-radius: var(--vbg-radius-3); padding: var(--vbg-space-6); }
+      .vbg-custom-auth-callout > * { margin: 0; }
+      .vbg-custom-auth-callout > * + * { margin-top: var(--vbg-space-3); }
+      @media (max-width: 760px) {
+        .vbg-custom-auth-hero, .vbg-custom-auth-grid, .vbg-custom-auth-phases { grid-template-columns: 1fr; }
+        .vbg-custom-auth-hero { padding: var(--vbg-space-8) 0; }
+      }
+      @media print { .vbg-custom-auth-page { --auth-accent: #b63e00; } }
+    </style>
+  </head>
+  <body class="vbg-report vbg-custom-auth-page">
+    <div class="vbg-shell">
+      <a class="vbg-skip-link" href="#main">Skip to content</a>
+      <header class="vbg-header">
+        <div class="vbg-masthead">
+          <span class="vbg-identity">Allies</span>
+          <div class="vbg-document-meta">Mobile + Cloud · Fast implementation plan · 5 September 2026</div>
+        </div>
+      </header>
+      <main id="main">
+        <section class="vbg-custom-auth-hero" aria-labelledby="page-title">
+          <div>
+            <p class="vbg-custom-auth-kicker">Temporary Expo Go bridge</p>
+            <h1 id="page-title" class="vbg-display">Copy one code. Keep the real PKCE session boundary.</h1>
+          </div>
+          <div class="vbg-custom-auth-summary">
+            <p class="vbg-lede">Cloud renders the existing one-time exchange code after Google completes. Expo Go pastes it into the initiating attempt, which must still prove the in-memory PKCE verifier before the existing session path runs.</p>
+          </div>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="overview">
+          <h2 id="overview" class="vbg-heading-24">Why this change exists</h2>
+          <p>Expo Go cannot complete the claimed-link return required by the accepted native Google flow, so Android and iOS testing stalls after Google authentication while Apple enrollment and native app-link setup are pending. This temporary mode is for Allies developers and testers. It preserves Google identity verification, AUTH-002 exchange/session behavior, and the current post-sign-in and onboarding continuation.</p>
+          <div class="vbg-custom-auth-grid">
+            <article class="vbg-custom-auth-card">
+              <span class="vbg-custom-auth-status" data-tone="safe">Compatible default</span>
+              <h3 class="vbg-heading-20">Redirect mode</h3>
+              <p>Omitting <span class="vbg-custom-auth-code">completion_mode</span> keeps the existing 303 redirect, callback state validation, and app-link exchange behavior.</p>
+            </article>
+            <article class="vbg-custom-auth-card" data-tone="manual">
+              <span class="vbg-custom-auth-status" data-tone="temporary">Temporary opt-in</span>
+              <h3 class="vbg-heading-20">Manual-code mode</h3>
+              <p>Cloud returns a protected HTML page with the same short-lived exchange code. The app pastes it into the same token exchange using the original verifier and redirect binding.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="stories">
+          <h2 id="stories" class="vbg-heading-24">User outcomes</h2>
+          <ol>
+            <li>An Expo Go tester can copy a short-lived code from the completed Google page and paste it into Allies on Android or iOS.</li>
+            <li>Cancel, expiry, wrong-device paste, retry, and screen exit fail safely; an old attempt cannot install a later session.</li>
+            <li>Redirect remains the default and manual delivery reuses AUTH-002, so removing the temporary bridge does not disturb production flow.</li>
+          </ol>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="scope">
+          <h2 id="scope" class="vbg-heading-24">Bounded scope</h2>
+          <div class="vbg-custom-auth-grid">
+            <article class="vbg-custom-auth-card">
+              <h3 class="vbg-heading-20">Included</h3>
+              <ul class="vbg-custom-auth-list">
+                <li>Optional <span class="vbg-custom-auth-code">completion_mode</span>, persisted on the authorization transaction with <span class="vbg-custom-auth-code">redirect</span> as default.</li>
+                <li><span class="vbg-custom-auth-code">manual_code</span> callback HTML with the existing 32-byte URL-safe code, copy control, selectable fallback, existing expiry, and no expiry extension on callback retry.</li>
+                <li>Exact redirect allowlisting, Google verification, transaction locking, PKCE S256, single-use exchange, refresh storage, account load, and navigation reuse.</li>
+                <li><span class="vbg-custom-auth-code">EXPO_PUBLIC_NATIVE_AUTH_COMPLETION_MODE</span>, defaulting to redirect and set to manual only in temporary Expo Go environments.</li>
+                <li>Manual entry plus explicit begin, exchange, cancel, restart, and unmount ownership.</li>
+                <li>Additive OpenAPI publication and Interface pinning.</li>
+              </ul>
+            </article>
+            <article class="vbg-custom-auth-card">
+              <h3 class="vbg-heading-20">Excluded</h3>
+              <ul class="vbg-custom-auth-list">
+                <li>Device-code protocol, polling, second exchange system, custom short-code table, native Google SDK, WebView, or browser-cookie transfer.</li>
+                <li>Access/refresh token changes, refresh rotation, logout, SecureStore, account/profile/Workspace, or onboarding contract changes.</li>
+                <li>Replacing the claimed HTTPS return path. Manual mode retains the same allowlisted <span class="vbg-custom-auth-code">redirect_uri</span> as an exchange binding without navigating to it.</li>
+                <li>Changes to the separate hosted callback/link service, production promotion, or removal of real-development-build acceptance gates.</li>
+              </ul>
+            </article>
+          </div>
+          <p class="vbg-caption">Plan hygiene: the committed artifacts contain repository-relative paths and deployment placeholders only. The callback page must not expose provider credentials, Cloud access or refresh tokens, profile data, or the app verifier.</p>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="assumptions">
+          <h2 id="assumptions" class="vbg-heading-24">Dependencies and invariants</h2>
+          <ul>
+            <li>Cloud native auth is enabled and Google already returns to <span class="vbg-custom-auth-code">GET /api/v1/auths/native/callback/google</span>.</li>
+            <li>The existing exchange code is 32 random URL-safe bytes, sealed at rest, single-use, and configured for a 60-second lifetime. UI behavior reads the configured expiry and does not hardcode it.</li>
+            <li>Only the opaque refresh token remains in SecureStore. State, verifier, pasted code, access token, and form state remain in memory.</li>
+            <li>The current <span class="vbg-custom-auth-code">NativeSessionAdapter.completeSignIn</span> remains session authority, after it becomes cancellable and generation-safe.</li>
+          </ul>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="flow">
+          <h2 id="flow" class="vbg-heading-24">The code changes delivery, not authority</h2>
+          <figure class="vbg-custom-auth-figure">
+            <svg viewBox="0 0 1040 320" role="img" aria-labelledby="flow-title flow-desc">
+              <title id="flow-title">Manual sign-in sequence</title>
+              <desc id="flow-desc">Mobile creates PKCE, Cloud and Google authenticate, Cloud shows the exchange code, the user pastes it, and Cloud verifies the original PKCE attempt before the existing session completes.</desc>
+              <defs>
+                <marker id="auth-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"></path></marker>
+                <marker id="auth-arrow-safe" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#15803d"></path></marker>
+              </defs>
+              <g id="flow-attempt"><title>Initiating mobile attempt</title><rect class="vbg-custom-auth-step" x="20" y="80" rx="12" width="175" height="92"></rect><text class="vbg-custom-auth-svg-label" x="40" y="112">1 · Mobile attempt</text><text class="vbg-custom-auth-svg-detail" x="40" y="136">state + verifier in memory</text><text class="vbg-custom-auth-svg-detail" x="40" y="154">manual_code start</text></g>
+              <path id="edge-start" class="vbg-custom-auth-edge" d="M195 126 H255"><title>Start native sign-in</title></path>
+              <g id="flow-provider"><title>Cloud and Google provider verification</title><rect class="vbg-custom-auth-step" x="255" y="80" rx="12" width="195" height="92"></rect><text class="vbg-custom-auth-svg-label" x="275" y="112">2 · Cloud + Google</text><text class="vbg-custom-auth-svg-detail" x="275" y="136">existing callback verification</text><text class="vbg-custom-auth-svg-detail" x="275" y="154">existing transaction lock</text></g>
+              <path id="edge-page" class="vbg-custom-auth-edge" d="M450 126 H510"><title>Return manual code page</title></path>
+              <g id="flow-page"><title>Backend-rendered manual code page</title><rect class="vbg-custom-auth-step-manual" x="510" y="65" rx="12" width="205" height="122"></rect><text class="vbg-custom-auth-svg-label" x="530" y="99">3 · Copy code</text><text class="vbg-custom-auth-svg-detail" x="530" y="123">HTML body; no Location</text><text class="vbg-custom-auth-svg-detail" x="530" y="141">no-store + CSP nonce</text><text class="vbg-custom-auth-svg-detail" x="530" y="159">same code, same expiry</text></g>
+              <path id="edge-paste" class="vbg-custom-auth-edge" d="M715 126 H775"><title>User pastes code</title></path>
+              <g id="flow-exchange"><title>Existing token exchange</title><rect class="vbg-custom-auth-step" x="775" y="80" rx="12" width="235" height="92"></rect><text class="vbg-custom-auth-svg-label" x="795" y="112">4 · Existing exchange</text><text class="vbg-custom-auth-svg-detail" x="795" y="136">code + original verifier</text><text class="vbg-custom-auth-svg-detail" x="795" y="154">same exact redirect URI</text></g>
+              <path id="edge-session" class="vbg-custom-auth-edge-safe" d="M892 172 V242 H590"><title>Only verified exchange reaches session completion</title></path>
+              <g id="flow-session"><title>Existing session and navigation</title><rect class="vbg-custom-auth-step" x="310" y="225" rx="12" width="280" height="72"></rect><text class="vbg-custom-auth-svg-label" x="330" y="255">5 · Existing session completion</text><text class="vbg-custom-auth-svg-detail" x="330" y="277">SecureStore refresh + account + safe destination</text></g>
+            </svg>
+            <figcaption>A code copied to another attempt or device lacks the initiating verifier. The current exchange validates verifier and redirect before consuming the code, so the rightful attempt can still use it within the original expiry.</figcaption>
+          </figure>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="functions">
+          <h2 id="functions" class="vbg-heading-24">Function and service contract</h2>
+          <div class="vbg-custom-auth-table-wrap">
+            <table class="vbg-custom-auth-table">
+              <thead><tr><th>Location / symbol</th><th>Signature</th><th>Validation and return</th><th>Side effects and failure</th></tr></thead>
+              <tbody>
+                <tr><td><span class="vbg-custom-auth-code">backend/auths/services/native_authorization.py</span><br><span class="vbg-custom-auth-code">begin_native_sign_in</span></td><td><span class="vbg-custom-auth-code">(..., completion_mode = REDIRECT) -&gt; NativeAuthorizationStart</span></td><td>Accept only redirect/manual; retain redirect, state, and S256 validation; return existing URL and expiry.</td><td>Persist the selected mode with the transaction.</td></tr>
+                <tr><td><span class="vbg-custom-auth-code">backend/auths/services/native_authorization.py</span><br><span class="vbg-custom-auth-code">complete_native_callback</span></td><td><span class="vbg-custom-auth-code">(...) -&gt; NativeCallbackResult</span></td><td>Evolve the existing redirect value into one tagged redirect/manual result while retaining provider, state, claim, and expiry checks.</td><td>Reuse the single success/failure/terminal helpers; create at most one exchange code; terminal repeats never mint or extend it.</td></tr>
+                <tr><td><span class="vbg-custom-auth-code">packages/cloud-client/src/native-auth.ts</span><br><span class="vbg-custom-auth-code">beginGoogleSignIn</span></td><td><span class="vbg-custom-auth-code">(input, signal?) -&gt; Promise&lt;NativeAuthorizationStart&gt;</span></td><td><span class="vbg-custom-auth-code">completionMode?: "redirect" | "manual_code"</span>; default redirect.</td><td>Map to snake_case; persist no credential.</td></tr>
+                <tr><td><span class="vbg-custom-auth-code">apps/mobile/src/features/auth/google-sign-in.ts</span><br><span class="vbg-custom-auth-code">createGoogleSignInFlow</span></td><td><span class="vbg-custom-auth-code">{ start(); submitManualCode(code); cancel() }</span></td><td>Own only request-local verifier/state/code and UI lifetime; trim and bound the pasted code.</td><td>Open with <span class="vbg-custom-auth-code">Linking.openURL</span>, retain the attempt on app return, and hand exchange/session authority to the adapter.</td></tr>
+                <tr><td><span class="vbg-custom-auth-code">apps/mobile/src/lib/session/native-session-adapter.ts</span><br><span class="vbg-custom-auth-code">completeSignIn</span></td><td><span class="vbg-custom-auth-code">(input, signal?) -&gt; Promise&lt;NativeSessionState&gt;</span></td><td>Existing input plus abort signal and adapter/provider-wide generation.</td><td>Sole serialized non-cancelable SecureStore commit/cleanup authority across flow instances; stale work neither survives nor clears a newer session.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="transport">
+          <h2 id="transport" class="vbg-heading-24">API and transport contract</h2>
+          <div class="vbg-custom-auth-table-wrap">
+            <table class="vbg-custom-auth-table">
+              <thead><tr><th>Consumer / path</th><th>Authentication</th><th>Additive request or response</th><th>Error and retry</th></tr></thead>
+              <tbody>
+                <tr><td>Mobile<br><span class="vbg-custom-auth-code">POST /api/v1/auths/native/sign-in/google</span></td><td>Public, existing limits, no bearer/cookies.</td><td>Existing fields plus optional <span class="vbg-custom-auth-code">completion_mode</span>; existing JSON success envelope.</td><td>Unknown mode uses existing schema-validation 422; retry creates a fresh attempt.</td></tr>
+                <tr><td>Google/browser<br><span class="vbg-custom-auth-code">GET /api/v1/auths/native/callback/google</span></td><td>Existing provider callback.</td><td>Redirect mode: existing 303. Manual mode: 200 HTML.</td><td>Existing invalid/in-progress/throttled responses remain; known terminal manual states render safe failure HTML.</td></tr>
+                <tr><td>Mobile<br><span class="vbg-custom-auth-code">POST /api/v1/auths/native/token</span></td><td>Public, existing limits, no bearer/cookies.</td><td>Unchanged code, original verifier, and same redirect URI; unchanged native tokens.</td><td>Wrong verifier/device/redirect and expiry issue no session; replay remains 409 <span class="vbg-custom-auth-code">exchange_replayed</span>.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <pre class="vbg-code"><code>{
+  "redirect_uri": "https://&lt;registered-app-return&gt;/auth/return",
+  "code_challenge": "&lt;43-character-S256-challenge&gt;",
+  "code_challenge_method": "S256",
+  "state": "&lt;random-app-state&gt;",
+  "completion_mode": "manual_code"
+}</code></pre>
+          <div class="vbg-custom-auth-callout">
+            <h3 class="vbg-heading-20">Manual callback response</h3>
+            <p>Semantic HTML provides a read-only/selectable code, a <strong>Copy sign-in code</strong> button, absolute/remaining expiry guidance, and restart instructions. A tiny nonce-protected clipboard script powers the button; selection remains the fallback when clipboard access is denied.</p>
+            <p><span class="vbg-custom-auth-code">Cache-Control: no-store</span> · <span class="vbg-custom-auth-code">Pragma: no-cache</span> · <span class="vbg-custom-auth-code">Referrer-Policy: no-referrer</span> · <span class="vbg-custom-auth-code">X-Content-Type-Options: nosniff</span> · CSP <span class="vbg-custom-auth-code">default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-&lt;per-response-nonce&gt;'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'</span>.</p>
+            <p>No Location header, external asset, or analytics request is present. The exchange code appears only in the HTTPS response body. Google’s provider code remains in the incoming callback URL because the provider protocol requires it.</p>
+          </div>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="schemas">
+          <h2 id="schemas" class="vbg-heading-24">Schema and data changes</h2>
+          <div class="vbg-custom-auth-table-wrap">
+            <table class="vbg-custom-auth-table">
+              <thead><tr><th>Shape</th><th>Location</th><th>Change</th><th>Invariant / compatibility</th></tr></thead>
+              <tbody>
+                <tr><td><span class="vbg-custom-auth-code">NativeSignInRequest</span></td><td><span class="vbg-custom-auth-code">backend/auths/api/schemas.py</span></td><td>Literal mode, default redirect.</td><td>Old clients omit it and remain redirect clients.</td></tr>
+                <tr><td><span class="vbg-custom-auth-code">NativeCompletionMode</span></td><td><span class="vbg-custom-auth-code">backend/auths/models.py</span></td><td>Text choices redirect/manual_code.</td><td>One vocabulary across API, model, service, and OpenAPI.</td></tr>
+                <tr><td><span class="vbg-custom-auth-code">NativeAuthorizationTransaction</span></td><td>Model + additive migration</td><td>Non-null mode with persistent <span class="vbg-custom-auth-code">db_default</span> redirect.</td><td>Safe for mixed Cloud versions and old inserts; fixed at start and read from the callback-locked row.</td></tr>
+                <tr><td><span class="vbg-custom-auth-code">NativeGoogleSignInInput</span></td><td><span class="vbg-custom-auth-code">packages/cloud-client/src/native-auth.ts</span></td><td>Optional camelCase completionMode.</td><td>Runtime parser rejects other values; wire mapper sends snake_case.</td></tr>
+                <tr><td><span class="vbg-custom-auth-code">MobileEnvironment</span></td><td><span class="vbg-custom-auth-code">apps/mobile/src/lib/env.ts</span></td><td>Add nativeAuthCompletionMode.</td><td>Missing/blank becomes redirect; invalid configuration fails closed as unavailable.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>No exchange/session schema changes. The existing redirect value evolves into one internal tagged callback result so the HTTP controller owns HTML and security headers without a parallel manual lifecycle.</p>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="interactions">
+          <h2 id="interactions" class="vbg-heading-24">Mobile states and recovery</h2>
+          <div class="vbg-custom-auth-table-wrap">
+            <table class="vbg-custom-auth-table">
+              <thead><tr><th>Entry point</th><th>Transition</th><th>Required behavior</th></tr></thead>
+              <tbody>
+                <tr><td>Google action</td><td><span class="vbg-custom-auth-code">idle → opening-browser → waiting-for-code</span></td><td>Create fresh PKCE, use <span class="vbg-custom-auth-code">Linking.openURL</span>, and show code entry without waiting for AuthSession or an app link.</td></tr>
+                <tr><td>Manual form</td><td><span class="vbg-custom-auth-code">waiting-for-code → exchanging → signed-in | failed</span></td><td>Hold code in memory, submit once, clear after every terminal result, and never log or persist it.</td></tr>
+                <tr><td>Browser dismissal / app resume</td><td><span class="vbg-custom-auth-code">waiting-for-code → waiting-for-code</span></td><td>Returning from Android Custom Tabs or iOS Safari is expected after copying; retain the unexpired attempt and form.</td></tr>
+                <tr><td>Explicit cancel/navigation/unmount</td><td>Any active manual state → canceled</td><td>Abort where possible; invalidate the provider/adapter generation; clear code/verifier/state; prevent late publication.</td></tr>
+                <tr><td>Retry</td><td>Terminal failure → fresh opening-browser</td><td>Wait for cleanup, create a new state/verifier, and never reuse the old code.</td></tr>
+                <tr><td>Redirect mode</td><td>Existing opening/waiting/app-link/exchange states</td><td>Preserve current callback and state validation.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>Success calls the same session completion API. Existing validated <span class="vbg-custom-auth-code">returnTo</span> behavior and <span class="vbg-custom-auth-code">/allies/new/complete</span> onboarding continuation remain authoritative.</p>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="phases">
+          <h2 id="phases" class="vbg-heading-24">Two bounded implementation phases</h2>
+          <div class="vbg-custom-auth-phases">
+            <article class="vbg-custom-auth-phase">
+              <h3 class="vbg-heading-20">1 · Cloud delivery mode</h3>
+              <p>Add request enum, transaction migration, tagged callback result, secure manual success/error page, OpenAPI 200/303, and tests for headers, escaping, expiry, replay, wrong verifier/device, and redirect compatibility.</p>
+              <p><strong>Files:</strong> auth schemas, native API/controller, model, native authorization service, one migration, auth/OpenAPI tests, and integration handoff.</p>
+              <p><strong>Exit:</strong> redirect is unchanged; manual callback reuses one exchange code and never extends expiry or mints a second session.</p>
+            </article>
+            <article class="vbg-custom-auth-phase">
+              <h3 class="vbg-heading-20">2 · Publish and consume in Interface</h3>
+              <p>Add completionMode mapping/tests, pinned OpenAPI generation, environment parsing, manual code UI, <span class="vbg-custom-auth-code">Linking.openURL</span>, abort threading, and adapter-owned serialized generation/commit safety across remounts.</p>
+              <p><strong>Files:</strong> cloud-client native auth/tests/generated schema; mobile env/example; Google flow/hook/screen; session adapter/context; focused tests and docs.</p>
+              <p><strong>Exit:</strong> old callers redirect; manual clients opt in; browser return, success, explicit cancel, retry, expiry, wrong-device paste, unmount/remount, and late exchange/storage are truthful; stale work neither survives nor clears a newer session.</p>
+            </article>
+          </div>
+          <div class="vbg-custom-auth-callout">
+            <h3 class="vbg-heading-20">Release order is a separately authorized gate</h3>
+            <p>Implementation and delivery stop at validated, reviewable Cloud and Interface changes/PRs. After separate user approval, migrate and deploy Cloud, smoke omitted-field redirect (303) and explicit manual callback (200), then enable the manual mobile staging environment. An old backend may ignore the additive field and still return 303, so mobile enablement cannot precede Cloud proof. Android/iOS live evidence follows staging deployment.</p>
+          </div>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="acceptance">
+          <h2 id="acceptance" class="vbg-heading-24">Acceptance criteria</h2>
+          <ol>
+            <li>Omitted mode preserves the existing 303 app redirect.</li>
+            <li>Manual transactions return no-store, CSP-restricted callback HTML with the existing exchange code only in the body.</li>
+            <li>Callback replay does not extend expiry or create another code; consumed/expired attempts reveal no code and show restart guidance.</li>
+            <li>Pasted code succeeds only with the initiating verifier and same exact redirect. Wrong device/verifier/redirect, expiry, and replay issue no session.</li>
+            <li>Manual mode is exposed only by explicit environment setting; source omission stays redirect.</li>
+            <li>Pasted code, verifier, state, and access token remain in memory. Only the current opaque refresh token reaches SecureStore after valid exchange.</li>
+            <li>Returning from/dismissing the browser keeps an unexpired attempt waiting for code. Explicit cancel, navigation, or unmount invalidates it; late begin/exchange/storage cannot publish stale UI, leave a stale token, or clear a newer session.</li>
+            <li>Success uses existing session/account completion and validated post-sign-in/onboarding navigation.</li>
+            <li>OpenAPI, pinned types, docs, and checks agree. Separate user approval is required for merge, migrate/deploy, staging smoke, and environment mutation; Android/iOS Expo Go evidence is the post-deploy gate.</li>
+          </ol>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="engineering">
+          <h2 id="engineering" class="vbg-heading-24">Implementation constraints that protect the boundary</h2>
+          <div class="vbg-custom-auth-grid">
+            <article class="vbg-custom-auth-card">
+              <h3 class="vbg-heading-20">Backend</h3>
+              <p>Reuse the existing callback transaction lock, indexed state digest, and one-to-one exchange lookup. Reading mode from the locked row adds no callback query, polling, collection relation, or prefetch path.</p>
+              <p>Cover manual persistence/render/exchange; omitted/default/invalid mode with 422; HTML escaping; CSP nonce agreement; clipboard fallback; safe provider failure; redirect mismatch; malformed code; no secret headers; duplicate callback same-code/same-expiry; callback claim races; exchange replay; wrong verifier that does not burn the rightful code; and consumed/expired pages without code.</p>
+            </article>
+            <article class="vbg-custom-auth-card">
+              <h3 class="vbg-heading-20">Frontend</h3>
+              <p>The flow owns only request-local verifier, state, abort controller, pasted code, and UI lifetime. The hook exposes only UI-safe state. The adapter is sole durable token, generation, and serialized commit/cleanup authority across remounts.</p>
+              <p>Restart follows serialized cleanup. Check generation/abort before write and publication. A delayed stale write plus immediate remount/retry must neither survive nor erase the newer session. Add no polling, cache, Zustand, AsyncStorage, native clipboard dependency, or code analytics.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="validation">
+          <h2 id="validation" class="vbg-heading-24">Validation maps directly to the risks</h2>
+          <div class="vbg-custom-auth-table-wrap">
+            <table class="vbg-custom-auth-table">
+              <thead><tr><th>Layer</th><th>Checks</th><th>Proof target</th></tr></thead>
+              <tbody>
+                <tr><td>Cloud focused</td><td><span class="vbg-custom-auth-code">make test APP=auths/tests/test_native_session.py</span>; callback/OpenAPI tests; <span class="vbg-custom-auth-code">make check</span>; <span class="vbg-custom-auth-code">make lint</span>.</td><td>Mode, page, exchange, compatibility.</td></tr>
+                <tr><td>Cloud full / CI</td><td><span class="vbg-custom-auth-code">uv run pytest</span>; existing 90% auth/workspace coverage gate; Ruff format check; migrations; PostgreSQL marker in CI service.</td><td>Regression, schema, row-lock races.</td></tr>
+                <tr><td>Interface focused</td><td>Native client wire, Google flow, environment, session adapter/context, parser, and sign-in UI tests.</td><td>Mapping and lifecycle safety.</td></tr>
+                <tr><td>Interface full</td><td><span class="vbg-custom-auth-code">bun run cloud:check</span>, typecheck, tests, lint, web build, mobile bundle, and both repository diff checks.</td><td>Cross-workspace compatibility.</td></tr>
+                <tr><td>Rollout</td><td>After separate approval: migrate/deploy Cloud; smoke omitted-field 303 and explicit manual 200; then enable temporary mobile staging mode.</td><td>Mixed-version and ordering safety.</td></tr>
+                <tr><td>Expo Go devices</td><td>Post-deploy Android Custom Tabs and iOS Safari return retains waiting state; success; explicit cancel; expiry; wrong-device and duplicate paste; fresh retry; delayed write plus immediate unmount/remount/retry; continuation.</td><td>User-visible temporary flow.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="risks">
+          <h2 id="risks" class="vbg-heading-24">Material risks and rollback</h2>
+          <div class="vbg-custom-auth-grid">
+            <article class="vbg-custom-auth-card">
+              <h3 class="vbg-heading-20">Copied code exposure</h3>
+              <p>The code may be screen-captured or shared. Keep it in the HTTPS body, send no-store/no-referrer/CSP, preserve configured 60-second expiry, single use, redirect binding, and PKCE. Code alone cannot create a session.</p>
+            </article>
+            <article class="vbg-custom-auth-card">
+              <h3 class="vbg-heading-20">Cancellation race</h3>
+              <p>Adapter-wide generation, serialized non-cancelable commit/cleanup, cleanup-before-restart, and delayed-write plus immediate remount/retry tests prevent stale persistence or deletion of a newer session.</p>
+            </article>
+            <article class="vbg-custom-auth-card">
+              <h3 class="vbg-heading-20">Rolling Cloud versions</h3>
+              <p>Use a persistent database default of redirect, migrate/deploy Cloud first, and smoke both modes before mobile enablement.</p>
+            </article>
+            <article class="vbg-custom-auth-card">
+              <h3 class="vbg-heading-20">Temporary mode drifts into production</h3>
+              <p>Use explicit mobile environment selection, server default redirect, temporary-mode documentation, and no source-controlled production setting change.</p>
+            </article>
+            <article class="vbg-custom-auth-card" data-tone="manual">
+              <h3 class="vbg-heading-20">Rollback</h3>
+              <p>Unset the mobile setting or select redirect. The Cloud addition can remain dormant. Later removal deletes manual UI/rendering and the transaction column only after no deployed caller requests manual_code.</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="vbg-section" aria-labelledby="decisions">
+          <h2 id="decisions" class="vbg-heading-24">Resolved decisions</h2>
+          <ul>
+            <li>The existing Cloud callback renders the page; the separate hosted link callback is not a dependency.</li>
+            <li>The current random exchange code and token endpoint remain; no short code or polling protocol is added.</li>
+            <li>Delivery mode is persisted per transaction, so later environment changes cannot alter callback/replay behavior.</li>
+            <li><span class="vbg-custom-auth-code">redirect_uri</span> remains in manual start/exchange for allowlist and binding even without callback navigation.</li>
+            <li>The mode is temporary and opt-in; redirect remains the compatible default.</li>
+            <li>Manual mode uses <span class="vbg-custom-auth-code">Linking.openURL</span>; browser return is expected, and only explicit cancel/navigation/unmount invalidates the attempt.</li>
+            <li>Cloud migration and behavior precede the mobile setting. Merge/deploy/environment mutation require separate user approval after validated PRs.</li>
+          </ul>
+        </section>
+      </main>
+      <footer class="vbg-footer">
+        <span>Allies engineering</span>
+        <span>Temporary native manual sign-in · review artifact</span>
+      </footer>
+    </div>
+  </body>
+</html>

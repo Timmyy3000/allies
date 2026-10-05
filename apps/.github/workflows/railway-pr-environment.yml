@@ -1,0 +1,444 @@
+name: Railway PR Environment
+
+on:
+  pull_request:
+    branches: [dev, web/feat/chat-frames]
+    types: [opened, reopened, synchronize, edited, closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: railway-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+# These identifiers intentionally pin this workflow to the Interface web
+# service. Do not reuse it for the mobile app or another Railway project.
+env:
+  RAILWAY_PROJECT_ID: da3df107-205e-4294-b725-c146d2e47637
+  RAILWAY_BASE_ENVIRONMENT_ID: b691ddf0-a115-48d9-b96b-2905cb7439b8
+  RAILWAY_WEB_SERVICE_ID: 8355390d-0318-4b79-8ed9-172a9ac05e21
+
+jobs:
+  deploy:
+    name: Deploy web preview
+    if: >-
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/railwayapp/cli:latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_TITLE: ${{ github.event.pull_request.title }}
+
+    steps:
+      - name: Check out the pull request head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+
+      - name: Check Railway credentials
+        shell: sh
+        run: |
+          for variable in RAILWAY_API_TOKEN CLOUDFLARE_API_TOKEN CLOUDFLARE_ZONE_ID; do
+            eval "value=\${$variable:-}"
+            if [ -z "$value" ]; then
+              echo "::error::Add the $variable repository secret before enabling authenticated Railway PR previews"
+              exit 1
+            fi
+          done
+
+      - name: Calculate the readable environment name
+        shell: sh
+        run: |
+          set -eu
+          # Keep the generated name below Railway's environment-name limit
+          # while retaining the PR number and a readable title prefix.
+          max_name_length=31
+          prefix_length=$((4 + ${#PR_NUMBER}))
+          max_slug_length=$((max_name_length - prefix_length))
+          slug=$(printf '%s' "$PR_TITLE" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-"$max_slug_length" | sed 's/^-*//; s/-*$//')
+          if [ -z "$slug" ]; then
+            slug=preview
+          fi
+          echo "PR_ENVIRONMENT=pr-${PR_NUMBER}-${slug}" >> "$GITHUB_ENV"
+          echo "PR_PREVIEW_DOMAIN=pr-${PR_NUMBER}.preview.yourallies.io" >> "$GITHUB_ENV"
+          echo "PR_SOURCE_BRANCH=railway-preview-pr-${PR_NUMBER}-upload-only" >> "$GITHUB_ENV"
+
+      - name: Link the Interface web service
+        shell: sh
+        run: |
+          set -eu
+          railway link \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$RAILWAY_BASE_ENVIRONMENT_ID" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json
+
+      - name: Remove stale names for this PR
+        shell: sh
+        run: |
+          set -eu
+          environment_json=$(railway environment list --json)
+          printf '%s' "$environment_json" |
+            tr ',' '\n' |
+            sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+            while IFS= read -r candidate; do
+              case "$candidate" in
+                "pr-${PR_NUMBER}"|"pr-${PR_NUMBER}-"*)
+                  if [ "$candidate" != "$PR_ENVIRONMENT" ]; then
+                    echo "Deleting stale $candidate"
+                    railway environment delete "$candidate" --yes --json
+                  fi
+                  ;;
+              esac
+            done
+
+      - name: Create or reuse the PR environment
+        shell: sh
+        run: |
+          set -eu
+          if railway environment config --environment "$PR_ENVIRONMENT" --json >/dev/null 2>/tmp/railway-environment-error; then
+            echo "Reusing $PR_ENVIRONMENT"
+            # Keep the service attached while preventing GitHub auto-deploys from replacing the PR upload.
+            railway environment edit \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment "$PR_ENVIRONMENT" \
+              --service-config "$RAILWAY_WEB_SERVICE_ID" source.branch "$PR_SOURCE_BRANCH" \
+              --json >/dev/null
+          else
+            cat /tmp/railway-environment-error >&2
+            railway environment new "$PR_ENVIRONMENT" \
+              --duplicate "$RAILWAY_BASE_ENVIRONMENT_ID" \
+              --service-config "$RAILWAY_WEB_SERVICE_ID" source.branch "$PR_SOURCE_BRANCH" \
+              --json
+          fi
+
+      - name: Configure the custom preview URL
+        shell: sh
+        run: |
+          set -eu
+          railway variable set \
+            "NEXT_PUBLIC_SITE_URL=https://${PR_PREVIEW_DOMAIN}" \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --skip-deploys \
+            --json >/dev/null
+
+          if ! railway domain status "$PR_PREVIEW_DOMAIN" \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json >/dev/null 2>&1; then
+            railway domain "$PR_PREVIEW_DOMAIN" \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment "$PR_ENVIRONMENT" \
+              --service "$RAILWAY_WEB_SERVICE_ID" \
+              --port 8080 \
+              --json >/dev/null
+          fi
+
+          railway domain status "$PR_PREVIEW_DOMAIN" \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json > "$GITHUB_WORKSPACE/.railway-preview-domain.json"
+
+      - name: Configure Cloudflare preview DNS
+        timeout-minutes: 2
+        uses: actions/github-script@v7
+        env:
+          RAILWAY_DOMAIN_STATUS_PATH: ${{ github.workspace }}/.railway-preview-domain.json
+        with:
+          script: |
+            const fs = require("fs");
+            const payload = JSON.parse(
+              fs.readFileSync(process.env.RAILWAY_DOMAIN_STATUS_PATH, "utf8"),
+            );
+            const domain = payload.domain;
+            if (!domain?.dnsRecords?.length || !domain.verification?.token) {
+              core.setFailed("Railway did not return the required preview DNS records");
+              return;
+            }
+
+            const zoneId = process.env.CLOUDFLARE_ZONE_ID;
+            const token = process.env.CLOUDFLARE_API_TOKEN;
+            const request = async (path, options = {}) => {
+              const response = await fetch(
+                `https://api.cloudflare.com/client/v4/zones/${zoneId}${path}`,
+                {
+                  signal: AbortSignal.timeout(30_000),
+                  ...options,
+                  headers: {
+                    Authorization: `Bearer ${token}`,
+                    "Content-Type": "application/json",
+                    ...options.headers,
+                  },
+                },
+              );
+              const result = await response.json();
+              if (!response.ok || !result.success) {
+                throw new Error(`Cloudflare DNS request failed with ${response.status}`);
+              }
+              return result.result;
+            };
+            const upsert = async ({ type, name, content }) => {
+              const existing = await request(
+                `/dns_records?type=${type}&name=${encodeURIComponent(name)}`,
+              );
+              const body = JSON.stringify({ type, name, content, ttl: 1, proxied: false });
+              if (existing.length) {
+                await request(`/dns_records/${existing[0].id}`, { method: "PUT", body });
+              } else {
+                await request("/dns_records", { method: "POST", body });
+              }
+            };
+
+            for (const record of domain.dnsRecords) {
+              if (record.recordType !== "DNS_RECORD_TYPE_CNAME") {
+                throw new Error(`Unsupported Railway DNS record type: ${record.recordType}`);
+              }
+              await upsert({
+                type: "CNAME",
+                name: record.fqdn,
+                content: record.requiredValue,
+              });
+            }
+            const verificationName = domain.verification.dnsHost.endsWith(".yourallies.io")
+              ? domain.verification.dnsHost
+              : `${domain.verification.dnsHost}.yourallies.io`;
+            await upsert({
+              type: "TXT",
+              name: verificationName,
+              content: domain.verification.token,
+            });
+            core.info(`Configured DNS for ${domain.domain}`);
+
+      - name: Deploy only the web service
+        shell: sh
+        run: |
+          set -eu
+          railway up \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --ci \
+            --yes \
+            --message "PR #${{ github.event.pull_request.number }} ${{ github.event.pull_request.head.sha }}"
+
+      - name: Retry a failed custom domain certificate
+        shell: sh
+        run: |
+          set -eu
+          railway domain status "$PR_PREVIEW_DOMAIN" \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json > /tmp/railway-preview-domain-status.json
+          if grep -q '"retryable"[[:space:]]*:[[:space:]]*true' /tmp/railway-preview-domain-status.json; then
+            railway domain certificate retry "$PR_PREVIEW_DOMAIN" \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment "$PR_ENVIRONMENT" \
+              --service "$RAILWAY_WEB_SERVICE_ID" \
+              --json >/dev/null
+          fi
+
+      - name: Wait for the custom domain
+        shell: sh
+        timeout-minutes: 10
+        run: |
+          set -eu
+          attempts=0
+          while [ "$attempts" -lt 60 ]; do
+            if railway domain status "$PR_PREVIEW_DOMAIN" \
+              --project "$RAILWAY_PROJECT_ID" \
+              --environment "$PR_ENVIRONMENT" \
+              --service "$RAILWAY_WEB_SERVICE_ID" \
+              --json > /tmp/railway-preview-domain-status.json; then
+              if grep -q '"verified"[[:space:]]*:[[:space:]]*true' /tmp/railway-preview-domain-status.json && \
+              grep -Eq 'CERTIFICATE_STATUS_TYPE_(ISSUED|VALID)' /tmp/railway-preview-domain-status.json; then
+                echo "Custom preview domain is ready"
+                break
+              fi
+            else
+              echo "Railway domain status request failed; retrying"
+            fi
+            attempts=$((attempts + 1))
+            sleep 10
+          done
+          if [ "$attempts" -ge 60 ]; then
+            echo "::error::Railway did not verify the custom preview domain within 10 minutes"
+            exit 1
+          fi
+
+      - name: Confirm the preview domain
+        shell: sh
+        run: |
+          set -eu
+          railway domain status "$PR_PREVIEW_DOMAIN" \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$PR_ENVIRONMENT" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json >/dev/null
+
+      - name: Write preview URL to the pull request
+        uses: actions/github-script@v7
+        env:
+          PR_PREVIEW_URL: https://${{ env.PR_PREVIEW_DOMAIN }}
+        with:
+          script: |
+            const marker = "<!-- railway-pr-preview -->";
+            const body = `${marker}\nRailway preview: ${process.env.PR_PREVIEW_URL}`;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previous = comments.find(
+              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+            );
+
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+  cleanup:
+    name: Delete web preview
+    if: >-
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/railwayapp/cli:latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ZONE_ID: ${{ secrets.CLOUDFLARE_ZONE_ID }}
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_PREVIEW_DOMAIN: pr-${{ github.event.pull_request.number }}.preview.yourallies.io
+
+    steps:
+      - name: Check Railway credentials
+        shell: sh
+        run: |
+          if [ -z "${RAILWAY_API_TOKEN:-}" ]; then
+            echo "::error::Add the RAILWAY_API_TOKEN repository secret before enabling Railway PR previews"
+            exit 1
+          fi
+
+      - name: Link the Interface project
+        shell: sh
+        run: |
+          set -eu
+          railway link \
+            --project "$RAILWAY_PROJECT_ID" \
+            --environment "$RAILWAY_BASE_ENVIRONMENT_ID" \
+            --service "$RAILWAY_WEB_SERVICE_ID" \
+            --json
+
+      - name: Delete the custom Railway domain
+        continue-on-error: true
+        shell: sh
+        run: |
+          set -eu
+          environment_json=$(railway environment list --json)
+          printf '%s' "$environment_json" |
+            tr ',' '\n' |
+            sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+            while IFS= read -r candidate; do
+              case "$candidate" in
+                "pr-${PR_NUMBER}"|"pr-${PR_NUMBER}-"*)
+                  if railway domain status "$PR_PREVIEW_DOMAIN" \
+                    --project "$RAILWAY_PROJECT_ID" \
+                    --environment "$candidate" \
+                    --service "$RAILWAY_WEB_SERVICE_ID" \
+                    --json >/dev/null 2>&1; then
+                    railway domain delete "$PR_PREVIEW_DOMAIN" \
+                      --project "$RAILWAY_PROJECT_ID" \
+                      --environment "$candidate" \
+                      --service "$RAILWAY_WEB_SERVICE_ID" \
+                      --yes \
+                      --json >/dev/null
+                  fi
+                  ;;
+              esac
+            done
+
+      - name: Delete Cloudflare preview DNS
+        if: always()
+        timeout-minutes: 2
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const zoneId = process.env.CLOUDFLARE_ZONE_ID;
+            const token = process.env.CLOUDFLARE_API_TOKEN;
+            if (!zoneId || !token) {
+              core.warning("Skipping Cloudflare preview DNS cleanup because its credentials are unavailable");
+              return;
+            }
+            const names = [
+              process.env.PR_PREVIEW_DOMAIN,
+              `_railway-verify.${process.env.PR_PREVIEW_DOMAIN}`,
+            ];
+            const request = async (path, options = {}) => {
+              const response = await fetch(
+                `https://api.cloudflare.com/client/v4/zones/${zoneId}${path}`,
+                {
+                  ...options,
+                  signal: AbortSignal.timeout(30_000),
+                  headers: { Authorization: `Bearer ${token}` },
+                },
+              );
+              const result = await response.json();
+              if (!response.ok || !result.success) {
+                throw new Error(`Cloudflare DNS request failed with ${response.status}`);
+              }
+              return result.result;
+            };
+            for (const name of names) {
+              const records = await request(
+                `/dns_records?name=${encodeURIComponent(name)}`,
+              );
+              for (const record of records) {
+                await request(`/dns_records/${record.id}`, { method: "DELETE" });
+              }
+            }
+            core.info(`Removed DNS for ${process.env.PR_PREVIEW_DOMAIN}`);
+
+      - name: Delete the PR environment
+        if: always()
+        shell: sh
+        run: |
+          set -eu
+          environment_json=$(railway environment list --json)
+          printf '%s' "$environment_json" |
+            tr ',' '\n' |
+            sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+            while IFS= read -r candidate; do
+              case "$candidate" in
+                "pr-${PR_NUMBER}"|"pr-${PR_NUMBER}-"*)
+                  echo "Deleting $candidate"
+                  railway environment delete "$candidate" --yes --json
+                  ;;
+              esac
+            done

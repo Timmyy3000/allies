@@ -1,0 +1,87 @@
+.page {
+  display: grid;
+  min-height: 100dvh;
+  padding: 24px;
+  background: var(--panel);
+  color: var(--text-primary);
+  place-items: center;
+}
+
+.shell {
+  width: min(100%, 420px);
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.googleButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 52px;
+  margin-top: 32px;
+  gap: 12px;
+  padding: 14px 20px;
+  border: 0;
+  border-radius: 60px;
+  background: #ff5800;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 22px;
+  transition: transform 150ms ease-out, background-color 150ms ease-out;
+}
+
+.googleButton:hover:not(:disabled) {
+  background: #ed5000;
+}
+
+.googleButton:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.googleButton:disabled {
+  cursor: wait;
+  opacity: 0.68;
+}
+
+.googleMark {
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.statusRegion,
+.error {
+  font-size: 13px;
+  line-height: 18px;
+  text-align: center;
+}
+
+.statusRegion {
+  min-height: 18px;
+  margin-top: 16px;
+  color: var(--text-secondary);
+}
+
+.error {
+  margin: 8px 0 0;
+  color: #b42318;
+  font-weight: 600;
+}
+
+.googleButton:focus-visible {
+  outline: 3px solid var(--text-primary);
+  outline-offset: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .googleButton {
+    transition: none;
+  }
+}

@@ -1,0 +1,129 @@
+.page {
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  background: var(--canvas);
+  color: var(--text-primary);
+  color-scheme: var(--app-color-scheme);
+}
+
+.artboard {
+  width: min(100%, 480px);
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.artwork {
+  position: relative;
+  flex: 1;
+  min-height: 280px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.ally { position: absolute; width: 62px; height: 60px; }
+.yellowAlly { left: 68%; top: 20.28%; }
+.blueAlly { left: 18.93%; top: 35.48%; }
+.greenAlly { left: 29.07%; top: 72.96%; width: 60px; }
+.redAlly { left: 86.4%; top: 68.66%; }
+.face {
+  position: absolute;
+  left: 26px;
+  top: 24px;
+  width: 36px;
+  height: 36px;
+  overflow: hidden;
+  border-radius: 50%;
+}
+.greenAlly .face { left: 0; }
+.faceArtwork { width: 82%; height: 82%; margin: 9%; object-fit: contain; }
+.centralIcon {
+  position: absolute;
+  left: 50%;
+  top: 55%;
+  width: 98.54px;
+  height: 96px;
+  transform: translateX(-50%);
+}
+.cursor { position: absolute; left: 0; top: 0; width: 36px; height: 36px; }
+.flippedCursor { left: 24px; transform: scaleX(-1); }
+.cursorInner { position: absolute; inset: 12% 10.1% 10.1% 12%; }
+.cursorSvg { display: block; width: 100%; height: 100%; }
+
+.actions {
+  display: grid;
+  gap: 11px;
+  padding: 0 20px max(58px, env(safe-area-inset-bottom));
+}
+.primaryCta {
+  display: grid;
+  min-height: 48px;
+  place-items: center;
+  border-radius: 60px;
+  background: #ff5800;
+  color: #fff;
+  text-decoration: none;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
+}
+.signInPrompt { margin: 0; text-align: center; }
+.signInButton {
+  min-height: 44px;
+  padding: 8px 16px;
+  border: 0;
+  background: transparent;
+  color: var(--text-primary);
+  cursor: pointer;
+  font: inherit;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: -0.7px;
+}
+.signInButton:disabled { cursor: progress; opacity: 0.6; }
+.signInError { margin: 0; color: #b42318; text-align: center; font-size: 14px; }
+:global(:root[data-theme="dark"]) .signInError { color: #ef6a72; }
+
+.primaryCta:focus-visible,
+.signInButton:focus-visible,
+.statusContent button:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 4px; }
+.statusPage {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--canvas);
+  color: var(--text-primary);
+  text-align: center;
+}
+.statusContent { display: grid; justify-items: center; gap: 20px; }
+.statusContent p { margin: 0; }
+.statusPending p { animation: status-reveal 240ms ease 1200ms both; }
+@keyframes status-reveal { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .statusPending p { animation: none; } }
+.statusContent button {
+  border: 0;
+  border-radius: 999px;
+  padding: 12px 24px;
+  background: #ff5800;
+  color: #fff;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 600;
+}
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@media (max-height: 650px) {
+  .greenAlly { top: 82%; }
+}

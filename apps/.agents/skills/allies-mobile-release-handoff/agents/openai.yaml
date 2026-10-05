@@ -1,0 +1,4 @@
+interface:
+  display_name: "Allies Mobile Release Handoff"
+  short_description: "Release mobile changes with README, Nabu, and EAS"
+  default_prompt: "Use $allies-mobile-release-handoff to release these mobile changes and synchronize the README, Nabu, Git, and EAS."

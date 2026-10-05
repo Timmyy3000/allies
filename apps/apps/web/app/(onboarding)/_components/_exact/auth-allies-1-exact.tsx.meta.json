@@ -1,0 +1,20 @@
+{
+  "sourceHtml": "apps/web/waitlist-auth/_html/auth-allies-1.html",
+  "component": "AuthAllies1Exact",
+  "out": "apps/web/app/(onboarding)/_components/_exact/auth-allies-1-exact.tsx",
+  "converter": "htmltojsx",
+  "imageCount": 4,
+  "chromeStripped": true,
+  "chromeRemoved": 2,
+  "artboard": {
+    "width": 375,
+    "height": 812
+  },
+  "warnings": [],
+  "next": [
+    "Wire onClose / CTAs / drawers — do not redraw layout",
+    "Apply faniq-fonts if any fontFamily remained",
+    "Horizontal flex rows → overflow-x-auto + 20px in-scroll padding",
+    "QA against screenshot"
+  ]
+}

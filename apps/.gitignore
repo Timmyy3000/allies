@@ -1,0 +1,55 @@
+# Dependencies
+node_modules/
+
+# Framework and build output
+.next/
+.expo/
+out
+dist
+web-build/
+coverage/
+test-results/
+apps/web/playwright-report/
+apps/web/test-output/
+apps/web/output/
+*.tgz
+
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Caches and generated metadata
+.eslintcache
+.cache
+*.tsbuildinfo
+.turbo/
+
+# Editors and operating systems
+.idea
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Native Expo output
+ios/
+android/
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+.forest/
+.lavish/
+
+# Aphrodite local design caches (never commit)
+.aphrodite/
+.aphrodite-previous/

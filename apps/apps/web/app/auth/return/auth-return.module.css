@@ -1,0 +1,158 @@
+.page {
+  display: grid;
+  min-height: 100dvh;
+  padding: 24px;
+  place-items: center;
+  background: var(--canvas);
+  color: var(--text-primary);
+}
+
+.card {
+  width: min(100%, 560px);
+  padding: clamp(32px, 7vw, 72px);
+  border-radius: 36px;
+  background: var(--panel);
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.05), 0 24px 60px -34px rgb(0 0 0 / 0.3);
+}
+
+.mark {
+  display: grid;
+  width: 52px;
+  height: 52px;
+  place-items: center;
+  border-radius: 16px;
+  background: #ff5800;
+  color: #fff;
+  font-size: 28px;
+  line-height: 1;
+}
+
+.eyebrow {
+  margin: 48px 0 14px;
+  color: #ff5800;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 18px;
+  text-transform: uppercase;
+}
+
+.card h1 {
+  max-width: 12ch;
+  margin: 0;
+  font-size: clamp(38px, 7vw, 64px);
+  font-weight: 700;
+  letter-spacing: -3px;
+  line-height: 0.98;
+  text-wrap: balance;
+}
+
+.copy {
+  max-width: 38ch;
+  margin: 22px 0 0;
+  color: var(--text-secondary);
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.4px;
+  line-height: 24px;
+  text-wrap: pretty;
+}
+
+.status {
+  margin: 44px 0 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 36px;
+  gap: 12px;
+}
+
+.retryButton,
+.signInLink {
+  display: inline-flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 18px;
+  border-radius: 60px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.35px;
+  line-height: 20px;
+  text-decoration: none;
+  transition-property: transform, background-color, color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: ease-out;
+}
+
+.retryButton {
+  border: 0;
+  background: #ff5800;
+  box-shadow: 0 0 0 1px rgb(0 0 0 / 0.06), 0 8px 18px -10px rgb(255 88 0 / 0.7);
+  color: #fff;
+  cursor: pointer;
+}
+
+.retryButton:hover {
+  background: #ed5000;
+}
+
+.signInLink {
+  color: #ff5800;
+  box-shadow: 0 0 0 1px rgb(255 88 0 / 0.25);
+}
+
+.signInLink:hover {
+  background: rgb(255 88 0 / 0.08);
+}
+
+.retryButton:active,
+.signInLink:active {
+  transform: scale(0.96);
+}
+
+.retryButton:focus-visible,
+.signInLink:focus-visible {
+  outline: 3px solid var(--text-primary);
+  outline-offset: 4px;
+}
+
+@media (max-width: 420px) {
+  .page {
+    padding: 16px;
+  }
+
+  .card {
+    padding: 28px 24px;
+    border-radius: 28px;
+  }
+
+  .eyebrow {
+    margin-top: 36px;
+  }
+
+  .actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .retryButton,
+  .signInLink {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .retryButton,
+  .signInLink {
+    transition: none;
+  }
+}

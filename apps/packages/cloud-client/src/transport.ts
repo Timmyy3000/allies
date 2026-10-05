@@ -1,0 +1,135 @@
+import type { CloudError } from "./errors";
+
+const DEFAULT_TIMEOUT_MS = 10_000;
+const DEFAULT_MAX_JSON_BYTES = 256 * 1024;
+
+export interface TransportOptions {
+  fetch: typeof globalThis.fetch;
+  prepareRequest?: (request: Request) => Request | Promise<Request>;
+  timeoutMs?: number;
+  maxJsonBytes?: number;
+  maxJsonBytesForRequest?: (request: Request) => number | undefined;
+}
+
+function transportError(kind: CloudError["kind"]): CloudError {
+  return { kind };
+}
+
+function applySignal(request: Request, signal: AbortSignal): Request {
+  try {
+    return new Request(request, { signal });
+  } catch {
+    // Test environments can provide Request and AbortSignal from different
+    // realms. Preserve the request shape while allowing the transport to run.
+    return new Request(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : request.body,
+      credentials: request.credentials,
+    });
+  }
+}
+
+async function materializeJsonBody(request: Request): Promise<Request> {
+  const contentType = request.headers.get("content-type") ?? "";
+  if (!request.body || !contentType.toLowerCase().startsWith("application/json")) return request;
+
+  const body = await request.clone().text();
+  return new Request(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body,
+    credentials: request.credentials,
+    signal: request.signal,
+  });
+}
+
+async function boundResponse(response: Response, maxBytes: number, signal: AbortSignal): Promise<Response> {
+  if (!response.body || response.status === 204 || response.status === 205) return response;
+
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body.cancel();
+    throw transportError("contract");
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  let rejectAbort: ((reason: unknown) => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => { rejectAbort = reject; });
+  const onAbort = () => rejectAbort?.(new DOMException("Aborted", "AbortError"));
+  if (signal.aborted) onAbort();
+  signal.addEventListener("abort", onAbort, { once: true });
+
+  try {
+    while (true) {
+      const { done, value } = await Promise.race([reader.read(), aborted]);
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        void reader.cancel();
+        throw transportError("contract");
+      }
+      chunks.push(value);
+    }
+  } catch (error) {
+    void reader.cancel().catch(() => undefined);
+    throw error;
+  } finally {
+    signal.removeEventListener("abort", onAbort);
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return new Response(body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+}
+
+export function createControlledFetch(options: TransportOptions): typeof globalThis.fetch {
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const maxJsonBytes = options.maxJsonBytes ?? DEFAULT_MAX_JSON_BYTES;
+
+  return async (input, init) => {
+    const originalRequest = new Request(input, init);
+    const callerSignal = originalRequest.signal;
+    const controller = new AbortController();
+    let timedOut = false;
+    const onCallerAbort = () => controller.abort(callerSignal.reason);
+    if (callerSignal.aborted) controller.abort(callerSignal.reason);
+    callerSignal.addEventListener("abort", onCallerAbort, { once: true });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, timeoutMs);
+
+    try {
+      const request = applySignal(originalRequest, controller.signal);
+      const prepared = options.prepareRequest ? await options.prepareRequest(request) : request;
+      const fetchRequest = await materializeJsonBody(prepared);
+      if (callerSignal.aborted) throw transportError("aborted");
+      if (timedOut) throw transportError("timeout");
+      const response = await options.fetch(fetchRequest);
+      const responseMaxJsonBytes = options.maxJsonBytes === undefined
+        ? options.maxJsonBytesForRequest?.(fetchRequest) ?? maxJsonBytes
+        : maxJsonBytes;
+      return await boundResponse(response, responseMaxJsonBytes, controller.signal);
+    } catch (error) {
+      if (typeof error === "object" && error !== null && "kind" in error) throw error;
+      if (callerSignal.aborted) throw transportError("aborted");
+      if (timedOut) throw transportError("timeout");
+      throw transportError("network");
+    } finally {
+      clearTimeout(timer);
+      callerSignal.removeEventListener("abort", onCallerAbort);
+    }
+  };
+}

@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mobile Liquid Glass and Home Navigation Pill Implementation Plan</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.55;
+        --ink: #121212;
+        --muted: #666666;
+        --line: #e5e5e5;
+        --bg: #ffffff;
+        --surface: #f9f9fb;
+        --orange: #ff5800;
+        --orange-soft: rgba(255, 88, 0, 0.08);
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ink: #f0f0f0;
+          --muted: #a0a0a0;
+          --line: #27272a;
+          --bg: #09090b;
+          --surface: #141416;
+          --orange-soft: rgba(255, 88, 0, 0.15);
+        }
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; color: var(--ink); background: var(--bg); }
+      main { max-width: 920px; margin: 0 auto; padding: 56px 24px 88px; }
+      h1 { margin: 0 0 10px; font-size: 32px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.15; }
+      h2 { margin: 40px 0 12px; font-size: 20px; font-weight: 600; letter-spacing: -0.01em; }
+      h3 { margin: 24px 0 8px; font-size: 16px; font-weight: 600; }
+      p, li { max-width: 72ch; }
+      .lede { color: var(--muted); font-size: 16px; margin-top: 6px; }
+      .meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 28px 0; }
+      .meta div { border-top: 2px solid var(--orange); padding-top: 10px; }
+      .meta dt { color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; font-weight: 600; }
+      .meta dd { margin: 4px 0 0; font-size: 14px; font-weight: 500; }
+      .callout { padding: 16px 20px; border-left: 4px solid var(--orange); background: var(--orange-soft); border-radius: 4px; margin: 24px 0; }
+      .callout p { margin: 0; font-size: 14px; }
+      .section { border-top: 1px solid var(--line); padding-top: 18px; margin-top: 24px; }
+      ul, ol { padding-left: 22px; }
+      li + li { margin-top: 6px; }
+      table { width: 100%; border-collapse: collapse; margin: 16px 0 24px; font-size: 14px; }
+      th, td { border-bottom: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; }
+      th { font-weight: 600; background: var(--surface); color: var(--ink); }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .9em; background: var(--surface); padding: 2px 5px; border-radius: 4px; }
+      .pill-preview {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 16px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 100px;
+        padding: 8px 16px;
+        width: fit-content;
+        margin: 16px 0;
+      }
+      .pill-btn {
+        padding: 8px 16px;
+        border-radius: 50px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .pill-btn-active {
+        background: var(--ink);
+        color: var(--bg);
+      }
+      .pill-btn-primary {
+        background: var(--orange);
+        color: #ffffff;
+      }
+      .pill-btn-muted {
+        color: var(--muted);
+      }
+      @media (max-width: 680px) {
+        main { padding: 36px 18px 64px; }
+        h1 { font-size: 26px; }
+        .meta { grid-template-columns: 1fr; gap: 12px; }
+        table { display: block; overflow-x: auto; }
+        th, td { min-width: 150px; }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Mobile Liquid Glass and Home Navigation Pill</h1>
+      <p class="lede">Native iOS liquid glass effect for controls and a unified floating navigation pill on the Allies home screen, with clean muted button fallback on Android.</p>
+
+      <dl class="meta">
+        <div><dt>Platform</dt><dd>Expo SDK 57 / iOS Liquid Glass & Android</dd></div>
+        <div><dt>Native Engine</dt><dd>expo-glass-effect (GlassView)</dd></div>
+        <div><dt>Fallback Surface</dt><dd>theme.controlSurface (#F3F3F3 / #161616)</dd></div>
+      </dl>
+
+      <div class="callout">
+        <p><strong>Core Strategy:</strong> Leverage the already-installed <code>expo-glass-effect</code> for native Apple liquid glass on iOS, while preserving a theme-adaptive muted surface on Android. Unify top tabs and bottom action into a floating bottom pill.</p>
+      </div>
+
+      <h2>Navigation Pill Concept Preview</h2>
+      <div class="pill-preview">
+        <span class="pill-btn pill-btn-active">Allies</span>
+        <span class="pill-btn pill-btn-primary">✨ Make an Ally</span>
+        <span class="pill-btn pill-btn-muted">Routines</span>
+      </div>
+
+      <h2>Feature Overview</h2>
+      <ul>
+        <li>Implement <code>GlassSurface</code> wrapping <code>GlassView</code> on iOS, falling back to <code>theme.controlSurface</code> on Android.</li>
+        <li>Apply liquid glass to the Back button across onboarding and conversation screens.</li>
+        <li>Replace the top tabs (<code>My allies</code>, <code>Routines</code>) and the static bottom button on the Allies Home screen with a unified, floating liquid glass navigation pill.</li>
+        <li>Support tab switching between the Allies roster and a clean Routines placeholder state.</li>
+      </ul>
+
+      <h2>Contract Definitions</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Component</th>
+            <th>Platform Behavior</th>
+            <th>Visual Treatment</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>GlassSurface</code></td>
+            <td>iOS: Native <code>GlassView</code><br>Android: <code>theme.controlSurface</code></td>
+            <td>Frosted blur material on iOS; solid muted container on Android.</td>
+          </tr>
+          <tr>
+            <td>Back Button</td>
+            <td>Wrapped in <code>GlassSurface</code></td>
+            <td>40×40 circular liquid glass control with theme-adaptive chevron.</td>
+          </tr>
+          <tr>
+            <td><code>HomeNavigationPill</code></td>
+            <td>Floating bottom pill container</td>
+            <td>Elevated capsule with 3 options (Allies, Routines, Make an Ally).</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <h2>Implementation Phases</h2>
+      <section class="section">
+        <h3>1. Shared GlassSurface Component</h3>
+        <p>Create <code>apps/mobile/src/components/ui/glass-surface.tsx</code>. Export a container that inspects <code>Platform.OS</code> and renders <code>GlassView</code> on iOS with customizable glass effect style (default <code>regular</code>) and fallback container styling on Android/Web.</p>
+      </section>
+
+      <section class="section">
+        <h3>2. Back Button Upgrade</h3>
+        <p>Enhance <code>OnboardingHeader</code> and <code>MockConversationScreen</code> back buttons to adopt <code>GlassSurface</code> with rounded 20px corners, maintaining responsive touch target and proper icon contrast.</p>
+      </section>
+
+      <section class="section">
+        <h3>3. Home Navigation Pill</h3>
+        <p>Build <code>HomeNavigationPill</code> under <code>apps/mobile/src/features/onboarding/home-navigation-pill.tsx</code>. Update <code>OnboardingAlliesScreen</code>: remove top tabs, remove bottom fixed button, mount the pill anchored over the bottom safe-area, and connect tab state to toggle between Allies list and a clean Routines placeholder.</p>
+      </section>
+
+      <section class="section">
+        <h3>4. Verification</h3>
+        <p>Validate with <code>bun run typecheck:mobile</code>, <code>bun run lint:mobile</code>, and <code>bun run test:run</code>. Confirm live reload in Metro on port 8082.</p>
+      </section>
+
+      <h2>Acceptance Criteria</h2>
+      <ol>
+        <li>Native iOS liquid glass effect is rendered via <code>expo-glass-effect</code> on Apple devices.</li>
+        <li>Android displays a matching muted surface utilizing <code>theme.controlSurface</code>.</li>
+        <li>Back buttons in onboarding and conversation headers feature liquid glass styling.</li>
+        <li>Allies Home screen contains a floating navigation pill replacing the old top tabs and bottom button.</li>
+        <li>Tapping "Make an Ally" triggers ally creation; tapping "Allies" and "Routines" toggles views.</li>
+        <li>All existing and new tests pass with zero regressions.</li>
+      </ol>
+    </main>
+  </body>
+</html>
