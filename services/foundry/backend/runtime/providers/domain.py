@@ -299,8 +299,11 @@ class MachineSpec:
             )
         if self.foundry_origin is not None:
             parsed = urlsplit(self.foundry_origin)
+            private_http = parsed.scheme == "http" and bool(
+                parsed.hostname and "." not in parsed.hostname
+            )
             if (
-                parsed.scheme != "https"
+                (parsed.scheme != "https" and not private_http)
                 or not parsed.hostname
                 or parsed.username
                 or parsed.password
@@ -308,7 +311,7 @@ class MachineSpec:
                 or parsed.fragment
                 or parsed.path not in ("", "/")
             ):
-                raise ValueError("Foundry origin must be a plain HTTPS origin")
+                raise ValueError("Foundry origin must be a plain HTTPS or private HTTP origin")
         if isinstance(self.foundry_runtime_credential_ref, str):
             object.__setattr__(
                 self,

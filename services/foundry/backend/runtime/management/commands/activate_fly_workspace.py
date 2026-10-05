@@ -16,6 +16,7 @@ from runtime.models import (
     Workspace,
     WorkspaceProvisioningPhase,
 )
+from runtime.providers.docker import DockerProvider
 from runtime.providers import (
     FlyProvider,
     MachineState,
@@ -37,12 +38,20 @@ from runtime.services.continuity_proof import (
 from runtime.services.retry import run_with_sqlite_lock_retry
 from runtime.services.runtime_intents import request_activation_recovery_wake
 from runtime.services.runtime_readiness import is_runtime_ready
+from runtime.services.runtime_provider import runtime_provider_kind
 from runtime.services.workspaces import WorkspaceLifecycle, WorkspaceSpec
 
 _REQUIRED_SETTINGS = (
     "FLY_API_TOKEN",
     "FLY_ORG",
     "FLY_REGION",
+    "FOUNDRY_ORIGIN",
+    "RUNTIME_IMAGE",
+    "HERMES_IMAGE",
+    "PROFILE_PROVISIONING_API_KEY",
+)
+_DOCKER_REQUIRED_SETTINGS = (
+    "ALLIES_DOCKER_NETWORK",
     "FOUNDRY_ORIGIN",
     "RUNTIME_IMAGE",
     "HERMES_IMAGE",
@@ -117,8 +126,10 @@ class Command(BaseCommand):
         workspace = Workspace.objects.get(pk=workspace_id)
         workspace_id = workspace.id
 
+        docker = runtime_provider_kind() == "docker"
+        required_names = _DOCKER_REQUIRED_SETTINGS if docker else _REQUIRED_SETTINGS
         required = {
-            name: os.environ.get(name, "").strip() for name in _REQUIRED_SETTINGS
+            name: os.environ.get(name, "").strip() for name in required_names
         }
         missing = sorted(name for name, value in required.items() if not value)
         if missing:
@@ -142,8 +153,13 @@ class Command(BaseCommand):
             or workspace.machine_generation
             or 1
         )
-        secret_store = FlyCliSecretStore()
-        provider = FlyProvider(api_token=required["FLY_API_TOKEN"])
+        if docker:
+            provider = DockerProvider.from_environment()
+            secret_store = provider.secrets
+            required.update(FLY_ORG="local", FLY_REGION="local")
+        else:
+            secret_store = FlyCliSecretStore()
+            provider = FlyProvider(api_token=required["FLY_API_TOKEN"])
         credential_bootstrap = ProofCredentialBootstrap(secret_store)
         dependency_bootstrap = ProofDependencyCredentialBootstrap(
             secret_store,
