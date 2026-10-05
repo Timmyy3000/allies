@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  push:
+    branches: [dev, staging, prod, prod-fastlane]
+  workflow_call:
+    inputs:
+      ref:
+        required: false
+        type: string
+    outputs:
+      source_sha:
+        description: "The exact source commit checked by this workflow"
+        value: ${{ jobs.check.outputs.source_sha }}
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Backend and runtime checks
+    runs-on: ubuntu-24.04
+    env:
+      # CI uses the explicit local-development database path. Production
+      # deployments must provide DJANGO_DEBUG=false, DJANGO_SECRET_KEY, and
+      # DATABASE_URL through the platform environment.
+      DJANGO_DEBUG: "true"
+    outputs:
+      source_sha: ${{ steps.record_source.outputs.sha }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 0
+      - name: Record validated source SHA
+        id: record_source
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: backend/.python-version
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - name: Install dependencies
+        working-directory: backend
+        run: uv sync --locked
+      - name: Install runtime dependencies
+        run: uv sync --locked --project runtime
+      - name: Run repository validation
+        run: uv run --locked --project backend python scripts/validate.py
+
+      - name: Verify runtime image dependencies
+        run: docker build --tag allies/runtime:ci --file runtime/Dockerfile runtime
+
+      - name: Verify deployed runtime identity and file access
+        run: uv run --locked --project backend python scripts/check_runtime_identity.py allies/runtime:ci
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: |
+            backend/coverage.xml
+            runtime/coverage.xml
+
+      - name: Apply migrations
+        working-directory: backend
+        run: uv run --locked python manage.py migrate --noinput
+
+      - name: Verify migrations are applied
+        working-directory: backend
+        run: uv run --locked python manage.py migrate --check
+
+      - name: Verify production configuration
+        working-directory: backend
+        env:
+          DJANGO_DEBUG: "false"
+          DJANGO_SECRET_KEY: ci-only-production-check
+          DJANGO_ALLOWED_HOSTS: localhost
+          DJANGO_TRUST_PROXY_HEADERS: "true"
+          DJANGO_TRUSTED_PROXY_IPS: "127.0.0.1/32"
+          ALLIES_CLOUD_SERVICE_TOKEN: ci-only-cloud-service-token-32-bytes
+          ALLIES_CLOUD_URL: https://cloud.example.test
+          ALLIES_CLOUD_EVENT_SERVICE_TOKEN: ci-only-cloud-event-token-32-bytes
+          # A non-routable URL exercises dj-database-url's PostgreSQL path
+          # without requiring a live service for this settings/static check.
+          DATABASE_URL: postgres://ci:ci@127.0.0.1:5432/foundry
+        run: |
+          uv run --locked python manage.py check
+          uv run --locked python manage.py collectstatic --noinput --dry-run

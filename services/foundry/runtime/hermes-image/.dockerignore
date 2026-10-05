@@ -1,0 +1,6 @@
+provider/.venv/
+provider/build/
+provider/dist/
+provider/**/*.egg-info/
+provider/**/__pycache__/
+provider/tests/

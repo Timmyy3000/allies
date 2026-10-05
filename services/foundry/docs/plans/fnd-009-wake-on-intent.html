@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>FND-009 wake on intent implementation plan</title>
+<style>
+:root{color-scheme:light dark;--bg:#fbfbfa;--ink:#171717;--muted:#626262;--line:#d8d8d4;--soft:#f1f1ee}
+*{box-sizing:border-box}body.vbg-report{margin:0;background:var(--bg);color:var(--ink);font:16px/1.62 system-ui,-apple-system,"Segoe UI",sans-serif}
+.vbg-custom-shell{width:min(1160px,calc(100% - 32px));margin:auto;padding:28px 0 72px}.vbg-custom-masthead{display:flex;justify-content:space-between;gap:20px;padding-bottom:18px;border-bottom:1px solid var(--line);color:var(--muted);font-size:.9rem}
+h1{max-width:850px;margin:52px 0 34px;font-size:clamp(2.5rem,7vw,5rem);line-height:1;letter-spacing:-.05em}h2{margin:54px 0 14px;padding-top:16px;border-top:1px solid var(--line);font-size:1.75rem}h3{margin:30px 0 10px;font-size:1.2rem}h4{margin:24px 0 8px;font-size:1.05rem}
+p,main>ul,main>ol{max-width:80ch}li{margin:.35rem 0}code{font:0.9em ui-monospace,SFMono-Regular,Consolas,monospace;background:var(--soft);padding:.08em .3em;border-radius:3px;overflow-wrap:anywhere}
+table{display:block;max-width:100%;overflow-x:auto;border-collapse:collapse;margin:18px 0 28px;font-size:.88rem}th,td{min-width:150px;padding:10px 12px;text-align:left;vertical-align:baseline;border:1px solid var(--line);overflow-wrap:anywhere}th{background:var(--soft)}
+pre{max-width:100%;overflow:auto;padding:16px;background:#171717;color:#f5f5f5;border-radius:4px}pre code{background:transparent;padding:0}.vbg-custom-footer{margin-top:58px;padding-top:20px;border-top:1px solid var(--line);color:var(--muted);font-size:.85rem}
+@media(prefers-color-scheme:dark){:root{--bg:#101110;--ink:#f0f1ef;--muted:#afb3ae;--line:#363a36;--soft:#1b1e1b}}@media(max-width:700px){.vbg-custom-shell{width:calc(100% - 24px)}.vbg-custom-masthead{flex-direction:column}h1{margin-top:36px}}
+</style>
+</head>
+<body class="vbg-report">
+<div class="vbg-custom-shell">
+<header class="vbg-custom-masthead"><strong>Allies Engineering</strong><span>Cross-repository implementation plan · 4 September 2026</span></header>
+<main>
+<h1>FND-009 wake on intent implementation plan</h1>
+<h2>Feature overview</h2>
+<ul>
+<li>Problem: an existing Workspace Machine can be stopped when a person begins composing. Today <code>WorkspaceLifecycle.verify_workspace_ready</code> treats that state as unavailable, and the ordinary execution path records work without requesting a restart. The submitted message therefore waits for an out-of-band activation instead of using the composing lead time.</li>
+<li>Target users: people returning to an existing Ally after its shared Workspace runtime idles; operators need bounded cost, truthful readiness, and a prompt path that remains authoritative.</li>
+<li>Approved outcome: the first non-whitespace composer edit sends one privacy-safe <code>composing_started</code> intent through Interface and Cloud. Foundry wakes only the recorded existing Machine, coalesces every Ally in the Workspace onto one operation, and reports <code>ready</code> only after the current runtime boot authenticates to Hermes, completes startup profile reconciliation, and posts a fresh readiness receipt. Message submission never waits for or depends on speculation.</li>
+<li>Source of truth: <code>docs/plans/fnd-009-wake-on-intent-brief.md</code>; Nabu <code>projects/allies/planning/fnd-009-wake-on-intent.md</code>, <code>engineering/specs/foundry-continuity-layer.md</code>, <code>engineering/specs/conversation-and-streaming.md</code>, and <code>engineering/decisions/decision-log.md</code>; repository code and operational documentation at the baseline below.</li>
+</ul>
+<h3>Frozen implementation baseline</h3>
+<table>
+<thead>
+<tr>
+<th>Repository</th>
+<th>Branch and baseline</th>
+<th>Current seams this plan extends</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Foundry</td>
+<td><code>ft/fnd-009-wake-on-intent</code> from <code>origin/dev</code> at <code>f689f0250561644d168e7ec799482ac1f1bced2e</code></td>
+<td><code>Workspace</code>, <code>Execution</code>, <code>Attempt</code>, and <code>Lease</code>; <code>WorkspaceLifecycle</code> and <code>WorkspaceProvider</code>; runtime authentication, profile reconciliation, execution claim, <code>publish_event_deliveries</code>, Docker/Gunicorn topology</td>
+</tr>
+<tr>
+<td>Cloud</td>
+<td><code>ft/fnd-009-wake-on-intent</code> from <code>origin/dev</code> at <code>2f4953dddc113ddf48e322267dc5998bcd0cfe10</code></td>
+<td>Ally/Workspace authorization, CSRF/session helpers, <code>check_rate_limit</code>, <code>allies.gateways.foundry</code>, durable message dispatch, Gunicorn/Celery/Redis topology</td>
+</tr>
+<tr>
+<td>Interface</td>
+<td><code>web/ft/fnd-009-wake-on-intent</code> stacked on PR #18 head <code>web/dev/figma-chat-ui</code> at <code>52390d0fad0d68505111c4f5251245f95db8da9d</code></td>
+<td><code>ConversationPane</code> composer, generated OpenAPI client, browser CSRF transport, Vitest/Playwright infrastructure</td>
+</tr>
+</tbody>
+</table>
+<p>The prerequisite execution, activity, streaming, profile-reconciliation, and composer paths are present at these commits. Phase 0 is therefore an evidence checkpoint, not an integration project. Unrelated worktrees and changes remain untouched.</p>
+<h2>User stories</h2>
+<ol>
+<li>As a returning user, I want the existing shared runtime to begin waking when I enter meaningful text so less cold-start time remains after I send.</li>
+<li>As a user, I want send to behave exactly as it does today when the intent is missing, disabled, throttled, timed out, or failed.</li>
+<li>As an operator, I want one Workspace-scoped start, current-boot readiness, bounded idle stop, and content-free evidence so latency and false-wake cost can be measured safely.</li>
+</ol>
+<h2>Scope</h2>
+<h3>In scope</h3>
+<ul>
+<li><code>composing_started</code> only, emitted once per Ally conversation view on the first non-whitespace edit.</li>
+<li>Strict Interface-to-Cloud, Cloud-to-Foundry, and runtime-to-Foundry contracts.</li>
+<li>Foundry persistence for two-minute intent eligibility and ten-minute idempotency retention.</li>
+<li>An existing-Machine power lifecycle that uses the recorded app, volume, Machine, generation, provider ownership checks, and the current Workspace lifecycle claim.</li>
+<li>One speculative provider start per Workspace per five minutes, no more than 30 accepted intent requests per Workspace per minute, and 20 browser requests per authenticated user per minute.</li>
+<li>A ten-minute default composing keep-warm period, configurable in seconds; epoch-, generation-, and boot-fenced readiness with a bounded heartbeat and freshness window.</li>
+<li>Bounded wake, readiness reconciliation, retention cleanup, and idle-stop passes inside the existing Foundry event-publisher process.</li>
+<li>A prompt-triggered, cooldown-exempt wake request created with normal <code>Execution</code> acceptance.</li>
+<li>A repeatable Dockerized fake-provider proof and a second bounded proof-owned Fly smoke, both using local Foundry/Cloud/Interface control planes and sanitized evidence.</li>
+</ul>
+<h3>Out of scope</h3>
+<ul>
+<li><code>conversation_opened</code>, its 750 ms dwell experiment, or any focus-only signal.</li>
+<li>First Machine, app, or volume provisioning; Machine replacement; credential rotation; or another volume writer from speculation.</li>
+<li>Creating an <code>Execution</code>, <code>Attempt</code>, <code>Lease</code>, Hermes session, conversation event, or message from a runtime intent.</li>
+<li>Direct Interface access to Foundry, Fly, Hermes, runtime addresses, or credentials.</li>
+<li>New queues, schedulers, services, frameworks, user-visible readiness UI, SSE changes, or per-Ally Machines/timers.</li>
+<li>Railway/staging mutation, production enablement, or PR merge. The authorized Fly smoke may touch only exact, preflighted proof-owned resources and is not a rollout.</li>
+</ul>
+<h3>Dependencies and assumptions</h3>
+<ul>
+<li>Cloud's ordinary <code>Message</code> to <code>DispatchOutbox</code> to <code>POST /api/v1/internal/executions</code> flow stays authoritative. The wake addition must not alter message acceptance, reconciliation, activity projection, or SSE semantics.</li>
+<li>Foundry's <code>Workspace.machine_ref</code>, <code>volume_ref</code>, <code>fly_app_ref</code>, and <code>machine_generation</code> are the only provider binding used. Missing, destroyed, replacing, failed-provisioning, or ownership-mismatched bindings cannot be repaired by speculation.</li>
+<li>The real-provider proof has access to one preflighted proof-owned Workspace and its runtime/provider credentials. No credential, absolute path, temporary tunnel URL, private origin, or real identity is written to a plan or retained proof artifact.</li>
+<li>Runtime readiness defaults are 15-second heartbeat and 60-second server freshness. Both are bounded configuration; deployment validation requires heartbeat less than half the freshness window.</li>
+<li><code>ALLIES_RUNTIME_IDLE_STOP_ENABLED</code> is a separate Foundry gate and defaults false. The Cloud intent kill switch controls speculation only; it cannot authorize or disable stops.</li>
+<li>The Railway Event Publisher currently lacks the Fly variables present on Foundry web. The implementation deliberately gives that existing process only <code>FLY_API_TOKEN</code>; power maintenance reads the persisted app/Machine binding and does not need <code>FLY_ORG</code> or <code>FLY_REGION</code>. Railway must attach the same managed secret by reference before the process is enabled. This is the sole infrastructure variable propagation in FND-009.</li>
+</ul>
+<h2>Contract and shape definitions</h2>
+<h3>Function and service shapes</h3>
+<table>
+<thead>
+<tr>
+<th>Repository and location</th>
+<th>Symbol</th>
+<th>Contract and ownership</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Foundry <code>backend/runtime/services/runtime_intents.py</code></td>
+<td><code>request_runtime_intent(workspace_id, intent, idempotency_key, received_at, *, now) -&gt; RuntimeIntentReceipt</code></td>
+<td>Locks <code>Workspace</code>, exact-replays <code>(workspace,key)</code>, applies two-minute eligibility, 30/Workspace/minute and five-minute speculative-start controls, extends keep-warm only for accepted existing-Machine intent, and joins or creates one Workspace operation. It performs no provider I/O.</td>
+</tr>
+<tr>
+<td>Foundry <code>backend/runtime/services/runtime_power.py</code></td>
+<td><code>request_execution_wake_locked(workspace, *, now) -&gt; None</code></td>
+<td>Called only while <code>_create_contract_execution_once</code> owns the Workspace lock. Marks a queued execution as the cooldown-exempt trigger for the same power operation. No network call occurs in the execution request.</td>
+</tr>
+<tr>
+<td>Foundry <code>backend/runtime/services/runtime_power.py</code></td>
+<td><code>process_runtime_wakes(*, provider, now, limit=20) -&gt; RuntimePowerReport</code></td>
+<td>Claims bounded <code>requested</code> operations with the existing activation claim, verifies the recorded Machine/volume/generation, performs at most one eligible <code>start_machine</code>, reconciles ambiguous results by inspection, and moves to <code>awaiting_readiness</code> or a bounded failure.</td>
+</tr>
+<tr>
+<td>Foundry <code>backend/runtime/services/runtime_readiness.py</code></td>
+<td><code>accept_runtime_readiness(context, boot_id, reconciled_generation, runtime_start_epoch, *, now) -&gt; RuntimeReadinessReceipt</code></td>
+<td>Under the Workspace lock validates the authenticated context and exact current epoch, generation, boot lifecycle, provider-start evidence, and operation state; records fresh readiness, sets coalesced intent outcomes, and returns the power operation to <code>idle</code>. Exact comparison with the monotonic current epoch rejects every old receipt without retaining historical epochs or boots.</td>
+</tr>
+<tr>
+<td>Foundry <code>backend/runtime/services/runtime_readiness.py</code></td>
+<td><code>require_current_runtime_ready_locked(workspace, context, *, now) -&gt; None</code></td>
+<td>Called by <code>claim_next_execution</code> while it owns the Workspace lock, before any Attempt or Lease mutation. It requires the authenticated generation to equal <code>machine_generation</code> and <code>ready_generation</code>, <code>ready_start_epoch == runtime_start_epoch</code>, a non-null current <code>ready_boot_id</code>, and <code>runtime_last_seen_at &gt;= now-readiness_freshness</code>; otherwise the direct claim route returns <code>409</code> without claiming work.</td>
+</tr>
+<tr>
+<td>Foundry <code>backend/runtime/services/runtime_power.py</code></td>
+<td><code>stop_idle_workspaces(*, provider, now, limit=20) -&gt; RuntimePowerReport</code></td>
+<td>Selects an indexed bounded candidate set, then locks and rechecks shared-Workspace activity before claiming a stop. It uses only <code>WorkspaceProvider.stop_machine</code>/<code>wait_machine</code> and compare-and-set finalization.</td>
+</tr>
+<tr>
+<td>Foundry <code>backend/runtime/services/runtime_power.py</code></td>
+<td><code>run_runtime_maintenance(*, provider, now, limit=20) -&gt; RuntimeMaintenanceReport</code></td>
+<td>Runs wake, expired-intent/retention cleanup, and idle-stop passes beside the existing event-delivery pass. One pass is bounded and independently observable.</td>
+</tr>
+<tr>
+<td>Cloud <code>backend/allies/services/runtime_intents.py</code></td>
+<td><code>request_runtime_intent(user, ally_id, intent, occurred_at, idempotency_key) -&gt; RuntimeIntentResult</code></td>
+<td>Resolves Ally and active Workspace membership in one scoped query, requires <code>Capability.WORKSPACE_WRITE</code>, enforces policy/kill switch and 20/user/minute, and forwards the Workspace ID, intent, Cloud receipt time, and same key only.</td>
+</tr>
+<tr>
+<td>Cloud <code>backend/allies/gateways/foundry.py</code></td>
+<td><code>request_runtime_intent(workspace_id, intent, received_at, idempotency_key) -&gt; RuntimeIntentReceipt</code></td>
+<td>Reuses <code>_foundry_origin</code>, bearer authentication, no-redirect behavior, five-second timeout, 64 KiB response bound, typed errors, and strict Pydantic parsing. <code>_request</code> gains an allowlisted extra-header parameter for <code>Idempotency-Key</code>; callers cannot pass <code>Authorization</code>.</td>
+</tr>
+<tr>
+<td>Interface <code>packages/cloud-client/src/client.ts</code></td>
+<td><code>requestRuntimeIntent(allyId, occurredAt, idempotencyKey, signal?) -&gt; Promise&lt;RuntimeIntentViewModel&gt;</code></td>
+<td>Calls the generated route, supplies the UUID key, parses the strict result, and exposes no Foundry or provider fields.</td>
+</tr>
+<tr>
+<td>Interface <code>apps/web/lib/session/web-session.ts</code></td>
+<td><code>RunCloudOperationOptions.retryTransient?: boolean</code></td>
+<td>Keeps the adapter's operation ceiling fixed at two; there is no caller-configurable attempt count. Existing auth/CSRF replay and the opt-in transient retry consume the same remaining slot. The runtime-intent caller uses <code>{csrf:true,retryTransient:true}</code>; CSRF is fetched before the first POST and no layer outside the adapter retries.</td>
+</tr>
+<tr>
+<td>Interface <code>apps/web/lib/allies/runtime-intent.ts</code></td>
+<td><code>useComposingRuntimeIntent(allyId, requestIntent) -&gt; { observeEdit, compositionStart, compositionEnd }</code></td>
+<td>Keeps per-mounted-view refs for sent state, composition state, stable key, and immutable body. It dispatches without awaiting and never mutates composer/send state; the session adapter owns the total two-POST budget.</td>
+</tr>
+</tbody>
+</table>
+<h3>API and transport contracts</h3>
+<table>
+<thead>
+<tr>
+<th>Boundary</th>
+<th>Request</th>
+<th>Successful result</th>
+<th>Errors and retry</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Browser to Cloud <code>POST /api/v1/allies/{ally_id}/runtime-intents</code></td>
+<td>Session + prefetched CSRF + <code>Idempotency-Key</code> UUID; strict <code>{ "intent": "composing_started", "occurred_at": RFC3339 }</code></td>
+<td>Existing success envelope containing only <code>{status}</code>. <code>200</code> for terminal results, <code>202</code> for <code>waking</code>.</td>
+<td><code>401</code>, privacy-safe <code>404</code>, <code>409</code>, <code>422</code>, <code>429</code>, <code>503</code>. There are at most two intent POSTs total: the second may be consumed by session refresh, CSRF refresh, or one opt-in timeout/network retry, never one of each. Both POSTs have identical key/body. CSRF-fetch failure makes zero POSTs.</td>
+</tr>
+<tr>
+<td>Cloud to Foundry <code>POST /api/v1/control/workspaces/{workspace_id}/runtime-intents</code></td>
+<td>Existing Cloud service bearer + same key; strict <code>{ "intent": "composing_started", "received_at": RFC3339 }</code></td>
+<td>Only <code>{status}</code>, with <code>200</code> terminal or <code>202</code> <code>waking</code>.</td>
+<td><code>401</code>, <code>404</code>, <code>409</code>, <code>422</code>, <code>429</code>, <code>503</code>. Cloud makes one bounded call; an ambiguous response is safe because Foundry owns the key. No actor, Ally, conversation, content, credential, provider, Machine, expiry, or retry timer crosses this boundary.</td>
+</tr>
+<tr>
+<td>Runtime to Foundry <code>POST /api/v1/runtime/readiness</code></td>
+<td>Current generation bearer; strict <code>{ "boot_id": UUID, "reconciled_generation": positive-int, "runtime_start_epoch": nonnegative-int }</code></td>
+<td><code>200 {"status":"ready","generation":N,"runtime_start_epoch":E,"accepted_at":RFC3339}</code></td>
+<td><code>401</code> credential, <code>409</code> stale/replaced epoch, generation, boot, or wrong power state, <code>422</code> malformed. Runtime retries boundedly; it never claims work before its first receipt succeeds.</td>
+</tr>
+</tbody>
+</table>
+<p>The bounded result vocabulary is <code>disabled</code>, <code>already_ready</code>, <code>waking</code>, <code>ready</code>, <code>first_provision_required</code>, <code>rate_limited</code>, and <code>failed</code>. <code>disabled</code> is Cloud-owned. Foundry returns <code>first_provision_required</code> without provisioning when the binding is absent, and <code>failed</code> without exposing provider detail. Success bodies contain only <code>status</code>; expiry/cooldown calculations stay server-side, and no retry-after value is persisted or propagated through the success DTOs. Existing generic rate-limit response headers may remain at the rejecting boundary, but Cloud does not forward them and Interface does not schedule from them.</p>
+<p>Representative browser request:</p>
+<pre><code class="language-json">{
+  &quot;intent&quot;: &quot;composing_started&quot;,
+  &quot;occurred_at&quot;: &quot;2026-09-04T12:00:00.000Z&quot;
+}
+</code></pre>
+<p>Representative Cloud-to-Foundry request:</p>
+<pre><code class="language-json">{
+  &quot;intent&quot;: &quot;composing_started&quot;,
+  &quot;received_at&quot;: &quot;2026-09-04T12:00:00.120Z&quot;
+}
+</code></pre>
+<p>Representative runtime readiness request:</p>
+<pre><code class="language-json">{
+  &quot;boot_id&quot;: &quot;00000000-0000-4000-8000-000000000009&quot;,
+  &quot;reconciled_generation&quot;: 7,
+  &quot;runtime_start_epoch&quot;: 12
+}
+</code></pre>
+<p><code>occurred_at</code> is validated but not forwarded. Foundry eligibility starts at the Cloud server receipt, so client clock skew cannot lengthen the window. Idempotency equivalence is the Workspace plus key plus intent type; the server receipt time is metadata and does not make an exact-key retry conflict.</p>
+<h3>Schema and data shapes</h3>
+<table>
+<thead>
+<tr>
+<th>Schema or model</th>
+<th>Exact fields</th>
+<th>Constraints, indexes, and migration behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Foundry <code>RuntimeIntent</code> in <code>backend/runtime/models.py</code></td>
+<td>UUID <code>id</code>; <code>workspace</code> FK; UUID <code>idempotency_key</code>; <code>intent_type</code>; <code>received_at</code>; <code>expires_at</code>; <code>delete_after</code>; <code>outcome</code>; UUID <code>coalesced_operation_id</code>; timestamps</td>
+<td>Unique <code>(workspace,idempotency_key)</code>; checks for the closed enums and <code>received_at &lt; expires_at &lt;= delete_after</code>; only the demonstrated hot-path indexes <code>(workspace,received_at)</code> for the quota window and <code>(delete_after)</code> for cleanup. <code>expires_at=received_at+120s</code>; <code>delete_after=received_at+600s</code>. The row contains no retry timer, user, Ally, conversation, draft, provider response, Machine ID, address, or credential.</td>
+</tr>
+<tr>
+<td>Foundry <code>Workspace</code> additions</td>
+<td><code>runtime_operation_id</code>; <code>runtime_operation_state</code>; <code>runtime_operation_trigger</code>; <code>runtime_operation_requested_at</code>; non-null <code>runtime_start_epoch</code> default <code>0</code>; <code>ready_generation</code>; <code>ready_start_epoch</code>; <code>ready_boot_id</code>; <code>ready_at</code>; <code>runtime_last_seen_at</code>; <code>speculative_keep_warm_until</code>; <code>last_speculative_start_at</code></td>
+<td>Closed in-flight states <code>idle\|requested\|starting\|awaiting_readiness\|stopping</code>; there are no terminal <code>ready</code> or <code>failed</code> power states. Success/failure returns the operation to <code>idle</code>, clears active operation metadata, and leaves durable truth in current readiness fields and each <code>RuntimeIntent.outcome</code>; stop failures use existing safe observability. Trigger is <code>speculative\|execution</code>. Existing activation claim fields are the provider-I/O mutex. Under the Workspace lock every provider start or stop advances the durable monotonic epoch and clears current readiness before I/O. Exact current-epoch comparison rejects delayed same-generation receipts without historical fields. Add only wake and idle candidate indexes <code>(runtime_operation_state,runtime_operation_requested_at)</code> and <code>(runtime_operation_state,speculative_keep_warm_until)</code>.</td>
+</tr>
+<tr>
+<td>Cloud <code>RuntimeIntentMode</code> and <code>Workspace.runtime_intent_mode</code></td>
+<td><code>off\|composing\|open</code>, default <code>off</code></td>
+<td><code>open</code> is reserved data only; the service still emits only <code>composing_started</code>. A closed-value check is sufficient; the hot path loads one Workspace by Ally, so no policy index is added.</td>
+</tr>
+<tr>
+<td>DTOs</td>
+<td>Foundry <code>RuntimeIntentRequest</code>, <code>RuntimeIntentReceipt</code>, <code>RuntimeReadinessRequest</code>, <code>RuntimeReadinessReceipt</code>; Cloud public and gateway equivalents; Interface Zod/view model</td>
+<td><code>extra="forbid"</code> or strict Zod objects at the trust boundary, UUID/RFC3339 parsing, closed status enums, bounded nullable retry. Unknown/content-bearing fields fail rather than being ignored.</td>
+</tr>
+</tbody>
+</table>
+<p>Generate and inspect migrations rather than hand-writing them:</p>
+<ul>
+<li>Foundry <code>backend/runtime/migrations/0015_runtime_intent_and_readiness.py</code> from <code>make migrations APP=runtime MIGRATION_NAME=runtime_intent_and_readiness</code>.</li>
+<li>Cloud <code>backend/workspaces/migrations/0002_workspace_runtime_intent_mode.py</code> from <code>make migrations APP=workspaces MIGRATION_NAME=workspace_runtime_intent_mode</code>.</li>
+<li>Both are additive and default-safe. Existing Workspace rows receive epoch <code>0</code>, null current readiness, and null keep-warm; Cloud policy begins <code>off</code>. Null legacy keep-warm rows are never idle-stop candidates. Rollback first disables Cloud forwarding and the Foundry idle gate, drains/halts power maintenance, then reverses Cloud and Foundry migrations only while no new binary reads the columns.</li>
+</ul>
+<h3>State and concurrency contracts</h3>
+<pre><code class="language-mermaid">stateDiagram-v2
+    [*] --&gt; idle
+    idle --&gt; requested: eligible intent or queued execution
+    requested --&gt; starting: claim; advance epoch; clear readiness; start
+    starting --&gt; awaiting_readiness: recorded Machine is started
+    awaiting_readiness --&gt; idle: receipt; readiness and intent outcome are truth
+    requested --&gt; idle: missing, conflict, expiry, or provider failure
+    starting --&gt; idle: bounded start/reconciliation failure
+    idle --&gt; stopping: idle gate on; explicit deadline expired; no activity
+    stopping --&gt; idle: recorded Machine confirmed stopped
+    stopping --&gt; requested: newer execution cancels or follows stop
+</code></pre>
+<p>Lock and provider ownership rules:</p>
+<ol>
+<li>Every state decision begins with <code>Workspace.objects.select_for_update()</code>. Exact intent replay is checked before quota counts. The Workspace-minute query counts only new keys in the prior 60 seconds.</li>
+<li>The first eligible request creates <code>runtime_operation_id</code>; later Ally intents attach that UUID. A prompt can upgrade an in-flight speculative <code>requested</code> operation to trigger <code>execution</code>; after a prior terminal failure it creates a new operation and bypasses speculative TTL, rate, and five-minute start controls. Terminal success/failure sets coalesced intent outcomes, clears active operation metadata, and returns the power state to <code>idle</code>; readiness fields, not a duplicate <code>ready</code> state, answer whether the runtime can claim.</li>
+<li>The event-publisher claims provider work by compare-and-set on operation UUID plus the existing <code>activation_claim_token</code>. It commits before network I/O. Provider calls never run inside a database transaction.</li>
+<li>Immediately before every <code>WorkspaceProvider.start_machine</code> or <code>stop_machine</code>, re-lock and confirm the same operation/claim, current recorded binding, provisioning phase, and budget. Still under that lock, checked-increment <code>runtime_start_epoch</code> and clear <code>ready_generation</code>, <code>ready_start_epoch</code>, <code>ready_boot_id</code>, <code>ready_at</code>, and <code>runtime_last_seen_at</code>; commit before provider I/O. Epoch overflow fails closed without a provider call. A speculative start also stamps <code>last_speculative_start_at</code>. After timeout or claim expiry, inspect the exact recorded Machine first; never blind-retry or create/replace it.</li>
+<li>Startup reconciliation returns both <code>machine_generation</code> and current <code>runtime_start_epoch</code>; <code>FoundryWorker</code> captures a process boot UUID and reports all three after authenticated Hermes health and forced profile reconciliation. <code>accept_runtime_readiness</code> locks the Workspace and accepts only an exact current epoch and generation. It may establish the current boot only after the matching start lifecycle; thereafter only that boot may refresh the heartbeat. Any lower, future, replaced, or otherwise mismatched epoch/boot gets <code>409</code>, including a delayed old receipt after clear/start in the same Machine generation. Because epochs never decrease and acceptance is equality-only, no prior epoch/boot columns or history table is needed.</li>
+<li>Readiness is server-authoritative at work claim, not a worker convention. <code>claims.py::claim_next_execution</code> calls <code>require_current_runtime_ready_locked</code> under its existing Workspace lock and before creating or mutating an Attempt or Lease. The authenticated context generation must equal both current <code>machine_generation</code> and <code>ready_generation</code>; <code>ready_start_epoch</code> must equal current <code>runtime_start_epoch</code>; <code>ready_boot_id</code> and <code>runtime_last_seen_at</code> must be non-null; and the sighting must be within 60 seconds. Failed checks return <code>409</code> from the direct runtime API and leave the execution queued. Heartbeats repeat at most every 15 seconds; credential/generation fencing stops the worker.</li>
+<li>Idle selection is entirely disabled unless <code>ALLIES_RUNTIME_IDLE_STOP_ENABLED=true</code>. When enabled, its bounded indexed query requires an explicit non-null <code>speculative_keep_warm_until &lt;= now</code>; null legacy rows are ineligible. Under the Workspace lock it rejects any <code>Execution</code> in <code>queued|running</code>, <code>Attempt</code> in <code>queued|leased|running</code>, <code>Lease</code> in <code>active|stopping</code>, current provisioning, unexpired/missing keep-warm, or newer lifecycle operation. It claims <code>stopping</code>, commits, re-locks immediately before the epoch advance/provider mutation, and repeats the checks.</li>
+<li>Execution acceptance already locks the Workspace in <code>_create_contract_execution_once</code>. On new or duplicate queued work it invalidates a not-yet-mutated stop claim, establishes an explicit normal keep-warm deadline, and marks an <code>execution</code> wake. If work arrives after the final stop check, compare-and-set finalization cannot overwrite the newer operation; the next bounded wake-first pass restarts the recorded Machine. Thus no execution is lost even at the external-I/O race boundary.</li>
+<li>Each publisher iteration runs <code>process_runtime_wakes</code> first in its own caught/reportable failure boundary. It then publishes at most one pending event (<code>publish_pending_event_deliveries(limit=1)</code>), limiting the existing five-second delivery timeout to one per iteration; cleanup and gated idle work run last with their own strict batch/time budgets. With the supervised one-second interval, healthy local database/process scheduling, and an immediately available provider call, a committed queued-execution wake begins <code>start_machine</code> within seven seconds even if every event delivery times out. Wake failure never suppresses delivery, and delivery/cleanup/idle failure never suppresses the next wake pass.</li>
+</ol>
+<h3>Frontend interaction shape</h3>
+<p><code>ConversationPane</code> keeps the existing draft/send flow. The textarea handlers call the feature-local observer after updating <code>draftRef</code>; they do not await it. Whitespace-only values do nothing. During IME composition, <code>onChange</code> records the value but emission waits for <code>onCompositionEnd</code>, which re-evaluates the final value. A <code>sentRef</code> is set before starting I/O, so React Strict Mode effects or concurrent callbacks cannot double-send. The UUID, request timestamp, and serialized body are created once. Before the first intent POST the existing session adapter resolves CSRF; one shared counter allows at most two POST calls total. A <code>401</code> refresh, CSRF rejection refresh, or transient network/timeout can consume the final attempt, but no sequence gets a third. Remounting a different conversation view creates fresh state; no Zustand/query cache, cross-tab protocol, loading state, announcement, or submit dependency is added.</p>
+<h2>Phases</h2>
+<h3>Phase 0: freeze contracts and measurement points</h3>
+<ul>
+<li>Confirm the three SHAs above, clean feature worktrees, ordinary prompt flow, and generated Cloud OpenAPI baseline.</li>
+<li>Add a shared, content-free contract fixture in Foundry <code>docs/contracts/fnd-009-runtime-intent-v1.json</code>, copied byte-for-byte into Cloud <code>backend/allies/tests/fixtures/</code> and exercised in both contract suites. Interface consumes regenerated OpenAPI rather than a third hand-maintained wire type.</li>
+<li>Fix measurement names before behavior changes: Cloud receipt, Foundry intent accepted, provider start requested/observed, readiness accepted, execution accepted/claimed, first normalized visible activity/token, terminal, and stop observed. Reuse current wide-event builders and allowlists; record trigger/outcome/duration/warm-at-submit, never content or credentials.</li>
+<li>Exit: an ordinary prompt still reaches execution/activity streaming at the baselines, and fixture parsers agree. No latency claim is made.</li>
+</ul>
+<h3>Phase 1: add Foundry intent, power, and readiness authority</h3>
+<ul>
+<li>Update <code>backend/runtime/models.py</code>, generated migration <code>0015</code>, <code>api/schemas.py</code>, and <code>api/register.py</code> with the strict control and runtime routes.</li>
+<li>Add <code>services/runtime_intents.py</code>, <code>services/runtime_power.py</code>, and <code>services/runtime_readiness.py</code>. Reuse <code>WorkspaceProvider</code>, <code>FlyProvider</code>, <code>MachineState</code>, deterministic ownership metadata, retry exceptions, runtime auth, and wide events. Do not call the activation management command from the new endpoint.</li>
+<li>Extend <code>services/executions.py::_create_contract_execution_once</code> with the pure locked prompt-wake marker for new and duplicate queued executions. Extend <code>services/claims.py::claim_next_execution</code> with the locked server-authoritative readiness guard before Attempt/Lease mutation.</li>
+<li>Extend <code>management/commands/publish_event_deliveries.py::_run_once</code> into explicit wake-first, one-event, and cleanup/gated-idle stages, each caught and reported independently. Preserve the command name and watch bounds so Docker/Railway process topology does not add or rename a service.</li>
+<li>Add a narrow provider factory that reads <code>FLY_API_TOKEN</code> for start/inspect/stop and otherwise uses the production <code>FlyProvider</code> defaults. It must not read organization, region, image, profile, or provisioning settings. A custom <code>base_url</code> is accepted only behind the explicit debug/proof conjunction defined in Phase 4; it fails configuration closed everywhere else. Keep event delivery running if power configuration is unavailable and report only a safe counter.</li>
+<li>Extend <code>runtime/allies_runtime/foundry.py</code> with <code>FoundryClient.report_readiness</code>, an epoch-and-generation-bearing reconciliation snapshot, boot UUID ownership in <code>FoundryWorker</code>, and the bounded readiness loop. Update <code>composition.py</code> without adding dependencies.</li>
+<li>Add default-off <code>ALLIES_RUNTIME_IDLE_STOP_ENABLED</code>, keep it independent of the Cloud speculation kill switch, and require explicit non-null keep-warm for every candidate.</li>
+<li>Exit: unit/PostgreSQL race tests show one provider start, prompt bypass, epoch/generation/boot readiness enforced on direct claims, wake start within seven seconds under saturated delivery timeouts, gated bounded idle stop, and no speculative runtime truth creation.</li>
+</ul>
+<h3>Phase 2: add Cloud product policy and gateway</h3>
+<ul>
+<li>Add <code>Workspace.runtime_intent_mode</code> and migration <code>0002</code>; add bounded settings <code>ALLIES_RUNTIME_INTENT_ENABLED=false</code>, user limit <code>20</code>, and period <code>60</code>.</li>
+<li>Add strict schemas/controller route in <code>backend/allies/api/schemas.py</code>, <code>controllers.py</code>, and <code>register.py</code>; add <code>backend/allies/services/runtime_intents.py</code> and typed exceptions.</li>
+<li>Extend <code>backend/allies/gateways/foundry.py</code> rather than adding a client. Reuse service token, origin validation, timeout, response bound, and error taxonomy. Forward only path Workspace ID, allowed intent, server receipt time, and the same key.</li>
+<li>Reuse <code>check_rate_limit(scope="runtime-intent-user", identity=str(user.id), limit=20, period=60)</code>. Policy/kill-switch suppression returns <code>disabled</code> without calling Foundry; all message paths ignore these settings.</li>
+<li>Regenerate Cloud OpenAPI and add route/schema/gateway/authorization/tenant-isolation tests.</li>
+<li>Exit: foreign Ally access is indistinguishable from missing, policy <code>off</code> and kill switch call no gateway, <code>open</code> behaves like composing without emitting open intent, and request/log captures contain no content.</li>
+</ul>
+<h3>Phase 3: wire Interface first-edit intent</h3>
+<ul>
+<li>Regenerate <code>packages/cloud-client/openapi/allies-cloud-0.1.0.json</code> from the Phase 2 schema, then update <code>src/mappers/allies.ts</code>, <code>src/client.ts</code>, and client tests with the new result type/method.</li>
+<li>Refactor the existing <code>apps/web/lib/session/web-session.ts</code> retry branches behind one local fixed-two operation counter and optional <code>retryTransient=false</code>, keeping existing auth/CSRF replay behavior for other callers without exposing an attempt-count option. Prefetch CSRF before attempt one. Add focused adapter tests before wiring <code>apps/web/lib/allies/runtime-intent.ts</code> into only the textarea callbacks in <code>apps/web/app/home/home-workspace.tsx</code>.</li>
+<li>Cover first meaningful key input, paste, speech-style input, IME, whitespace-to-text, React Strict Mode, navigation/remount, first network/timeout retry, <code>401 -&gt; refresh -&gt; network</code>, <code>csrf_rejected -&gt; refresh -&gt; timeout</code>, CSRF-fetch failure, HTTP failure, and immediate submit. Assert zero POSTs on CSRF-fetch failure, never more than two otherwise, identical key/body across both attempts, and that <code>sendMessageContent</code> is never gated.</li>
+<li>Exit: one view emits at most one logical intent with at most two total POST attempts inclusive of all replay causes, while existing send/activity UI is unchanged.</li>
+</ul>
+<h3>Phase 4: prove the complete topology</h3>
+<h4>Mandatory repeatable fake-provider gate</h4>
+<ul>
+<li>Add <code>compose.fnd009.yaml</code>, small deterministic seed commands, one test-only HTTP simulator process, <code>apps/web/e2e/wake-on-intent.spec.ts</code>, and <code>apps/web/playwright.fnd009.config.ts</code>. Foundry web and publisher still instantiate the production <code>FlyProvider</code>, pointed through its existing <code>base_url</code> constructor seam at the simulator's narrow Fly Machines API. The one simulator process exclusively owns in-memory Machine state, call counts, generation, and epoch and exposes an authenticated read-only snapshot to proof assertions; there is no second provider implementation, shared JSON writer, or cross-process file lock.</li>
+<li>Add <code>ALLIES_FLY_API_BASE_URL</code> only for this proof seam. Startup accepts it only when both <code>DJANGO_DEBUG=true</code> and explicit <code>ALLIES_RUNTIME_POWER_PROOF_ENABLED=true</code>; a set override outside that conjunction raises a configuration error before serving or running maintenance. Production and the real-Fly smoke leave it unset and use the <code>FlyProvider</code> default endpoint.</li>
+<li>Use UUIDv5 values derived from the constant namespace and labels <code>fnd009-workspace</code>, <code>fnd009-user</code>, <code>fnd009-ally-a</code>, <code>fnd009-ally-b</code>, and <code>fnd009-conversation-*</code>. Seed isolated empty Foundry and Cloud databases, current runtime credentials/profile bindings, two Allies sharing one Workspace, mode <code>composing</code>, and an explicit short keep-warm deadline. The browser signs in through Cloud's existing fake-provider public auth flow with the deterministic synthetic subject, obtains its session and CSRF normally, and never receives injected cookies.</li>
+<li>Start Foundry migrate, production-entrypoint/Gunicorn web, and event-publisher containers; start Cloud migrate, Gunicorn web, Celery worker, and Celery beat containers; start local Interface and Playwright. On the simulated Fly start call, that same state-owning simulator process performs the seeded runtime auth/profile-reconciliation contract, posts readiness with the current epoch/generation/boot, claims through the public runtime API, and emits ordinary ordered activity so Playwright verifies SSE and the visible response rather than mutating database state directly.</li>
+<li>Drive <code>stopped -&gt; composing wake -&gt; ready -&gt; message response -&gt; idle -&gt; stopped -&gt; prompt wake -&gt; second response</code> without refresh, and prove a queued/leased second Ally blocks shared-Workspace stop. The simulator snapshot proves one start per operation, epoch advancement, and exact stop/start order; persisted database reads prove intent, execution, readiness, and claim state.</li>
+<li>A small <code>scripts/prove_fnd009.py</code> only validates preconditions, creates an explicit unique Compose project/network name, invokes Compose/seed/Playwright commands, captures a sanitized report, and performs cleanup; it does not reimplement lifecycle or polling. Preflight requires Docker/Compose, free configured ports, clean isolated database/volume names, local-only origins, fake-provider selection, and built images. On success or failure it captures sanitized logs/state, runs <code>docker compose -p &lt;exact-run-id&gt; down --volumes</code>, removes only the exact recorded proof network, verifies those exact containers/volumes/network are absent, and exits nonzero if proof or cleanup fails. No wildcard or guessed-resource deletion is allowed.</li>
+<li>Freeze command parity deliberately: the bounded local proof publisher is <code>uv run --no-sync python manage.py publish_event_deliveries --watch --interval 1 --max-runs 1440</code>; Railway remains its current supervised unbounded <code>uv run --no-sync python manage.py publish_event_deliveries --watch --interval 1</code>.</li>
+</ul>
+<h4>Mandatory bounded real-Fly smoke</h4>
+<ul>
+<li>Run only after the fake-provider gate. Reuse the same Dockerized local Foundry/Cloud and local Interface, synthetic seed/browser-auth path, Playwright story, existing <code>activate_fly_workspace</code>/<code>prove_machine_continuity</code> ownership checks, and a small bounded proof-script mode. Do not contact or mutate Railway/staging.</li>
+<li>Preflight requires a clean exact manifest path for this run; an immutable feature-branch runtime image resolved and recorded by digest with its source SHA; Fly authentication; a public temporary HTTPS tunnel reaching local Foundry health; short proof-only keep-warm/heartbeat settings; and one proof-owned app, volume, and Machine whose exact IDs and ownership metadata are returned by the existing activation/proof commands. The tunnel URL and credentials remain process environment only and are redacted from logs/report.</li>
+<li>Before any start/stop, persist the exact app, volume, Machine, Workspace, generation, image digest, and initial provider state in the ignored run manifest; re-read each resource by exact ID and require proof ownership. Playwright then exercises the stopped wake/readiness/message/idle-stop/second-wake story through local Cloud and Interface. This is a bounded provider smoke, not Railway validation, rollout evidence, or a performance claim.</li>
+<li>
+<p>Cleanup uses only IDs in that manifest: stop the exact created/resumed proof Machine if necessary, invoke the existing proof cleanup for only resources created by this run, restore any pre-existing proof-owned resource to its recorded initial state, revoke temporary runtime proof credentials, and stop/revoke the exact tunnel process. Re-read each recorded ID to verify the expected restored/absent state and verify the tunnel is unreachable. If ownership, manifest completeness, cleanup, or post-check is uncertain, make no destructive guess: stop mutations, retain the sanitized manifest/evidence, fail the gate, and require operator reconciliation. Never enumerate-and-delete or use a name prefix/wildcard.</p>
+</li>
+<li>
+<p>Phase exit: all suites, the repeatable fake-provider gate, and the bounded real-Fly smoke pass before any PR opens. Compare stopped-existing and warm timestamps on the same basis and report observations without claiming improvement from a single run.</p>
+</li>
+</ul>
+<h2>Acceptance criteria</h2>
+<ol>
+<li>First non-whitespace edit emits one content-free <code>composing_started</code> per mounted Ally view and no more than two total intent POSTs inclusive of 401/CSRF replay and opt-in transient retry; both use the same key/body, and IME/Strict Mode tests pass.</li>
+<li>Cloud applies CSRF, session authentication, active membership/<code>WORKSPACE_WRITE</code>, strict schema, policy, kill switch, and 20/user/minute before the minimal Foundry call.</li>
+<li>Foundry persists exact-key results for ten minutes, expires work eligibility after two minutes, caps new keys at 30/Workspace/minute, and attempts no more than one speculative provider start/Workspace/five minutes.</li>
+<li>Concurrent Ally intents share one operation and provider start. No intent creates an execution, attempt, lease, session, event, Machine, volume, credential, or replacement writer.</li>
+<li>Only the recorded existing stopped Machine can start. Missing/unprovisioned returns <code>first_provision_required</code>; missing/destroyed/conflicting bindings return a bounded failure without repair.</li>
+<li><code>ready</code> requires current provider-start evidence plus a fresh receipt matching the server-owned current start epoch, generation, and non-null boot after authenticated Hermes health and reconciliation. <code>claim_next_execution</code> rechecks that truth under lock before any Attempt/Lease mutation; stale, absent, old-epoch, and replaced-boot receipts cannot claim through the direct API. No historical epoch/boot state is required.</li>
+<li>Idle stop requires the separate default-off Foundry idle gate, an explicit expired non-null keep-warm deadline, no queued/active execution or attempt, and no unresolved lease under the locked recheck. Legacy null rows never stop merely by enabling the gate; activity for any Ally prevents the decision.</li>
+<li>New and replayed queued executions request a cooldown-exempt wake. Intent absence, disablement, throttling, expiry, timeout, or failure never changes message admission or eventual execution.</li>
+<li>Each publisher iteration attempts bounded wake work before at most one event delivery. A saturated five-second delivery timeout stream cannot delay a committed queued-execution start invocation beyond seven seconds under the declared healthy local conditions; stage failures are independently reported.</li>
+<li>Complete Foundry, runtime, Cloud, and Interface validation passes, followed by both the repeatable fake-provider proof and bounded proof-owned real-Fly smoke. Artifacts contain no private paths/origins, tunnel URLs, identities, secrets, content, or raw provider payloads.</li>
+<li>No PR opens until Phase 4 passes. The resulting PRs open for review but do not merge or mutate Railway/staging in this work.</li>
+</ol>
+<h2>Backend considerations</h2>
+<h3>Query optimization and N+1 prevention</h3>
+<ul>
+<li>Foundry intent admission is constant-query per request: Workspace lock, exact key lookup, bounded 60-second count, and state write. It never enumerates Allies or profiles.</li>
+<li>Idle candidate discovery is indexed and limited; activity checks use <code>Exists</code> across <code>Execution</code>, <code>Attempt</code>, and <code>Lease</code>, followed by one locked Workspace recheck per candidate. Provider calls occur only for claimed candidates, never in an ORM iteration over related objects.</li>
+<li>Cloud resolves Ally, Workspace, and active membership with <code>select_related("workspace")</code> plus a membership predicate, then performs one capability check and one gateway call. Add query-count tests that remain flat as Ally/profile counts grow.</li>
+<li>Add only the two <code>RuntimeIntent</code> and two Workspace candidate indexes named in the schema table, backed by query-count/scale-shape tests. Do not make unconditional <code>EXPLAIN</code> inspection an implementation or PR gate; capture a PostgreSQL plan only if representative integration data or CI timing shows a regression. SQLite remains a unit-test compatibility path, not concurrency evidence.</li>
+</ul>
+<h3>Detailed test matrix</h3>
+<table>
+<thead>
+<tr>
+<th>Area</th>
+<th>Required cases</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Foundry intent</td>
+<td>exact duplicate, conflicting type/key, cross-Workspace key reuse, reordered delivery, 2-minute expiry, 10-minute replay then cleanup, 30/minute boundary, 5-minute start boundary, ready/already-ready/waking/first-provision/failed outcomes</td>
+</tr>
+<tr>
+<td>Foundry concurrency/provider</td>
+<td>parallel keys across multiple Allies, claim expiry, timeout after remote start, inspect-before-retry, stopped/created/started/transitional/destroyed Machine, wrong volume/ownership/generation, active activation/provisioning, no second Machine API call</td>
+</tr>
+<tr>
+<td>Readiness/runtime</td>
+<td>invalid bearer; pre-receipt direct claim; non-null current boot requirement; exact current epoch/generation match; same-boot heartbeat; freshness expiry then direct claim; start clears readiness and advances epoch; stop does likewise; delayed old same-generation/old-epoch receipt without historical fields; replaced boot receipt; future epoch; provider not started; Hermes auth/health failure; reconciliation blocked; receipt loss/retry; no Attempt/Lease mutation on <code>409</code></td>
+</tr>
+<tr>
+<td>Publisher ordering</td>
+<td>wake failure still delivers; delivery/cleanup/idle failure does not suppress next wake; 20 pending deliveries that each take the five-second timeout with new queued execution; assert <code>start_machine</code> invocation begins within seven seconds under healthy local DB/process/provider-call conditions and only one delivery is attempted per iteration</td>
+</tr>
+<tr>
+<td>Prompt and idle</td>
+<td>prompt without intent, prompt during speculative cooldown/failure/stop, duplicate queued execution, second Ally queued/running, active/stopping lease, idle gate off, gate on with legacy null keep-warm, unexpired/expired explicit keep-warm, stop timeout, epoch advance before stop, new work before/after final recheck, CAS finalization</td>
+</tr>
+<tr>
+<td>Cloud</td>
+<td>CSRF/session failures, inactive/foreign membership, strict unknown/content field, malformed timestamp/key, off/composing/open modes, global disable, 20/minute, Foundry 200/202/401/404/409/422/429/5xx/malformed/timeout, same-key forwarding, no content in request/log/event</td>
+</tr>
+<tr>
+<td>Interface</td>
+<td>whitespace, paste, IME start/change/end, Strict Mode, repeated changes, default transient failure/no retry, opt-in first transient retry, <code>401 -&gt; refresh -&gt; network</code>, <code>csrf_rejected -&gt; refresh -&gt; timeout</code>, CSRF-prefetch failure/zero POSTs, non-retryable HTTP result, identical key/body, fixed two-total-POST ceiling with no attempt-count option, unmount, same-view send, view remount, no visible state and no wait before message send</td>
+</tr>
+</tbody>
+</table>
+<h2>Test and validation plan</h2>
+<ul>
+<li>Foundry focused: <code>cd backend; uv run --locked pytest runtime/tests/test_runtime_intents.py runtime/tests/test_runtime_power.py runtime/tests/test_runtime_readiness.py runtime/tests/test_claims.py runtime/tests/test_event_publisher.py runtime/tests/test_api.py runtime/tests/test_cld005_contract.py</code>; PostgreSQL-marked concurrency cases; then <code>make check</code>, <code>make runtime-test</code>, <code>make lint</code>, and <code>uv run --locked --project backend python scripts/validate.py</code>.</li>
+<li>Runtime focused: <code>cd runtime; uv run --locked pytest tests/test_foundry.py tests/test_profile_reconciliation.py tests/test_readiness.py tests/test_composition.py</code>; preserve branch coverage and the current 90% runtime threshold.</li>
+<li>Cloud focused: <code>make check</code>; <code>make test APP=allies/tests</code>; <code>make test APP=workspaces/tests</code>; gateway/API/PostgreSQL concurrency cases; then <code>make test</code>, <code>make lint</code>, and migration apply/check. Preserve CI's auth/workspaces 90% checks.</li>
+<li>Interface: focused <code>apps/web/lib/session/web-session.test.ts</code> and runtime-intent/home tests; <code>bun run cloud:check</code>; <code>bun run typecheck</code>; <code>bun run test:run</code>; <code>bun run lint</code>; <code>bun run build:web</code>; <code>bun run bundle:mobile</code>; then the dedicated FND-009 Playwright config against both proof modes.</li>
+<li>Migration verification: apply from empty databases and baseline snapshots, run <code>makemigrations --check --dry-run</code>, inspect reverse plans, and confirm default-off Cloud plus nullable/unready Foundry behavior during rolling skew.</li>
+<li>Artifact verification: inspect <code>git diff --check</code> and <code>git diff</code>; compare Markdown and HTML headings, tables, thresholds, commands, contracts, risks, and acceptance claims; scan both for drive-letter paths, usernames, credentials, private origins, and foreign branding; audit HTML at desktop and narrow widths in light/dark browser themes.</li>
+</ul>
+<h2>Docker, Railway, rollout, and PR order</h2>
+<ul>
+<li>Foundry Compose remains <code>postgres</code>, separate <code>migrate</code>, production-entrypoint <code>foundry</code>, and separate <code>event-publisher</code>. The local proof command is exactly <code>uv run --no-sync python manage.py publish_event_deliveries --watch --interval 1 --max-runs 1440</code>. Railway remains supervised and unbounded exactly as current: <code>uv run --no-sync python manage.py publish_event_deliveries --watch --interval 1</code>. Add command-parity tests so neither is normalized to the other. Local Compose already applies shared proof environment to <code>event-publisher</code>; assert its resolved environment contains a non-empty provider token reference without printing it.</li>
+<li>Railway's Event Publisher variable list must add <code>FLY_API_TOKEN</code> as a reference to the managed Foundry web secret, not as a second literal. Do not propagate <code>FLY_ORG</code> or <code>FLY_REGION</code>: the publisher is forbidden from provisioning and uses the durable <code>fly_app_ref</code>/<code>machine_ref</code>. This copies an organization-scoped provider capability into another service, increasing the compromise surface; mitigate it with Railway secret references, least-privilege provider credentials when Fly supports the required actions, no value logging, startup presence validation, and rotation/revocation in the rollback runbook. A new internal web power-pass endpoint was rejected because it would add another credential, network failure mode, and privileged HTTP surface while the existing publisher already owns bounded maintenance work.</li>
+<li>Cloud Compose remains <code>postgres</code>, <code>redis</code>, separate <code>migrate</code>, Gunicorn <code>backend</code>, Celery <code>worker</code>, and Celery <code>beat</code>. No new task, queue, or service is introduced. Compare every image, working directory, concurrency, timeout, queue, and max-tasks flag with <code>docs/operations/railway-staging.md</code>; keep ignored <code>.railway/</code> operator material out of commits.</li>
+<li>Roll out in four ordered checkpoints: deploy additive Foundry/Cloud/Interface code with both gates off; attach the managed <code>FLY_API_TOKEN</code> reference to Railway Event Publisher and verify presence without revealing it; enable and observe wake/prompt maintenance while Cloud policy remains selectively controlled; only then explicitly enable <code>ALLIES_RUNTIME_IDLE_STOP_ENABLED</code>. Existing/null keep-warm rows stay ineligible until ordinary wake/prompt activity writes a deadline. The Cloud kill switch suppresses only new speculative intent forwarding; the Foundry idle gate alone controls stopping. Rollback first turns the idle gate off, then the Cloud speculation switch, while event delivery and prompt wake remain available.</li>
+<li>PR dependency order after all proof gates: (1) Foundry PR to <code>dev</code>; (2) Cloud PR to <code>dev</code>, explicitly depending on the Foundry contract PR; (3) Interface PR based on <code>web/dev/figma-chat-ui</code>/PR #18, explicitly depending on Cloud. If PR #18 merges first, rebase and retarget Interface to <code>dev</code> without changing the reviewed feature diff. Open all three for review, do not merge, and do not enable Railway/Fly.</li>
+</ul>
+<h2>Risks and mitigations</h2>
+<table>
+<thead>
+<tr>
+<th>Risk</th>
+<th>Mitigation</th>
+<th>Rollback or fallback</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Provider <code>started</code> or stale process is mistaken for runtime readiness</td>
+<td>Durable monotonic start epoch advanced before every start/stop, exact current epoch/generation/boot receipt, and locked freshness guard in <code>claim_next_execution</code>; equality fencing makes historical epoch/boot storage unnecessary</td>
+<td>Return <code>409</code>/<code>waking</code>; leave execution queued with no Attempt/Lease mutation until current readiness arrives</td>
+</tr>
+<tr>
+<td>Concurrent intents or a lost response duplicate provider start</td>
+<td>Workspace operation UUID, activation claim, five-minute stamp immediately before speculative start, and inspect-before-retry</td>
+<td>Kill switch off; preserve intent receipts for replay and allow only prompt-triggered reconciliation</td>
+</tr>
+<tr>
+<td>Idle stop races new work or touches legacy rows</td>
+<td>Separate default-off gate, explicit non-null deadline, locked <code>Exists</code> checks, repeated pre-mutation check, shared operation CAS, and execution acceptance overriding stop ownership</td>
+<td>Turn off only the idle gate; new execution marks prompt wake and finalization cannot overwrite it</td>
+</tr>
+<tr>
+<td>False wakes increase Machine time</td>
+<td>Composing only, once/view, 2-minute eligibility, 10-minute keep-warm, 20/user/minute, 30/Workspace/minute, one speculative start/5 minutes</td>
+<td>Set Workspace mode <code>off</code> or global forwarding off; idle maintenance reclaims eligible Machines</td>
+</tr>
+<tr>
+<td>Publisher delivery backlog delays prompt wake</td>
+<td>Wake-first stage, one five-second event attempt per iteration, independent error boundaries, and a seven-second wake-start saturation test</td>
+<td>Disable speculation if needed; queued execution wake continues on the next supervised pass</td>
+</tr>
+<tr>
+<td>Cross-repository version skew</td>
+<td>Foundry-first strict v1 fixture, additive/default-safe migrations, Cloud default off, regenerated Interface client</td>
+<td>Disable forwarding; old Interface remains compatible and messages continue through existing routes</td>
+</tr>
+<tr>
+<td>Event Publisher needs provider authority</td>
+<td>Propagate only the managed <code>FLY_API_TOKEN</code> reference; keep organization/region/provisioning inputs out; validate presence without logging and document rotation</td>
+<td>Disable Cloud forwarding and power maintenance, rotate/revoke the token, and leave event delivery running while prompt rows remain durable</td>
+</tr>
+<tr>
+<td>Sensitive data appears in intent evidence</td>
+<td>Strict content-free schemas, Cloud-only actor scope, allowlisted wide events, bounded receipts, sanitization tests</td>
+<td>Disable endpoint/events, delete expired ten-minute intent rows through the normal bounded cleanup</td>
+</tr>
+<tr>
+<td>Proof mutates unrelated Fly resources or is mistaken for rollout evidence</td>
+<td>Exact proof-owned ID manifest, ownership recheck before mutation, immutable image digest, no wildcard cleanup, local control planes only, and explicit scope labeling</td>
+<td>Stop on ambiguity, retain sanitized evidence, reconcile exact IDs manually; make no staging/performance claim</td>
+</tr>
+</tbody>
+</table>
+<p>Open decisions: none. The brief fixes product and architecture choices; implementation values not fixed there use the bounded defaults stated above and remain configuration, not new product behavior.</p>
+</main>
+<footer class="vbg-custom-footer">Implementation-ready plan · FND-009 · baselines and safeguards frozen above</footer>
+</div>
+</body>
+</html>

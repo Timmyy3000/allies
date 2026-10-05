@@ -1,0 +1,70 @@
+{
+  "cloud_to_foundry": {
+    "method": "POST",
+    "path": "/api/v1/control/workspaces/{workspace_id}/runtime-intents",
+    "authentication": "Bearer ALLIES_CLOUD_SERVICE_TOKEN",
+    "headers": {
+      "Idempotency-Key": "00000000-0000-4000-8000-000000000011"
+    },
+    "request": {
+      "intent": "composing_started",
+      "received_at": "2026-08-25T12:00:00.120Z"
+    },
+    "responses": {
+      "200": {
+        "status": "already_ready"
+      },
+      "202": {
+        "status": "waking"
+      },
+      "409": {
+        "code": "CONFLICT",
+        "message": "request conflicts with current runtime state"
+      },
+      "422": {
+        "code": "INVALID_REQUEST",
+        "message": "request body is invalid"
+      }
+    }
+  },
+  "runtime_readiness": {
+    "method": "POST",
+    "path": "/api/v1/runtime/readiness",
+    "authentication": "Bearer current-generation-runtime-credential",
+    "request": {
+      "boot_id": "00000000-0000-4000-8000-000000000009",
+      "reconciled_generation": 7,
+      "runtime_start_epoch": 12
+    },
+    "response": {
+      "status": "ready",
+      "generation": 7,
+      "runtime_start_epoch": 12,
+      "accepted_at": "2026-08-25T12:00:01.000Z"
+    }
+  },
+  "status_vocabulary": [
+    "disabled",
+    "already_ready",
+    "waking",
+    "ready",
+    "first_provision_required",
+    "rate_limited",
+    "failed"
+  ],
+  "privacy": {
+    "intent_fields": [
+      "intent",
+      "received_at"
+    ],
+    "forbidden_fields": [
+      "ally_id",
+      "conversation_id",
+      "draft",
+      "message",
+      "provider",
+      "machine_id",
+      "credential"
+    ]
+  }
+}

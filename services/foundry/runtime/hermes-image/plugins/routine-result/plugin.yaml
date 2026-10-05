@@ -1,0 +1,7 @@
+name: allies-routine-result
+version: 0.1.0
+description: Typed, side-effect-free result tool used only by Allies scheduled routines
+author: Allies
+kind: backend
+provides_tools:
+  - allies_routine_result
