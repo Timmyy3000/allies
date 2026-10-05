@@ -28,6 +28,7 @@ jobs:
   checks:
     name: Types, tests, lint and mobile
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     env:
       NEXT_PUBLIC_CLOUD_API_URL: https://cloud.invalid
       EXPO_PUBLIC_CLOUD_API_URL: https://cloud.invalid
@@ -75,6 +76,7 @@ jobs:
   web:
     name: Web build and browser tests
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     env:
       NEXT_PUBLIC_CLOUD_API_URL: https://cloud.invalid
       NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE: stream
@@ -151,6 +153,7 @@ jobs:
     if: ${{ always() }}
     needs: [checks, web]
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     outputs:
       source_sha: ${{ steps.gate.outputs.source_sha }}
     steps:

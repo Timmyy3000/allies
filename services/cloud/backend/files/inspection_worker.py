@@ -43,12 +43,16 @@ def main() -> None:
             name=request["name"],
             source=source,
             size=request["size"],
-            scanner=ClamAvClient(
+            scanner=None
+            if request["scanner"] is None
+            else ClamAvClient(
                 ScannerConfig(
-                    host=request["scanner_host"],
-                    port=request["scanner_port"],
-                    deadline_seconds=request["scanner_deadline"],
-                    max_definition_age=timedelta(seconds=request["definition_age"]),
+                    host=request["scanner"]["host"],
+                    port=request["scanner"]["port"],
+                    deadline_seconds=request["scanner"]["deadline"],
+                    max_definition_age=timedelta(
+                        seconds=request["scanner"]["definition_age"]
+                    ),
                 )
             ),
             now=datetime.fromisoformat(request["now"]),

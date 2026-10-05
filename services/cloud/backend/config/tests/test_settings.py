@@ -139,7 +139,7 @@ def test_production_settings_reject_missing_security_configuration():
     [
         ({}, None),
         (
-            {"ALLIES_FILE_SCANNER_HOST": ""},
+            {"ALLIES_FILE_MALWARE_SCAN": "true", "ALLIES_FILE_SCANNER_HOST": ""},
             "ALLIES_FILE_SCANNER_HOST for file inspection",
         ),
         (

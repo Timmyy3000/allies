@@ -22,7 +22,7 @@ ISOLATION_SUPPORTED = os.name == "posix"
 
 
 def inspect_isolated(
-    *, name: str, source: BinaryIO, size: int, scanner_config: ScannerConfig
+    *, name: str, source: BinaryIO, size: int, scanner_config: ScannerConfig | None
 ) -> FileInspection:
     try:
         payload, total, digest = _run_parser(
@@ -32,10 +32,16 @@ def inspect_isolated(
             parameters={
                 "operation": "inspection",
                 "name": name,
-                "scanner_host": scanner_config.host,
-                "scanner_port": scanner_config.port,
-                "scanner_deadline": scanner_config.deadline_seconds,
-                "definition_age": scanner_config.max_definition_age.total_seconds(),
+                "scanner": None
+                if scanner_config is None
+                else {
+                    "host": scanner_config.host,
+                    "port": scanner_config.port,
+                    "deadline": scanner_config.deadline_seconds,
+                    "definition_age": (
+                        scanner_config.max_definition_age.total_seconds()
+                    ),
+                },
                 "now": datetime.now(UTC).isoformat(),
             },
         )
