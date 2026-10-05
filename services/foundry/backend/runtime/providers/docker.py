@@ -63,7 +63,8 @@ _SAFE_SECRET = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _RUNTIME_SUFFIX = "-runtime"
 _STOP_SECONDS = 20
 # bwrap inside Hermes needs nested namespaces and mounts; Fly provides a VM.
-_HERMES_SECURITY = ["seccomp=unconfined", "apparmor=unconfined", "systempaths=unconfined"]
+# Empty Masked/ReadonlyPaths is the API form of `--security-opt systempaths=unconfined`.
+_HERMES_SECURITY = ["seccomp=unconfined", "apparmor=unconfined"]
 
 
 class _UnixHTTPConnection(http.client.HTTPConnection):
@@ -113,8 +114,11 @@ class DockerEngine:
         except json.JSONDecodeError:
             data = None
         if response.status >= 500:
+            message = (data or {}).get("message", "") if isinstance(data, dict) else ""
             raise ProviderRetryableError(
-                "Docker request failed", operation=operation, status_code=response.status
+                f"Docker request failed: {message[:200]}",
+                operation=operation,
+                status_code=response.status,
             )
         return response.status, data
 
@@ -306,6 +310,8 @@ class DockerProvider:
                 "Memory": spec.memory_mb * 1024 * 1024,
                 "NanoCpus": spec.cpus * 1_000_000_000,
                 "SecurityOpt": _HERMES_SECURITY,
+                "MaskedPaths": [],
+                "ReadonlyPaths": [],
                 "RestartPolicy": {"Name": "unless-stopped"},
             },
         )
