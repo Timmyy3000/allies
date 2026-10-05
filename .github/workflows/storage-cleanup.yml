@@ -24,7 +24,7 @@ env:
 jobs:
   artifacts:
     name: Delete workflow artifacts older than 7 days
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       actions: write
