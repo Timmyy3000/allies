@@ -923,7 +923,14 @@ if not DEBUG:
     if not _waitlist_model_configured:
         missing.append("ALLIES_WAITLIST_OPENAI_MODEL")
     foundry_url = urlparse(ALLIES_FOUNDRY_URL)
-    if foundry_url.scheme != "https" or not foundry_url.netloc:
+    # Self-hosted stacks reach Foundry over a private Docker network by its
+    # single-label service name; anything publicly routable must use HTTPS.
+    foundry_private_http = foundry_url.scheme == "http" and bool(
+        foundry_url.hostname and "." not in foundry_url.hostname
+    )
+    if not foundry_url.netloc or not (
+        foundry_url.scheme == "https" or foundry_private_http
+    ):
         missing.append("HTTPS ALLIES_FOUNDRY_URL")
     if len(ALLIES_FOUNDRY_SERVICE_TOKEN) < 32 or any(
         character.isspace() for character in ALLIES_FOUNDRY_SERVICE_TOKEN
