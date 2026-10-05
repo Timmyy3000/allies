@@ -76,9 +76,11 @@ services:
       retries: 20
     restart: unless-stopped
 
-  # Uploads fail closed without a malware scan; ClamAV needs ~1 GB RAM.
+  # Optional upload malware scanning (~1 GB RAM): set ALLIES_FILE_MALWARE_SCAN=true
+  # and start with `docker compose --profile clamav up -d`.
   clamav:
     image: clamav/clamav:stable
+    profiles: [clamav]
     volumes:
       - clamav:/var/lib/clamav
     healthcheck:
