@@ -57,7 +57,7 @@ from ..presentation import activity_text
 
 logger = logging.getLogger("allies.activities")
 
-MAX_ACTIVITY_SNAPSHOT = 200
+MAX_ACTIVITY_SNAPSHOT = 1000
 MAX_ACTIVITIES_PER_MESSAGE = 513
 MAX_ACTIVITIES_PER_CONVERSATION = 8192
 MAX_EVENT_RECEIPTS_PER_MESSAGE = MAX_TERMINAL_SEQUENCE
@@ -1082,6 +1082,24 @@ def _apply_foundry_event(envelope: FoundryEventEnvelope) -> ProjectionResult:
     )
 
 
+def _recent_turns_floor(activity_query, conversation, recent_messages: int) -> int:
+    cutoff = (
+        Message.objects.filter(conversation=conversation, deleted_at__isnull=True)
+        .order_by("-sequence", "-id")
+        .values_list("sequence", flat=True)[recent_messages - 1 : recent_messages]
+        .first()
+    )
+    if cutoff is None:
+        return 0
+    first = (
+        activity_query.filter(conversation_turn_ordinal__gte=cutoff)
+        .order_by("sequence", "id")
+        .values_list("sequence", flat=True)
+        .first()
+    )
+    return 0 if first is None else first - 1
+
+
 def read_activity_snapshot(
     *,
     user,
@@ -1090,6 +1108,7 @@ def read_activity_snapshot(
     limit: int = 200,
     cursor: str | None = None,
     replay: bool = False,
+    recent_messages: int | None = None,
 ) -> ActivitySnapshot:
     if not 1 <= limit <= MAX_ACTIVITY_SNAPSHOT:
         raise ProjectionInvalid("activity limit is invalid")
@@ -1134,6 +1153,11 @@ def read_activity_snapshot(
             parse_activity_cursor(cursor, conversation.id) if cursor else None
         )
         after_sequence = parsed_cursor.after_sequence if parsed_cursor else 0
+        if parsed_cursor is None and recent_messages:
+            # Opening a chat only needs activity for the turns it displays.
+            after_sequence = _recent_turns_floor(
+                activity_query, conversation, recent_messages
+            )
         high_water_sequence = (
             parsed_cursor.high_water_sequence
             if parsed_cursor

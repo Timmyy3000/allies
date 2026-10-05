@@ -225,7 +225,6 @@ export function AllySettingsDialog({
       (operationSignal) => session.client.listRoutines(workspaceId, { allyId: ally.id, signal: operationSignal }),
       { signal },
     ),
-    retry: false,
   });
 
   const routineDetailQuery = useQuery({
@@ -235,7 +234,6 @@ export function AllySettingsDialog({
       (operationSignal) => session.client.getRoutine(workspaceId, selectedRoutineId ?? "", operationSignal),
       { signal },
     ),
-    retry: false,
   });
 
   const openPanel = (next: ProfilePanel) => {

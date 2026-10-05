@@ -7,7 +7,7 @@ const sourceRevision = process.env.ALLIES_CLOUD_OPENAPI_REVISION;
 if (localFile && !/^[0-9a-f]{40}$/.test(sourceRevision ?? "")) {
   throw new Error("A local Cloud schema requires its source commit");
 }
-const source = localFile ? "https://github.com/alliesai/allies-cloud" : "https://cloud.staging.yourallies.io/api/v1/openapi.json";
+const source = localFile ? "https://github.com/Timmyy3000/allies" : "https://cloud.staging.yourallies.io/api/v1/openapi.json";
 const fetchUrl = process.env.ALLIES_CLOUD_OPENAPI_FETCH_URL ?? source;
 const targetDirectory = path.resolve("packages/cloud-client/openapi");
 const schemaPath = path.join(targetDirectory, "allies-cloud-0.1.0.json");

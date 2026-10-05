@@ -615,7 +615,8 @@ test("beta settings navigation and roster controls", async ({ page }, testInfo) 
   await page.emulateMedia({ colorScheme: "light" });
   await page.screenshot({ path: testInfo.outputPath("account-settings-light.png"), fullPage: true });
   await page.getByRole("button", { name: "Back", exact: true }).click();
-  await expect(page).toHaveURL(/\/home$/);
+  // Account settings returns to the Ally that was open before.
+  await expect(page).toHaveURL(new RegExp(`/home/${allyId}$`));
   expect(errors).toEqual([]);
 });
 

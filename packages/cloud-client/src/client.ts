@@ -296,11 +296,12 @@ const conversationOptionsSchema = z.object({
   limit: z.number().int().min(1).max(100).optional(),
   cursor: z.string().min(1).max(512).optional(),
 });
-const activityLimitSchema = z.number().int().min(1).max(200);
+const activityLimitSchema = z.number().int().min(1).max(1000);
 const activityOptionsSchema = z.object({
   limit: activityLimitSchema.optional(),
   cursor: z.string().min(1).max(512).optional(),
   replay: z.boolean().optional(),
+  recent_messages: z.number().int().min(1).max(200).optional(),
 });
 const routineListOptionsSchema = z.object({
   limit: z.number().int().min(1).max(100),
@@ -334,6 +335,8 @@ export interface ActivityOptions {
   limit?: number;
   cursor?: string;
   replay?: boolean;
+  /** Replay only activity for turns among the latest N messages. */
+  recentMessages?: number;
   signal?: AbortSignal;
 }
 
@@ -373,7 +376,7 @@ function parseActivityOptions(
   limitOrOptions?: number | ActivityOptions,
   signal?: AbortSignal,
 ): {
-  query?: { limit?: number; cursor?: string; replay?: boolean };
+  query?: { limit?: number; cursor?: string; replay?: boolean; recent_messages?: number };
   signal?: AbortSignal;
 } {
   const options = typeof limitOrOptions === "number"
@@ -386,6 +389,7 @@ function parseActivityOptions(
     ...(options.limit === undefined ? {} : { limit: options.limit }),
     ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
     ...(options.replay === undefined ? {} : { replay: options.replay }),
+    ...(options.recentMessages === undefined ? {} : { recent_messages: options.recentMessages }),
   });
   return {
     ...(Object.keys(query).length ? { query } : {}),
