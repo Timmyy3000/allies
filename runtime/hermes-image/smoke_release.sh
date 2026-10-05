@@ -17,7 +17,7 @@ for smoke in memory_routing reasoning_override bootstrap_endpoint activity_strea
         "$hermes" /tmp/smoke.py
 done
 # Permit nested namespaces in this disposable fixture; bwrap enforces the tested boundary.
-docker run --rm --security-opt seccomp=unconfined --security-opt systempaths=unconfined \
+docker run --rm --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
     --user 0:0 --group-add 10001 --entrypoint /opt/hermes/.venv/bin/python \
     --env PYTHONPATH=/opt/hermes \
     --volume "$PWD/runtime/hermes-image/smoke_workspace_boundary.py:/tmp/smoke.py:ro" \

@@ -25,7 +25,7 @@ permissions:
 jobs:
   validate:
     name: Build and smoke-test runtime pair
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
       - name: Check out source
@@ -117,6 +117,9 @@ jobs:
             --tag allies/runtime:ci \
             --file runtime/Dockerfile \
             runtime
+
+      - name: Allow unprivileged user namespaces for bwrap
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Run the complete runtime smoke suite
         run: sh runtime/hermes-image/smoke_release.sh allies/hermes-mnemosyne:ci allies/runtime:ci
