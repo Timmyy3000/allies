@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [nightly, stable]
     paths: &web
       - "apps/**"
       - "packages/**"
@@ -12,7 +12,7 @@ on:
       - "vitest.config.ts"
       - ".github/workflows/web.yml"
   push:
-    branches: [main]
+    branches: [nightly, stable]
     paths: *web
   workflow_dispatch:
     inputs:
@@ -54,7 +54,7 @@ jobs:
         id: scope
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          CI_FULL: ${{ github.event_name != 'pull_request' || github.base_ref != 'main' }}
+          CI_FULL: ${{ github.event_name != 'pull_request' || github.base_ref != 'nightly' }}
         run: |
           if [ "$CI_FULL" != "true" ] && git show "$CI_BASE_SHA:scripts/ci-scope.ts" > "$RUNNER_TEMP/ci-scope.ts"; then
             bun "$RUNNER_TEMP/ci-scope.ts" >> "$GITHUB_OUTPUT"
@@ -103,7 +103,7 @@ jobs:
         id: scope
         env:
           CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          CI_FULL: ${{ github.event_name != 'pull_request' || github.base_ref != 'main' }}
+          CI_FULL: ${{ github.event_name != 'pull_request' || github.base_ref != 'nightly' }}
         run: |
           if [ "$CI_FULL" != "true" ] && git show "$CI_BASE_SHA:scripts/ci-scope.ts" > "$RUNNER_TEMP/ci-scope.ts"; then
             bun "$RUNNER_TEMP/ci-scope.ts" >> "$GITHUB_OUTPUT"
