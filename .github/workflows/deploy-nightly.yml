@@ -29,7 +29,7 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy
           chmod 600 ~/.ssh/deploy
           # The server key restricts this login to deploy/update.sh.
-          ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=accept-new "root@$DEPLOY_HOST" nightly
+          ssh -i ~/.ssh/deploy -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 "root@$DEPLOY_HOST" nightly
 
       - name: Check the public site
         run: |

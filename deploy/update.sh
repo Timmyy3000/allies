@@ -9,7 +9,7 @@ git checkout -q -B "$branch" "origin/$branch"
 cd deploy
 docker compose up -d --build --remove-orphans
 for _ in $(seq 1 60); do
-    if docker compose exec -T cloud python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3)" >/dev/null 2>&1; then
+    if docker compose exec -T cloud python -c "import urllib.request; urllib.request.urlopen('http://cloud:8000/api/v1/health', timeout=3)" >/dev/null 2>&1; then
         echo "deployed $(git rev-parse --short HEAD) on $branch"
         exit 0
     fi
