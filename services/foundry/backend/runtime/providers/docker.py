@@ -62,9 +62,17 @@ _SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 _SAFE_SECRET = re.compile(r"^[A-Z][A-Z0-9_]{0,63}$")
 _RUNTIME_SUFFIX = "-runtime"
 _STOP_SECONDS = 20
+
+
 # bwrap inside Hermes needs nested namespaces and mounts; Fly provides a VM.
 # Empty Masked/ReadonlyPaths is the API form of `--security-opt systempaths=unconfined`.
-_HERMES_SECURITY = ["seccomp=unconfined", "apparmor=unconfined"]
+# Hosts that restrict user namespaces (Ubuntu 24.04+) need an AppArmor profile
+# granting `userns`; see deploy/apparmor-allies-hermes.
+def _hermes_security() -> list[str]:
+    profile = (
+        os.environ.get("ALLIES_DOCKER_APPARMOR_PROFILE", "").strip() or "unconfined"
+    )
+    return ["seccomp=unconfined", f"apparmor={profile}"]
 
 
 class _UnixHTTPConnection(http.client.HTTPConnection):
@@ -104,9 +112,13 @@ class DockerEngine:
             response = connection.getresponse()
             raw = response.read()
         except TimeoutError as exc:
-            raise ProviderTimeoutError("Docker request timed out", operation=operation) from exc
+            raise ProviderTimeoutError(
+                "Docker request timed out", operation=operation
+            ) from exc
         except OSError as exc:
-            raise ProviderRetryableError("Docker is unavailable", operation=operation) from exc
+            raise ProviderRetryableError(
+                "Docker is unavailable", operation=operation
+            ) from exc
         finally:
             connection.close()
         try:
@@ -163,7 +175,9 @@ class DockerSecretStore:
             ) from exc
 
     # Fly needs a release to activate staged secrets; files are live at once.
-    def bootstrap_release(self, app_ref: str, image: str, region: str) -> tuple[str, str]:
+    def bootstrap_release(
+        self, app_ref: str, image: str, region: str
+    ) -> tuple[str, str]:
         return ("local", "1")
 
     def deploy(self, app_ref: str) -> tuple[str, str]:
@@ -276,7 +290,9 @@ class DockerProvider:
 
     def create_machine(self, spec: MachineSpec) -> MachineRecord:
         if self._container(spec.name, "create_machine") is not None:
-            raise ProviderConflictError("machine already exists", operation="create_machine")
+            raise ProviderConflictError(
+                "machine already exists", operation="create_machine"
+            )
         labels = {
             _OWNER: _OWNER_VALUE,
             _APP: spec.app_name,
@@ -309,7 +325,7 @@ class DockerProvider:
                 "NetworkMode": self.network,
                 "Memory": spec.memory_mb * 1024 * 1024,
                 "NanoCpus": spec.cpus * 1_000_000_000,
-                "SecurityOpt": _HERMES_SECURITY,
+                "SecurityOpt": _hermes_security(),
                 "MaskedPaths": [],
                 "ReadonlyPaths": [],
                 "RestartPolicy": {"Name": "unless-stopped"},
@@ -328,7 +344,9 @@ class DockerProvider:
         )
         machine = self.inspect_machine(spec.app_name, spec.name)
         if machine is None:
-            raise ProviderProtocolError("created machine vanished", operation="create_machine")
+            raise ProviderProtocolError(
+                "created machine vanished", operation="create_machine"
+            )
         return machine
 
     def wait_machine(
@@ -343,7 +361,9 @@ class DockerProvider:
         while True:
             machine = self.inspect_machine(app_name, machine_id)
             if machine is None:
-                raise ProviderNotFoundError("machine not found", operation="wait_machine")
+                raise ProviderNotFoundError(
+                    "machine not found", operation="wait_machine"
+                )
             if machine.state.value == state:
                 return machine
             if time.monotonic() >= deadline:
@@ -388,7 +408,9 @@ class DockerProvider:
     ) -> str | None:
         return uuid4().hex
 
-    def release_machine_lease(self, app_name: str, machine_id: str, lease_token: str) -> None:
+    def release_machine_lease(
+        self, app_name: str, machine_id: str, lease_token: str
+    ) -> None:
         return None
 
     # Internals
@@ -403,7 +425,9 @@ class DockerProvider:
     ) -> str:
         env = dict(container.environment)
         for secret in container.secret_files:
-            env[secret.secret_name] = self.secrets.encoded(spec.app_name, secret.secret_name)
+            env[secret.secret_name] = self.secrets.encoded(
+                spec.app_name, secret.secret_name
+            )
         if container.name == "allies-runtime":
             if spec.runtime_credential_ref is not None:
                 env["HERMES_CREDENTIAL_REF"] = spec.runtime_credential_ref.reference
@@ -496,7 +520,11 @@ class DockerProvider:
             health=MachineHealth(state, containers),
             images=images,
             cpu_kind="shared",
-            cpus=max(1, ((hermes.get("HostConfig") or {}).get("NanoCpus") or 0) // 1_000_000_000),
+            cpus=max(
+                1,
+                ((hermes.get("HostConfig") or {}).get("NanoCpus") or 0)
+                // 1_000_000_000,
+            ),
             memory_mb=memory // (1024 * 1024) or None,
         )
 
@@ -504,7 +532,9 @@ class DockerProvider:
         labels = raw.get("Labels") or {}
         name = raw.get("Name")
         if not name or _APP not in labels:
-            raise ProviderProtocolError("volume is not Foundry-owned", operation="map_volume")
+            raise ProviderProtocolError(
+                "volume is not Foundry-owned", operation="map_volume"
+            )
         _, data = self.engine.request(
             "GET",
             "/containers/json",
@@ -568,7 +598,9 @@ def _expect(status: int, allowed: tuple[int, ...], operation: str) -> None:
 
 def _check_name(value: str, kind: str) -> None:
     if not isinstance(value, str) or not _SAFE_NAME.fullmatch(value):
-        raise ProviderInvalidConfigurationError(f"invalid {kind} name", operation="docker")
+        raise ProviderInvalidConfigurationError(
+            f"invalid {kind} name", operation="docker"
+        )
 
 
 def _check_secret(value: str) -> None:
