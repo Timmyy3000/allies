@@ -215,7 +215,7 @@ def inspect_file(
     name: str,
     source: BinaryIO,
     size: int,
-    scanner: ClamAvClient,
+    scanner: ClamAvClient | None,
     now: datetime | None = None,
 ) -> FileInspection:
     """Validate and scan a bounded private object without loading it into memory."""
@@ -240,7 +240,12 @@ def inspect_file(
                     typed.sha256,
                 )
             stream.seek(0)
-            scanned = scanner.scan(stream, now=now)
+            # No scanner: the instance opted out of malware scanning.
+            scanned = (
+                ScannerResult(True, None)
+                if scanner is None
+                else scanner.scan(stream, now=now)
+            )
     except _InspectionFailure as exc:
         return FileInspection(False, None, "none", exc.code, False)
     except (OSError, ValueError):

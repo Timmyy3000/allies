@@ -26,7 +26,9 @@ _LEASE_SECONDS = 240
 InspectionRunner = Callable[..., FileInspection]
 
 
-def _scanner_config() -> ScannerConfig:
+def _scanner_config() -> ScannerConfig | None:
+    if not getattr(settings, "ALLIES_FILE_MALWARE_SCAN", False):
+        return None
     return ScannerConfig(
         host=str(getattr(settings, "ALLIES_FILE_SCANNER_HOST", "")),
         port=int(getattr(settings, "ALLIES_FILE_SCANNER_PORT", 3310)),
