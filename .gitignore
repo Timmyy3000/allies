@@ -53,3 +53,7 @@ android/
 # Aphrodite local design caches (never commit)
 .aphrodite/
 .aphrodite-previous/
+
+# Self-hosting secrets
+deploy/.env
+deploy/compose.override.yaml
