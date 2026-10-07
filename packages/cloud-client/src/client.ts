@@ -302,6 +302,7 @@ const activityOptionsSchema = z.object({
   cursor: z.string().min(1).max(512).optional(),
   replay: z.boolean().optional(),
   recent_messages: z.number().int().min(1).max(200).optional(),
+  compact: z.boolean().optional(),
 });
 const routineListOptionsSchema = z.object({
   limit: z.number().int().min(1).max(100),
@@ -337,6 +338,8 @@ export interface ActivityOptions {
   replay?: boolean;
   /** Replay only activity for turns among the latest N messages. */
   recentMessages?: number;
+  /** Merge each streamed reply's deltas into one row covering their sequences. */
+  compact?: boolean;
   signal?: AbortSignal;
 }
 
@@ -376,7 +379,7 @@ function parseActivityOptions(
   limitOrOptions?: number | ActivityOptions,
   signal?: AbortSignal,
 ): {
-  query?: { limit?: number; cursor?: string; replay?: boolean; recent_messages?: number };
+  query?: { limit?: number; cursor?: string; replay?: boolean; recent_messages?: number; compact?: boolean };
   signal?: AbortSignal;
 } {
   const options = typeof limitOrOptions === "number"
@@ -390,6 +393,7 @@ function parseActivityOptions(
     ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
     ...(options.replay === undefined ? {} : { replay: options.replay }),
     ...(options.recentMessages === undefined ? {} : { recent_messages: options.recentMessages }),
+    ...(options.compact === undefined ? {} : { compact: options.compact }),
   });
   return {
     ...(Object.keys(query).length ? { query } : {}),

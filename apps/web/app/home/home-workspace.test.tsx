@@ -453,6 +453,91 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     expect(screen.queryByText(/I will keep that with the rest of today/)).toBeNull();
   });
 
+  it("shows the load error when the full read fails behind a cached preview", async () => {
+    const preview = {
+      id: "00000000-0000-4000-8000-000000000005",
+      allyId: ally.id,
+      messages: [{
+        id: "00000000-0000-4000-8000-000000000006",
+        sender: "assistant" as const,
+        content: "Cached preview reply",
+        sequence: 1,
+        status: "completed" as const,
+        createdAt: "2026-08-20T16:00:00Z",
+      }],
+      nextCursor: null,
+    };
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async (_workspaceId: string, _allyId: string, options?: { limit?: number }) => {
+        if (options?.limit === 50) throw { kind: "network" };
+        return preview;
+      }),
+    }, <AllyHomePage />);
+    expect(await screen.findByText("Cached preview reply")).toBeTruthy();
+    expect(await screen.findByText("We couldn't open this conversation.", {}, { timeout: 4000 })).toBeTruthy();
+  });
+
+  it("keeps a just-sent message after leaving the chat and coming back", async () => {
+    const message = {
+      id: "00000000-0000-4000-8000-000000000017",
+      sender: "user" as const,
+      content: "Remember this across navigation",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const sendMessage = vi.fn(async () => ({ message, execution: { id: "execution", state: "queued" } }));
+    const page = <AllyHomePage />;
+    const client = renderHome([ally], ally.id, { sendMessage }, page);
+    expect(await screen.findByRole("heading", { name: ally.name })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: message.content } });
+    await clickSendMessage();
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+
+    // Leave the chat (the pane unmounts) and return before Cloud is refetched.
+    selectedSegment.mockReturnValue(null);
+    client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout>{null}</HomeLayout></QueryClientProvider>);
+    selectedSegment.mockReturnValue(ally.id);
+    client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout>{page}</HomeLayout></QueryClientProvider>);
+
+    expect((await screen.findAllByText(message.content)).length).toBeGreaterThan(0);
+  });
+
+  it("keeps an accepted message visible when Cloud's queue snapshot predates it", async () => {
+    const message = {
+      id: "00000000-0000-4000-8000-000000000018",
+      sender: "user" as const,
+      content: "Do not lose this bubble",
+      sequence: 2,
+      status: "in_progress" as const,
+      queueState: "claimed" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const getAllyConversation = vi.fn(async (_workspaceId: string, selectedId: string) => ({
+      id: "00000000-0000-4000-8000-000000000005",
+      allyId: selectedId,
+      messages: [{
+        id: "00000000-0000-4000-8000-000000000006",
+        sender: "assistant" as const,
+        content: "What should we work on first?",
+        sequence: 1,
+        status: "completed" as const,
+        createdAt: "2026-08-20T16:00:00Z",
+      }],
+      queue: [],
+      nextCursor: null,
+    }));
+    const sendMessage = vi.fn(async () => ({ message, execution: { id: "execution", state: "running" } }));
+    renderHome([ally], ally.id, { getAllyConversation, sendMessage }, <AllyHomePage />);
+    expect(await screen.findByRole("heading", { name: ally.name })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: message.content } });
+    await clickSendMessage();
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    // Let the receipt effect run against the cache that now holds the message.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
+    expect((await screen.findAllByText(message.content)).length).toBeGreaterThan(0);
+  });
+
   it("keeps unknown Ally IDs honest", async () => {
     const page = <AllyHomePage />;
     renderHome([ally], "not-owned", {}, page);
@@ -3021,6 +3106,49 @@ describe("HomeWorkspace", () => {
     expect(screen.queryByRole("button", { name: "Earlier messages" })).toBeNull();
     expect(await screen.findByText("Terminal replay answer")).toBeTruthy();
   });
+
+  it.each([
+    ["a valid session", false],
+    ["an ended session", true],
+  ])("checks the session before ending the chat when the activity stream gets a 401 with %s", async (_label, ended) => {
+    vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
+    const message = {
+      id: "00000000-0000-4000-8000-000000000020",
+      sender: "user" as const,
+      content: "Stay signed in please",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const snapshot = { conversationId: "00000000-0000-4000-8000-000000000005", activities: [], state: "running" as const, lastContiguousSequence: 0 };
+    let streamReads = 0;
+    const getActivities = vi.fn(async () => {
+      if (ended && readActivityStreamMock.mock.calls.length > 0 && streamReads > 0) throw { kind: "unauthorized", status: 401 };
+      return snapshot;
+    });
+    const sendMessage = vi.fn(async () => ({ conversationId: snapshot.conversationId, message, execution: null, replayed: false }));
+    let streamOptions: { onError?: (error: { status?: number }) => void } | undefined;
+    readActivityStreamMock.mockImplementation((options) => {
+      streamOptions = options;
+      return { close: vi.fn() };
+    });
+    renderHome([ally], ally.id, { getActivities, sendMessage });
+    fireEvent.change(await screen.findByRole("textbox"), { target: { value: message.content } });
+    await clickSendMessage();
+    await waitFor(() => expect(readActivityStreamMock).toHaveBeenCalled());
+    streamReads = 1;
+    await act(async () => {
+      streamOptions?.onError?.({ status: 401 });
+    });
+    if (ended) {
+      expect(await screen.findByText("Your session ended", {}, { timeout: 4000 })).toBeTruthy();
+    } else {
+      await waitFor(() => expect(readActivityStreamMock.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 4000 });
+      expect(screen.queryByText("Your session ended")).toBeNull();
+      expect(screen.getByRole("textbox")).toBeTruthy();
+    }
+  }, 10_000);
 
   it("keeps durable replies moving while the activity stream is connected", async () => {
     vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");

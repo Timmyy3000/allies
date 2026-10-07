@@ -1226,7 +1226,16 @@ function ConversationPane({
   const [nextCursorOverride, setNextCursorOverride] = useState<string | null | undefined>(undefined);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderLoadError, setOlderLoadError] = useState<string | null>(null);
-  const [sentMessages, setSentMessages] = useState<MessageViewModel[]>([]);
+  // Accepted messages awaiting Cloud's copy. Kept outside the conversation cache so
+  // the receipt check below only ever compares against data Cloud actually returned,
+  // and in the query client so they survive leaving and reopening the chat.
+  const sentMessagesKey = useMemo(() => ["sent-messages", workspaceId, ally.id], [ally.id, workspaceId]);
+  const [sentMessages, setSentMessages] = useState<MessageViewModel[]>(
+    () => queryClient.getQueryData<MessageViewModel[]>(sentMessagesKey) ?? [],
+  );
+  useEffect(() => {
+    queryClient.setQueryData(sentMessagesKey, sentMessages);
+  }, [queryClient, sentMessages, sentMessagesKey]);
   const [immediateMessageIds, setImmediateMessageIds] = useState<ReadonlySet<string>>(() => new Set());
   const [draft, setDraft] = useState("");
   const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
@@ -1553,11 +1562,12 @@ function ConversationPane({
 
   useEffect(() => {
     if (!conversation) return;
-    const authoritativeMessages = mergeConversationMessageCopies(
+    // Same filter as rendering, so a local copy is only dropped once the server copy will show.
+    const authoritativeMessages = filterAuthoritativeQueueMessages(mergeConversationMessageCopies(
       olderMessages,
       conversation.messages,
       conversation.queue ?? [],
-    );
+    ), conversation.queue);
     const deletedIds = authoritativeMessages
       .filter((message) => Boolean(message.deletedAt))
       .map((message) => message.id);
@@ -1944,8 +1954,10 @@ function ConversationPane({
           workspaceId,
           targetConversationId,
           {
-            limit: 1000,
+            limit: 200,
             replay: true,
+            // Finished replies arrive as one row each instead of one per streamed delta.
+            compact: true,
             // Opening a chat replays activity for its recent turns only.
             ...(cursor ? { cursor } : { recentMessages: 10 }),
           },
@@ -2091,6 +2103,16 @@ function ConversationPane({
       }
     }
   }, [applyConversationAccessFailure, handleActivityReplayFailure, loadReplayWithRecovery, presentActivitySnapshot, session, workspaceId]);
+  const refreshActivitySnapshotRef = useRef(refreshActivitySnapshot);
+  useEffect(() => {
+    refreshActivitySnapshotRef.current = refreshActivitySnapshot;
+  }, [refreshActivitySnapshot]);
+
+  const rememberAcceptedMessage = useCallback((message: MessageViewModel) => {
+    setSentMessages((current) => mergeMessages(current, [message]));
+    // Refetch Cloud's copy on the next open instead of trusting a pre-send snapshot.
+    void queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id), refetchType: "none" });
+  }, [ally.id, queryClient, workspaceId]);
 
   const sendMessageContent = useCallback(async (
     content: string,
@@ -2125,7 +2147,7 @@ function ConversationPane({
       if (!accepted?.message) throw { kind: "contract" };
       if (!routineRequest) setRoutineActionState((current) => current?.status === "sent" ? null : current);
       onActivity();
-      setSentMessages((current) => mergeMessages(current, [accepted.message]));
+      rememberAcceptedMessage(accepted.message);
       if (queuedMessageId) setImmediateMessageIds((current) => {
         if (!current.has(queuedMessageId)) return current;
         const next = new Set(current);
@@ -2216,6 +2238,7 @@ function ConversationPane({
     }
   }, [
     ally,
+    rememberAcceptedMessage,
     applyConversationAccessFailure,
     conversationAccessFailure,
     conversation,
@@ -2413,7 +2436,7 @@ function ConversationPane({
         (signal) => session.client.retryMessage(workspaceId, conversation.id, message.id, key, signal),
         { csrf: true },
       );
-      setSentMessages((current) => mergeMessages(current, [accepted.message]));
+      rememberAcceptedMessage(accepted.message);
       setRetriedMessageIds((current) => new Set(current).add(message.id));
       setProjection((current) => ({ ...current, state: activityStateFromMessage(accepted.message.status) }));
       setPollingSettled(false);
@@ -2796,11 +2819,15 @@ function ConversationPane({
             }));
           presentActivity(targetConversationId, event.activity);
           const replayState = activityReplayRef.current;
-          if (replayState?.conversationId === targetConversationId) {
+          // A late stream event must not rewind replay into an already compacted reply.
+          if (
+            replayState?.conversationId === targetConversationId
+            && event.activity.sequence > replayState.afterSequence
+          ) {
             activityReplayRef.current = {
               ...replayState,
               cursor: event.cursor,
-              afterSequence: Math.max(replayState.afterSequence, event.activity.sequence),
+              afterSequence: event.activity.sequence,
             };
           }
         } else if (event.type === "terminal") {
@@ -2825,10 +2852,19 @@ function ConversationPane({
       },
       onError: (error) => {
         if (!mountedRef.current || streamEndedNormally) return;
-        if (error.status === 401 || error.status === 403 || error.status === 404) {
+        if (error.status === 401) {
+          // The stream can't refresh an expired access cookie itself. Check through the
+          // refreshing request path, which only reports a real sign-out, then reconnect.
+          void refreshActivitySnapshotRef.current(targetConversationId).finally(() => {
+            if (mountedRef.current && !conversationAccessFailureRef.current) startPollingFallback();
+          });
+          setStreamConnected(false);
+          return;
+        }
+        if (error.status === 403 || error.status === 404) {
           setStreamConnected(false);
           applyConversationAccessFailure({
-            kind: error.status === 401 ? "unauthorized" : error.status === 403 ? "forbidden" : "not-found",
+            kind: error.status === 403 ? "forbidden" : "not-found",
             status: error.status,
           });
           return;

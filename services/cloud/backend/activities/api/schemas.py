@@ -102,6 +102,8 @@ class ActivityResponse(Schema):
     outcome: str | None = None
     duration_ms: int | None = None
     approval: ApprovalActivitySummaryResponse | None = None
+    # Set on a compacted replay row that covers first_sequence..sequence.
+    first_sequence: int | None = None
 
 
 class ActivitySnapshotResponse(Schema):
