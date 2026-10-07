@@ -242,6 +242,7 @@ class ActivityController(ControllerBase):
         cursor: str | None = Query(None, max_length=512),
         replay: bool = Query(False),
         recent_messages: int | None = Query(None, ge=1, le=200),
+        compact: bool = Query(False),
     ):
         try:
             session = _session(request)
@@ -253,6 +254,7 @@ class ActivityController(ControllerBase):
                 cursor=cursor,
                 replay=replay,
                 recent_messages=recent_messages,
+                compact=compact,
             )
         except SessionInvalid:
             return error_json("session_invalid", "session invalid", 401)
@@ -282,6 +284,7 @@ class ActivityController(ControllerBase):
                         "state": activity.state,
                         "created_at": activity.created_at,
                         **activity_metadata(activity),
+                        "first_sequence": getattr(activity, "first_sequence", None),
                     }
                     for activity in result.activities
                 ],

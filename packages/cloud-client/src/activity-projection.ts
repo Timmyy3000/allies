@@ -38,7 +38,7 @@ export function projectActivitySnapshot(
   const turns = new Map(current.turns.map((turn) => [turn.turnOrdinal, turn]));
 
   for (const activity of [...snapshot.activities].sort(compareActivity)) {
-    if (seen.has(activity.sequence)) {
+    if (seen.has(activity.sequence) || seen.has(firstSequence(activity))) {
       const existing = turns.get(activity.conversationTurnOrdinal);
       if (existing) {
         turns.set(activity.conversationTurnOrdinal, {
@@ -48,9 +48,9 @@ export function projectActivitySnapshot(
       }
       continue;
     }
-    const existing = pending.get(activity.sequence);
+    const existing = pending.get(firstSequence(activity));
     pending.set(
-      activity.sequence,
+      firstSequence(activity),
       existing?.id === activity.id
         ? activity
         : existing && compareActivity(existing, activity) <= 0
@@ -69,7 +69,8 @@ export function projectActivitySnapshot(
     const nextSequence = lastContiguousSequence + 1;
     const activity = pending.get(nextSequence)!;
     pending.delete(nextSequence);
-    seen.add(nextSequence);
+    // A compacted replay row stands in for every sequence it covers.
+    for (let sequence = nextSequence; sequence <= activity.sequence; sequence += 1) seen.add(sequence);
     const existing = turns.get(activity.conversationTurnOrdinal);
     turns.set(activity.conversationTurnOrdinal, {
       assistantText:
@@ -79,7 +80,7 @@ export function projectActivitySnapshot(
       state: mergeActivityState(existing?.state, activity.state),
       turnOrdinal: activity.conversationTurnOrdinal,
     });
-    lastContiguousSequence = nextSequence;
+    lastContiguousSequence = activity.sequence;
   }
 
   const pendingActivities = [...pending.values()]
@@ -107,6 +108,10 @@ export function isActivityTerminal(state: ActivityState): boolean {
 
 export function hasPermanentActivityGap(projection: ActivityProjection): boolean {
   return isActivityTerminal(projection.state) && Boolean(projection.pendingActivities?.length);
+}
+
+function firstSequence(activity: ActivityViewModel): number {
+  return activity.firstSequence ?? activity.sequence;
 }
 
 function compareActivity(left: ActivityViewModel, right: ActivityViewModel): number {

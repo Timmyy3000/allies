@@ -1938,8 +1938,10 @@ function ConversationPane({
           workspaceId,
           targetConversationId,
           {
-            limit: 1000,
+            limit: 200,
             replay: true,
+            // Finished replies arrive as one row each instead of one per streamed delta.
+            compact: true,
             // Opening a chat replays activity for its recent turns only.
             ...(cursor ? { cursor } : { recentMessages: 10 }),
           },

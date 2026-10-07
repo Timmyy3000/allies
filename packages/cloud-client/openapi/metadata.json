@@ -1,12 +1,12 @@
 {
   "source": "https://github.com/Timmyy3000/allies",
-  "sourceRevision": "5e371494434d7fc0126b0d06646c7961355b835a",
+  "sourceRevision": "8c61f4fe9dd0ca891f1a238d7003aabc265d1fd8",
   "sourceDirty": false,
-  "retrievedAt": "2026-10-05",
+  "retrievedAt": "2026-10-07",
   "title": "Allies Cloud API",
   "version": "0.1.0",
-  "byteLength": 457290,
-  "sha256": "8c783ef31e82aa95aaa53c91870c7dc914e0d962fd367971ff43673d69943224",
+  "byteLength": 457789,
+  "sha256": "51405c39196a4bf36de84f52ef55d1fe9dcdaea72d6ee9d093b3a2b890c009ee",
   "generators": {
     "openapi-typescript": "7.13.0"
   }

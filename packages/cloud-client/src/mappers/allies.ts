@@ -287,8 +287,12 @@ const activityResponseSchema = z
     outcome: z.enum(["completed", "failed", "stopped"]).nullish(),
     duration_ms: z.number().int().min(0).max(86_400_000).nullish(),
     approval: activityApprovalSchema.nullish(),
+    first_sequence: z.number().int().positive().nullish(),
   })
-  .loose();
+  .loose()
+  .refine((activity) => activity.first_sequence == null || activity.first_sequence <= activity.sequence, {
+    path: ["first_sequence"], message: "first_sequence must not follow sequence",
+  });
 
 export const activitySnapshotResponseSchema = z
   .object({
@@ -478,6 +482,8 @@ export interface ActivityViewModel {
   outcome?: "completed" | "failed" | "stopped" | null;
   durationMs?: number | null;
   approval?: ActivityApproval | null;
+  /** Set on a compacted replay row that covers firstSequence..sequence. */
+  firstSequence?: number | null;
 }
 
 export interface ActivitySnapshotViewModel {
@@ -640,6 +646,7 @@ function toActivityViewModel(input: unknown): ActivityViewModel {
     outcome: activity.outcome,
     durationMs: activity.duration_ms,
     approval: activity.approval ? toActivityApproval(activity.approval) : activity.approval,
+    ...(activity.first_sequence == null ? {} : { firstSequence: activity.first_sequence }),
   };
 }
 

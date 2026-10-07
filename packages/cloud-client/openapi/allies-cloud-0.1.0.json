@@ -66,6 +66,17 @@
             ],
             "title": "Duration Ms"
           },
+          "first_sequence": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "First Sequence"
+          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -11685,6 +11696,16 @@
                 }
               ],
               "title": "Recent Messages"
+            }
+          },
+          {
+            "in": "query",
+            "name": "compact",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Compact",
+              "type": "boolean"
             }
           }
         ],

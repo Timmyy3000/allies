@@ -389,3 +389,32 @@ describe("Ally and conversation Cloud client boundary", () => {
 });
 
 const allyResponseData = ally;
+
+describe("compacted activity replay", () => {
+  it("projects a merged delta row as every sequence it covers", async () => {
+    const { projectActivitySnapshot, EMPTY_ACTIVITY_PROJECTION, toActivitySnapshotViewModel } = await import("../src/index");
+    const row = (sequence: number, text: string, first?: number) => ({
+      id: `9a6f842d-9638-44ae-97b4-fe541a3205b${sequence}`,
+      message_id: "663c0652-5b6f-4631-978a-fa9ba31e4fe0",
+      sequence,
+      conversation_turn_ordinal: 1,
+      kind: "assistant_delta",
+      text,
+      state: "running",
+      created_at: "2026-10-05T18:13:55.377016Z",
+      ...(first === undefined ? {} : { first_sequence: first }),
+    });
+    const snapshot = toActivitySnapshotViewModel({
+      conversation_id: "529f4af1-ddc6-4cb4-b3c8-a7f4150369e1",
+      activities: [row(3, "Hello", 1), row(4, " there")],
+      state: "completed",
+      last_contiguous_sequence: 0,
+    });
+    const projected = projectActivitySnapshot(EMPTY_ACTIVITY_PROJECTION, snapshot);
+    expect(projected.lastContiguousSequence).toBe(4);
+    expect(projected.seenSequences).toEqual([1, 2, 3, 4]);
+    expect(projected.turns[0].assistantText).toBe("Hello there");
+    expect(projected.pendingActivities).toBeUndefined();
+    expect(projectActivitySnapshot(projected, snapshot).turns[0].assistantText).toBe("Hello there");
+  });
+});

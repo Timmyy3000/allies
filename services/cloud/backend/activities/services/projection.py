@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import logging
+from copy import copy
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -1100,6 +1101,36 @@ def _recent_turns_floor(activity_query, conversation, recent_messages: int) -> i
     return 0 if first is None else first - 1
 
 
+def compact_assistant_deltas(rows: tuple[Activity, ...]) -> tuple[Activity, ...]:
+    """Merge each run of adjacent stream deltas into one row.
+
+    A streamed reply is stored as hundreds of tiny deltas. Replay only needs
+    their concatenated text, so a run collapses to its last row carrying the
+    joined text and ``first_sequence``, the first sequence it covers. Only
+    finished turns compact: a live turn's deltas may already have reached the
+    client over the stream, and a merged row cannot be split.
+    """
+    compacted: list[Activity] = []
+    for row in rows:
+        previous = compacted[-1] if compacted else None
+        if (
+            previous is not None
+            and row.kind == previous.kind == "assistant_delta"
+            and row.message.status in _TERMINAL_STATES
+            and row.sequence == previous.sequence + 1
+            and row.message_id == previous.message_id
+            and row.attempt_id == previous.attempt_id
+            and row.generation == previous.generation
+        ):
+            merged = copy(row)
+            merged.text = previous.text + row.text
+            merged.first_sequence = getattr(previous, "first_sequence", previous.sequence)
+            compacted[-1] = merged
+        else:
+            compacted.append(row)
+    return tuple(compacted)
+
+
 def read_activity_snapshot(
     *,
     user,
@@ -1109,6 +1140,7 @@ def read_activity_snapshot(
     cursor: str | None = None,
     replay: bool = False,
     recent_messages: int | None = None,
+    compact: bool = False,
 ) -> ActivitySnapshot:
     if not 1 <= limit <= MAX_ACTIVITY_SNAPSHOT:
         raise ProjectionInvalid("activity limit is invalid")
@@ -1133,7 +1165,7 @@ def read_activity_snapshot(
 
     reconcile_conversation_approvals(conversation.id)
     activity_query = Activity.objects.filter(conversation=conversation).select_related(
-        "approval"
+        "approval", "message"
     )
     oldest_sequence = (
         activity_query.order_by("sequence", "id")
@@ -1184,6 +1216,8 @@ def read_activity_snapshot(
         has_more = len(replay_rows) > limit
         rows = tuple(replay_rows[:limit])
         resume_after = rows[-1].sequence if rows else after_sequence
+        if compact:
+            rows = compact_assistant_deltas(rows)
         resume_cursor = serialize_activity_cursor(
             conversation.id,
             resume_after,
