@@ -1224,7 +1224,16 @@ function ConversationPane({
   const [nextCursorOverride, setNextCursorOverride] = useState<string | null | undefined>(undefined);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [olderLoadError, setOlderLoadError] = useState<string | null>(null);
-  const [sentMessages, setSentMessages] = useState<MessageViewModel[]>([]);
+  // Accepted messages awaiting Cloud's copy. Kept outside the conversation cache so
+  // the receipt check below only ever compares against data Cloud actually returned,
+  // and in the query client so they survive leaving and reopening the chat.
+  const sentMessagesKey = useMemo(() => ["sent-messages", workspaceId, ally.id], [ally.id, workspaceId]);
+  const [sentMessages, setSentMessages] = useState<MessageViewModel[]>(
+    () => queryClient.getQueryData<MessageViewModel[]>(sentMessagesKey) ?? [],
+  );
+  useEffect(() => {
+    queryClient.setQueryData(sentMessagesKey, sentMessages);
+  }, [queryClient, sentMessages, sentMessagesKey]);
   const [immediateMessageIds, setImmediateMessageIds] = useState<ReadonlySet<string>>(() => new Set());
   const [draft, setDraft] = useState("");
   const [selectedRoutineId, setSelectedRoutineId] = useState<string | null>(null);
@@ -2084,23 +2093,9 @@ function ConversationPane({
     }
   }, [applyConversationAccessFailure, handleActivityReplayFailure, loadReplayWithRecovery, presentActivitySnapshot, session, workspaceId]);
 
-  // sentMessages dies with this pane; also keep accepted messages in the shared
-  // conversation cache so leaving and reopening the chat still shows them.
-  const rememberAcceptedMessage = useCallback((targetConversationId: string, message: MessageViewModel) => {
+  const rememberAcceptedMessage = useCallback((message: MessageViewModel) => {
     setSentMessages((current) => mergeMessages(current, [message]));
-    // Unclaimed messages already persist in the local queue store.
-    if (message.queueState === "unclaimed") return;
-    for (const key of [conversationQueryKey(workspaceId, ally.id), [...conversationQueryKey(workspaceId, ally.id), "preview"]]) {
-      queryClient.setQueryData<ConversationViewModel>(key, (cached) =>
-        cached && cached.id === targetConversationId
-          ? {
-            ...cached,
-            messages: mergeMessages(cached.messages, [message]),
-            // A live message missing from queue is filtered out as stale.
-            ...(cached.queue && isLiveQueuedMessage(message) ? { queue: mergeMessages(cached.queue, [message]) } : {}),
-          }
-          : cached);
-    }
+    // Refetch Cloud's copy on the next open instead of trusting a pre-send snapshot.
     void queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id), refetchType: "none" });
   }, [ally.id, queryClient, workspaceId]);
 
@@ -2137,7 +2132,7 @@ function ConversationPane({
       if (!accepted?.message) throw { kind: "contract" };
       if (!routineRequest) setRoutineActionState((current) => current?.status === "sent" ? null : current);
       onActivity();
-      rememberAcceptedMessage(conversation.id, accepted.message);
+      rememberAcceptedMessage(accepted.message);
       if (queuedMessageId) setImmediateMessageIds((current) => {
         if (!current.has(queuedMessageId)) return current;
         const next = new Set(current);
@@ -2426,7 +2421,7 @@ function ConversationPane({
         (signal) => session.client.retryMessage(workspaceId, conversation.id, message.id, key, signal),
         { csrf: true },
       );
-      rememberAcceptedMessage(conversation.id, accepted.message);
+      rememberAcceptedMessage(accepted.message);
       setRetriedMessageIds((current) => new Set(current).add(message.id));
       setProjection((current) => ({ ...current, state: activityStateFromMessage(accepted.message.status) }));
       setPollingSettled(false);

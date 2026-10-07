@@ -477,7 +477,6 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
   });
 
   it("keeps a just-sent message after leaving the chat and coming back", async () => {
-    const conversationId = "00000000-0000-4000-8000-000000000005";
     const message = {
       id: "00000000-0000-4000-8000-000000000017",
       sender: "user" as const,
@@ -500,11 +499,6 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     selectedSegment.mockReturnValue(ally.id);
     client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout>{page}</HomeLayout></QueryClientProvider>);
 
-    const cached = client.queryClient.getQueryData<{ id: string; messages: { id: string }[] }>(
-      ["workspaces", account.workspace.id, "allies", ally.id, "conversation"],
-    );
-    expect(cached?.id).toBe(conversationId);
-    expect(cached?.messages.some((candidate) => candidate.id === message.id)).toBe(true);
     expect((await screen.findAllByText(message.content)).length).toBeGreaterThan(0);
   });
 
