@@ -1123,6 +1123,79 @@ describe("HomeWorkspace", () => {
     }
   });
 
+  it.each([
+    ["status", 1], ["history", 1], ["status", 2], ["history", 2],
+  ] as const)("recovers %s independently when the other path succeeds after %i failures", async (pendingPath, failuresBeforeRecovery) => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const messageId = "00000000-0000-4000-8000-000000000007";
+    const olderMessageId = "00000000-0000-4000-8000-000000000006";
+    const attempts = { status: 0, history: 0 };
+    const failRequest: Record<"status" | "history", (() => void) | null> = { status: null, history: null };
+    const getActivities = vi.fn(async (_workspaceId: string, _conversationId: string, options: unknown): Promise<ActivitySnapshotViewModel> => {
+      const path = typeof options === "object" ? "history" : "status";
+      attempts[path] += 1;
+      if (attempts[path] === 1) {
+        await new Promise<void>((resolve) => { failRequest[path] = resolve; });
+        throw { kind: "network" };
+      }
+      if (attempts[path] <= failuresBeforeRecovery) throw { kind: "network" };
+      return {
+        conversationId, activities: [], lastContiguousSequence: 0,
+        state: path === "history" && attempts.status <= failuresBeforeRecovery ? "running" : "completed",
+        activeMessageId: messageId,
+        assistantReply: {
+          id: `${path}-reply`, sourceMessageId: path === "history" ? olderMessageId : messageId,
+          conversationTurnOrdinal: path === "history" ? 1 : 2,
+          content: path === "history" ? "Recovered older response" : "Recovered latest response",
+          status: "completed", hasFullPrefix: true,
+          createdAt: "2026-08-20T16:01:00Z", updatedAt: "2026-08-20T16:01:01Z",
+        },
+      };
+    });
+    try {
+      const { view } = renderHome([ally], ally.id, {
+        getActivities,
+        getAllyConversation: vi.fn(async () => ({
+          id: conversationId, allyId: ally.id, nextCursor: null,
+          messages: [
+            { id: olderMessageId, sender: "user" as const, content: "Earlier question", sequence: 1,
+              status: "completed" as const, createdAt: "2026-08-20T16:00:00Z" },
+            { id: messageId, sender: "user" as const, content: "Latest question", sequence: 2,
+              status: "in_progress" as const, createdAt: "2026-08-20T16:01:00Z" },
+          ],
+        })),
+      });
+      for (let elapsed = 0; elapsed < 3_000; elapsed += 500) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      }
+      expect(attempts).toEqual({ status: 1, history: 1 });
+      await act(async () => {
+        failRequest[pendingPath]?.();
+        await vi.advanceTimersByTimeAsync(100);
+        failRequest[pendingPath === "status" ? "history" : "status"]?.();
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      for (let elapsed = 0; elapsed < 20_000; elapsed += 500) {
+        await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+        expect(screen.queryByText(/Reconnecting to Allies/)).toBeNull();
+      }
+      expect(attempts.status).toBeGreaterThan(failuresBeforeRecovery);
+      expect(attempts.history).toBeGreaterThan(failuresBeforeRecovery);
+      expect(screen.getByText(pendingPath === "history" ? "Recovered older response" : "Recovered latest response")).toBeTruthy();
+      expect(screen.queryByText(/Reconnecting to Allies/)).toBeNull();
+      view.unmount();
+      const completedAttempts = { ...attempts };
+      await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+      expect(attempts).toEqual(completedAttempts);
+    } finally {
+      cleanup();
+      visibility.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it.each(["conversation", "unmount"])("cancels a pending history retry on %s transition", async (transition) => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     const originalId = "00000000-0000-4000-8000-000000000005";
@@ -1152,6 +1225,40 @@ describe("HomeWorkspace", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
       expect(getActivities.mock.calls.map((call) => call[1])).toEqual(
         transition === "unmount" ? [originalId, originalId] : [originalId, originalId, nextId, nextId],
+      );
+      expect(screen.queryByText(/Reconnecting to Allies/)).toBeNull();
+    } finally {
+      cleanup();
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the reconnect banner when the conversation changes", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+    const originalId = "00000000-0000-4000-8000-000000000005";
+    const nextId = "00000000-0000-4000-8000-000000000009";
+    let nextFailures = 0;
+    const getActivities = vi.fn(async (_workspaceId: string, conversationId: string) => {
+      if (conversationId === originalId || nextFailures++ === 0) throw { kind: "network" };
+      return { conversationId, activities: [], state: "completed" as const, lastContiguousSequence: 0 };
+    });
+    try {
+      const { queryClient, getAllyConversation } = renderHome([ally], ally.id, { getActivities });
+      await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      for (let i = 0; i < 16; i++) await act(async () => { await vi.advanceTimersByTimeAsync(500); });
+      expect(getActivities.mock.calls.map((call) => call[1])).toEqual([originalId, originalId, originalId]);
+      getAllyConversation.mockResolvedValue({ id: nextId, allyId: ally.id, messages: [], nextCursor: null });
+      await act(async () => {
+        queryClient.setQueryData(["workspaces", account.workspace.id, "allies", ally.id, "conversation"], {
+          id: nextId, allyId: ally.id, messages: [], nextCursor: null,
+        });
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(getActivities.mock.calls.map((call) => call[1])).toEqual([originalId, originalId, originalId, nextId]);
+      expect(screen.queryByText(/Reconnecting to Allies/)).toBeNull();
+      await act(async () => { await vi.advanceTimersByTimeAsync(6_000); });
+      expect(getActivities.mock.calls.map((call) => call[1])).toEqual(
+        [originalId, originalId, originalId, nextId, nextId],
       );
       expect(screen.queryByText(/Reconnecting to Allies/)).toBeNull();
     } finally {
