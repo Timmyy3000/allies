@@ -2074,6 +2074,8 @@ function ConversationPane({
       setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
       presentActivitySnapshot(snapshot);
       activityFailureCountRef.current = 0;
+      if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
+      activityHealTimerRef.current = null;
       setActivityError(null);
       setActivityHistoryError(null);
       setActivityReplayUnavailable(false);
@@ -2498,6 +2500,8 @@ function ConversationPane({
       setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
       presentActivitySnapshot(snapshot);
       activityFailureCountRef.current = 0;
+      if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
+      activityHealTimerRef.current = null;
       setActivityError(null);
       setActivityHistoryError(null);
       setActivityReplayUnavailable(false);
@@ -2560,7 +2564,6 @@ function ConversationPane({
     const controller = new AbortController();
     activityHistoryRequestRef.current = controller;
     activityReplayExpiredRestartedRef.current = false;
-    setActivityHistoryError(null);
     setActivityReplayUnavailable(false);
     void loadReplayWithRecovery(conversationId, controller.signal, true)
       .then((snapshot) => {
@@ -2568,6 +2571,8 @@ function ConversationPane({
         if (!snapshot) return;
         setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
         activityFailureCountRef.current = 0;
+        if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
+        activityHealTimerRef.current = null;
         setActivityHistoryError(null);
         setActivityError(null);
         setActivityReplayUnavailable(false);
@@ -2614,20 +2619,16 @@ function ConversationPane({
     activityHealTimerRef.current = null;
     pollCountRef.current = 0;
     setPollBudgetReached(false);
-    setActivityError(null);
     setPollingSettled(false);
     setActiveTurn(true);
   }, []);
 
-  // A single failed status check (phone waking up, a server restart) heals on
-  // its own; the banner only appears after repeated failures in a row.
   useEffect(() => {
     reportActivityFailureRef.current = () => {
       activityFailureCountRef.current += 1;
       const failures = activityFailureCountRef.current;
       if (failures >= ACTIVITY_FAILURES_BEFORE_BANNER) {
         setActivityError("Reconnecting to Allies… Replies will appear once the connection is back.");
-        return;
       }
       if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
       activityHealTimerRef.current = window.setTimeout(
@@ -2643,11 +2644,13 @@ function ConversationPane({
       const failures = activityFailureCountRef.current;
       if (failures >= ACTIVITY_FAILURES_BEFORE_BANNER) {
         setActivityHistoryError("Reconnecting to Allies… Replies will appear once the connection is back.");
-        return;
       }
       if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
       activityHealTimerRef.current = window.setTimeout(
-        () => setActivityHistoryRetry((current) => current + 1),
+        () => {
+          activityHealTimerRef.current = null;
+          setActivityHistoryRetry((current) => current + 1);
+        },
         ACTIVITY_HEAL_DELAYS_MS[failures - 1] ?? ACTIVITY_HEAL_DELAYS_MS.at(-1),
       );
     };
@@ -2657,7 +2660,8 @@ function ConversationPane({
     if (!activityHistoryError) return;
     const heal = () => {
       if (document.visibilityState !== "visible") return;
-      setActivityHistoryError(null);
+      if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
+      activityHealTimerRef.current = null;
       setActivityHistoryRetry((current) => current + 1);
     };
     document.addEventListener("visibilitychange", heal);
@@ -2679,9 +2683,13 @@ function ConversationPane({
     };
   }, [activityError, checkActivityAgain]);
 
-  useEffect(() => () => {
-    if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
-  }, []);
+  useEffect(() => {
+    activityFailureCountRef.current = 0;
+    return () => {
+      if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
+      activityHealTimerRef.current = null;
+    };
+  }, [conversationId]);
 
   const retryActivityHistory = () => {
     activityHistoryLoadedRef.current = null;
