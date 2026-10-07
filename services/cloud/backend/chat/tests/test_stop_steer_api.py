@@ -1,3 +1,4 @@
+# ruff: noqa: F811
 import json
 
 import pytest
