@@ -433,5 +433,27 @@ describe("compacted activity replay", () => {
     expect(drained.lastContiguousSequence).toBe(4);
     expect(drained.turns[0].assistantText).toBe("Hi there");
     expect(drained.pendingActivities).toBeUndefined();
+
+    const conversation_id = "529f4af1-ddc6-4cb4-b3c8-a7f4150369e1";
+    const execution = (sequence: number, kind: string, state: string) => ({ ...row(sequence, ""), kind, state });
+    const snap = (activities: unknown[], state = "running") =>
+      toActivitySnapshotViewModel({ conversation_id, activities, state, last_contiguous_sequence: 0 });
+    const replayed = snap([row(4, "ABC", 2), execution(5, "execution_completed", "completed")], "completed");
+
+    const partlySeen = projectActivitySnapshot(
+      EMPTY_ACTIVITY_PROJECTION,
+      snap([execution(1, "execution", "queued"), row(2, "A")]),
+    );
+    const overlapped = projectActivitySnapshot(partlySeen, replayed);
+    expect(overlapped.turns[0].assistantText).toBe("ABC");
+    expect(overlapped.lastContiguousSequence).toBe(5);
+
+    const rawPending = projectActivitySnapshot(EMPTY_ACTIVITY_PROJECTION, snap([row(2, "A")]));
+    const widened = projectActivitySnapshot(rawPending, snap([
+      execution(1, "execution", "queued"), row(4, "ABC", 2), execution(5, "execution_completed", "completed"),
+    ], "completed"));
+    expect(widened.turns[0].assistantText).toBe("ABC");
+    expect(widened.lastContiguousSequence).toBe(5);
+    expect(widened.pendingActivities).toBeUndefined();
   });
 });
