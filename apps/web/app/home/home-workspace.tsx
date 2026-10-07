@@ -1547,11 +1547,12 @@ function ConversationPane({
 
   useEffect(() => {
     if (!conversation) return;
-    const authoritativeMessages = mergeConversationMessageCopies(
+    // Same filter as rendering, so a local copy is only dropped once the server copy will show.
+    const authoritativeMessages = filterAuthoritativeQueueMessages(mergeConversationMessageCopies(
       olderMessages,
       conversation.messages,
       conversation.queue ?? [],
-    );
+    ), conversation.queue);
     const deletedIds = authoritativeMessages
       .filter((message) => Boolean(message.deletedAt))
       .map((message) => message.id);
@@ -2092,7 +2093,12 @@ function ConversationPane({
     for (const key of [conversationQueryKey(workspaceId, ally.id), [...conversationQueryKey(workspaceId, ally.id), "preview"]]) {
       queryClient.setQueryData<ConversationViewModel>(key, (cached) =>
         cached && cached.id === targetConversationId
-          ? { ...cached, messages: mergeMessages(cached.messages, [message]) }
+          ? {
+            ...cached,
+            messages: mergeMessages(cached.messages, [message]),
+            // A live message missing from queue is filtered out as stale.
+            ...(cached.queue && isLiveQueuedMessage(message) ? { queue: mergeMessages(cached.queue, [message]) } : {}),
+          }
           : cached);
     }
     void queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id), refetchType: "none" });
