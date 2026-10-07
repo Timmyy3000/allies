@@ -2092,6 +2092,10 @@ function ConversationPane({
       }
     }
   }, [applyConversationAccessFailure, handleActivityReplayFailure, loadReplayWithRecovery, presentActivitySnapshot, session, workspaceId]);
+  const refreshActivitySnapshotRef = useRef(refreshActivitySnapshot);
+  useEffect(() => {
+    refreshActivitySnapshotRef.current = refreshActivitySnapshot;
+  }, [refreshActivitySnapshot]);
 
   const rememberAcceptedMessage = useCallback((message: MessageViewModel) => {
     setSentMessages((current) => mergeMessages(current, [message]));
@@ -2751,10 +2755,19 @@ function ConversationPane({
       },
       onError: (error) => {
         if (!mountedRef.current || streamEndedNormally) return;
-        if (error.status === 401 || error.status === 403 || error.status === 404) {
+        if (error.status === 401) {
+          // The stream can't refresh an expired access cookie itself. Check through the
+          // refreshing request path, which only reports a real sign-out, then reconnect.
+          void refreshActivitySnapshotRef.current(targetConversationId).finally(() => {
+            if (mountedRef.current && !conversationAccessFailureRef.current) startPollingFallback();
+          });
+          setStreamConnected(false);
+          return;
+        }
+        if (error.status === 403 || error.status === 404) {
           setStreamConnected(false);
           applyConversationAccessFailure({
-            kind: error.status === 401 ? "unauthorized" : error.status === 403 ? "forbidden" : "not-found",
+            kind: error.status === 403 ? "forbidden" : "not-found",
             status: error.status,
           });
           return;
