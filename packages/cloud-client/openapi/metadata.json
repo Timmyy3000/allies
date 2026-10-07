@@ -5,8 +5,8 @@
   "retrievedAt": "2026-10-07",
   "title": "Allies Cloud API",
   "version": "0.1.0",
-  "byteLength": 467278,
-  "sha256": "25de5896884d8f405ae4d288c5bf1d22425198388836c265c474e5c800139ebe",
+  "byteLength": 467447,
+  "sha256": "beacaf3aaf8da04ed446464bc58a3a6d7469846932748afaa6ea72a2dd31844b",
   "generators": {
     "openapi-typescript": "7.13.0"
   }
