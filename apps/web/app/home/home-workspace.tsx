@@ -3102,6 +3102,9 @@ function ConversationPane({
     messages: [...visibleFrameMessages, ...immediateFrameMessages],
     queuedMessages: baseFrameModel.queuedMessages.filter((message) => !immediateMessageIds.has(message.id) && !(fileMessageIds.has(message.id) && !queuedAttachmentIds.has(message.id))),
   };
+  const queueHeadId = frameModel.queuedMessages[0]?.id;
+  // The server only accepts a steer when nothing is queued server-side, so only a local head qualifies.
+  const steerableQueuedMessageId = queuedMessages.some((message) => message.id === queueHeadId && !message.fileTransferId) ? queueHeadId : undefined;
   const frameActions: ProductionConversationFrameActions = {
     onDraftChange: (value) => {
       const beganInteracting = !draftRef.current.trim() && Boolean(value.trim());
@@ -3124,6 +3127,7 @@ function ConversationPane({
     onRemoveQueuedMessage: (id) => void removeQueuedMessage(id),
     onStop: turnInProgress ? () => void stop() : undefined,
     onSteerQueuedMessage: turnInProgress ? (id) => void steerQueuedMessage(id) : undefined,
+    steerableQueuedMessageId: turnInProgress ? steerableQueuedMessageId : undefined,
     onCheckAgain: () => {
       pollCountRef.current = 0;
       setPollBudgetReached(false);

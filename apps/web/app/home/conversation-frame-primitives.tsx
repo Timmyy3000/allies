@@ -382,12 +382,14 @@ export function QueueStack({
   items,
   onRemove,
   actionLabel = "",
+  actionId,
   onAction,
   onAttachmentOpen,
 }: {
   items: readonly { id: string; content: string; removable?: boolean; statusLabel?: string | null; attachments?: QueuedAttachmentPreview[] }[];
   onRemove?: (id: string) => void;
   actionLabel?: string;
+  actionId?: string;
   onAction?: (id: string) => void;
   onAttachmentOpen?: (file: QueuedAttachmentPreview) => void;
 }) {
@@ -417,7 +419,7 @@ export function QueueStack({
               </span>
             ) : null}
             <span title={item.attachments?.length ? `${item.content} (${item.attachments.map((file) => file.name).join(", ")})` : item.content}>{item.content}</span>
-            {actionLabel && onAction && item.removable !== false && !item.attachments?.length ? <button type="button" onClick={() => onAction(item.id)}>{actionLabel}</button> : null}
+            {actionLabel && onAction && (actionId === undefined || item.id === actionId) ? <button type="button" onClick={() => onAction(item.id)}>{actionLabel}</button> : null}
             {item.statusLabel ? <span aria-label={item.statusLabel}>{item.statusLabel}</span> : null}
             {onRemove && item.removable !== false ? (
               <button type="button" aria-label={`Remove queued message: ${item.content}`} onClick={() => onRemove(item.id)}>

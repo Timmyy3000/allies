@@ -288,6 +288,7 @@ export interface ProductionConversationFrameActions {
   onRemoveQueuedMessage: (id: string) => void;
   onStop?: () => void;
   onSteerQueuedMessage?: (id: string) => void;
+  steerableQueuedMessageId?: string;
   onCheckAgain: () => void;
   onRetryActivityHistory: () => void;
   onScroll: (event: UIEvent<HTMLDivElement>) => void;
