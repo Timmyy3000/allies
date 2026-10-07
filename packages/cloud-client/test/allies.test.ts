@@ -455,5 +455,13 @@ describe("compacted activity replay", () => {
     expect(widened.turns[0].assistantText).toBe("ABC");
     expect(widened.lastContiguousSequence).toBe(5);
     expect(widened.pendingActivities).toBeUndefined();
+
+    const firstLoop = projectActivitySnapshot(
+      EMPTY_ACTIVITY_PROJECTION,
+      snap([execution(1, "execution", "queued"), row(3, "AB", 2)]),
+    );
+    const secondLoop = projectActivitySnapshot(firstLoop, replayed);
+    expect(secondLoop.turns[0].assistantText).toBe("ABC");
+    expect(secondLoop.lastContiguousSequence).toBe(5);
   });
 });
