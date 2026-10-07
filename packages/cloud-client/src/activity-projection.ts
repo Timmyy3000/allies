@@ -33,7 +33,7 @@ export function projectActivitySnapshot(
 ): ActivityProjection {
   const seen = new Set(current.seenSequences);
   const pending = new Map(
-    (current.pendingActivities ?? []).map((activity) => [activity.sequence, activity]),
+    (current.pendingActivities ?? []).map((activity) => [firstSequence(activity), activity]),
   );
   const turns = new Map(current.turns.map((turn) => [turn.turnOrdinal, turn]));
 

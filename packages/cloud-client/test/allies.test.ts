@@ -416,5 +416,22 @@ describe("compacted activity replay", () => {
     expect(projected.turns[0].assistantText).toBe("Hello there");
     expect(projected.pendingActivities).toBeUndefined();
     expect(projectActivitySnapshot(projected, snapshot).turns[0].assistantText).toBe("Hello there");
+
+    const waiting = projectActivitySnapshot(EMPTY_ACTIVITY_PROJECTION, toActivitySnapshotViewModel({
+      conversation_id: "529f4af1-ddc6-4cb4-b3c8-a7f4150369e1",
+      activities: [row(4, " there", 2)],
+      state: "running",
+      last_contiguous_sequence: 0,
+    }));
+    expect(waiting.lastContiguousSequence).toBe(0);
+    const drained = projectActivitySnapshot(waiting, toActivitySnapshotViewModel({
+      conversation_id: "529f4af1-ddc6-4cb4-b3c8-a7f4150369e1",
+      activities: [row(1, "Hi")],
+      state: "completed",
+      last_contiguous_sequence: 0,
+    }));
+    expect(drained.lastContiguousSequence).toBe(4);
+    expect(drained.turns[0].assistantText).toBe("Hi there");
+    expect(drained.pendingActivities).toBeUndefined();
   });
 });
