@@ -476,6 +476,38 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     expect(await screen.findByText("We couldn't open this conversation.", {}, { timeout: 4000 })).toBeTruthy();
   });
 
+  it("keeps a just-sent message after leaving the chat and coming back", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    const message = {
+      id: "00000000-0000-4000-8000-000000000017",
+      sender: "user" as const,
+      content: "Remember this across navigation",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const sendMessage = vi.fn(async () => ({ message, execution: { id: "execution", state: "queued" } }));
+    const page = <AllyHomePage />;
+    const client = renderHome([ally], ally.id, { sendMessage }, page);
+    expect(await screen.findByRole("heading", { name: ally.name })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: message.content } });
+    await clickSendMessage();
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+
+    // Leave the chat (the pane unmounts) and return before Cloud is refetched.
+    selectedSegment.mockReturnValue(null);
+    client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout>{null}</HomeLayout></QueryClientProvider>);
+    selectedSegment.mockReturnValue(ally.id);
+    client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout>{page}</HomeLayout></QueryClientProvider>);
+
+    const cached = client.queryClient.getQueryData<{ id: string; messages: { id: string }[] }>(
+      ["workspaces", account.workspace.id, "allies", ally.id, "conversation"],
+    );
+    expect(cached?.id).toBe(conversationId);
+    expect(cached?.messages.some((candidate) => candidate.id === message.id)).toBe(true);
+    expect((await screen.findAllByText(message.content)).length).toBeGreaterThan(0);
+  });
+
   it("keeps unknown Ally IDs honest", async () => {
     const page = <AllyHomePage />;
     renderHome([ally], "not-owned", {}, page);
