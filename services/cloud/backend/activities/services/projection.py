@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import json
 import logging
+from copy import copy
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from uuid import UUID
@@ -1100,6 +1101,93 @@ def _recent_turns_floor(activity_query, conversation, recent_messages: int) -> i
     return 0 if first is None else first - 1
 
 
+def _continues_run(previous: Activity, row: Activity) -> bool:
+    return (
+        row.kind == previous.kind == "assistant_delta"
+        and row.message.status in _TERMINAL_STATES
+        and row.sequence == previous.sequence + 1
+        and row.message_id == previous.message_id
+        and row.attempt_id == previous.attempt_id
+        and row.generation == previous.generation
+    )
+
+
+def compact_assistant_deltas(
+    rows: tuple[Activity, ...], activity_query
+) -> tuple[Activity, ...]:
+    """Merge each run of adjacent stream deltas into one row.
+
+    A streamed reply is stored as hundreds of tiny deltas. Replay only needs
+    their concatenated text, so a run collapses to its last row carrying the
+    joined text and ``first_sequence``. Only finished turns compact: a live
+    turn's deltas may already have reached the client over the stream.
+
+    A merged row always starts at its run's first delta, even when the page
+    starts mid-run, so every merged row of a run shares one start and a client
+    can reconcile overlapping pages by trimming what it already applied.
+    """
+    compacted: list[Activity] = []
+    for row in rows:
+        previous = compacted[-1] if compacted else None
+        if previous is not None and _continues_run(previous, row):
+            merged = copy(row)
+            merged.text = previous.text + row.text
+            merged.first_sequence = getattr(
+                previous, "first_sequence", previous.sequence
+            )
+            compacted[-1] = merged
+        else:
+            compacted.append(row)
+    if compacted and compacted[0].kind == "assistant_delta":
+        compacted[0] = _extend_to_run_start(compacted[0], activity_query)
+    return tuple(compacted)
+
+
+def _extend_to_run_start(row: Activity, activity_query) -> Activity:
+    if row.message.status not in _TERMINAL_STATES:
+        return row
+    first = getattr(row, "first_sequence", row.sequence)
+    earlier = activity_query.filter(
+        message_id=row.message_id,
+        attempt_id=row.attempt_id,
+        generation=row.generation,
+        sequence__lt=first,
+    ).order_by("-sequence", "-id")
+    prefix: list[str] = []
+    for sequence, kind, text in earlier.values_list(
+        "sequence", "kind", "text"
+    ).iterator():
+        if kind != "assistant_delta" or sequence != first - 1:
+            break
+        prefix.append(text)
+        first = sequence
+    if not prefix:
+        return row
+    extended = copy(row)
+    extended.text = "".join(reversed(prefix)) + row.text
+    extended.first_sequence = first
+    return extended
+
+
+def _compact_page(replay_query, limit: int) -> tuple[tuple[Activity, ...], bool]:
+    """Read raw rows until ``limit`` compacted rows, never ending mid-run.
+
+    Splitting a finished run across pages would resend its prefix on every
+    later page, so a page always runs to the end of the run it is in.
+    """
+    rows: list[Activity] = []
+    compacted_count = 0
+    for row in replay_query.iterator():
+        if rows and _continues_run(rows[-1], row):
+            rows.append(row)
+            continue
+        if compacted_count == limit:
+            return tuple(rows), True
+        rows.append(row)
+        compacted_count += 1
+    return tuple(rows), False
+
+
 def read_activity_snapshot(
     *,
     user,
@@ -1109,6 +1197,7 @@ def read_activity_snapshot(
     cursor: str | None = None,
     replay: bool = False,
     recent_messages: int | None = None,
+    compact: bool = False,
 ) -> ActivitySnapshot:
     if not 1 <= limit <= MAX_ACTIVITY_SNAPSHOT:
         raise ProjectionInvalid("activity limit is invalid")
@@ -1133,7 +1222,7 @@ def read_activity_snapshot(
 
     reconcile_conversation_approvals(conversation.id)
     activity_query = Activity.objects.filter(conversation=conversation).select_related(
-        "approval"
+        "approval", "message"
     )
     oldest_sequence = (
         activity_query.order_by("sequence", "id")
@@ -1175,15 +1264,19 @@ def read_activity_snapshot(
             retention_gap = True
             raise ProjectionCursorGap("activity cursor is no longer replayable")
 
-        replay_rows = list(
-            activity_query.filter(
-                sequence__gt=after_sequence,
-                sequence__lte=high_water_sequence,
-            ).order_by("sequence", "id")[: limit + 1]
-        )
-        has_more = len(replay_rows) > limit
-        rows = tuple(replay_rows[:limit])
+        replay_query = activity_query.filter(
+            sequence__gt=after_sequence,
+            sequence__lte=high_water_sequence,
+        ).order_by("sequence", "id")
+        if compact:
+            rows, has_more = _compact_page(replay_query, limit)
+        else:
+            replay_rows = list(replay_query[: limit + 1])
+            has_more = len(replay_rows) > limit
+            rows = tuple(replay_rows[:limit])
         resume_after = rows[-1].sequence if rows else after_sequence
+        if compact:
+            rows = compact_assistant_deltas(rows, activity_query)
         resume_cursor = serialize_activity_cursor(
             conversation.id,
             resume_after,

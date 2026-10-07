@@ -1948,8 +1948,10 @@ function ConversationPane({
           workspaceId,
           targetConversationId,
           {
-            limit: 1000,
+            limit: 200,
             replay: true,
+            // Finished replies arrive as one row each instead of one per streamed delta.
+            compact: true,
             // Opening a chat replays activity for its recent turns only.
             ...(cursor ? { cursor } : { recentMessages: 10 }),
           },
@@ -2722,11 +2724,15 @@ function ConversationPane({
             }));
           presentActivity(targetConversationId, event.activity);
           const replayState = activityReplayRef.current;
-          if (replayState?.conversationId === targetConversationId) {
+          // A late stream event must not rewind replay into an already compacted reply.
+          if (
+            replayState?.conversationId === targetConversationId
+            && event.activity.sequence > replayState.afterSequence
+          ) {
             activityReplayRef.current = {
               ...replayState,
               cursor: event.cursor,
-              afterSequence: Math.max(replayState.afterSequence, event.activity.sequence),
+              afterSequence: event.activity.sequence,
             };
           }
         } else if (event.type === "terminal") {

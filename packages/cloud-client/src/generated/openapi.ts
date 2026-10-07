@@ -1609,6 +1609,8 @@ export interface components {
             created_at: string;
             /** Duration Ms */
             duration_ms?: number | null;
+            /** First Sequence */
+            first_sequence?: number | null;
             /**
              * Id
              * Format: uuid
@@ -8804,6 +8806,7 @@ export interface operations {
                 cursor?: string | null;
                 replay?: boolean;
                 recent_messages?: number | null;
+                compact?: boolean;
             };
             header?: never;
             path: {

@@ -1530,3 +1530,85 @@ def test_activity_replay_can_start_at_recent_turns(conversation_records):
     assert [activity.sequence for activity in recent.activities] == [3, 4]
     resumed = parse_activity_cursor(recent.resume_cursor, conversation.id)
     assert (resumed.after_sequence, resumed.high_water_sequence) == (4, 4)
+
+
+@pytest.mark.django_db
+def test_compact_replay_merges_adjacent_deltas_of_finished_turns(conversation_records):
+    user, workspace, _ally, _binding, conversation, message = conversation_records
+    attempt = uuid5(EVENT_NAMESPACE, "compact-attempt")
+    rows = (
+        (1, "assistant_delta", "Hel", attempt),
+        (2, "assistant_delta", "lo", attempt),
+        (3, "tool_started", "", attempt),
+        (4, "assistant_delta", " there", attempt),
+        (5, "assistant_delta", "!", uuid5(EVENT_NAMESPACE, "compact-retry")),
+    )
+    for sequence, kind, text, attempt_id in rows:
+        Activity.objects.create(
+            conversation=conversation,
+            message=message,
+            sequence=sequence,
+            conversation_turn_ordinal=message.sequence,
+            generation=1,
+            attempt_id=attempt_id,
+            attempt_sequence=sequence,
+            event_id=uuid5(EVENT_NAMESPACE, f"compact-event-{sequence}"),
+            event_type="message.delta",
+            kind=kind,
+            text=text,
+            state=ProjectionState.RUNNING,
+            event_fingerprint="canonical-json-sha256:v1:" + "c" * 64,
+        )
+
+    def replay(compact):
+        return read_activity_snapshot(
+            user=user,
+            workspace_id=workspace.id,
+            conversation_id=conversation.id,
+            replay=True,
+            compact=compact,
+        )
+
+    assert [a.sequence for a in replay(True).activities] == [1, 2, 3, 4, 5]  # live turn
+    Message.objects.filter(pk=message.pk).update(status=MessageLifecycle.COMPLETED)
+    compacted = replay(True).activities
+    assert [
+        (a.sequence, getattr(a, "first_sequence", None), a.text) for a in compacted
+    ] == [
+        (2, 1, "Hello"),
+        (3, None, ""),
+        (4, None, " there"),
+        (5, None, "!"),
+    ]
+    assert [a.sequence for a in replay(False).activities] == [1, 2, 3, 4, 5]
+
+    first_page = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        replay=True,
+        compact=True,
+        limit=1,
+    )
+    assert [(a.sequence, a.text) for a in first_page.activities] == [(2, "Hello")]
+    second_page = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        replay=True,
+        compact=True,
+        limit=1,
+        cursor=first_page.next_cursor,
+    )
+    assert [a.sequence for a in second_page.activities] == [3]
+
+    mid_run = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        replay=True,
+        compact=True,
+        cursor=serialize_activity_cursor(conversation.id, 1, 5),
+    ).activities[0]
+    assert (mid_run.sequence, mid_run.first_sequence, mid_run.text) == (2, 1, "Hello")
+    assert Activity.objects.get(sequence=2).text == "lo"
