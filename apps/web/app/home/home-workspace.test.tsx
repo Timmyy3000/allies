@@ -2998,6 +2998,49 @@ describe("HomeWorkspace", () => {
     expect(await screen.findByText("Terminal replay answer")).toBeTruthy();
   });
 
+  it.each([
+    ["a valid session", false],
+    ["an ended session", true],
+  ])("checks the session before ending the chat when the activity stream gets a 401 with %s", async (_label, ended) => {
+    vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");
+    vi.stubEnv("NEXT_PUBLIC_CLOUD_API_URL", "https://cloud.example.com");
+    const message = {
+      id: "00000000-0000-4000-8000-000000000020",
+      sender: "user" as const,
+      content: "Stay signed in please",
+      sequence: 2,
+      status: "queued" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const snapshot = { conversationId: "00000000-0000-4000-8000-000000000005", activities: [], state: "running" as const, lastContiguousSequence: 0 };
+    let streamReads = 0;
+    const getActivities = vi.fn(async () => {
+      if (ended && readActivityStreamMock.mock.calls.length > 0 && streamReads > 0) throw { kind: "unauthorized", status: 401 };
+      return snapshot;
+    });
+    const sendMessage = vi.fn(async () => ({ conversationId: snapshot.conversationId, message, execution: null, replayed: false }));
+    let streamOptions: { onError?: (error: { status?: number }) => void } | undefined;
+    readActivityStreamMock.mockImplementation((options) => {
+      streamOptions = options;
+      return { close: vi.fn() };
+    });
+    renderHome([ally], ally.id, { getActivities, sendMessage });
+    fireEvent.change(await screen.findByRole("textbox"), { target: { value: message.content } });
+    await clickSendMessage();
+    await waitFor(() => expect(readActivityStreamMock).toHaveBeenCalled());
+    streamReads = 1;
+    await act(async () => {
+      streamOptions?.onError?.({ status: 401 });
+    });
+    if (ended) {
+      expect(await screen.findByText("Your session ended", {}, { timeout: 4000 })).toBeTruthy();
+    } else {
+      await waitFor(() => expect(readActivityStreamMock.mock.calls.length).toBeGreaterThanOrEqual(2), { timeout: 4000 });
+      expect(screen.queryByText("Your session ended")).toBeNull();
+      expect(screen.getByRole("textbox")).toBeTruthy();
+    }
+  }, 10_000);
+
   it("keeps durable replies moving while the activity stream is connected", async () => {
     vi.stubEnv("NEXT_PUBLIC_ACTIVITY_SSE_ENABLED", "true");
     vi.stubEnv("NEXT_PUBLIC_RESPONSE_PRESENTATION_MODE", "stream");
