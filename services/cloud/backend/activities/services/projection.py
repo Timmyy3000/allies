@@ -1124,7 +1124,9 @@ def compact_assistant_deltas(rows: tuple[Activity, ...]) -> tuple[Activity, ...]
         ):
             merged = copy(row)
             merged.text = previous.text + row.text
-            merged.first_sequence = getattr(previous, "first_sequence", previous.sequence)
+            merged.first_sequence = getattr(
+                previous, "first_sequence", previous.sequence
+            )
             compacted[-1] = merged
         else:
             compacted.append(row)

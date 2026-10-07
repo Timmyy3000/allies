@@ -1572,7 +1572,9 @@ def test_compact_replay_merges_adjacent_deltas_of_finished_turns(conversation_re
     assert [a.sequence for a in replay(True).activities] == [1, 2, 3, 4, 5]  # live turn
     Message.objects.filter(pk=message.pk).update(status=MessageLifecycle.COMPLETED)
     compacted = replay(True).activities
-    assert [(a.sequence, getattr(a, "first_sequence", None), a.text) for a in compacted] == [
+    assert [
+        (a.sequence, getattr(a, "first_sequence", None), a.text) for a in compacted
+    ] == [
         (2, 1, "Hello"),
         (3, None, ""),
         (4, None, " there"),
