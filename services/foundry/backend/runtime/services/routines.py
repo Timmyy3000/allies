@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from copy import deepcopy
 from dataclasses import dataclass
@@ -1245,11 +1246,33 @@ def _require_routine_admission(
         not isinstance(gate, dict) or gate.get("enabled") is not True
     ):
         raise RuntimeNotReadyError("routine admission is disabled")
-    release_digest = _desired_routine_release_digest()
+    local_release = _runs_configured_local_release(workspace)
+    release_digest = None if local_release else _desired_routine_release_digest()
     if require_readiness and not is_runtime_ready(workspace):
         raise RuntimeNotReadyError("runtime readiness receipt is missing or stale")
-    if current_runtime_release_digest(workspace) != release_digest:
+    if (
+        not local_release
+        and current_runtime_release_digest(workspace) != release_digest
+    ):
         raise RuntimeFencedError("runtime image release is stale")
+
+
+def _runs_configured_local_release(workspace: Workspace) -> bool:
+    """Self-hosted runtimes are built locally and have no registry digest.
+
+    Without digests there is no rollout to fence, so the machine is current
+    when it runs exactly the configured image pair.
+    """
+
+    configured = {
+        "allies-runtime": os.environ.get("RUNTIME_IMAGE", "").strip(),
+        "hermes": os.environ.get("HERMES_IMAGE", "").strip(),
+    }
+    return (
+        all(configured.values())
+        and runtime_release_digest(configured) is None
+        and workspace.applied_images == configured
+    )
 
 
 def _desired_routine_release_digest() -> str:
