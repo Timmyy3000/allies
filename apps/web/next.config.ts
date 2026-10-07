@@ -13,7 +13,7 @@ const nextConfig: NextConfig = {
     ? ["tsx", "ts"]
     : ["tsx", "ts", "debug.tsx", "debug.ts"],
   // Allow the phone on the development LAN to load Next's HMR client.
-  allowedDevOrigins: ["192.168.178.37", "192.168.2.152"],
+  allowedDevOrigins: ["192.168.178.37", "192.168.2.152", "*.ts.net"],
   transpilePackages: ["@allies/cloud-client", "@allies/ally-motion"],
   turbopack: {
     root: path.resolve(__dirname, "../.."),
