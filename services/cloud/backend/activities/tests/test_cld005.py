@@ -1590,6 +1590,7 @@ def test_compact_replay_merges_adjacent_deltas_of_finished_turns(conversation_re
         compact=True,
         limit=1,
     )
+    assert [(a.sequence, a.text) for a in first_page.activities] == [(2, "Hello")]
     second_page = read_activity_snapshot(
         user=user,
         workspace_id=workspace.id,
@@ -1599,6 +1600,15 @@ def test_compact_replay_merges_adjacent_deltas_of_finished_turns(conversation_re
         limit=1,
         cursor=first_page.next_cursor,
     )
-    (mid_run,) = second_page.activities
+    assert [a.sequence for a in second_page.activities] == [3]
+
+    mid_run = read_activity_snapshot(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        replay=True,
+        compact=True,
+        cursor=serialize_activity_cursor(conversation.id, 1, 5),
+    ).activities[0]
     assert (mid_run.sequence, mid_run.first_sequence, mid_run.text) == (2, 1, "Hello")
     assert Activity.objects.get(sequence=2).text == "lo"

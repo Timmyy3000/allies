@@ -1169,6 +1169,25 @@ def _extend_to_run_start(row: Activity, activity_query) -> Activity:
     return extended
 
 
+def _compact_page(replay_query, limit: int) -> tuple[tuple[Activity, ...], bool]:
+    """Read raw rows until ``limit`` compacted rows, never ending mid-run.
+
+    Splitting a finished run across pages would resend its prefix on every
+    later page, so a page always runs to the end of the run it is in.
+    """
+    rows: list[Activity] = []
+    compacted_count = 0
+    for row in replay_query.iterator():
+        if rows and _continues_run(rows[-1], row):
+            rows.append(row)
+            continue
+        if compacted_count == limit:
+            return tuple(rows), True
+        rows.append(row)
+        compacted_count += 1
+    return tuple(rows), False
+
+
 def read_activity_snapshot(
     *,
     user,
@@ -1245,14 +1264,16 @@ def read_activity_snapshot(
             retention_gap = True
             raise ProjectionCursorGap("activity cursor is no longer replayable")
 
-        replay_rows = list(
-            activity_query.filter(
-                sequence__gt=after_sequence,
-                sequence__lte=high_water_sequence,
-            ).order_by("sequence", "id")[: limit + 1]
-        )
-        has_more = len(replay_rows) > limit
-        rows = tuple(replay_rows[:limit])
+        replay_query = activity_query.filter(
+            sequence__gt=after_sequence,
+            sequence__lte=high_water_sequence,
+        ).order_by("sequence", "id")
+        if compact:
+            rows, has_more = _compact_page(replay_query, limit)
+        else:
+            replay_rows = list(replay_query[: limit + 1])
+            has_more = len(replay_rows) > limit
+            rows = tuple(replay_rows[:limit])
         resume_after = rows[-1].sequence if rows else after_sequence
         if compact:
             rows = compact_assistant_deltas(rows, activity_query)
