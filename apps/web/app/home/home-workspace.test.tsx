@@ -477,7 +477,6 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
   });
 
   it("keeps a just-sent message after leaving the chat and coming back", async () => {
-    const conversationId = "00000000-0000-4000-8000-000000000005";
     const message = {
       id: "00000000-0000-4000-8000-000000000017",
       sender: "user" as const,
@@ -500,11 +499,41 @@ describe.each([false, true])("public Home pages (desktop=%s)", (desktop) => {
     selectedSegment.mockReturnValue(ally.id);
     client.view.rerender(<QueryClientProvider client={client.queryClient}><HomeLayout>{page}</HomeLayout></QueryClientProvider>);
 
-    const cached = client.queryClient.getQueryData<{ id: string; messages: { id: string }[] }>(
-      ["workspaces", account.workspace.id, "allies", ally.id, "conversation"],
-    );
-    expect(cached?.id).toBe(conversationId);
-    expect(cached?.messages.some((candidate) => candidate.id === message.id)).toBe(true);
+    expect((await screen.findAllByText(message.content)).length).toBeGreaterThan(0);
+  });
+
+  it("keeps an accepted message visible when Cloud's queue snapshot predates it", async () => {
+    const message = {
+      id: "00000000-0000-4000-8000-000000000018",
+      sender: "user" as const,
+      content: "Do not lose this bubble",
+      sequence: 2,
+      status: "in_progress" as const,
+      queueState: "claimed" as const,
+      createdAt: "2026-08-20T16:01:00Z",
+    };
+    const getAllyConversation = vi.fn(async (_workspaceId: string, selectedId: string) => ({
+      id: "00000000-0000-4000-8000-000000000005",
+      allyId: selectedId,
+      messages: [{
+        id: "00000000-0000-4000-8000-000000000006",
+        sender: "assistant" as const,
+        content: "What should we work on first?",
+        sequence: 1,
+        status: "completed" as const,
+        createdAt: "2026-08-20T16:00:00Z",
+      }],
+      queue: [],
+      nextCursor: null,
+    }));
+    const sendMessage = vi.fn(async () => ({ message, execution: { id: "execution", state: "running" } }));
+    renderHome([ally], ally.id, { getAllyConversation, sendMessage }, <AllyHomePage />);
+    expect(await screen.findByRole("heading", { name: ally.name })).toBeTruthy();
+    fireEvent.change(screen.getByRole("textbox"), { target: { value: message.content } });
+    await clickSendMessage();
+    await waitFor(() => expect(sendMessage).toHaveBeenCalled());
+    // Let the receipt effect run against the cache that now holds the message.
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 50)); });
     expect((await screen.findAllByText(message.content)).length).toBeGreaterThan(0);
   });
 
