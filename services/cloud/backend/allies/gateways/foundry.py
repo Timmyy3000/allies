@@ -416,6 +416,20 @@ def cancel_routine_wait(
         ) from exc
 
 
+def stop_conversation(conversation_id: UUID) -> int:
+    raw = _request(
+        method="POST",
+        path=f"api/v1/internal/conversations/{conversation_id}/stop",
+    )
+    try:
+        stopped = json.loads(raw)["stopped"]
+    except (ValueError, TypeError, KeyError):
+        raise FoundryGatewayInvalid("foundry stop receipt invalid") from None
+    if type(stopped) is not int or stopped < 0:
+        raise FoundryGatewayInvalid("foundry stop receipt invalid")
+    return stopped
+
+
 def submit_approval_decision(
     command: ApprovalDecisionCommand, *, raw_body: bytes | None = None
 ) -> ApprovalDecisionReceipt:

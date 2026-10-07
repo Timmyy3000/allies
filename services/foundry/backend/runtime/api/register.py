@@ -51,7 +51,11 @@ from runtime.services.executions import (
     reconcile_execution_intent,
 )
 from runtime.services.files import open_incoming_file
-from runtime.services.leases import acknowledge_stopped, renew_lease
+from runtime.services.leases import (
+    acknowledge_stopped,
+    renew_lease,
+    request_conversation_stop,
+)
 from runtime.services.profile_deletion import coordinate_profile_deletion
 from runtime.services.profiles import (
     ProfileSeed,
@@ -737,6 +741,13 @@ def register(api: NinjaExtraAPI) -> None:
             return JsonResponse(receipt.model_dump(mode="json"), status=200)
         except RuntimeDomainError as exc:
             return _execution_error(exc)
+
+    @api.post(
+        "/internal/conversations/{conversation_id}/stop", auth=_cloud_service_auth
+    )
+    def conversation_stop(request: HttpRequest, conversation_id: UUID):
+        stopped = request_conversation_stop(conversation_id)
+        return JsonResponse({"stopped": stopped}, status=200)
 
     @api.get("/internal/executions/reconcile", auth=_cloud_service_auth)
     def execution_reconcile(request: HttpRequest):

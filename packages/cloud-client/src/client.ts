@@ -1097,6 +1097,50 @@ export function createCloudClient(options: CloudClientOptions) {
       );
     },
 
+    async stopConversation(
+      workspaceId: string,
+      conversationId: string,
+      signal?: AbortSignal,
+    ): Promise<{ stopRequested: boolean }> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const conversation = parsePathSegment(conversationId);
+      return unwrap(
+        api.POST("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/stop", {
+          params: { path: { workspace_id: workspace, conversation_id: conversation } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => ({ stopRequested: successEnvelope(z.object({ stop_requested: z.boolean() })).parse(data).data.stop_requested }),
+        [200],
+      );
+    },
+
+    async steerConversation(
+      workspaceId: string,
+      conversationId: string,
+      content: string,
+      idempotencyKey: string,
+      signal?: AbortSignal,
+    ): Promise<MessageAcceptanceViewModel> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const conversation = parsePathSegment(conversationId);
+      const body = parseInput(messageContentSchema, content);
+      const key = parseIdempotencyKey(idempotencyKey);
+      return unwrap(
+        api.POST("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/steer", {
+          params: {
+            path: { workspace_id: workspace, conversation_id: conversation },
+            header: { "Idempotency-Key": key },
+          },
+          body: { content: body },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toMessageAcceptanceViewModel(successEnvelope(messageAcceptanceResponseSchema).parse(data).data),
+        [200, 201],
+      );
+    },
+
     async deleteQueuedMessage(
       workspaceId: string,
       conversationId: string,

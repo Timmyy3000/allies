@@ -16,6 +16,7 @@ from allies_runtime.foundry import (
     FencedError,
     FoundryClaim,
     FoundryWorker,
+    LeaseConflictError,
     ResponseLossError,
     SessionReceipt,
     StoppedReceipt,
@@ -898,3 +899,44 @@ async def test_unbound_turn_fails_if_session_operations_are_unavailable():
 
     assert result.status == "failed"
     assert [event["event_type"] for event in foundry.events] == ["execution.dispatched"]
+
+
+@pytest.mark.asyncio
+async def test_stopping_lease_closes_hermes_stream_and_reports_stopped():
+    closed = []
+
+    async def rows():
+        try:
+            for sequence in (1, 2):
+                yield HermesEvent(
+                    "message.delta",
+                    "ally-a",
+                    "session-1",
+                    "run-1",
+                    sequence,
+                    {"text": "partial"},
+                )
+        finally:
+            closed.append(True)
+
+    class StoppingFoundry(RecordingFoundry):
+        async def event(self, attempt_id, lease_token, **body):
+            if body["event_type"] == "message.delta":
+                raise LeaseConflictError("lease is no longer active")
+            return await super().event(attempt_id, lease_token, **body)
+
+    class Adapter(RecordingHermes):
+        async def stream_profile_incremental(
+            self, profile_key, session_id, message, *, session_key
+        ):
+            return CancellableHermesStream(rows())
+
+    foundry = StoppingFoundry()
+    await FoundryWorker(foundry, Adapter()).run_claim(
+        claim(conversation_id="cloud-1", session_id="session-1")
+    )
+
+    assert closed == [True]
+    assert foundry.stops == ["lease_lost"]
+    assert foundry.completes == []
+    assert foundry.failures == []

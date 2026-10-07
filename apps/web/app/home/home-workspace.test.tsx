@@ -2111,7 +2111,7 @@ describe("HomeWorkspace", () => {
     await clickSendMessage();
 
     const queue = await screen.findByRole("list", { name: "Queued messages" });
-    await waitFor(() => expect(queue.textContent).toBe("First questionSecond question"));
+    await waitFor(() => expect(queue.textContent).toBe("First questionSecond questionSteer now"));
     await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
     expect(sendMessage.mock.calls[0]?.slice(0, 3)).toEqual(["workspace", conversationId, "Second question"]);
     expect(screen.getByTestId("conversation-ally").getAttribute("data-state")).toBe("idle");

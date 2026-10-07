@@ -388,7 +388,7 @@ export function QueueStack({
   items: readonly { id: string; content: string; removable?: boolean; statusLabel?: string | null; attachments?: QueuedAttachmentPreview[] }[];
   onRemove?: (id: string) => void;
   actionLabel?: string;
-  onAction?: () => void;
+  onAction?: (id: string) => void;
   onAttachmentOpen?: (file: QueuedAttachmentPreview) => void;
 }) {
   const reducedMotion = useReducedMotion();
@@ -417,7 +417,7 @@ export function QueueStack({
               </span>
             ) : null}
             <span title={item.attachments?.length ? `${item.content} (${item.attachments.map((file) => file.name).join(", ")})` : item.content}>{item.content}</span>
-            {actionLabel && onAction ? <button type="button" onClick={onAction}>{actionLabel}</button> : null}
+            {actionLabel && onAction && item.removable !== false && !item.attachments?.length ? <button type="button" onClick={() => onAction(item.id)}>{actionLabel}</button> : null}
             {item.statusLabel ? <span aria-label={item.statusLabel}>{item.statusLabel}</span> : null}
             {onRemove && item.removable !== false ? (
               <button type="button" aria-label={`Remove queued message: ${item.content}`} onClick={() => onRemove(item.id)}>
@@ -440,6 +440,7 @@ export function ConversationComposer({
   sending,
   onChange,
   onSubmit,
+  onStop,
   onCompositionStart,
   onCompositionEnd,
   attachments,
@@ -454,6 +455,7 @@ export function ConversationComposer({
   sending: boolean;
   onChange: (value: string) => void;
   onSubmit: () => void;
+  onStop?: () => void;
   onCompositionStart?: () => void;
   onCompositionEnd?: (value: string) => void;
   attachments?: ReactNode;
@@ -754,11 +756,17 @@ export function ConversationComposer({
         aria-busy={sending}
       />
       </div>
-      <button type="button" aria-label="Send message" onClick={onSubmit} disabled={disabled || !hasText}>
-        {hasText
-          ? <img src="/home/chat/send.svg" alt="" width={16} height={16} />
-          : <MicIcon />}
-      </button>
+      {onStop && !hasText ? (
+        <button type="button" className={styles.frameStopButton} aria-label="Stop response" onClick={onStop}>
+          <motion.span key="stop" initial={{ scale: .5, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: reduceAttachmentMotion ? 0 : .18 }}><StopGlyph /></motion.span>
+        </button>
+      ) : (
+        <button type="button" aria-label="Send message" onClick={onSubmit} disabled={disabled || !hasText}>
+          {hasText
+            ? <img src="/home/chat/send.svg" alt="" width={16} height={16} />
+            : <MicIcon />}
+        </button>
+      )}
     </div>
     {pasteError ? <p role="alert" className={styles.frameComposerError}>{pasteError}</p> : null}
     <dialog ref={previewRef} className={styles.framePasteDialog} aria-label="Edit pasted text">
@@ -1329,6 +1337,10 @@ export function SettingsIcon() {
 }
 export function SendIcon() {
   return <FrameIcon name="send" />;
+}
+
+function StopGlyph() {
+  return <span className={styles.frameStopGlyph} aria-hidden="true" />;
 }
 
 export function MicIcon() {

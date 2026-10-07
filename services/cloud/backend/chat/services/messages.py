@@ -34,6 +34,7 @@ from chat.exceptions import (
     OnboardingHandoffRepairRequired,
     QueueFull,
     SendRateLimited,
+    SteerUnavailable,
     TurnConflict,
 )
 from chat.models import (
@@ -721,6 +722,122 @@ def delete_queued_message(
                 )
             )
         return message
+
+
+def _live_sends(conversation: Conversation):
+    return Message.objects.filter(
+        conversation=conversation,
+        sender=MessageSender.USER,
+        origin=MessageOrigin.SEND,
+        status__in=NONTERMINAL_MESSAGE_STATUSES,
+        deleted_at__isnull=True,
+    )
+
+
+def _active_turn(conversation: Conversation) -> Message | None:
+    return _live_sends(conversation).filter(execution_claimed_at__isnull=False).first()
+
+
+def _stop_turn(message: Message) -> None:
+    from allies.exceptions import FoundryGatewayError
+    from allies.gateways.foundry import stop_conversation as stop_foundry_conversation
+
+    try:
+        if stop_foundry_conversation(message.conversation_id):
+            return
+    except FoundryGatewayError as exc:
+        raise ChatUnavailable("stop unavailable") from exc
+    with transaction.atomic():
+        conversation = Conversation.objects.select_for_update().get(
+            pk=message.conversation_id
+        )
+        message = Message.objects.select_for_update().get(pk=message.pk)
+        outbox = (
+            DispatchOutbox.objects.select_for_update().filter(message=message).first()
+        )
+        # Foundry has no live execution, so an unsent command can be stopped here.
+        if (
+            message.status in NONTERMINAL_MESSAGE_STATUSES
+            and outbox is not None
+            and outbox.status == DispatchState.PENDING
+        ):
+            from .dispatch import _terminalize_claim_locked
+
+            _terminalize_claim_locked(
+                conversation=conversation,
+                message=message,
+                outbox=outbox,
+                code="stopped",
+                now=timezone.now(),
+                status=MessageLifecycle.STOPPED,
+            )
+
+
+def stop_conversation(
+    *, user: User, workspace_id: UUID | str, conversation_id: UUID | str
+) -> bool:
+    """Request a stop of the active turn; returns False when nothing is running."""
+
+    context = require_workspace_capability(
+        user=user,
+        workspace_id=workspace_id,
+        capability=Capability.WORKSPACE_WRITE,
+    )
+    with transaction.atomic():
+        conversation = _conversation_for_send(
+            workspace=context.workspace, conversation_id=conversation_id
+        )
+        active = _active_turn(conversation)
+    if active is None:
+        return False
+    _stop_turn(active)
+    return True
+
+
+def steer_conversation(
+    *,
+    user: User,
+    workspace_id: UUID | str,
+    conversation_id: UUID | str,
+    content: object,
+    idempotency_key: object,
+) -> MessageAcceptance:
+    """Record steer text as the next turn and stop the active one."""
+
+    context = require_workspace_capability(
+        user=user,
+        workspace_id=workspace_id,
+        capability=Capability.WORKSPACE_WRITE,
+    )
+    key_digest = _digest(_validate_send_key(idempotency_key))
+    with transaction.atomic():
+        conversation = _conversation_for_send(
+            workspace=context.workspace, conversation_id=conversation_id
+        )
+        replay = Message.objects.filter(
+            conversation=conversation,
+            sender=MessageSender.USER,
+            origin=MessageOrigin.SEND,
+            send_key_digest=key_digest,
+        ).exists()
+        active = _active_turn(conversation)
+        if not replay and (
+            active is None
+            or _live_sends(conversation)
+            .filter(execution_claimed_at__isnull=True)
+            .exists()
+        ):
+            raise SteerUnavailable("no active turn to steer")
+        result = accept_message(
+            user=user,
+            workspace_id=workspace_id,
+            conversation_id=conversation_id,
+            content=content,
+            idempotency_key=idempotency_key,
+        )
+    if active is not None and result.message.execution_claimed_at is None:
+        _stop_turn(active)
+    return result
 
 
 def complete_turn(*, message_id: UUID | str, status: str) -> Message:

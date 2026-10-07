@@ -508,9 +508,20 @@ def _reconcile_expired_lease(
             RoutineRunStatus.EXPIRED,
         }
         if not cleanup_pending:
-            from .events import _append_lease_expired_failure
+            if attempt.execution.status == ExecutionStatus.CANCELLED:
+                from .events import _append_server_terminal_event
+                from .leases import USER_STOP_REASON
 
-            _append_lease_expired_failure(attempt, lease)
+                _append_server_terminal_event(
+                    attempt,
+                    "execution.stopped",
+                    {"reason": USER_STOP_REASON},
+                    USER_STOP_REASON,
+                )
+            else:
+                from .events import _append_lease_expired_failure
+
+                _append_lease_expired_failure(attempt, lease)
         routine_result_event = None
         if routine is not None and not routine_was_terminal:
             from .routines import _record_terminal_failure_result

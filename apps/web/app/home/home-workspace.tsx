@@ -120,6 +120,8 @@ export const ALLY_SLEEP_AFTER_MS = 20 * 60 * 1_000;
 const ALLY_SLEEP_CLOCK_INTERVAL_MS = 30_000;
 const QUEUED_MESSAGE_PERSISTENCE_ERROR = "Message not sent: browser storage is unavailable. Keep this page open, allow site storage or free up space, then try again.";
 const QUEUED_MESSAGE_REMOVAL_ERROR = "We couldn't remove this queued message. Try again.";
+const STOP_ERROR = "We couldn't stop this response. Try again.";
+const STEER_ERROR = "We couldn't steer with this message. It's still queued.";
 const MESSAGE_ACCEPTANCE_UNKNOWN_ERROR = "We couldn't confirm your message";
 const BLOCKED_QUEUE_HEAD_ERROR = "Your earlier message still needs confirmation. Retry it before sending another message.";
 export const ROUTINE_ACTION_SENT_TIMEOUT_MS = 30_000;
@@ -3047,6 +3049,38 @@ function ConversationPane({
       setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
     }
   };
+  const stop = async () => {
+    if (!conversation) return;
+    try {
+      await session.runCloudOperation(
+        (signal) => session.client.stopConversation(workspaceId, conversation.id, signal),
+        { csrf: true },
+      );
+      setQueuePersistenceError(null);
+      await queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id) });
+    } catch (error) {
+      if (applyConversationAccessFailure(error)) return;
+      setQueuePersistenceError(STOP_ERROR);
+    }
+  };
+  const steerQueuedMessage = async (id: string) => {
+    if (!conversation) return;
+    const content = queuedMessagesRef.current.find((message) => message.id === id && !message.fileTransferId)?.content
+      ?? conversationQueueMessages.find((message) => message.id === id && !message.files?.length)?.content;
+    if (!content) return;
+    try {
+      await session.runCloudOperation(
+        (signal) => session.client.steerConversation(workspaceId, conversation.id, content, `steer:${id}`, signal),
+        { csrf: true },
+      );
+    } catch (error) {
+      if (applyConversationAccessFailure(error)) return;
+      setQueuePersistenceError(STEER_ERROR);
+      return;
+    }
+    await removeQueuedMessage(id);
+    await queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id) });
+  };
   const fileMessageIds = new Set(timelineMessages.filter(message => message.files?.length || message.preparation && message.preparation !== "none").map(message => message.id));
   const queuedAttachmentIds = queuedAttachmentQueueIds(timelineMessages, activeMessageId);
   const visibleFrameMessages = baseFrameModel.messages.map((message) => immediateMessageIds.has(message.id) || (fileMessageIds.has(message.id) && !queuedAttachmentIds.has(message.id))
@@ -3088,6 +3122,8 @@ function ConversationPane({
     onRetryConversation: () => void conversationQuery.refetch(),
     onRetryWorkspace,
     onRemoveQueuedMessage: (id) => void removeQueuedMessage(id),
+    onStop: turnInProgress ? () => void stop() : undefined,
+    onSteerQueuedMessage: turnInProgress ? (id) => void steerQueuedMessage(id) : undefined,
     onCheckAgain: () => {
       pollCountRef.current = 0;
       setPollBudgetReached(false);

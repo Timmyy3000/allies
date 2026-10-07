@@ -286,6 +286,8 @@ export interface ProductionConversationFrameActions {
   onRetryConversation: () => void;
   onRetryWorkspace: () => void;
   onRemoveQueuedMessage: (id: string) => void;
+  onStop?: () => void;
+  onSteerQueuedMessage?: (id: string) => void;
   onCheckAgain: () => void;
   onRetryActivityHistory: () => void;
   onScroll: (event: UIEvent<HTMLDivElement>) => void;

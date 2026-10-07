@@ -19,16 +19,17 @@ function setMobileHome(matches: boolean) {
 
 beforeEach(() => setMobileHome(false));
 
-function Composer({ initial = "", submit = () => {}, onFilesDrop, disabled = false, dropScope = "sage", onAttach }: {
+function Composer({ initial = "", submit = () => {}, onFilesDrop, disabled = false, dropScope = "sage", onAttach, onStop }: {
   initial?: string;
   submit?: (value: string) => void;
   onFilesDrop?: (files: File[], origin: DOMRect) => boolean;
   disabled?: boolean;
   dropScope?: string;
   onAttach?: (anchor: HTMLElement) => void;
+  onStop?: () => void;
 }) {
   const [value, setValue] = useState(initial);
-  return <div data-testid="conversation-frame-shell"><div data-testid="conversation-transcript" /><ConversationComposer allyName="Sage" value={value} placeholder="Reply Sage" disabled={disabled} sending={false} onChange={setValue} onSubmit={() => submit(value)} onFilesDrop={onFilesDrop} dropScope={dropScope} onAttach={onAttach} /></div>;
+  return <div data-testid="conversation-frame-shell"><div data-testid="conversation-transcript" /><ConversationComposer allyName="Sage" value={value} placeholder="Reply Sage" disabled={disabled} sending={false} onChange={setValue} onSubmit={() => submit(value)} onFilesDrop={onFilesDrop} dropScope={dropScope} onAttach={onAttach} onStop={onStop} /></div>;
 }
 
 describe("large composer drafts", () => {
@@ -371,5 +372,19 @@ describe("accent contrast", () => {
 
   it("falls back safely for an invalid legacy accent", () => {
     expect(readableAccentForeground("not-a-color")).toBe("#ffffff");
+  });
+});
+
+describe("stopping a running response", () => {
+  it("offers Stop while the draft is empty and Send once the user types", () => {
+    const stop = vi.fn();
+    const submit = vi.fn();
+    render(<Composer onStop={stop} submit={submit} />);
+    fireEvent.click(screen.getByRole("button", { name: "Stop response" }));
+    expect(stop).toHaveBeenCalledTimes(1);
+    fireEvent.change(screen.getByLabelText("Message Sage"), { target: { value: "Use the cheaper flight" } });
+    expect(screen.queryByRole("button", { name: "Stop response" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(submit).toHaveBeenCalledWith("Use the cheaper flight");
   });
 });
