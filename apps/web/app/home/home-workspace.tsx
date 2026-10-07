@@ -2083,6 +2083,21 @@ function ConversationPane({
     }
   }, [applyConversationAccessFailure, handleActivityReplayFailure, loadReplayWithRecovery, presentActivitySnapshot, session, workspaceId]);
 
+  // sentMessages dies with this pane; also keep accepted messages in the shared
+  // conversation cache so leaving and reopening the chat still shows them.
+  const rememberAcceptedMessage = useCallback((targetConversationId: string, message: MessageViewModel) => {
+    setSentMessages((current) => mergeMessages(current, [message]));
+    // Unclaimed messages already persist in the local queue store.
+    if (message.queueState === "unclaimed") return;
+    for (const key of [conversationQueryKey(workspaceId, ally.id), [...conversationQueryKey(workspaceId, ally.id), "preview"]]) {
+      queryClient.setQueryData<ConversationViewModel>(key, (cached) =>
+        cached && cached.id === targetConversationId
+          ? { ...cached, messages: mergeMessages(cached.messages, [message]) }
+          : cached);
+    }
+    void queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id), refetchType: "none" });
+  }, [ally.id, queryClient, workspaceId]);
+
   const sendMessageContent = useCallback(async (
     content: string,
     key: string,
@@ -2116,7 +2131,7 @@ function ConversationPane({
       if (!accepted?.message) throw { kind: "contract" };
       if (!routineRequest) setRoutineActionState((current) => current?.status === "sent" ? null : current);
       onActivity();
-      setSentMessages((current) => mergeMessages(current, [accepted.message]));
+      rememberAcceptedMessage(conversation.id, accepted.message);
       if (queuedMessageId) setImmediateMessageIds((current) => {
         if (!current.has(queuedMessageId)) return current;
         const next = new Set(current);
@@ -2207,6 +2222,7 @@ function ConversationPane({
     }
   }, [
     ally,
+    rememberAcceptedMessage,
     applyConversationAccessFailure,
     conversationAccessFailure,
     conversation,
@@ -2404,7 +2420,7 @@ function ConversationPane({
         (signal) => session.client.retryMessage(workspaceId, conversation.id, message.id, key, signal),
         { csrf: true },
       );
-      setSentMessages((current) => mergeMessages(current, [accepted.message]));
+      rememberAcceptedMessage(conversation.id, accepted.message);
       setRetriedMessageIds((current) => new Set(current).add(message.id));
       setProjection((current) => ({ ...current, state: activityStateFromMessage(accepted.message.status) }));
       setPollingSettled(false);
