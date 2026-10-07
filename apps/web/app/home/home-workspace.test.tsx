@@ -4117,6 +4117,132 @@ describe("HomeWorkspace", () => {
   });
 });
 
+describe("durable queued steering", () => {
+  const conversationId = "00000000-0000-4000-8000-000000000005";
+  const storageKey = `allies:v2:queued-messages:${account.userId}:${account.workspace.id}:${ally.id}`;
+  const queued = { id: "queued-steer", content: "Use the blue one", intentKey: "original-send-intent", queuedAt: 2 };
+  const accepted = {
+    conversationId,
+    message: { id: "accepted-steer", sender: "user" as const, content: queued.content, sequence: 3, status: "queued" as const, queueState: "unclaimed" as const, createdAt: "2026-08-20T16:02:00Z" },
+    execution: null,
+    replayed: false,
+  };
+  const conversation = {
+    id: conversationId,
+    allyId: ally.id,
+    messages: [{ id: "active", sender: "user" as const, content: "First question", sequence: 2, status: "in_progress" as const, createdAt: "2026-08-20T16:01:00Z" }],
+    nextCursor: null,
+  };
+  const renderSteering = (overrides: Record<string, unknown> = {}) => renderHome(
+    [{ ...ally, provisioningState: "pending" }], ally.id, {
+      getAllyConversation: vi.fn(async () => conversation),
+      getActivities: vi.fn(() => new Promise(() => undefined)),
+      ...overrides,
+    },
+  );
+
+  it.each(["attempted", "no locks"])("does not offer steering with %s", async (condition) => {
+    if (condition !== "no locks") stubQueueMessageLocks();
+    window.localStorage.setItem(storageKey, JSON.stringify([{ ...queued, ...(condition === "attempted" ? { attemptedAt: 3 } : {}) }]));
+    const steerConversation = vi.fn();
+    renderSteering({ steerConversation });
+    await screen.findByText(queued.content);
+    expect(screen.queryByRole("button", { name: "Steer now" })).toBeNull();
+    expect(steerConversation).not.toHaveBeenCalled();
+  });
+
+  it.each(["attempted", "new head", "removed"])("rechecks the persisted queue before steering a stale %s", async (condition) => {
+    stubQueueMessageLocks();
+    window.localStorage.setItem(storageKey, JSON.stringify([queued]));
+    const steerConversation = vi.fn(async () => accepted);
+    renderSteering({ steerConversation });
+    const button = await screen.findByRole("button", { name: "Steer now" });
+    if (condition === "removed") window.localStorage.setItem(`${storageKey}:removed:${queued.id}`, String(Date.now()));
+    else window.localStorage.setItem(storageKey, JSON.stringify(condition === "attempted"
+      ? [{ ...queued, attemptedAt: 3 }]
+      : [{ ...queued, id: "older", queuedAt: 1 }, queued]));
+    fireEvent.click(button);
+    await screen.findByRole("alert");
+    expect(steerConversation).not.toHaveBeenCalled();
+  });
+
+  it("does not contact Cloud when the attempt cannot be saved", async () => {
+    stubQueueMessageLocks();
+    window.localStorage.setItem(storageKey, JSON.stringify([queued]));
+    const steerConversation = vi.fn(async () => accepted);
+    renderSteering({ steerConversation });
+    const button = await screen.findByRole("button", { name: "Steer now" });
+    const setItem = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("storage unavailable"); });
+    try {
+      fireEvent.click(button);
+      await screen.findByRole("alert");
+      expect(steerConversation).not.toHaveBeenCalled();
+      expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "[]")).toEqual([queued]);
+    } finally { setItem.mockRestore(); }
+  });
+
+  it.each(["lost response", "cleanup failure"])("retries the original acceptance identity after %s", async (failure) => {
+    stubQueueMessageLocks();
+    window.localStorage.setItem(storageKey, JSON.stringify([queued]));
+    const acceptanceKeys = new Set<string>();
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    const steerConversation = vi.fn(async (...args: [string, string, string, string]) => {
+      acceptanceKeys.add(args[3]);
+      if (failure === "lost response") throw { kind: "server", status: 500 };
+      setItem.mockImplementation(() => { throw new Error("storage unavailable"); });
+      return accepted;
+    });
+    const sendMessage = vi.fn(async (...args: [string, string, string, string, AbortSignal?, string?]) => {
+      acceptanceKeys.add(args[3]);
+      return { ...accepted, replayed: true };
+    });
+    renderSteering({ steerConversation, sendMessage });
+    fireEvent.click(await screen.findByRole("button", { name: "Steer now" }));
+    await screen.findByRole("alert");
+    expect(JSON.parse(window.localStorage.getItem(storageKey) ?? "[]")[0]).toMatchObject({ ...queued, attemptedAt: expect.any(Number) });
+    expect(screen.queryByRole("button", { name: "Steer now" })).toBeNull();
+    setItem.mockRestore();
+    cleanup();
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => conversation),
+      getActivities: vi.fn(() => new Promise(() => undefined)),
+      sendMessage,
+    });
+    await waitFor(() => expect(sendMessage).toHaveBeenCalledOnce());
+    await waitFor(() => expect(window.localStorage.getItem(storageKey)).toBeNull());
+    expect([...acceptanceKeys]).toEqual([queued.intentKey]);
+    expect(sendMessage.mock.calls[0]?.[5]).toBe("");
+  });
+
+  it("holds the message lock through acceptance and prevents a waiting drain from sending", async () => {
+    const tails = new Map<string, Promise<unknown>>();
+    const request = vi.fn((name: string, _options: unknown, task: () => Promise<unknown>) => {
+      const next = (tails.get(name) ?? Promise.resolve()).then(task);
+      tails.set(name, next.catch(() => undefined));
+      return next;
+    });
+    Object.defineProperty(navigator, "locks", { configurable: true, value: { request } });
+    window.localStorage.setItem(storageKey, JSON.stringify([queued]));
+    let resolveSteer: (value: typeof accepted) => void = () => { throw new Error("steer not requested"); };
+    const steerConversation = vi.fn(() => new Promise<typeof accepted>((resolve) => { resolveSteer = resolve; }));
+    const sendMessage = vi.fn(async () => accepted);
+    const view = renderSteering({ steerConversation, sendMessage });
+    const button = await screen.findByRole("button", { name: "Steer now" });
+    fireEvent.click(button);
+    await waitFor(() => expect(steerConversation).toHaveBeenCalledOnce());
+    await act(async () => {
+      view.queryClient.setQueryData(["workspaces", account.workspace.id, "allies"], [ally]);
+    });
+    await waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    expect(sendMessage).not.toHaveBeenCalled();
+    await act(async () => { resolveSteer(accepted); });
+    await waitFor(() => expect(window.localStorage.getItem(storageKey)).toBeNull());
+    await act(async () => { await Promise.all(tails.values()); });
+    expect(sendMessage).not.toHaveBeenCalled();
+    expect(steerConversation).toHaveBeenCalledOnce();
+  });
+});
+
 describe("buildQueuedFrameMessages", () => {
   const cloudMessage = (overrides: Partial<MessageViewModel> = {}): MessageViewModel => ({
     id: "cloud-1",

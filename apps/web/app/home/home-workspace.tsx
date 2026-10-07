@@ -121,7 +121,7 @@ const ALLY_SLEEP_CLOCK_INTERVAL_MS = 30_000;
 const QUEUED_MESSAGE_PERSISTENCE_ERROR = "Message not sent: browser storage is unavailable. Keep this page open, allow site storage or free up space, then try again.";
 const QUEUED_MESSAGE_REMOVAL_ERROR = "We couldn't remove this queued message. Try again.";
 const STOP_ERROR = "We couldn't stop this response. Try again.";
-const STEER_ERROR = "We couldn't steer with this message. It's still queued.";
+const STEER_ERROR = "Steering wasn't confirmed. Your message is still saved.";
 const MESSAGE_ACCEPTANCE_UNKNOWN_ERROR = "We couldn't confirm your message";
 const BLOCKED_QUEUE_HEAD_ERROR = "Your earlier message still needs confirmation. Retry it before sending another message.";
 export const ROUTINE_ACTION_SENT_TIMEOUT_MS = 30_000;
@@ -221,6 +221,7 @@ type QueuedMessage = {
   intentKey: string;
   queuedAt: number;
   attemptedAt?: number;
+  timezone?: "";
 };
 
 type AssistantReplyState = {
@@ -2130,10 +2131,11 @@ function ConversationPane({
     setSendError(null);
     setQueuePersistenceError(null);
     try {
-      const fileTransferId = queuedMessagesRef.current.find(message => message.id === queuedMessageId)?.fileTransferId;
+      const queuedMessage = queuedMessagesRef.current.find(message => message.id === queuedMessageId);
+      const fileTransferId = queuedMessage?.fileTransferId;
       if (fileTransferId) await fileManager.restore(fileScope);
       const accepted = fileTransferId ? { conversationId: conversation.id, message: await fileManager.admit(fileTransferId), execution: null, replayed: false } : await session.runCloudOperation(
-        (signal) => session.client.sendMessage(workspaceId, conversation.id, content, key, signal, Intl.DateTimeFormat().resolvedOptions().timeZone,
+        (signal) => session.client.sendMessage(workspaceId, conversation.id, content, key, signal, queuedMessage?.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone,
           routineRequest ? buildRoutineActionContext(routineRequest) : undefined),
         { csrf: true },
       );
@@ -3064,21 +3066,34 @@ function ConversationPane({
     }
   };
   const steerQueuedMessage = async (id: string) => {
-    if (!conversation) return;
-    const content = queuedMessagesRef.current.find((message) => message.id === id && !message.fileTransferId)?.content
-      ?? conversationQueueMessages.find((message) => message.id === id && !message.files?.length)?.content;
-    if (!content) return;
-    try {
-      await session.runCloudOperation(
-        (signal) => session.client.steerConversation(workspaceId, conversation.id, content, `steer:${id}`, signal),
-        { csrf: true },
-      );
-    } catch (error) {
-      if (applyConversationAccessFailure(error)) return;
-      setQueuePersistenceError(STEER_ERROR);
-      return;
-    }
-    await removeQueuedMessage(id);
+    if (!conversation || conversationAccessFailure || !turnInProgress || !supportsQueueMessageLocks()) return;
+    await withQueueMessageLock(queuedMessagesStorageKey, id, async () => {
+      const head = readLiveQueuedMessages(queuedMessagesStorageKey)[0];
+      if (!head || head.id !== id || head.fileTransferId || head.attemptedAt !== undefined
+        || conversationQueueMessages.some((message) => message.id !== activeMessageId)
+        || !markQueuedMessageAttempt(queuedMessagesStorageKey, id, commitQueuedMessages, "")) {
+        setQueuePersistenceError(STEER_ERROR);
+        return;
+      }
+      try {
+        const accepted = await session.runCloudOperation(
+          (signal) => session.client.steerConversation(workspaceId, conversation.id, head.content, head.intentKey, signal),
+          { csrf: true },
+        );
+        if (!accepted?.message) throw { kind: "contract" };
+        rememberAcceptedMessage(accepted.message);
+        if (removeLocalQueuedMessage(id)) {
+          setQueuePersistenceError(null);
+        } else {
+          blockedQueuedMessageIdsRef.current.add(id);
+          setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
+        }
+      } catch (error) {
+        if (applyConversationAccessFailure(error)) return;
+        setQueuePersistenceError(STEER_ERROR);
+        return;
+      }
+    });
     await queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id) });
   };
   const fileMessageIds = new Set(timelineMessages.filter(message => message.files?.length || message.preparation && message.preparation !== "none").map(message => message.id));
@@ -3103,8 +3118,9 @@ function ConversationPane({
     queuedMessages: baseFrameModel.queuedMessages.filter((message) => !immediateMessageIds.has(message.id) && !(fileMessageIds.has(message.id) && !queuedAttachmentIds.has(message.id))),
   };
   const queueHeadId = frameModel.queuedMessages[0]?.id;
-  // The server only accepts a steer when nothing is queued server-side, so only a local head qualifies.
-  const steerableQueuedMessageId = queuedMessages.some((message) => message.id === queueHeadId && !message.fileTransferId) ? queueHeadId : undefined;
+  const steerableQueuedMessageId = supportsQueueMessageLocks() && queuedMessages.some((message) => (
+    message.id === queueHeadId && !message.fileTransferId && message.attemptedAt === undefined
+  )) ? queueHeadId : undefined;
   const frameActions: ProductionConversationFrameActions = {
     onDraftChange: (value) => {
       const beganInteracting = !draftRef.current.trim() && Boolean(value.trim());
@@ -3646,6 +3662,7 @@ function parseQueuedMessages(stored: string | null): QueuedMessage[] {
         content: item.content as string,
         intentKey: item.intentKey as string,
         ...(typeof item.fileTransferId === "string" && /^[0-9a-f-]{36}$/.test(item.fileTransferId) ? { fileTransferId: item.fileTransferId } : {}),
+        ...(item.timezone === "" ? { timezone: item.timezone } : {}),
         queuedAt: typeof item.queuedAt === "number" && Number.isFinite(item.queuedAt) ? item.queuedAt : index,
         ...(typeof item.attemptedAt === "number" && Number.isFinite(item.attemptedAt)
           ? { attemptedAt: item.attemptedAt }
@@ -3668,7 +3685,7 @@ function mergeQueuedMessages(...groups: QueuedMessage[][]): QueuedMessage[] {
     for (const message of group) {
       const current = byId.get(message.id);
       if (current?.attemptedAt !== undefined && message.attemptedAt === undefined) continue;
-      byId.set(message.id, message);
+      byId.set(message.id, current?.timezone !== undefined ? { ...message, timezone: current.timezone } : message);
     }
   }
   return [...byId.values()]
@@ -3680,17 +3697,18 @@ function markQueuedMessageAttempt(
   storageKey: string,
   messageId: string,
   commit: (change: (messages: QueuedMessage[]) => QueuedMessage[]) => boolean,
+  timezone?: QueuedMessage["timezone"],
 ): boolean {
   let found = false;
   const committed = commit((messages) => messages.map((message) => {
     if (message.id !== messageId) return message;
     found = true;
-    return { ...message, attemptedAt: message.attemptedAt ?? Date.now() };
+    return { ...message, attemptedAt: message.attemptedAt ?? Date.now(), ...(timezone !== undefined ? { timezone } : {}) };
   }));
   if (!committed || !found) return false;
   try {
     const persisted = readQueuedMessages(storageKey).find((message) => message.id === messageId);
-    return persisted?.attemptedAt !== undefined;
+    return persisted?.attemptedAt !== undefined && (timezone === undefined || persisted.timezone === timezone);
   } catch {
     return false;
   }

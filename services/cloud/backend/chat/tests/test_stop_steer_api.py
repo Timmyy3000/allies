@@ -1,15 +1,14 @@
-# ruff: noqa: F811
 import json
 
 import pytest
 
 from chat.models import DispatchOutbox, DispatchState, Message
 from chat.services.messages import complete_turn, delete_queued_message
-from chat.tests.test_queue_api import (  # noqa: F401
-    authenticated_client,
-    queue_account,
-    queue_settings,
-)
+from chat.tests import test_queue_api
+
+authenticated_client = test_queue_api.authenticated_client
+queue_account = test_queue_api.queue_account
+queue_settings = test_queue_api.queue_settings
 
 pytestmark = pytest.mark.django_db
 
@@ -127,3 +126,53 @@ def test_steer_is_unavailable_without_active_turn_or_with_server_queue(
         assert response.json()["data"]["code"] == "steer_unavailable"
     assert Message.objects.filter(conversation=conversation).count() == count
     assert calls == []
+
+
+def test_steer_partial_acceptance_replays_through_send_and_stop_retry(
+    queue_account, foundry_stops, monkeypatch
+):
+    from allies.exceptions import FoundryGatewayError
+
+    user, workspace, _ally, conversation, messages = queue_account
+    delete_queued_message(
+        user=user,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        message_id=messages[1].id,
+    )
+    client, headers = authenticated_client(user)
+    key = "original-send-intent-0001"
+
+    def fail_stop(conversation_id):
+        raise FoundryGatewayError("unavailable")
+
+    monkeypatch.setattr("allies.gateways.foundry.stop_conversation", fail_stop)
+    failed = steer(client, headers, workspace, conversation, key)
+
+    assert failed.status_code == 500
+    recorded = Message.objects.get(
+        conversation=conversation, content="Use the blue one"
+    )
+    replay = client.post(
+        f"{base(workspace, conversation)}/messages",
+        json.dumps({"content": "Use the blue one", "timezone": ""}),
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY=key,
+        **headers,
+    )
+    assert replay.status_code == 200
+    assert replay.json()["data"]["message"]["id"] == str(recorded.id)
+    assert replay.json()["data"]["replayed"] is True
+    assert (
+        Message.objects.filter(
+            conversation=conversation, content=recorded.content
+        ).count()
+        == 1
+    )
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry.stop_conversation", lambda conversation_id: 1
+    )
+    stopped = client.post(f"{base(workspace, conversation)}/stop", **headers)
+    assert stopped.status_code == 200
+    assert stopped.json()["data"] == {"stop_requested": True}

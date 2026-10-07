@@ -71,8 +71,6 @@ def _append_lease_expired_failure(attempt: Attempt, lease: Lease) -> ExecutionEv
 def _append_server_terminal_event(
     attempt: Attempt, event_type: str, payload: dict, key: str
 ) -> ExecutionEvent:
-    """Append one deterministic server-owned terminal event inside a transaction."""
-
     if transaction.get_autocommit():
         raise RuntimeValidationError(
             "server event append requires an atomic transaction"

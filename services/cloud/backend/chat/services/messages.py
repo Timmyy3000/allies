@@ -755,7 +755,6 @@ def _stop_turn(message: Message) -> None:
         outbox = (
             DispatchOutbox.objects.select_for_update().filter(message=message).first()
         )
-        # Foundry has no live execution, so an unsent command can be stopped here.
         if (
             message.status in NONTERMINAL_MESSAGE_STATUSES
             and outbox is not None
@@ -802,8 +801,6 @@ def steer_conversation(
     content: object,
     idempotency_key: object,
 ) -> MessageAcceptance:
-    """Record steer text as the next turn and stop the active one."""
-
     context = require_workspace_capability(
         user=user,
         workspace_id=workspace_id,
