@@ -155,6 +155,12 @@ services:
     deploy:
       replicas: 0
 
+  hermes-image:
+    build: ../services/foundry/runtime/hermes-image
+    image: allies/hermes:local
+    deploy:
+      replicas: 0
+
   web:
     build:
       context: ..
