@@ -416,10 +416,15 @@ def cancel_routine_wait(
         ) from exc
 
 
-def stop_conversation(conversation_id: UUID) -> int:
+def stop_conversation(
+    conversation_id: UUID, *, workspace_id: UUID, message_id: UUID
+) -> int:
     raw = _request(
         method="POST",
         path=f"api/v1/internal/conversations/{conversation_id}/stop",
+        body=canonical_json_bytes(
+            {"workspace_id": str(workspace_id), "message_id": str(message_id)}
+        ),
     )
     try:
         stopped = json.loads(raw)["stopped"]

@@ -18,8 +18,8 @@ def foundry_stops(monkeypatch):
     calls = []
     result = {"stopped": 1}
 
-    def stop(conversation_id):
-        calls.append(conversation_id)
+    def stop(conversation_id, *, workspace_id, message_id):
+        calls.append((workspace_id, conversation_id, message_id))
         return result["stopped"]
 
     monkeypatch.setattr("allies.gateways.foundry.stop_conversation", stop)
@@ -52,7 +52,7 @@ def test_stop_requests_foundry_stop_and_is_noop_without_active_turn(
 
     assert stopped.status_code == 200
     assert stopped.json()["data"] == {"stop_requested": True}
-    assert calls == [conversation.id]
+    assert calls == [(workspace.id, conversation.id, messages[0].id)]
 
     complete_turn(message_id=messages[0].id, status="completed")
     complete_turn(message_id=messages[1].id, status="completed")
@@ -60,7 +60,7 @@ def test_stop_requests_foundry_stop_and_is_noop_without_active_turn(
 
     assert idle.status_code == 200
     assert idle.json()["data"] == {"stop_requested": False}
-    assert calls == [conversation.id]
+    assert calls == [(workspace.id, conversation.id, messages[0].id)]
 
 
 def test_stop_terminalizes_unsent_turn_and_releases_queue(queue_account, foundry_stops):
@@ -101,7 +101,7 @@ def test_steer_records_turn_stops_active_run_and_replays(queue_account, foundry_
     assert replay.json()["data"]["message"]["id"] == message_id
     steered = Message.objects.get(pk=message_id)
     assert (steered.content, steered.status) == ("Use the blue one", "queued")
-    assert calls == [conversation.id, conversation.id]
+    assert calls == [(workspace.id, conversation.id, messages[0].id)] * 2
 
     complete_turn(message_id=messages[0].id, status="stopped")
     steered.refresh_from_db()
@@ -143,7 +143,7 @@ def test_steer_partial_acceptance_replays_through_send_and_stop_retry(
     client, headers = authenticated_client(user)
     key = "original-send-intent-0001"
 
-    def fail_stop(conversation_id):
+    def fail_stop(conversation_id, *, workspace_id, message_id):
         raise FoundryGatewayError("unavailable")
 
     monkeypatch.setattr("allies.gateways.foundry.stop_conversation", fail_stop)
@@ -171,7 +171,7 @@ def test_steer_partial_acceptance_replays_through_send_and_stop_retry(
     )
 
     monkeypatch.setattr(
-        "allies.gateways.foundry.stop_conversation", lambda conversation_id: 1
+        "allies.gateways.foundry.stop_conversation", lambda conversation_id, **scope: 1
     )
     stopped = client.post(f"{base(workspace, conversation)}/stop", **headers)
     assert stopped.status_code == 200

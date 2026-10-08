@@ -818,6 +818,22 @@ class ConversationBinding(models.Model):
         return self.cloud_conversation_ref
 
 
+class MessageStopFence(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    workspace = models.ForeignKey(Workspace, on_delete=models.CASCADE)
+    cloud_conversation_id = models.UUIDField()
+    cloud_message_id = models.UUIDField()
+    requested_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints: ClassVar = [
+            models.UniqueConstraint(
+                fields=["workspace", "cloud_conversation_id", "cloud_message_id"],
+                name="runtime_message_stop_identity",
+            ),
+        ]
+
+
 class Execution(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     workspace = models.ForeignKey(

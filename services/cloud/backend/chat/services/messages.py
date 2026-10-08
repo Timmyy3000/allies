@@ -743,7 +743,11 @@ def _stop_turn(message: Message) -> None:
     from allies.gateways.foundry import stop_conversation as stop_foundry_conversation
 
     try:
-        if stop_foundry_conversation(message.conversation_id):
+        if stop_foundry_conversation(
+            message.conversation_id,
+            workspace_id=message.conversation.ally.workspace_id,
+            message_id=message.id,
+        ):
             return
     except FoundryGatewayError as exc:
         raise ChatUnavailable("stop unavailable") from exc
@@ -759,6 +763,7 @@ def _stop_turn(message: Message) -> None:
             message.status in NONTERMINAL_MESSAGE_STATUSES
             and outbox is not None
             and outbox.status == DispatchState.PENDING
+            and outbox.attempt_count == 0
         ):
             from .dispatch import _terminalize_claim_locked
 

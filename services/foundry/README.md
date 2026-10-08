@@ -88,3 +88,18 @@ unprivileged worker leaves shared bridge state untouched and publication unavail
 The deployment entrypoint retains root for the trusted runtime and its private
 credential files. Hermes runs separately as UID 10000 and cannot modify the
 runtime-owned publication state.
+
+## Selected-turn stop compatibility
+
+The authenticated internal conversation stop request requires `workspace_id`
+and `message_id` UUIDs in its JSON body. Cloud selects and authorizes the
+message before sending this request. Conversation-only requests are rejected.
+Apply the `message_stop_fence` migration before upgrading Foundry, then upgrade
+Cloud's gateway and the compatible runtime worker before enabling Stop/Steer.
+The browser contract is unchanged.
+
+Foundry retains the workspace/conversation/message stop identity for the
+workspace lifetime. A delayed or replayed admission creates cancelled work
+and its stopped event, rather than runnable work. Terminal executions remain
+terminal, and a stop never targets a successor message. Runtime workers close
+the producer before acknowledging a stopped lease.

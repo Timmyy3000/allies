@@ -106,6 +106,7 @@ from .schemas import (
     ExecutionCommand,
     FailRequest,
     MaterializationReceiptRequest,
+    MessageStopRequest,
     ModelBindingRequest,
     ProfileDeletionRequest,
     ProfileDeletionResumeRequest,
@@ -745,8 +746,14 @@ def register(api: NinjaExtraAPI) -> None:
     @api.post(
         "/internal/conversations/{conversation_id}/stop", auth=_cloud_service_auth
     )
-    def conversation_stop(request: HttpRequest, conversation_id: UUID):
-        stopped = request_conversation_stop(conversation_id)
+    def conversation_stop(
+        request: HttpRequest, conversation_id: UUID, payload: MessageStopRequest
+    ):
+        stopped = request_conversation_stop(
+            conversation_id,
+            workspace_id=payload.workspace_id,
+            message_id=payload.message_id,
+        )
         return JsonResponse({"stopped": stopped}, status=200)
 
     @api.get("/internal/executions/reconcile", auth=_cloud_service_auth)

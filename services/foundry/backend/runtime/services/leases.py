@@ -13,15 +13,18 @@ from runtime.exceptions import (
     RuntimeFencedError,
     RuntimeIdempotencyConflictError,
     RuntimeLeaseConflictError,
+    RuntimeNotFoundError,
     RuntimeValidationError,
 )
 from runtime.models import (
     Attempt,
     AttemptStatus,
+    Execution,
     ExecutionEvent,
     ExecutionStatus,
     Lease,
     LeaseState,
+    MessageStopFence,
     RoutineExecution,
     RuntimeProfile,
     Workspace,
@@ -542,71 +545,76 @@ def acknowledge_stopped(
     return run_with_sqlite_lock_retry(stop_once)
 
 
-def request_conversation_stop(cloud_conversation_id: UUID) -> int:
-    """Cancel live conversation executions; leased ones stop on their next write."""
-
-    from runtime.models import Execution
-
+def _cancel_message_execution_locked(
+    execution: Execution, workspace: Workspace
+) -> bool:
     from .events import _append_server_terminal_event
 
-    live = (ExecutionStatus.QUEUED, ExecutionStatus.RUNNING)
+    if execution.status not in (ExecutionStatus.QUEUED, ExecutionStatus.RUNNING):
+        return False
+    execution.status = ExecutionStatus.CANCELLED
+    execution.save(update_fields=["status", "updated_at"])
+    lease = (
+        Lease.objects.select_for_update()
+        .filter(
+            attempt__execution=execution,
+            state__in=(LeaseState.ACTIVE, LeaseState.STOPPING),
+        )
+        .first()
+    )
+    if lease is not None:
+        if lease.state == LeaseState.ACTIVE:
+            lease.state = LeaseState.STOPPING
+            lease.save(update_fields=["state", "updated_at"])
+    else:
+        number = (
+            Attempt.objects.filter(execution=execution)
+            .order_by("-number")
+            .values_list("number", flat=True)
+            .first()
+            or 0
+        ) + 1
+        attempt = Attempt.objects.create(
+            execution=execution,
+            number=number,
+            status=AttemptStatus.CANCELLED,
+            machine_generation=workspace.machine_generation,
+        )
+        _append_server_terminal_event(
+            attempt,
+            "execution.stopped",
+            {"reason": USER_STOP_REASON},
+            USER_STOP_REASON,
+        )
+    return True
 
+
+def request_conversation_stop(
+    cloud_conversation_id: UUID, *, workspace_id: UUID, message_id: UUID
+) -> int:
     @transaction.atomic
     def stop_once() -> int:
-        workspace_ids = set(
-            Execution.objects.filter(
-                cloud_conversation_id=cloud_conversation_id,
-                source_kind="conversation_message",
-                status__in=live,
-            ).values_list("workspace_id", flat=True)
+        try:
+            workspace = Workspace.objects.select_for_update().get(
+                tenant_ref=str(workspace_id)
+            )
+        except Workspace.DoesNotExist as exc:
+            raise RuntimeNotFoundError("execution binding is unavailable") from exc
+        MessageStopFence.objects.get_or_create(
+            workspace=workspace,
+            cloud_conversation_id=cloud_conversation_id,
+            cloud_message_id=message_id,
         )
         stopped = 0
-        for workspace in (
-            Workspace.objects.select_for_update()
-            .filter(pk__in=workspace_ids)
-            .order_by("pk")
+        for execution in Execution.objects.select_for_update().filter(
+            workspace=workspace,
+            cloud_workspace_id=workspace_id,
+            cloud_conversation_id=cloud_conversation_id,
+            cloud_message_id=message_id,
+            source_kind="conversation_message",
+            status__in=(ExecutionStatus.QUEUED, ExecutionStatus.RUNNING),
         ):
-            for execution in Execution.objects.select_for_update().filter(
-                workspace=workspace,
-                cloud_conversation_id=cloud_conversation_id,
-                source_kind="conversation_message",
-                status__in=live,
-            ):
-                execution.status = ExecutionStatus.CANCELLED
-                execution.save(update_fields=["status", "updated_at"])
-                lease = (
-                    Lease.objects.select_for_update()
-                    .filter(
-                        attempt__execution=execution,
-                        state__in=(LeaseState.ACTIVE, LeaseState.STOPPING),
-                    )
-                    .first()
-                )
-                if lease is not None:
-                    if lease.state == LeaseState.ACTIVE:
-                        lease.state = LeaseState.STOPPING
-                        lease.save(update_fields=["state", "updated_at"])
-                else:
-                    number = (
-                        Attempt.objects.filter(execution=execution)
-                        .order_by("-number")
-                        .values_list("number", flat=True)
-                        .first()
-                        or 0
-                    ) + 1
-                    attempt = Attempt.objects.create(
-                        execution=execution,
-                        number=number,
-                        status=AttemptStatus.CANCELLED,
-                        machine_generation=workspace.machine_generation,
-                    )
-                    _append_server_terminal_event(
-                        attempt,
-                        "execution.stopped",
-                        {"reason": USER_STOP_REASON},
-                        USER_STOP_REASON,
-                    )
-                stopped += 1
+            stopped += _cancel_message_execution_locked(execution, workspace)
         return stopped
 
     return run_with_sqlite_lock_retry(stop_once)

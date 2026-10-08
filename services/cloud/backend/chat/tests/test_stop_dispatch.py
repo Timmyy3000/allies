@@ -95,12 +95,23 @@ def test_steer_stop_keeps_original_identity_after_completion(
     assert targets == [(workspace.id, conversation.id, head.id)]
     successor = Message.objects.get(pk=response.json()["data"]["message"]["id"])
     assert successor.status == "queued"
+    replay = client.post(
+        f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/steer",
+        '{"content":"Steered"}',
+        content_type="application/json",
+        HTTP_IDEMPOTENCY_KEY="stop-selected-identity-0001",
+        **headers,
+    )
+    assert replay.status_code == 200
+    assert replay.json()["data"]["message"]["id"] == str(successor.id)
+    assert targets == [(workspace.id, conversation.id, head.id)]
 
 
 def test_stop_does_not_release_ambiguous_pending_admission(queue_account, monkeypatch):
     user, workspace, _ally, conversation, messages = queue_account
     head, tail = messages
-    DispatchOutbox.objects.get_or_create(message=head, defaults={"attempt_count": 1})
+    DispatchOutbox.objects.get_or_create(message=head)
+    DispatchOutbox.objects.filter(message=head).update(attempt_count=1)
     monkeypatch.setattr(
         "allies.gateways.foundry.stop_conversation", lambda *args, **kwargs: 0
     )

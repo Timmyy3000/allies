@@ -31,6 +31,7 @@ __all__ = [
     "FailRequest",
     "FoundryEventEnvelope",
     "MaterializationReceiptRequest",
+    "MessageStopRequest",
     "ModelBindingReceipt",
     "ModelBindingRequest",
     "ProfileProvisioningReceipt",
@@ -400,3 +401,10 @@ class WorkspaceActivationReceipt(Schema):
     version: StrictInt = Field(..., ge=1, le=1)
     workspace_id: UUID
     status: StrictStr = Field(..., pattern=r"^(pending|active)$")
+
+
+class MessageStopRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    workspace_id: UUID
+    message_id: UUID

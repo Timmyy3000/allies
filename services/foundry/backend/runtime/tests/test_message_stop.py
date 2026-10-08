@@ -59,7 +59,10 @@ def test_stop_and_admission_replay_never_make_selected_message_runnable(
     assert ExecutionEventDelivery.objects.filter(event=event).count() == 1
 
 
-def test_delayed_stop_for_completed_original_leaves_successor_queued(binding, contract):
+@pytest.mark.parametrize("successor_status", ["queued", "running"])
+def test_delayed_stop_for_completed_original_leaves_successor_untouched(
+    binding, contract, successor_status
+):
     command = ExecutionCommand.model_validate(contract["command"])
     create_execution_intent(command)
     original = Execution.objects.get(command_id=command.command_id)
@@ -68,6 +71,7 @@ def test_delayed_stop_for_completed_original_leaves_successor_queued(binding, co
         workspace=original.workspace,
         profile=original.profile,
         idempotency_key="successor",
+        status=successor_status,
         cloud_workspace_id=command.scope.cloud_workspace_id,
         cloud_conversation_id=command.cloud.conversation_id,
         cloud_message_id=uuid4(),
@@ -76,7 +80,7 @@ def test_delayed_stop_for_completed_original_leaves_successor_queued(binding, co
     assert stop(command) == 0
     assert stop(command) == 0
     assert Execution.objects.get(pk=original.pk).status == "succeeded"
-    assert Execution.objects.get(pk=successor.pk).status == "queued"
+    assert Execution.objects.get(pk=successor.pk).status == successor_status
     assert ExecutionEvent.objects.filter(attempt__execution=successor).count() == 0
 
 
