@@ -12,6 +12,7 @@ import type {
 } from "@allies/cloud-client";
 import {
   EMPTY_ACTIVITY_PROJECTION,
+  anchorActivityWindow,
   isCloudError,
   isActivityTerminal,
   mergeConversationMessageCopies,
@@ -1959,6 +1960,7 @@ function ConversationPane({
 
     for (let page = 0; ; page += 1) {
       if (page >= ACTIVITY_REPLAY_MAX_PAGES) throw new ActivityReplayBoundError();
+      const windowHead = cursor === null;
 
       const snapshot = await session.runCloudOperation(() =>
         session.client.getActivities(
@@ -1989,7 +1991,12 @@ function ConversationPane({
         responseStartedRef.current = true;
         setAwaitingVisibleResponse(false);
       }
-      setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
+      setProjection((current) => projectConversationActivity(
+        // Polls and later pages can precede rows a later replay fetches, so they must not anchor.
+        windowHead ? anchorActivityWindow(current, snapshot) : current,
+        snapshot,
+        conversationMessagesRef.current,
+      ));
       presentActivitySnapshot(snapshot);
       const currentState = activityReplayRef.current;
       if (!currentState || currentState.conversationId !== targetConversationId) return null;

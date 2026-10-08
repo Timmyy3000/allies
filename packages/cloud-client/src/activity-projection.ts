@@ -116,6 +116,19 @@ export function hasPermanentActivityGap(projection: ActivityProjection): boolean
   return isActivityTerminal(projection.state) && Boolean(projection.pendingActivities?.length);
 }
 
+// Head page of a recent-window replay only: its first row sits one above the turn-aligned floor.
+export function anchorActivityWindow(
+  current: ActivityProjection,
+  snapshot: ActivitySnapshotViewModel,
+): ActivityProjection {
+  if (current.turns.length > 0 || current.seenSequences.length > 0) return current;
+  if (Math.max(current.lastContiguousSequence, current.lastContiguousActivitySequence ?? 0) > 0) return current;
+  if (snapshot.activities.length === 0) return current;
+  const floor = Math.min(...snapshot.activities.map(firstSequence)) - 1;
+  if (floor <= 0) return current;
+  return { ...current, lastContiguousSequence: floor, lastContiguousActivitySequence: floor };
+}
+
 // A compacted row whose start was already applied raw keeps only its unseen tail.
 function trimSeenPrefix(
   activity: ActivityViewModel,
