@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import timedelta
 from uuid import uuid4
 
@@ -14,7 +15,11 @@ from runtime.exceptions import (
     RuntimeNotReadyError,
 )
 from runtime.models import (
+    Attempt,
+    AttemptStatus,
     Execution,
+    ExecutionEvent,
+    ExecutionEventDelivery,
     ExecutionStatus,
     ReadyWorkspaceBundle,
     ReadyWorkspaceBundleState,
@@ -1102,7 +1107,7 @@ def test_retryable_execution_wake_uses_durable_backoff(workspace, monkeypatch):
     assert second.started == 1
 
 
-def test_terminal_execution_wake_failure_is_parked(workspace):
+def test_terminal_execution_wake_failure_is_delivered(workspace):
     profile = RuntimeProfile.objects.create(
         workspace=workspace,
         ally_ref="terminal-ally",
@@ -1127,7 +1132,16 @@ def test_terminal_execution_wake_failure_is_parked(workspace):
     assert report.failed == 1
     assert workspace.runtime_operation_state == RuntimeOperationState.IDLE
     assert workspace.runtime_operation_id is None
-    assert execution.status == ExecutionStatus.QUEUED
+    assert execution.status == ExecutionStatus.FAILED
+    attempt = execution.attempts.get()
+    assert attempt.status == AttemptStatus.FAILED
+    assert attempt.claim_id is None
+    assert attempt.claimed_at is None
+    assert not hasattr(attempt, "lease")
+    event = attempt.events.get()
+    assert event.sequence == 1
+    assert event.event_type == "execution.failed"
+    assert event.payload == {"code": "runtime_wake_failed", "retryable": True}
     assert (
         process_runtime_wakes(
             provider=provider,
@@ -1135,6 +1149,198 @@ def test_terminal_execution_wake_failure_is_parked(workspace):
         ).examined
         == 0
     )
+
+
+@pytest.fixture
+def wake_execution(workspace):
+    profile = RuntimeProfile.objects.create(
+        workspace=workspace,
+        ally_ref="wake-ally",
+        hermes_profile_key="wake-ally",
+        lifecycle_state=RuntimeProfileLifecycleState.ACTIVE,
+        materialized_generation=workspace.machine_generation,
+    )
+    execution = create_execution(
+        workspace.id, profile.id, "wake-turn", {"message": "hi"}
+    )
+    for field in (
+        "command_id",
+        "cloud_workspace_id",
+        "cloud_ally_id",
+        "cloud_conversation_id",
+        "cloud_message_id",
+        "cloud_binding_id",
+    ):
+        setattr(execution, field, uuid4())
+    execution.command_fingerprint = "canonical-json-sha256:v1:" + "a" * 64
+    execution.conversation_turn_ordinal = 1
+    execution.save()
+    return execution
+
+
+def test_missing_runtime_delivers_one_retryable_failure(
+    workspace, wake_execution, monkeypatch
+):
+    provider = FakePowerProvider(workspace)
+    monkeypatch.setattr(provider, "inspect_machine_by_id", lambda *_: None)
+
+    assert process_runtime_wakes(provider=provider).failed == 1
+
+    wake_execution.refresh_from_db()
+    assert wake_execution.status == ExecutionStatus.FAILED
+    attempt = wake_execution.attempts.get()
+    event = ExecutionEvent.objects.get(attempt=attempt)
+    delivery = ExecutionEventDelivery.objects.get(event=event)
+    envelope = json.loads(bytes(delivery.envelope_bytes))
+    assert envelope["event_type"] == "execution.failed"
+    assert envelope["payload"] == {"code": "runtime_wake_failed", "retryable": True}
+    assert envelope["foundry"]["attempt_sequence"] == 1
+    assert envelope["cloud"]["message_id"] == str(wake_execution.cloud_message_id)
+    assert attempt.claim_id is None
+    assert attempt.claimed_at is None
+    assert not hasattr(attempt, "lease")
+    assert process_runtime_wakes(provider=provider).examined == 0
+    assert wake_execution.attempts.count() == 1
+    assert ExecutionEventDelivery.objects.filter(event__attempt=attempt).count() == 1
+
+
+@pytest.mark.parametrize("failure", ["capacity", "readiness"])
+def test_exhausted_wake_delivers_failure(
+    workspace, wake_execution, failure, monkeypatch
+):
+    monkeypatch.setattr(
+        runtime_power.settings,
+        "ALLIES_RUNTIME_READINESS_TIMEOUT_SECONDS",
+        1,
+        raising=False,
+    )
+    provider = FakePowerProvider(workspace)
+    if failure == "capacity":
+        provider.start_error = ProviderCapacityError("unavailable")
+    observed_at = timezone.now()
+    for _ in range(10):
+        process_runtime_wakes(provider=provider, now=observed_at)
+        workspace.refresh_from_db()
+        if workspace.runtime_operation_state == RuntimeOperationState.IDLE:
+            break
+        observed_at = workspace.runtime_operation_requested_at + timedelta(seconds=2)
+    wake_execution.refresh_from_db()
+    assert wake_execution.status == ExecutionStatus.FAILED
+    assert (
+        ExecutionEventDelivery.objects.filter(
+            event__attempt__execution=wake_execution
+        ).count()
+        == 1
+    )
+
+
+def test_stale_wake_failure_preserves_new_operation(workspace, wake_execution):
+    now = timezone.now()
+    claim = runtime_power._claim_requested_operation(workspace.id, now)
+    assert claim is not None
+    new_operation_id = uuid4()
+    Workspace.objects.filter(pk=workspace.id).update(
+        runtime_operation_id=new_operation_id
+    )
+
+    runtime_power._mark_operation_failed(claim, now=now)
+
+    workspace.refresh_from_db()
+    wake_execution.refresh_from_db()
+    assert workspace.runtime_operation_id == new_operation_id
+    assert workspace.runtime_operation_state == RuntimeOperationState.STARTING
+    assert wake_execution.status == ExecutionStatus.QUEUED
+    assert wake_execution.attempts.count() == 0
+
+
+@pytest.mark.parametrize("protected", ["attempted", "running", "routine"])
+def test_terminal_wake_preserves_other_work(
+    workspace, wake_execution, protected, monkeypatch
+):
+    if protected == "attempted":
+        Attempt.objects.create(
+            execution=wake_execution,
+            number=1,
+            machine_generation=workspace.machine_generation,
+            status=AttemptStatus.FAILED,
+        )
+    elif protected == "running":
+        wake_execution.status = ExecutionStatus.RUNNING
+        wake_execution.save()
+    else:
+        wake_execution.source_kind = "routine_dispatch"
+        wake_execution.save()
+    provider = FakePowerProvider(workspace)
+    monkeypatch.setattr(provider, "inspect_machine_by_id", lambda *_: None)
+
+    assert process_runtime_wakes(provider=provider).failed == 1
+
+    wake_execution.refresh_from_db()
+    assert wake_execution.status == (
+        ExecutionStatus.RUNNING if protected == "running" else ExecutionStatus.QUEUED
+    )
+    assert ExecutionEvent.objects.filter(attempt__execution=wake_execution).count() == 0
+
+
+def test_speculative_wake_failure_also_fails_coalesced_execution(
+    workspace, wake_execution, monkeypatch
+):
+    Workspace.objects.filter(pk=workspace.id).update(
+        runtime_operation_trigger=RuntimeOperationTrigger.SPECULATIVE
+    )
+    now = timezone.now()
+    request_runtime_intent(workspace.id, "composing_started", uuid4(), now, now=now)
+    provider = FakePowerProvider(workspace)
+    monkeypatch.setattr(provider, "inspect_machine_by_id", lambda *_: None)
+
+    assert process_runtime_wakes(provider=provider).failed == 1
+
+    wake_execution.refresh_from_db()
+    assert wake_execution.status == ExecutionStatus.FAILED
+    assert (
+        ExecutionEventDelivery.objects.filter(
+            event__attempt__execution=wake_execution
+        ).count()
+        == 1
+    )
+
+
+def test_stop_failure_does_not_fail_queued_execution(workspace, wake_execution):
+    now = timezone.now()
+    claim = runtime_power._claim_requested_operation(workspace.id, now)
+    assert claim is not None
+    Workspace.objects.filter(pk=workspace.id).update(
+        runtime_operation_state=RuntimeOperationState.STOPPING
+    )
+
+    runtime_power._mark_operation_failed(claim, now=now)
+
+    wake_execution.refresh_from_db()
+    assert wake_execution.status == ExecutionStatus.QUEUED
+    assert wake_execution.attempts.count() == 0
+
+
+def test_wake_failure_rolls_back_if_outbox_cannot_be_saved(
+    workspace, wake_execution, monkeypatch
+):
+    from runtime.services import events
+
+    claim = runtime_power._claim_requested_operation(workspace.id, timezone.now())
+    assert claim is not None
+
+    def fail_delivery(_):
+        raise RuntimeError("outbox unavailable")
+
+    monkeypatch.setattr(events, "_enqueue_event_delivery", fail_delivery)
+    with pytest.raises(RuntimeError, match="outbox unavailable"):
+        runtime_power._mark_operation_failed(claim)
+
+    workspace.refresh_from_db()
+    wake_execution.refresh_from_db()
+    assert workspace.runtime_operation_id == claim.operation_id
+    assert workspace.runtime_operation_state == RuntimeOperationState.STARTING
+    assert wake_execution.status == ExecutionStatus.QUEUED
+    assert wake_execution.attempts.count() == 0
 
 
 def test_retryable_execution_wake_stops_after_bounded_backoff(workspace):

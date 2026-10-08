@@ -17,7 +17,15 @@ from runtime.exceptions import (
     RuntimeConflictError,
     RuntimeValidationError,
 )
-from runtime.models import Attempt, AttemptStatus, ExecutionEvent, Lease, LeaseState
+from runtime.models import (
+    Attempt,
+    AttemptStatus,
+    Execution,
+    ExecutionEvent,
+    ExecutionStatus,
+    Lease,
+    LeaseState,
+)
 
 from .leases import _authorize_attempt_mutation
 from .retry import run_with_sqlite_lock_retry
@@ -113,6 +121,32 @@ def _append_server_terminal_event(
     )
     _enqueue_event_delivery(event)
     return event
+
+
+def _append_runtime_wake_failure(execution: Execution, generation: int) -> None:
+    if transaction.get_autocommit():
+        raise RuntimeValidationError("wake failure requires an atomic transaction")
+    if execution.status != ExecutionStatus.QUEUED or execution.attempts.exists():
+        raise RuntimeConflictError("wake failure requires a never-started execution")
+    attempt = Attempt.objects.create(
+        execution=execution,
+        number=1,
+        status=AttemptStatus.FAILED,
+        machine_generation=generation,
+    )
+    payload = {"code": "runtime_wake_failed", "retryable": True}
+    event = ExecutionEvent.objects.create(
+        attempt=attempt,
+        event_id=uuid5(_SERVER_EVENT_NAMESPACE, f"{attempt.id}:runtime_wake_failed"),
+        stream_id=f"stream-{attempt.id.hex}",
+        sequence=1,
+        event_type="execution.failed",
+        payload=payload,
+        payload_digest=digest_payload(payload),
+    )
+    _enqueue_event_delivery(event)
+    execution.status = ExecutionStatus.FAILED
+    execution.save(update_fields=["status", "updated_at"])
 
 
 def append_runtime_event(
