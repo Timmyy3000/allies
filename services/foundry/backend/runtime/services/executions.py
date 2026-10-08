@@ -16,7 +16,13 @@ from runtime.exceptions import (
     RuntimeNotFoundError,
     RuntimeValidationError,
 )
-from runtime.models import ConversationBinding, Execution, RuntimeProfile, Workspace
+from runtime.models import (
+    ConversationBinding,
+    Execution,
+    MessageStopFence,
+    RuntimeProfile,
+    Workspace,
+)
 
 from .activity import advance_workspace_activity
 from .retry import run_with_sqlite_lock_retry
@@ -217,8 +223,17 @@ def _create_contract_execution_once(
         raise RuntimeConflictError(
             "execution identity conflicts with existing state"
         ) from exc
-    advance_workspace_activity(workspace)
-    request_execution_wake_locked(workspace)
+    if MessageStopFence.objects.filter(
+        workspace=workspace,
+        cloud_conversation_id=command.cloud.conversation_id,
+        cloud_message_id=command.cloud.message_id,
+    ).exists():
+        from .leases import _cancel_message_execution_locked
+
+        _cancel_message_execution_locked(execution, workspace)
+    else:
+        advance_workspace_activity(workspace)
+        request_execution_wake_locked(workspace)
     return execution, True
 
 

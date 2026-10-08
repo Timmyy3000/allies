@@ -61,19 +61,30 @@ def _append_lease_expired_failure(attempt: Attempt, lease: Lease) -> ExecutionEv
     if lease.expires_at > timezone.now():
         raise RuntimeValidationError("lease expiry event target is not expired")
 
-    event_id = uuid5(
-        _SERVER_EVENT_NAMESPACE,
-        f"{attempt.id}:{_LEASE_EXPIRY_FAILURE_CODE}",
-    )
-    stream_id = f"stream-{attempt.id.hex}"
     from .attempts import _failure_event_payload
 
-    payload = _failure_event_payload(
-        {
-            "code": _LEASE_EXPIRY_FAILURE_CODE,
-            "retryable": False,
-        }
+    return _append_server_terminal_event(
+        attempt,
+        "execution.failed",
+        _failure_event_payload(
+            {
+                "code": _LEASE_EXPIRY_FAILURE_CODE,
+                "retryable": False,
+            }
+        ),
+        _LEASE_EXPIRY_FAILURE_CODE,
     )
+
+
+def _append_server_terminal_event(
+    attempt: Attempt, event_type: str, payload: dict, key: str
+) -> ExecutionEvent:
+    if transaction.get_autocommit():
+        raise RuntimeValidationError(
+            "server event append requires an atomic transaction"
+        )
+    event_id = uuid5(_SERVER_EVENT_NAMESPACE, f"{attempt.id}:{key}")
+    stream_id = f"stream-{attempt.id.hex}"
     existing = (
         ExecutionEvent.objects.select_for_update()
         .filter(attempt_id=attempt.id, event_id=event_id)
@@ -83,7 +94,7 @@ def _append_lease_expired_failure(attempt: Attempt, lease: Lease) -> ExecutionEv
         _ensure_exact_replay(
             existing,
             existing.sequence,
-            "execution.failed",
+            event_type,
             digest_payload(payload),
             stream_id,
         )
@@ -99,15 +110,14 @@ def _append_lease_expired_failure(attempt: Attempt, lease: Lease) -> ExecutionEv
     sequence = (latest.sequence if latest is not None else 0) + 1
     if sequence > MAX_TERMINAL_SEQUENCE:
         raise RuntimeConflictError("terminal event sequence budget is exhausted")
-    payload_digest = digest_payload(payload)
     event = ExecutionEvent.objects.create(
         attempt_id=attempt.id,
         event_id=event_id,
         stream_id=stream_id,
         sequence=sequence,
-        event_type="execution.failed",
+        event_type=event_type,
         payload=payload,
-        payload_digest=payload_digest,
+        payload_digest=digest_payload(payload),
     )
     _enqueue_event_delivery(event)
     return event

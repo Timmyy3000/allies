@@ -717,9 +717,10 @@ def _terminalize_claim_locked(
     outbox: DispatchOutbox,
     code: str,
     now,
+    status: str = MessageLifecycle.FAILED,
 ) -> None:
     if message.deleted_at is None and message.status in NONTERMINAL_MESSAGE_STATUSES:
-        message.status = MessageLifecycle.FAILED
+        message.status = status
         message.retry_allowed = False
         message.save(update_fields=("status", "retry_allowed", "updated_at"))
     outbox.status = DispatchState.FAILED

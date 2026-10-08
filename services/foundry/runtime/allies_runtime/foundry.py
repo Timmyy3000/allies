@@ -1771,6 +1771,7 @@ class _CoalescedStream:
         self._error: BaseException | None = None
         self._done = False
         self._first_delta_sent = False
+        self._close_task: asyncio.Task[None] | None = None
 
     def __aiter__(self) -> _CoalescedStream:
         return self
@@ -1868,6 +1869,11 @@ class _CoalescedStream:
             return event
 
     async def aclose(self) -> None:
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(self._close())
+        await asyncio.shield(self._close_task)
+
+    async def _close(self) -> None:
         self._done = True
         pending, self._pending = self._pending, None
         if pending is not None:
@@ -2979,6 +2985,7 @@ class FoundryWorker:
                         await asyncio.sleep(min(self.renew_interval, 0.25))
                     break
             if lost.is_set():
+                await _close_stream(stream)
                 return await self.foundry.stopped(
                     claim.attempt_id, claim.lease_token, reason="lease_lost"
                 )
@@ -3130,6 +3137,7 @@ class FoundryWorker:
                 return None
         except (FoundryError, HermesError) as exc:
             if lost.is_set() or isinstance(exc, (FencedError, LeaseConflictError)):
+                await _close_stream(stream)
                 try:
                     return await self.foundry.stopped(
                         claim.attempt_id, claim.lease_token, reason="lease_lost"

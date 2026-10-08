@@ -2796,3 +2796,6 @@
 :global(:root[data-theme="dark"]) .frameRoutineRunStatus[data-outcome="success"] { color: #83c9a1; }
 :global(:root[data-theme="dark"]) .frameRoutineRunStatus[data-outcome="failure"] { color: #ed9292; }
 
+
+.frameComposer button.frameStopButton { background: var(--text-primary); }
+.frameStopGlyph { display: block; width: 11px; height: 11px; border-radius: 3px; background: var(--surface); }

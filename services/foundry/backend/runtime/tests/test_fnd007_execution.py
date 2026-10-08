@@ -33,6 +33,8 @@ from runtime.services.events import append_runtime_event
 from runtime.services.leases import (
     acknowledge_stopped,
     confirm_machine_stopped_and_fence,
+    renew_lease,
+    request_conversation_stop,
 )
 from runtime.services.runtime_auth import (
     RuntimeContext,
@@ -246,6 +248,99 @@ def test_stopped_after_dispatch_is_unknown_safe_and_not_requeued(claimed_executi
     assert receipt.requeued is False
     assert Attempt.objects.get(pk=claim.attempt_id).status == AttemptStatus.UNKNOWN
     assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.FAILED
+
+
+def test_user_stop_fences_lease_and_reports_stopped_once(claimed_execution):
+    context, execution, claim = claimed_execution
+    conversation_id = uuid4()
+    workspace_id, message_id = uuid4(), uuid4()
+    Workspace.objects.filter(pk=execution.workspace_id).update(
+        tenant_ref=str(workspace_id)
+    )
+    Execution.objects.filter(pk=execution.id).update(
+        cloud_workspace_id=workspace_id,
+        cloud_conversation_id=conversation_id,
+        cloud_message_id=message_id,
+        source_kind="conversation_message",
+    )
+    dispatch(context, claim)
+
+    assert (
+        request_conversation_stop(
+            conversation_id, workspace_id=workspace_id, message_id=message_id
+        )
+        == 1
+    )
+    assert (
+        request_conversation_stop(
+            conversation_id, workspace_id=workspace_id, message_id=message_id
+        )
+        == 0
+    )
+    with pytest.raises(RuntimeLeaseConflictError):
+        renew_lease(context, claim.attempt_id, claim.lease_token)
+
+    receipt = acknowledge_stopped(
+        context, claim.attempt_id, claim.lease_token, "lease_lost"
+    )
+
+    assert receipt.requeued is False
+    assert Attempt.objects.get(pk=claim.attempt_id).status == AttemptStatus.CANCELLED
+    assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.CANCELLED
+    stopped = ExecutionEvent.objects.get(
+        attempt_id=claim.attempt_id, event_type="execution.stopped"
+    )
+    assert stopped.payload == {"reason": "user_requested"}
+    assert stopped.sequence == 2
+
+
+def test_user_stop_before_claim_reports_stopped_without_runtime(db):
+    workspace = Workspace.objects.create(
+        tenant_ref="fnd007-unclaimed",
+        fly_app_ref="app",
+        volume_ref="volume",
+        machine_ref="machine-1",
+        machine_generation=1,
+    )
+    profile = RuntimeProfile.objects.create(
+        workspace=workspace,
+        ally_ref="ally",
+        hermes_profile_key="ally",
+        lifecycle_state=RuntimeProfileLifecycleState.ACTIVE,
+        materialized_generation=1,
+    )
+    conversation_id = uuid4()
+    execution = Execution.objects.create(
+        workspace=workspace,
+        profile=profile,
+        idempotency_key="turn-unclaimed",
+        command_id=uuid4(),
+        command_fingerprint="canonical-json-sha256:v1:" + "a" * 64,
+        cloud_workspace_id=uuid4(),
+        cloud_ally_id=uuid4(),
+        cloud_conversation_id=conversation_id,
+        cloud_message_id=uuid4(),
+        cloud_binding_id=uuid4(),
+        conversation_turn_ordinal=3,
+        source_kind="conversation_message",
+    )
+
+    Workspace.objects.filter(pk=workspace.id).update(
+        tenant_ref=str(execution.cloud_workspace_id)
+    )
+    assert (
+        request_conversation_stop(
+            conversation_id,
+            workspace_id=execution.cloud_workspace_id,
+            message_id=execution.cloud_message_id,
+        )
+        == 1
+    )
+
+    assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.CANCELLED
+    event = ExecutionEvent.objects.get(attempt__execution=execution)
+    assert (event.event_type, event.sequence) == ("execution.stopped", 1)
+    assert ExecutionEventDelivery.objects.filter(event=event).exists()
 
 
 def test_runtime_event_append_rejects_unknown_or_unsafe_payload(claimed_execution):
@@ -548,3 +643,42 @@ def test_machine_fence_does_not_requeue_dispatched_work(claimed_execution):
 
     assert receipt.requeued_count == 0
     assert Execution.objects.get(pk=execution.id).status == ExecutionStatus.FAILED
+
+
+def test_user_stop_expired_lease_emits_one_stopped_event_without_requeue(
+    claimed_execution,
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    context, execution, claim = claimed_execution
+    workspace_id, conversation_id, message_id = uuid4(), uuid4(), uuid4()
+    Workspace.objects.filter(pk=execution.workspace_id).update(
+        tenant_ref=str(workspace_id)
+    )
+    Execution.objects.filter(pk=execution.pk).update(
+        cloud_workspace_id=workspace_id,
+        cloud_conversation_id=conversation_id,
+        cloud_message_id=message_id,
+        source_kind="conversation_message",
+    )
+    assert (
+        request_conversation_stop(
+            conversation_id, workspace_id=workspace_id, message_id=message_id
+        )
+        == 1
+    )
+    Lease.objects.filter(pk=claim.lease_id).update(
+        expires_at=timezone.now() - timedelta(seconds=1)
+    )
+    assert claim_next_execution(context, uuid4(), 1) is None
+    assert claim_next_execution(context, uuid4(), 1) is None
+    assert Execution.objects.get(pk=execution.pk).status == ExecutionStatus.CANCELLED
+    assert Lease.objects.get(pk=claim.lease_id).state == LeaseState.RELEASED
+    assert (
+        ExecutionEvent.objects.filter(
+            attempt_id=claim.attempt_id, event_type="execution.stopped"
+        ).count()
+        == 1
+    )

@@ -42,6 +42,10 @@ class MessageNotDeletable(ChatError):
     code = "message_not_deletable"
 
 
+class SteerUnavailable(ChatError):
+    code = "steer_unavailable"
+
+
 class ChatUnavailable(ChatError):
     code = "internal_error"
 

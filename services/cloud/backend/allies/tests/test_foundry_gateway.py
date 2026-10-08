@@ -761,3 +761,49 @@ def test_routine_transport_enforces_bounded_command_and_response_bodies(
         accept_routine_dispatch(
             raw_body=canonical_json_bytes(routine_dispatch_command())
         )
+
+
+def test_stop_gateway_carries_selected_workspace_and_message(monkeypatch, settings):
+    from allies.gateways.foundry import stop_conversation
+
+    settings.ALLIES_FOUNDRY_URL = "https://foundry.example.test"
+    settings.ALLIES_FOUNDRY_SERVICE_TOKEN = "test-token"
+    requests = []
+
+    class Opener:
+        def open(self, request, timeout):
+            requests.append(request)
+            return Response({"stopped": 0})
+
+    monkeypatch.setattr("allies.gateways.foundry.build_opener", lambda *_args: Opener())
+    workspace_id = UUID("00000000-0000-4000-8000-000000000001")
+    conversation_id = UUID("00000000-0000-4000-8000-000000000002")
+    message_id = UUID("00000000-0000-4000-8000-000000000003")
+    assert (
+        stop_conversation(
+            conversation_id, workspace_id=workspace_id, message_id=message_id
+        )
+        == 0
+    )
+    assert (
+        requests[0].full_url
+        == f"https://foundry.example.test/api/v1/internal/conversations/{conversation_id}/stop"
+    )
+    assert json.loads(requests[0].data) == {
+        "workspace_id": str(workspace_id),
+        "message_id": str(message_id),
+    }
+
+
+@pytest.mark.parametrize(
+    "receipt", [{"stopped": True}, {"stopped": -1}, {}, {"stopped": "0"}]
+)
+def test_stop_gateway_rejects_invalid_confirmation(monkeypatch, receipt):
+    from allies.gateways.foundry import stop_conversation
+
+    monkeypatch.setattr(
+        "allies.gateways.foundry._request",
+        lambda **kwargs: json.dumps(receipt).encode(),
+    )
+    with pytest.raises(FoundryGatewayInvalid):
+        stop_conversation(UUID(int=1), workspace_id=UUID(int=2), message_id=UUID(int=3))

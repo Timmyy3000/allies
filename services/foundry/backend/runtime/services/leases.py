@@ -13,15 +13,18 @@ from runtime.exceptions import (
     RuntimeFencedError,
     RuntimeIdempotencyConflictError,
     RuntimeLeaseConflictError,
+    RuntimeNotFoundError,
     RuntimeValidationError,
 )
 from runtime.models import (
     Attempt,
     AttemptStatus,
+    Execution,
     ExecutionEvent,
     ExecutionStatus,
     Lease,
     LeaseState,
+    MessageStopFence,
     RoutineExecution,
     RuntimeProfile,
     Workspace,
@@ -33,6 +36,7 @@ from .retry import run_with_sqlite_lock_retry
 from .validation import digest_lease_token, validate_token_digest
 
 _UNSET = object()
+USER_STOP_REASON = "user_requested"
 
 
 @dataclass(frozen=True, slots=True)
@@ -474,7 +478,8 @@ def acknowledge_stopped(
                 event_type="execution.dispatched",
             ).exists()
         )
-        requeue = not cleanup_pending and not checkpointed
+        user_stopped = attempt.execution.status == ExecutionStatus.CANCELLED
+        requeue = not cleanup_pending and not checkpointed and not user_stopped
         # ACTIVE is deliberately moved through STOPPING in the same transaction
         # so a concurrent stop/reclaim sees one serialized transition.
         if lease.state == LeaseState.ACTIVE:
@@ -495,6 +500,16 @@ def acknowledge_stopped(
             )
             attempt.status = AttemptStatus.FAILED
             requeue = False
+        elif user_stopped:
+            from .events import _append_server_terminal_event
+
+            _append_server_terminal_event(
+                attempt,
+                "execution.stopped",
+                {"reason": USER_STOP_REASON},
+                USER_STOP_REASON,
+            )
+            attempt.status = AttemptStatus.CANCELLED
         else:
             attempt.status = AttemptStatus.UNKNOWN
         attempt.stopped_request_digest = canonical_digest
@@ -515,14 +530,92 @@ def acknowledge_stopped(
             ]
         )
         execution = attempt.execution
-        execution.status = ExecutionStatus.QUEUED if requeue else ExecutionStatus.FAILED
-        execution.save(update_fields=["status", "updated_at"])
+        if not user_stopped:
+            execution.status = (
+                ExecutionStatus.QUEUED if requeue else ExecutionStatus.FAILED
+            )
+            execution.save(update_fields=["status", "updated_at"])
         from .approvals import cancel_live_approval_requests
 
         cancel_live_approval_requests(attempt)
         lease.state = LeaseState.RELEASED
         lease.save(update_fields=["state", "updated_at"])
         return StopReceipt(attempt.id, LeaseState.RELEASED, requeue)
+
+    return run_with_sqlite_lock_retry(stop_once)
+
+
+def _cancel_message_execution_locked(
+    execution: Execution, workspace: Workspace
+) -> bool:
+    from .events import _append_server_terminal_event
+
+    if execution.status not in (ExecutionStatus.QUEUED, ExecutionStatus.RUNNING):
+        return False
+    execution.status = ExecutionStatus.CANCELLED
+    execution.save(update_fields=["status", "updated_at"])
+    lease = (
+        Lease.objects.select_for_update()
+        .filter(
+            attempt__execution=execution,
+            state__in=(LeaseState.ACTIVE, LeaseState.STOPPING),
+        )
+        .first()
+    )
+    if lease is not None:
+        if lease.state == LeaseState.ACTIVE:
+            lease.state = LeaseState.STOPPING
+            lease.save(update_fields=["state", "updated_at"])
+    else:
+        number = (
+            Attempt.objects.filter(execution=execution)
+            .order_by("-number")
+            .values_list("number", flat=True)
+            .first()
+            or 0
+        ) + 1
+        attempt = Attempt.objects.create(
+            execution=execution,
+            number=number,
+            status=AttemptStatus.CANCELLED,
+            machine_generation=workspace.machine_generation,
+        )
+        _append_server_terminal_event(
+            attempt,
+            "execution.stopped",
+            {"reason": USER_STOP_REASON},
+            USER_STOP_REASON,
+        )
+    return True
+
+
+def request_conversation_stop(
+    cloud_conversation_id: UUID, *, workspace_id: UUID, message_id: UUID
+) -> int:
+    @transaction.atomic
+    def stop_once() -> int:
+        try:
+            workspace = Workspace.objects.select_for_update().get(
+                tenant_ref=str(workspace_id)
+            )
+        except Workspace.DoesNotExist as exc:
+            raise RuntimeNotFoundError("execution binding is unavailable") from exc
+        MessageStopFence.objects.get_or_create(
+            workspace=workspace,
+            cloud_conversation_id=cloud_conversation_id,
+            cloud_message_id=message_id,
+        )
+        stopped = 0
+        for execution in Execution.objects.select_for_update().filter(
+            workspace=workspace,
+            cloud_workspace_id=workspace_id,
+            cloud_conversation_id=cloud_conversation_id,
+            cloud_message_id=message_id,
+            source_kind="conversation_message",
+            status__in=(ExecutionStatus.QUEUED, ExecutionStatus.RUNNING),
+        ):
+            stopped += _cancel_message_execution_locked(execution, workspace)
+        return stopped
 
     return run_with_sqlite_lock_retry(stop_once)
 

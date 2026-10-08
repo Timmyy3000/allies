@@ -21,6 +21,8 @@ from chat.api.schemas import (
     MessageResponse,
     RoutineChatItemResponse,
     SendMessageRequest,
+    SteerRequest,
+    StopConversationResponse,
 )
 from chat.exceptions import (
     ChatUnavailable,
@@ -33,6 +35,7 @@ from chat.exceptions import (
     OnboardingHandoffUnavailable,
     QueueFull,
     SendRateLimited,
+    SteerUnavailable,
     TurnConflict,
 )
 from chat.services.conversations import retrieve_conversation
@@ -42,6 +45,8 @@ from chat.services.messages import (
     delete_queued_message,
     message_response,
     retry_message,
+    steer_conversation,
+    stop_conversation,
 )
 from common.uuids import CanonicalUUID
 
@@ -95,6 +100,8 @@ def _read_error(exc: Exception, request: HttpRequest | None = None):
         return error_json("idempotency_conflict", "request conflicts", 409)
     if isinstance(exc, TurnConflict):
         return error_json("turn_terminal_conflict", "request conflicts", 409)
+    if isinstance(exc, SteerUnavailable):
+        return error_json("steer_unavailable", "no active turn to steer", 409)
     if isinstance(exc, MessageNotDeletable):
         return error_json("message_not_deletable", "request conflicts", 409)
     if isinstance(exc, (QueueFull, SendRateLimited)):
@@ -221,6 +228,84 @@ class ConversationController(ControllerBase):
         return success_json(
             _acceptance_response(result),
             "Message accepted",
+            status=200 if result.replayed else 201,
+        )
+
+    @http_post(
+        "/conversations/{conversation_id}/stop",
+        response={
+            200: SuccessResponse[StopConversationResponse],
+            **error_responses(401, 403, 404, 500),
+        },
+    )
+    def stop(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        conversation_id: CanonicalUUID,
+    ):
+        if rejected := _require_origin(request, allow_native_bearer=True):
+            return rejected
+        try:
+            session = _session(request)
+            requested = stop_conversation(
+                user=session.user,
+                workspace_id=workspace_id,
+                conversation_id=conversation_id,
+            )
+        except Exception as exc:
+            response = _read_error(exc, request)
+            if response is not None:
+                return response
+            raise
+        return success_json(
+            StopConversationResponse(stop_requested=requested),
+            "Stop requested" if requested else "Nothing to stop",
+        )
+
+    @http_post(
+        "/conversations/{conversation_id}/steer",
+        response={
+            200: SuccessResponse[MessageAcceptanceResponse],
+            201: SuccessResponse[MessageAcceptanceResponse],
+            **error_responses(401, 403, 404, 409, 422, 429, 500),
+        },
+    )
+    def steer(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        conversation_id: CanonicalUUID,
+        payload: SteerRequest,
+        idempotency_key: Annotated[
+            str,
+            Header(
+                alias="Idempotency-Key",
+                min_length=16,
+                max_length=128,
+                description="Stable key for repeating the exact steer.",
+            ),
+        ],
+    ):
+        if rejected := _require_origin(request, allow_native_bearer=True):
+            return rejected
+        try:
+            session = _session(request)
+            result = steer_conversation(
+                user=session.user,
+                workspace_id=workspace_id,
+                conversation_id=conversation_id,
+                content=payload.content,
+                idempotency_key=idempotency_key,
+            )
+        except Exception as exc:
+            response = _read_error(exc, request)
+            if response is not None:
+                return response
+            raise
+        return success_json(
+            _acceptance_response(result),
+            "Steer accepted",
             status=200 if result.replayed else 201,
         )
 

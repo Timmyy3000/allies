@@ -574,6 +574,11 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "message": "Gmail disconnect accepted",
         "data": {"status": "deprovisioned"},
     },
+    "SuccessResponse_StopConversationResponse_": {
+        "status": "success",
+        "message": "Stop requested",
+        "data": {"stop_requested": True},
+    },
 }
 
 WAITLIST_ERROR_CODES: dict[tuple[str, str], dict[int, tuple[str, ...]]] = {
