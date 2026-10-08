@@ -7,6 +7,7 @@ branch="${1:-nightly}"
 git fetch -q origin "$branch"
 git checkout -q -B "$branch" "origin/$branch"
 hermes=services/foundry/runtime/hermes-image
+rm -rf "$hermes/wheelhouse"
 docker run --rm -v "$PWD/$hermes:/ctx" python:3.13-slim pip download -q \
     --only-binary=:all: --no-deps --require-hashes \
     --platform manylinux_2_28_x86_64 --python-version 313 --implementation cp --abi cp313 \
