@@ -28,6 +28,7 @@ from runtime.models import (
     RuntimeIntentOutcome,
     RuntimeOperationState,
     RuntimeOperationTrigger,
+    RuntimeProfile,
     Workspace,
 )
 from runtime.providers import (
@@ -909,7 +910,9 @@ def _mark_operation_failed_locked(
 ) -> None:
     operation_id = workspace.runtime_operation_id
     observed_at = now or timezone.now()
-    onboarding = workspace.runtime_operation_trigger == RuntimeOperationTrigger.ONBOARDING
+    onboarding = (
+        workspace.runtime_operation_trigger == RuntimeOperationTrigger.ONBOARDING
+    )
     onboarding_demand = onboarding and _has_wake_demand(workspace, observed_at)
     retry_execution = (
         retry_execution
@@ -975,6 +978,38 @@ def _mark_operation_failed_locked(
 
             transaction.on_commit(emit_retry_bridge)
         return
+    if workspace.runtime_operation_state in {
+        RuntimeOperationState.STARTING,
+        RuntimeOperationState.AWAITING_READINESS,
+    }:
+        from .events import _append_runtime_wake_failure
+
+        profiles = (
+            RuntimeProfile.objects.select_for_update()
+            .filter(
+                workspace_id=workspace.id,
+                id__in=Execution.objects.filter(
+                    workspace_id=workspace.id, status=ExecutionStatus.QUEUED
+                ).values("profile_id"),
+            )
+            .order_by("id")
+        )
+        for profile in profiles:
+            executions = (
+                Execution.objects.select_for_update()
+                .filter(
+                    workspace_id=workspace.id,
+                    profile_id=profile.id,
+                    status=ExecutionStatus.QUEUED,
+                )
+                .exclude(
+                    source_kind="routine_dispatch",
+                )
+                .exclude(id__in=Attempt.objects.values("execution_id"))
+                .order_by("created_at", "id")
+            )
+            for execution in executions:
+                _append_runtime_wake_failure(execution, workspace.machine_generation)
     if onboarding and onboarding_demand:
         _set_onboarding_error_locked(
             workspace,
