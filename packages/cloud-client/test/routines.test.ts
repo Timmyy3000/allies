@@ -254,6 +254,20 @@ describe("routines contract boundary", () => {
     expect(routineDetailResponseSchema.safeParse(detail(`${exactLimitPrompt}x`)).success).toBe(false);
   });
 
+  it("accepts interval schedules within the published bounds", () => {
+    const hourly = {
+      kind: "recurring",
+      frequency: "interval",
+      every_minutes: 60,
+      starts_at: "2026-10-08T09:00:00",
+      timezone: "Europe/Berlin",
+    };
+    expect(routineScheduleSchema.safeParse(hourly).success).toBe(true);
+    expect(routineScheduleSchema.safeParse({ ...hourly, every_minutes: 14 }).success).toBe(false);
+    expect(routineScheduleSchema.safeParse({ ...hourly, every_minutes: 525_601 }).success).toBe(false);
+    expect(routineScheduleSchema.safeParse({ ...hourly, local_time: "09:00:00" }).success).toBe(false);
+  });
+
   it("keeps wire transport route-neutral while projecting run and result state", () => {
     const run = toRoutineRunProjection(dispatchCommand(), dispatchReceipt());
     expect(run).toEqual(expect.objectContaining({

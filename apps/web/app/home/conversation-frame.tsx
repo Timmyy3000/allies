@@ -728,6 +728,7 @@ export function formatRoutineSchedule(schedule: NonNullable<ProductionConversati
     const date = new Date(`${schedule.localAt}Z`);
     return `${date.toLocaleString([], { dateStyle: "medium", timeStyle: "short", timeZone: "UTC" })}${timezone}`;
   }
+  if (schedule.frequency === "interval") return formatRoutineInterval(schedule.everyMinutes ?? 0);
   const localTime = schedule.localTime?.slice(0, 5) ?? "the scheduled time";
   if (schedule.frequency === "daily") return `${localTime} every day${timezone}`;
   if (schedule.frequency === "weekly") {
@@ -735,6 +736,11 @@ export function formatRoutineSchedule(schedule: NonNullable<ProductionConversati
     return `${localTime} every ${days}${timezone}`;
   }
   return `Monthly · day ${schedule.dayOfMonth ?? "—"} at ${localTime}${timezone}`;
+}
+
+export function formatRoutineInterval(minutes: number): string {
+  const [count, unit] = minutes % 1440 === 0 ? [minutes / 1440, "day"] : minutes % 60 === 0 ? [minutes / 60, "hour"] : [minutes, "minute"];
+  return count === 1 ? `Every ${unit}` : `Every ${count} ${unit}s`;
 }
 
 function formatRoutineDate(value: string | null, timeZone?: string): string | null {

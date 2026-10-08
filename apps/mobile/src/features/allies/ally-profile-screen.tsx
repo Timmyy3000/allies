@@ -37,12 +37,18 @@ export function formatRoutineSchedule(schedule: Schedule): string {
     const date = new Date(`${schedule.localAt}Z`);
     return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short', timeZone: 'UTC' });
   }
+  if (schedule.frequency === 'interval') return formatRoutineInterval(schedule.everyMinutes ?? 0);
   const time = schedule.localTime?.slice(0, 5) ?? 'the scheduled time';
   if (schedule.frequency === 'daily') return `${time} every day`;
   if (schedule.frequency === 'weekly') {
     return `${time} every ${(schedule.daysOfWeek ?? []).map((day) => WEEKDAYS[day] ?? '').filter(Boolean).join(', ')}`;
   }
   return `Monthly · day ${schedule.dayOfMonth ?? '—'} at ${time}`;
+}
+
+export function formatRoutineInterval(minutes: number): string {
+  const [count, unit] = minutes % 1440 === 0 ? [minutes / 1440, 'day'] : minutes % 60 === 0 ? [minutes / 60, 'hour'] : [minutes, 'minute'];
+  return count === 1 ? `Every ${unit}` : `Every ${count} ${unit}s`;
 }
 
 export function formatNextRun(nextRunAt: string | null, now = new Date()): string | null {

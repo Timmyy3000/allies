@@ -54,6 +54,9 @@ SCHEMA = {
                         "One-time: {kind:once,local_at:YYYY-MM-DDTHH:MM:SS,timezone:IANA}. "
                         "Recurring: {kind:recurring,frequency:daily|weekly|monthly,local_time:HH:MM:SS,timezone:IANA}. "
                         "Weekly adds days_of_week:[1..7] (Monday=1); monthly adds day_of_month:1..31. "
+                        "Fixed period (hourly, every N minutes/hours/days): "
+                        "{kind:recurring,frequency:interval,every_minutes:15..525600,"
+                        "starts_at:YYYY-MM-DDTHH:MM:SS,timezone:IANA}; no local_time. "
                         "Local times must not have an offset. No extra fields."
                     ),
                 },

@@ -35,13 +35,19 @@ class RecurringFrequency(StrEnum):
     DAILY = "daily"
     WEEKLY = "weekly"
     MONTHLY = "monthly"
+    INTERVAL = "interval"
 
 
 MAX_GAP_SEARCH_SECONDS = 2 * 24 * 60 * 60
+MIN_INTERVAL_MINUTES = 15
+MAX_INTERVAL_MINUTES = 365 * 24 * 60
 
 _ONCE_KEYS = frozenset({"kind", "local_at", "timezone"})
 _RECURRING_KEYS = frozenset(
     {"kind", "frequency", "local_time", "days_of_week", "day_of_month", "timezone"}
+)
+_INTERVAL_KEYS = frozenset(
+    {"kind", "frequency", "every_minutes", "starts_at", "timezone"}
 )
 
 
@@ -56,6 +62,8 @@ class ScheduleSpec:
     local_time: time | None = None
     days_of_week: tuple[int, ...] = ()
     day_of_month: int | None = None
+    every_minutes: int | None = None
+    starts_at: datetime | None = None
 
     def as_dict(self) -> dict[str, object]:
         """Return the canonical internal shape used by Cloud persistence."""
@@ -67,6 +75,14 @@ class ScheduleSpec:
                 "timezone": self.timezone,
             }
 
+        if self.frequency is RecurringFrequency.INTERVAL:
+            return {
+                "kind": self.kind.value,
+                "frequency": self.frequency.value,
+                "every_minutes": self.every_minutes,
+                "starts_at": self.starts_at.isoformat(),
+                "timezone": self.timezone,
+            }
         result: dict[str, object] = {
             "kind": self.kind.value,
             "frequency": self.frequency.value,
@@ -80,7 +96,7 @@ class ScheduleSpec:
         return result
 
 
-def _parse_local_datetime(value: object) -> datetime:
+def _parse_local_datetime(value: object, field: str = "local_at") -> datetime:
     if isinstance(value, datetime):
         parsed = value
     elif isinstance(value, str):
@@ -88,14 +104,14 @@ def _parse_local_datetime(value: object) -> datetime:
             parsed = datetime.fromisoformat(value)
         except ValueError as exc:
             raise ScheduleValidationError(
-                "local_at must be an ISO local datetime"
+                f"{field} must be an ISO local datetime"
             ) from exc
     else:
-        raise ScheduleValidationError("local_at must be an ISO local datetime")
+        raise ScheduleValidationError(f"{field} must be an ISO local datetime")
     if parsed.tzinfo is not None:
-        raise ScheduleValidationError("local_at must not include an offset")
+        raise ScheduleValidationError(f"{field} must not include an offset")
     if parsed.microsecond:
-        raise ScheduleValidationError("local_at must have second precision")
+        raise ScheduleValidationError(f"{field} must have second precision")
     return parsed
 
 
@@ -169,7 +185,6 @@ def validate_schedule(value: Mapping[str, object]) -> ScheduleSpec:
 
     if raw_kind != ScheduleKind.RECURRING.value:
         raise ScheduleValidationError("schedule kind must be once or recurring")
-    _validate_keys(value, _RECURRING_KEYS)
     frequency = value.get("frequency")
 
     if not isinstance(frequency, str):
@@ -178,6 +193,9 @@ def validate_schedule(value: Mapping[str, object]) -> ScheduleSpec:
         parsed_frequency = RecurringFrequency(frequency)
     except ValueError as exc:
         raise ScheduleValidationError("unsupported recurring frequency") from exc
+    if parsed_frequency is RecurringFrequency.INTERVAL:
+        return _validate_interval(value, timezone_name)
+    _validate_keys(value, _RECURRING_KEYS)
     if "local_time" not in value:
         raise ScheduleValidationError("recurring schedule requires local_time")
     local_time = _parse_local_time(value["local_time"])
@@ -218,6 +236,29 @@ def validate_schedule(value: Mapping[str, object]) -> ScheduleSpec:
         frequency=parsed_frequency,
         local_time=local_time,
         day_of_month=day_of_month,
+    )
+
+
+def _validate_interval(value: Mapping[str, object], timezone_name: str) -> ScheduleSpec:
+    _validate_keys(value, _INTERVAL_KEYS)
+    every = value.get("every_minutes")
+    if (
+        isinstance(every, bool)
+        or not isinstance(every, int)
+        or not MIN_INTERVAL_MINUTES <= every <= MAX_INTERVAL_MINUTES
+    ):
+        raise ScheduleValidationError(
+            f"interval every_minutes must be between {MIN_INTERVAL_MINUTES} "
+            f"and {MAX_INTERVAL_MINUTES}"
+        )
+    if "starts_at" not in value:
+        raise ScheduleValidationError("interval schedule requires starts_at")
+    return ScheduleSpec(
+        kind=ScheduleKind.RECURRING,
+        timezone=timezone_name,
+        frequency=RecurringFrequency.INTERVAL,
+        every_minutes=every,
+        starts_at=_parse_local_datetime(value["starts_at"], "starts_at"),
     )
 
 
@@ -310,6 +351,26 @@ def _next_monthly(spec: ScheduleSpec, after: datetime) -> datetime:
     raise ScheduleError("monthly schedule did not resolve")
 
 
+def _interval_grid(spec: ScheduleSpec) -> tuple[datetime, timedelta]:
+    assert spec.starts_at is not None and spec.every_minutes is not None
+    return (
+        resolve_local_datetime(spec.starts_at, spec.timezone),
+        timedelta(minutes=spec.every_minutes),
+    )
+
+
+def latest_interval_occurrence(
+    spec: ScheduleSpec, *, at_or_before: datetime
+) -> datetime | None:
+    """Return the latest interval occurrence not later than the boundary."""
+
+    anchor, step = _interval_grid(spec)
+    boundary = _as_utc(at_or_before)
+    if boundary < anchor:
+        return None
+    return anchor + step * ((boundary - anchor) // step)
+
+
 def resolve_next_occurrence(
     schedule: Mapping[str, object] | ScheduleSpec, *, after: datetime
 ) -> datetime:
@@ -325,6 +386,11 @@ def resolve_next_occurrence(
         if candidate <= boundary:
             raise NoFutureOccurrence("once schedule is not strictly after the boundary")
         return candidate
+    if spec.frequency is RecurringFrequency.INTERVAL:
+        anchor, step = _interval_grid(spec)
+        if boundary < anchor:
+            return anchor
+        return anchor + step * ((boundary - anchor) // step + 1)
     if spec.frequency is RecurringFrequency.MONTHLY:
         return _next_monthly(spec, boundary)
     return _next_daily_or_weekly(spec, boundary)
@@ -338,6 +404,7 @@ __all__ = [
     "ScheduleKind",
     "ScheduleSpec",
     "ScheduleValidationError",
+    "latest_interval_occurrence",
     "resolve_local_datetime",
     "resolve_next_occurrence",
     "validate_schedule",
