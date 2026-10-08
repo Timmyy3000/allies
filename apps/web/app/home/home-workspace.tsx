@@ -110,6 +110,8 @@ const IDLE_CONVERSATION_SNAPSHOT_INTERVAL_MS = 10_000;
 const ERROR_CONVERSATION_SNAPSHOT_INTERVAL_MS = 30_000;
 const ACTIVITY_POLL_LIMIT = 240;
 const ACTIVITY_REPLAY_MAX_PAGES = 64;
+const ACTIVITY_FAILURES_BEFORE_BANNER = 3;
+const ACTIVITY_HEAL_DELAYS_MS = [2_000, 5_000];
 const ACTIVITY_REPLAY_MAX_BYTES = 4 * 1024 * 1024;
 const EMPTY_MESSAGES: MessageViewModel[] = [];
 const EMPTY_ASSISTANT_REPLIES: AssistantReplyViewModel[] = [];
@@ -1265,6 +1267,13 @@ function ConversationPane({
   const [retriedMessageIds, setRetriedMessageIds] = useState<Set<string>>(() => new Set());
   const [retryError, setRetryError] = useState<string | null>(null);
   const [activityError, setActivityError] = useState<string | null>(null);
+  const [recoveryConversationId, setRecoveryConversationId] = useState<string | undefined>(undefined);
+  const activityFailureCountRef = useRef(0);
+  const activityHealTimerRef = useRef<number | null>(null);
+  const historyFailureCountRef = useRef(0);
+  const historyHealTimerRef = useRef<number | null>(null);
+  const reportActivityFailureRef = useRef<() => void>(() => {});
+  const reportHistoryFailureRef = useRef<() => void>(() => {});
   const [activityHistoryError, setActivityHistoryError] = useState<string | null>(null);
   const [activityReplayUnavailable, setActivityReplayUnavailable] = useState(false);
   const intentRef = useRef<{ signature: string; key: string; draftRevision: number } | null>(null);
@@ -1498,6 +1507,11 @@ function ConversationPane({
   );
   const turnInProgress = activeTurn || persistedTurnActive || streamConnected;
   const conversationId = conversation?.id;
+  if (recoveryConversationId !== conversationId) {
+    setRecoveryConversationId(conversationId);
+    setActivityError(null);
+    setActivityHistoryError(null);
+  }
 
   // Single-flag rollback for refresh-scroll restore: set false to keep follow-latest only.
   const ENABLE_SCROLL_RESTORE = true;
@@ -2082,13 +2096,15 @@ function ConversationPane({
       }
       setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
       presentActivitySnapshot(snapshot);
+      activityFailureCountRef.current = 0;
+      if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
+      activityHealTimerRef.current = null;
       setActivityError(null);
-      setActivityHistoryError(null);
       setActivityReplayUnavailable(false);
     } catch (error) {
       if (!controller.signal.aborted && mountedRef.current) {
         if (!applyConversationAccessFailure(error) && !handleActivityReplayFailure(error)) {
-          setActivityError("We couldn't check the latest response status.");
+          reportActivityFailureRef.current();
         }
       }
     } finally {
@@ -2517,8 +2533,10 @@ function ConversationPane({
       }
       setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
       presentActivitySnapshot(snapshot);
+      activityFailureCountRef.current = 0;
+      if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
+      activityHealTimerRef.current = null;
       setActivityError(null);
-      setActivityHistoryError(null);
       setActivityReplayUnavailable(false);
       if (snapshotOwnsActiveMessage && isActivityTerminal(snapshot.state)) {
         setActiveTurn(false);
@@ -2539,7 +2557,7 @@ function ConversationPane({
           ? handleActivityReplayFailure(error)
           : false;
         if (!accessFailure && !replayFailure) {
-          setActivityError("We couldn't check the latest response status.");
+          reportActivityFailureRef.current();
           if (!companionSnapshot) {
             setActiveTurn(false);
             setAwaitingVisibleResponse(false);
@@ -2579,15 +2597,16 @@ function ConversationPane({
     const controller = new AbortController();
     activityHistoryRequestRef.current = controller;
     activityReplayExpiredRestartedRef.current = false;
-    setActivityHistoryError(null);
     setActivityReplayUnavailable(false);
     void loadReplayWithRecovery(conversationId, controller.signal, true)
       .then((snapshot) => {
         if (controller.signal.aborted || !mountedRef.current) return;
         if (!snapshot) return;
         setProjection((current) => projectConversationActivity(current, snapshot, conversationMessagesRef.current));
+        historyFailureCountRef.current = 0;
+        if (historyHealTimerRef.current !== null) window.clearTimeout(historyHealTimerRef.current);
+        historyHealTimerRef.current = null;
         setActivityHistoryError(null);
-        setActivityError(null);
         setActivityReplayUnavailable(false);
         if (
           isActivityTerminal(snapshot.state)
@@ -2604,7 +2623,7 @@ function ConversationPane({
         if (activityHistoryLoadedRef.current === conversationId) {
           activityHistoryLoadedRef.current = null;
         }
-        setActivityHistoryError("We couldn't check the latest response status.");
+        reportHistoryFailureRef.current();
       });
     return () => {
       if (activityHistoryLoadedRef.current === conversationId) {
@@ -2626,6 +2645,86 @@ function ConversationPane({
     queryClient,
     workspaceId,
   ]);
+
+  const checkActivityAgain = useCallback(() => {
+    if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
+    activityHealTimerRef.current = null;
+    pollCountRef.current = 0;
+    setPollBudgetReached(false);
+    setPollingSettled(false);
+    setActiveTurn(true);
+  }, []);
+
+  useEffect(() => {
+    reportActivityFailureRef.current = () => {
+      activityFailureCountRef.current += 1;
+      const failures = activityFailureCountRef.current;
+      if (failures >= ACTIVITY_FAILURES_BEFORE_BANNER) {
+        setActivityError("Reconnecting to Allies… Replies will appear once the connection is back.");
+      }
+      if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
+      activityHealTimerRef.current = window.setTimeout(
+        checkActivityAgain,
+        ACTIVITY_HEAL_DELAYS_MS[failures - 1] ?? ACTIVITY_HEAL_DELAYS_MS.at(-1),
+      );
+    };
+  }, [checkActivityAgain]);
+
+  useEffect(() => {
+    reportHistoryFailureRef.current = () => {
+      historyFailureCountRef.current += 1;
+      const failures = historyFailureCountRef.current;
+      if (failures >= ACTIVITY_FAILURES_BEFORE_BANNER) {
+        setActivityHistoryError("Reconnecting to Allies… Replies will appear once the connection is back.");
+      }
+      if (historyHealTimerRef.current !== null) window.clearTimeout(historyHealTimerRef.current);
+      historyHealTimerRef.current = window.setTimeout(
+        () => {
+          historyHealTimerRef.current = null;
+          setActivityHistoryRetry((current) => current + 1);
+        },
+        ACTIVITY_HEAL_DELAYS_MS[failures - 1] ?? ACTIVITY_HEAL_DELAYS_MS.at(-1),
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!activityHistoryError) return;
+    const heal = () => {
+      if (document.visibilityState !== "visible") return;
+      if (historyHealTimerRef.current !== null) window.clearTimeout(historyHealTimerRef.current);
+      historyHealTimerRef.current = null;
+      setActivityHistoryRetry((current) => current + 1);
+    };
+    document.addEventListener("visibilitychange", heal);
+    window.addEventListener("online", heal);
+    return () => {
+      document.removeEventListener("visibilitychange", heal);
+      window.removeEventListener("online", heal);
+    };
+  }, [activityHistoryError]);
+
+  useEffect(() => {
+    if (!activityError) return;
+    const heal = () => { if (document.visibilityState === "visible") checkActivityAgain(); };
+    document.addEventListener("visibilitychange", heal);
+    window.addEventListener("online", heal);
+    return () => {
+      document.removeEventListener("visibilitychange", heal);
+      window.removeEventListener("online", heal);
+    };
+  }, [activityError, checkActivityAgain]);
+
+  useEffect(() => {
+    activityFailureCountRef.current = 0;
+    historyFailureCountRef.current = 0;
+    return () => {
+      if (activityHealTimerRef.current !== null) window.clearTimeout(activityHealTimerRef.current);
+      if (historyHealTimerRef.current !== null) window.clearTimeout(historyHealTimerRef.current);
+      activityHealTimerRef.current = null;
+      historyHealTimerRef.current = null;
+    };
+  }, [conversationId]);
 
   const retryActivityHistory = () => {
     activityHistoryLoadedRef.current = null;
@@ -3144,13 +3243,7 @@ function ConversationPane({
     onStop: turnInProgress ? () => void stop() : undefined,
     onSteerQueuedMessage: turnInProgress ? (id) => void steerQueuedMessage(id) : undefined,
     steerableQueuedMessageId: turnInProgress ? steerableQueuedMessageId : undefined,
-    onCheckAgain: () => {
-      pollCountRef.current = 0;
-      setPollBudgetReached(false);
-      setActivityError(null);
-      setPollingSettled(false);
-      setActiveTurn(true);
-    },
+    onCheckAgain: checkActivityAgain,
     onRetryActivityHistory: retryActivityHistory,
     onOpenRoutine: (routineId) => {
       if ((conversation?.routineItems ?? []).some((item) => item.routineId === routineId)) {

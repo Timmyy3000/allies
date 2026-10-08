@@ -200,6 +200,23 @@ def test_routine_resume_requires_the_deployed_current_release(routine_context):
         )
 
 
+def test_self_hosted_local_runtime_image_admits_routines(routine_context, monkeypatch):
+    state = routine_context
+    workspace = state["workspace"]
+    local = {**workspace.applied_images, "allies-runtime": "allies/runtime:local"}
+    workspace.applied_images = local
+    workspace.release_target = {}
+    workspace.save(update_fields=["applied_images", "release_target"])
+    monkeypatch.setenv("RUNTIME_IMAGE", local["allies-runtime"])
+
+    _command, routine = dispatch(state)
+    assert routine.status == RoutineRunStatus.QUEUED
+
+    monkeypatch.setenv("RUNTIME_IMAGE", "allies/runtime:other")
+    with pytest.raises(RuntimeNotReadyError):
+        dispatch(state, ordinal=2)
+
+
 def test_disabling_admission_leaves_routines_queued_but_does_not_block_main(
     routine_context,
 ):
