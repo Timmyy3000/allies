@@ -285,3 +285,29 @@ def test_dispatch_accepts_matching_foundry_receipt_without_rebuilding_command(
     assert outbox.attempt_id is not None
     assert outbox.generation == 1
     assert outbox.receipt_digest
+
+
+@pytest.mark.django_db
+def test_hourly_routine_recovers_once_at_latest_slot_after_long_outage(
+    scheduler_account,
+):
+    routine = _create(
+        scheduler_account,
+        schedule={
+            "kind": "recurring",
+            "frequency": "interval",
+            "every_minutes": 60,
+            "starts_at": "2026-09-10T09:00:00",
+            "timezone": "Europe/Berlin",
+        },
+    )
+    assert routine.next_run_at == datetime(2026, 9, 10, 7, tzinfo=UTC)
+
+    report = admit_due_routines(now=datetime(2027, 1, 1, 12, 30, tzinfo=UTC))
+
+    assert report.admitted == 1
+    occurrence = RoutineOccurrence.objects.get(routine=routine)
+    assert occurrence.scheduled_at == datetime(2027, 1, 1, 12, tzinfo=UTC)
+    assert occurrence.delayed is True
+    routine.refresh_from_db()
+    assert routine.next_run_at == datetime(2027, 1, 1, 13, tzinfo=UTC)

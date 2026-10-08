@@ -37,7 +37,9 @@ from .approvals import (
 )
 from .schedule import (
     NoFutureOccurrence,
+    RecurringFrequency,
     ScheduleKind,
+    latest_interval_occurrence,
     resolve_next_occurrence,
     validate_schedule,
 )
@@ -126,8 +128,12 @@ def _latest_missed(
     boundary = _utc(now)
     if candidate >= boundary:
         return candidate, False
-    if validate_schedule(schedule).kind is ScheduleKind.ONCE:
+    spec = validate_schedule(schedule)
+    if spec.kind is ScheduleKind.ONCE:
         return candidate, True
+    if spec.frequency is RecurringFrequency.INTERVAL:
+        latest = latest_interval_occurrence(spec, at_or_before=boundary)
+        return _utc(latest), True
     for _ in range(ROUTINE_RECOVERY_ITERATIONS):
         following = _next_after(schedule, after=candidate)
         if following is None or following > boundary:

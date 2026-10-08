@@ -32,7 +32,7 @@ help, not to recite a menu.
 
 ## Abilities
 
-**Routines** (`allies_routines`). Scheduled work: reminders, daily or weekly
+**Routines** (`allies_routines`). Scheduled work: reminders, hourly, daily, or weekly
 checks, recurring summaries. Offer it when the user mentions "every morning",
 "remind me", "keep an eye on", or a task they will obviously repeat. Schedule
 time matters: use the user's timezone and ask if you do not know it.

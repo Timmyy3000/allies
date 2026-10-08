@@ -11,7 +11,7 @@ The identity tuple is kept in `routines-v1.lock.json` and is:
 ```text
 contract_name=routines
 schema_version=v1
-content_revision=14
+content_revision=15
 content_sha256=<SHA-256 of this exact file>
 fixture_sha256=<SHA-256 of fixtures/routines-v1.json>
 ```
@@ -225,11 +225,23 @@ A recurring schedule uses this closed grammar:
  "days_of_week":[1,3,5],"timezone":"Europe/Berlin"}
 ```
 
-`frequency` is `daily`, `weekly`, or `monthly`. Daily omits `days_of_week` and
+`frequency` is `daily`, `weekly`, `monthly`, or `interval`. Daily omits `days_of_week` and
 monthly requires one `day_of_month` from 1 through 31; weekly requires a
 non-empty ascending list of ISO weekdays 1 through 7. All recurring schedules
-require `local_time` and an IANA timezone. Unsupported cadence is rejected,
-not approximated. Browser/device timezone is used only when the user explicitly
+require `local_time` and an IANA timezone, except `interval`.
+
+An interval schedule runs every fixed elapsed period:
+
+```json
+{"kind":"recurring","frequency":"interval","every_minutes":60,
+ "starts_at":"2026-09-10T09:00:00","timezone":"Europe/Berlin"}
+```
+
+`every_minutes` is an integer from 15 through 525600. `starts_at` is the local
+first occurrence without an offset; it resolves once in `timezone` and later
+occurrences add whole periods of elapsed time, so DST never skips or repeats an
+interval run. Interval omits `local_time`, `days_of_week`, and `day_of_month`.
+Unsupported cadence is rejected, not approximated. Browser/device timezone is used only when the user explicitly
 saves it; a missing timezone is clarification.
 
 The saved timezone remains fixed until explicit update. A DST gap advances to

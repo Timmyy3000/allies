@@ -119,7 +119,7 @@ def test_routines_v1_artifacts_match_cloud_owned_lock():
     assert lock == {
         "contract_name": "routines",
         "schema_version": "v1",
-        "content_revision": 14,
+        "content_revision": 15,
         "normative_owner": "cloud",
         "content_sha256": _sha256(DOCUMENT_PATH),
         "fixture_sha256": _sha256(FIXTURE_PATH),

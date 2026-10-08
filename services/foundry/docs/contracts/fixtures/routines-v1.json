@@ -2,7 +2,7 @@
   "contract": {
     "contract_name": "routines",
     "schema_version": "v1",
-    "content_revision": 14,
+    "content_revision": 15,
     "normative_owner": "cloud",
     "compatibility_vendor": "foundry",
     "document_path": "docs/contracts/routines-v1.md",

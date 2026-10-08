@@ -78,7 +78,7 @@ function haveDistinctRoutineIdentities(mainConversationId: string, runConversati
 
 const scheduleStateSchema = z.enum(["active", "paused", "deleted", "exhausted"]);
 const scheduleKindSchema = z.enum(["once", "recurring"]);
-const frequencySchema = z.enum(["daily", "weekly", "monthly"]);
+const frequencySchema = z.enum(["daily", "weekly", "monthly", "interval"]);
 const occurrenceDispositionSchema = z.enum([
   "admitted",
   "replay",
@@ -146,11 +146,20 @@ const monthlyScheduleSchema = z.object({
   timezone: timezoneSchema,
 }).strict();
 
+const intervalScheduleSchema = z.object({
+  kind: z.literal("recurring"),
+  frequency: z.literal("interval"),
+  every_minutes: z.number().int().min(15).max(525_600),
+  starts_at: localDateTimeSchema,
+  timezone: timezoneSchema,
+}).strict();
+
 export const routineScheduleSchema = z.union([
   onceScheduleSchema,
   dailyScheduleSchema,
   weeklyScheduleSchema,
   monthlyScheduleSchema,
+  intervalScheduleSchema,
 ]);
 
 export type RoutineSchedule = z.infer<typeof routineScheduleSchema>;
@@ -552,11 +561,13 @@ export function normalizeRoutineErrorCode(value: unknown): RoutineErrorCode | "U
 
 export interface RoutineScheduleViewModel {
   kind: RoutineSchedule["kind"];
-  frequency?: "daily" | "weekly" | "monthly";
+  frequency?: "daily" | "weekly" | "monthly" | "interval";
   localAt?: string;
   localTime?: string;
   daysOfWeek?: number[];
   dayOfMonth?: number;
+  everyMinutes?: number;
+  startsAt?: string;
   timezone: string;
 }
 
@@ -668,6 +679,15 @@ function toRoutineScheduleViewModel(schedule: RoutineSchedule): RoutineScheduleV
   }
   if (schedule.frequency === "daily") {
     return { kind: "recurring", frequency: "daily", localTime: schedule.local_time, timezone: schedule.timezone };
+  }
+  if (schedule.frequency === "interval") {
+    return {
+      kind: "recurring",
+      frequency: "interval",
+      everyMinutes: schedule.every_minutes,
+      startsAt: schedule.starts_at,
+      timezone: schedule.timezone,
+    };
   }
   if (schedule.frequency === "weekly") {
     return {
