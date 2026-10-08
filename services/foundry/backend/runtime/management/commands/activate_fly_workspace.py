@@ -16,7 +16,6 @@ from runtime.models import (
     Workspace,
     WorkspaceProvisioningPhase,
 )
-from runtime.providers.docker import DockerProvider
 from runtime.providers import (
     FlyProvider,
     MachineState,
@@ -25,6 +24,7 @@ from runtime.providers import (
     ProviderOwnershipError,
     deterministic_resource_names,
 )
+from runtime.providers.docker import DockerProvider
 from runtime.services.continuity_proof import (
     FlyCliSecretStore,
     ProofCredentialBootstrap,
@@ -37,8 +37,8 @@ from runtime.services.continuity_proof import (
 )
 from runtime.services.retry import run_with_sqlite_lock_retry
 from runtime.services.runtime_intents import request_activation_recovery_wake
-from runtime.services.runtime_readiness import is_runtime_ready
 from runtime.services.runtime_provider import runtime_provider_kind
+from runtime.services.runtime_readiness import is_runtime_ready
 from runtime.services.workspaces import WorkspaceLifecycle, WorkspaceSpec
 
 _REQUIRED_SETTINGS = (
