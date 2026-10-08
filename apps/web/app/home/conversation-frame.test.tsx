@@ -980,6 +980,23 @@ describe("ConversationFrame", () => {
     expect(screen.queryByText("Thinking", { exact: true })).toBeNull();
   });
 
+  it("shows a stopped reply's partial text without the out-of-order warning", () => {
+    render(
+      <ConversationFrame
+        model={{
+          ...model,
+          activityState: "stopped",
+          pendingAssistantText: ["Partial reply"],
+        }}
+        actions={actions}
+      />,
+    );
+
+    expect(screen.getByText("Partial reply")).toBeTruthy();
+    expect(screen.getByText("This response was stopped.").className).toContain("frameStoppedNote");
+    expect(screen.queryByText("Some response text arrived out of order.")).toBeNull();
+  });
+
   it.each(["idle", "sleeping", "waking", "busy"] as const)("requests immediate bubble presentation only for an awake idle Ally (%s)", (state) => {
     const onSubmit = vi.fn();
     render(<ConversationFrame model={{ ...model,

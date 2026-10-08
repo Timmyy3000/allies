@@ -388,6 +388,7 @@ export function buildProductionConversationFrameModel(
     ? []
     : (input.projection.pendingActivities ?? [])
       .filter((activity) => activity.kind === "assistant_delta" && activity.text.trim())
+      .filter((activity) => !input.activeMessageId || activity.messageId === input.activeMessageId)
       .filter((activity) => !hasDurableReply(input.messages, assistantReplies, {
         messageId: activity.messageId,
         turnOrdinal: activity.conversationTurnOrdinal,

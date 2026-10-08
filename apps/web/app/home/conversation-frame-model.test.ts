@@ -180,6 +180,29 @@ describe("buildProductionConversationFrameModel", () => {
     },
   );
 
+  it("shows pending text only for the active message", () => {
+    const pending = (messageId: string, text: string) => ({
+      id: `activity-${text}`,
+      messageId,
+      sequence: 1,
+      conversationTurnOrdinal: 1,
+      kind: "assistant_delta" as const,
+      text,
+      state: "running" as const,
+      createdAt: "2026-10-08T14:34:00Z",
+    });
+    const model = buildProductionConversationFrameModel(makeInput({
+      messages: [{ ...userMessage, status: "stopped" }],
+      activeMessageId: userMessage.id,
+      projection: {
+        ...EMPTY_ACTIVITY_PROJECTION,
+        state: "stopped",
+        pendingActivities: [pending("earlier-turn", "Earlier text"), pending(userMessage.id, "Current text")],
+      },
+    }));
+    expect(model.pendingAssistantText).toEqual(["Current text"]);
+  });
+
   it("places grouped activity on the exact triggering user turn", () => {
     const activityPresentation = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, {
       conversationId: "conversation-1",

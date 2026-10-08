@@ -2799,3 +2799,9 @@
 
 .frameComposer button.frameStopButton { background: var(--text-primary); }
 .frameStopGlyph { display: block; width: 11px; height: 11px; border-radius: 3px; background: var(--surface); }
+
+.frameStoppedNote {
+  margin: 6px 0 0;
+  color: var(--chat-muted);
+  font-size: 0.8125rem;
+}
