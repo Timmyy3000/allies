@@ -3754,6 +3754,55 @@ describe("HomeWorkspace", () => {
     expect(await screen.findByText("Some response text arrived out of order.")).toBeTruthy();
   });
 
+  it("shows a reply window that starts after sequence 1 as one answer, not out-of-order text", async () => {
+    const conversationId = "00000000-0000-4000-8000-000000000005";
+    renderHome([ally], ally.id, {
+      getAllyConversation: vi.fn(async () => ({
+        id: conversationId,
+        allyId: ally.id,
+        messages: [{
+          id: "00000000-0000-4000-8000-000000000015",
+          sender: "user" as const,
+          content: "A question in a long chat",
+          sequence: 12,
+          status: "completed" as const,
+          createdAt: "2026-08-20T16:01:00Z",
+        }],
+        nextCursor: null,
+      })),
+      getActivities: vi.fn(async () => ({
+        conversationId,
+        activities: [
+          {
+            id: "00000000-0000-4000-8000-000000000016",
+            messageId: "00000000-0000-4000-8000-000000000015",
+            sequence: 40,
+            conversationTurnOrdinal: 12,
+            kind: "assistant_delta" as const,
+            text: "Windowed answer",
+            state: "completed" as const,
+            createdAt: "2026-08-20T16:01:01Z",
+          },
+          {
+            id: "00000000-0000-4000-8000-000000000017",
+            messageId: "00000000-0000-4000-8000-000000000015",
+            sequence: 41,
+            conversationTurnOrdinal: 12,
+            kind: "assistant_delta" as const,
+            text: " continues.",
+            state: "completed" as const,
+            createdAt: "2026-08-20T16:01:02Z",
+          },
+        ],
+        state: "completed" as const,
+        lastContiguousSequence: 41,
+      })),
+    });
+
+    expect(await screen.findByText("Windowed answer continues.")).toBeTruthy();
+    expect(screen.queryByText("Some response text arrived out of order.")).toBeNull();
+  });
+
   it("hides pending activity text once the turn has a completed durable reply", async () => {
     const conversationId = "00000000-0000-4000-8000-000000000005";
     const messageId = "00000000-0000-4000-8000-000000000015";

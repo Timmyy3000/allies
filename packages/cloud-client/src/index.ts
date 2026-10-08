@@ -3,6 +3,7 @@ export type { ActivityProjection, AssistantTurnProjection } from "./activity-pro
 export {
   ACTIVE_ACTIVITY_STATES,
   EMPTY_ACTIVITY_PROJECTION,
+  anchorActivityWindow,
   hasPermanentActivityGap,
   isActivityTerminal,
   projectActivitySnapshot,

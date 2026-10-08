@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { ActivitySnapshotViewModel } from "../src";
 import {
   EMPTY_ACTIVITY_PROJECTION,
+  anchorActivityWindow,
   hasPermanentActivityGap,
   isActivityTerminal,
   projectActivitySnapshot,
@@ -119,6 +120,38 @@ describe("activity projection", () => {
     expect(completed.state).toBe("completed");
     expect(stale.state).toBe("completed");
     expect(stale.turns[0]?.state).toBe("completed");
+  });
+
+  it("anchors a replay window that starts after sequence 1 and keeps applying its later pages", () => {
+    const first = projectActivitySnapshot(
+      anchorActivityWindow(EMPTY_ACTIVITY_PROJECTION, snapshot([3, 4], "running")),
+      snapshot([3, 4], "running"),
+    );
+    expect(first.turns[0]?.assistantText).toBe("34");
+    expect(first.pendingActivities).toBeUndefined();
+
+    const next = projectActivitySnapshot(
+      anchorActivityWindow(first, snapshot([5, 6], "completed")),
+      snapshot([5, 6], "completed"),
+    );
+    expect(next.turns[0]?.assistantText).toBe("3456");
+    expect(hasPermanentActivityGap(next)).toBe(false);
+  });
+
+  it("still holds a gap inside an anchored window", () => {
+    const page = snapshot([3, 5], "completed");
+    const projection = projectActivitySnapshot(anchorActivityWindow(EMPTY_ACTIVITY_PROJECTION, page), page);
+    expect(projection.turns[0]?.assistantText).toBe("3");
+    expect(projection.pendingActivities?.map((activity) => activity.sequence)).toEqual([5]);
+    expect(hasPermanentActivityGap(projection)).toBe(true);
+  });
+
+  it("drains a page that arrives after a stream event already parked above it", () => {
+    const streamed = projectActivitySnapshot(EMPTY_ACTIVITY_PROJECTION, snapshot([5], "running"));
+    const page = snapshot([3, 4, 5], "completed");
+    const projection = projectActivitySnapshot(anchorActivityWindow(streamed, page), page);
+    expect(projection.turns[0]?.assistantText).toBe("345");
+    expect(projection.pendingActivities).toBeUndefined();
   });
 
   it("recognizes every non-active state as terminal", () => {
