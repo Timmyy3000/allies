@@ -1175,7 +1175,7 @@ def test_routine_backlog_attaches_oldest_results_that_fit_the_command_budget():
     )
     pending = [_pending_routine_context(index, 2_000) for index in range(26)]
 
-    fitted = dispatch_module._fit_routine_contexts(message, pending)
+    fitted = dispatch_module._oldest_routine_contexts_within_budget(message, pending)
 
     assert 0 < len(fitted) < len(pending)
     assert list(fitted) == pending[: len(fitted)]

@@ -269,11 +269,10 @@ def _routine_contexts_for_message(message: Message):
             consumed_at__isnull=True,
         ).order_by("created_at", "id")
     )
-    return _fit_routine_contexts(message, pending)
+    return _oldest_routine_contexts_within_budget(message, pending)
 
 
-def _fit_routine_contexts(message: Message, pending) -> tuple:
-    # Oldest first; results past the budget wait for a later turn, not block sends.
+def _oldest_routine_contexts_within_budget(message: Message, pending) -> tuple:
     fitted: tuple = ()
     for context in pending:
         candidate = (*fitted, context)
@@ -462,7 +461,6 @@ def ensure_dispatch_after_accept(message: Message) -> None:
         except DispatchUnavailable:
             return
         except (DispatchConflict, ValueError):
-            # A failed outbox under a queued head blocks every later send.
             _mark_pre_call_failure_for_message(
                 locked, "command_invalid", now=timezone.now()
             )
