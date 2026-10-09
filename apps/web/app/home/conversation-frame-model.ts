@@ -384,10 +384,13 @@ export function buildProductionConversationFrameModel(
       conversationTurnOrdinal: group.conversationTurnOrdinal,
       entries: group.entries,
     }));
+  // Earlier stopped turns can never be placed in order, so only the current turn may show pending text.
+  const pendingTextMessageId = input.activeMessageId ?? latestUserMessageId(input.messages);
   const pendingAssistantText = accessBlocked
     ? []
     : (input.projection.pendingActivities ?? [])
       .filter((activity) => activity.kind === "assistant_delta" && activity.text.trim())
+      .filter((activity) => activity.messageId === pendingTextMessageId)
       .filter((activity) => !hasDurableReply(input.messages, assistantReplies, {
         messageId: activity.messageId,
         turnOrdinal: activity.conversationTurnOrdinal,
@@ -561,6 +564,14 @@ function hasLegacyAssistantReply(
 
 function messageStatusToActivityState(status: MessageViewModel["status"]): ActivityState {
   return status === "in_progress" ? "running" : status;
+}
+
+function latestUserMessageId(messages: readonly MessageViewModel[]): string | null {
+  let latest: MessageViewModel | null = null;
+  for (const message of messages) {
+    if (message.sender === "user" && (!latest || message.sequence > latest.sequence)) latest = message;
+  }
+  return latest?.id ?? null;
 }
 
 function conversationCanChat(ally: AllyViewModel): boolean {

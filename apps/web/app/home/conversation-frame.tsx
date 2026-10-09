@@ -438,12 +438,8 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
           {!model.streaming && !hasTerminalTurn && model.activityState === "awaiting_action" ? (
             <AssistantMessage>This Ally is waiting for an action.</AssistantMessage>
           ) : null}
-          {!model.streaming && !hasTerminalTurn && (model.activityState === "failed" || model.activityState === "stopped") ? (
-            <AssistantMessage>
-              {model.activityState === "failed"
-                ? "This response failed. Try sending your message again."
-                : "This response was stopped."}
-            </AssistantMessage>
+          {!model.streaming && !hasTerminalTurn && model.activityState === "failed" ? (
+            <AssistantMessage>This response failed. Try sending your message again.</AssistantMessage>
           ) : null}
           {!model.streaming && isTerminalActivityState(model.activityState) && model.pendingAssistantText.length > 0 ? (
             <>
@@ -452,8 +448,11 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
                   {text}
                 </AssistantMessage>
               ))}
-              <FrameError role="status">Some response text arrived out of order.</FrameError>
+              {model.activityState === "stopped" ? null : <FrameError role="status">Some response text arrived out of order.</FrameError>}
             </>
+          ) : null}
+          {!model.streaming && !hasTerminalTurn && model.activityState === "stopped" ? (
+            <p className={styles.frameStoppedNote} role="status">This response was stopped.</p>
           ) : null}
 
           <ConversationApprovalSlot visibleMessageIds={new Set(visibleMessages.map((message) => message.id))} />
@@ -854,7 +853,7 @@ function TurnMessage({
       >
         {pendingText}
       </Streamdown> : null}
-      {statusText ? <p>{statusText}</p> : null}
+      {statusText ? <p className={turn.state === "stopped" ? styles.frameStoppedNote : undefined}>{statusText}</p> : null}
       {turn.isTruncated ? <p>This response reached its length limit.</p> : null}
     </AssistantMessage>
   );

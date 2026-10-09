@@ -60,7 +60,8 @@ MAX_ROUTINE_EVENT_BYTES = 64 * 1024
 # preflighting the variable text/reference portion in the runtime image.
 MAX_ROUTINE_RESULT_FIXED_BYTES = 4 * 1024
 LEASE_SECONDS = 60.0
-DEFAULT_RENEW_INTERVAL = 20.0
+# A stop is observed on renewal; keep this short so Stop lands in seconds.
+DEFAULT_RENEW_INTERVAL = 5.0
 DEFAULT_STOP_SAFETY_MARGIN = 5.0
 DEFAULT_PROFILE_RECONCILE_INTERVAL = 5.0
 DEFAULT_PUBLICATION_RECOVERY_INTERVAL = 30.0
