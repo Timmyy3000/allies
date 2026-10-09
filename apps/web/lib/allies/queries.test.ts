@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { CloudClient } from "@allies/cloud-client";
 import {
+  ALLY_ACTIVITY_REFETCH_INTERVAL_MS,
   ALLY_PROVISIONING_REFETCH_INTERVAL_MS,
   ALLY_PROVISIONING_REFETCH_LIMIT,
   alliesQueryOptions,
@@ -34,7 +35,7 @@ describe("Ally query ownership", () => {
     expect(listAllies).toHaveBeenCalledOnce();
   });
 
-  it("refetches while any Ally is getting ready and stops at terminal or budget states", () => {
+  it("refetches while any Ally is getting ready, then keeps the sleep state current", () => {
     const options = alliesQueryOptions(
       { listAllies: vi.fn(async () => []) } as Pick<CloudClient, "listAllies">,
       vi.fn() as never,
@@ -61,11 +62,11 @@ describe("Ally query ownership", () => {
 
     expect(refetchInterval(pendingQuery)).toBe(ALLY_PROVISIONING_REFETCH_INTERVAL_MS);
     expect(refetchInterval(retryableQuery)).toBe(ALLY_PROVISIONING_REFETCH_INTERVAL_MS);
-    expect(refetchInterval(readyQuery)).toBe(false);
+    expect(refetchInterval(readyQuery)).toBe(ALLY_ACTIVITY_REFETCH_INTERVAL_MS);
     expect(refetchInterval(pendingQuery)).toBe(ALLY_PROVISIONING_REFETCH_INTERVAL_MS);
     for (let attempt = 1; attempt < ALLY_PROVISIONING_REFETCH_LIMIT; attempt += 1) {
       refetchInterval(pendingQuery);
     }
-    expect(refetchInterval(pendingQuery)).toBe(false);
+    expect(refetchInterval(pendingQuery)).toBe(ALLY_ACTIVITY_REFETCH_INTERVAL_MS);
   });
 });

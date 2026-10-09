@@ -241,6 +241,7 @@ describe("Ally and conversation Cloud client boundary", () => {
       showLabel: false,
       settingsRevision: 0,
       deletionState: "active",
+      recentActivity: false,
     }]);
     await expect(client.getAlly(ids.workspace, ids.ally)).resolves.toMatchObject({ id: ids.ally });
     await expect(client.createAlly(ids.workspace, {

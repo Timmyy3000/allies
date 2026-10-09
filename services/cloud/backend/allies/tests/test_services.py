@@ -7,7 +7,7 @@ from uuid import UUID
 import pytest
 from django.utils import timezone
 
-from allies.api.controllers import _response
+from allies.api.controllers import _responses
 from allies.exceptions import IdempotencyConflict, OnboardingInvalid
 from allies.models import Ally, AllyBinding, OnboardingAttempt, ProvisioningOperation
 from allies.services.creation import (
@@ -442,9 +442,9 @@ def test_list_is_workspace_scoped_ordered_and_relation_loaded(
     Ally.objects.filter(pk=oldest.pk).update(created_at=stamp - timedelta(seconds=1))
     Ally.objects.filter(pk__in=[tie_low.pk, tie_high.pk]).update(created_at=stamp)
 
-    with django_assert_num_queries(2):
+    with django_assert_num_queries(5):
         rows = list_allies(user=user, workspace_id=workspace.id)
-        serialized = [_response(ally) for ally in rows]
+        serialized = _responses(rows)
 
     assert [item.id for item in serialized] == [
         tie_high.id,
