@@ -10,7 +10,7 @@ from django.core import signing
 from django.db import transaction
 
 from runtime.exceptions import RuntimeAuthorizationError, RuntimeValidationError
-from runtime.models import Attempt, AttemptStatus
+from runtime.models import Attempt, AttemptStatus, RoutineExecution
 from runtime.services.event_delivery import _NoRedirect, _validated_cloud_url
 from runtime.services.leases import _authorize_attempt_mutation
 from runtime.services.validation import digest_lease_token
@@ -20,10 +20,8 @@ _MAX_BYTES = 64 * 1024
 
 
 def routine_tool_token(claim):
-    if claim.routine_id is not None:
-        return None
     attempt = Attempt.objects.select_related("execution").get(pk=claim.attempt_id)
-    if not attempt.execution.cloud_message_id:
+    if claim.routine_id is None and not attempt.execution.cloud_message_id:
         return None
     return signing.dumps(
         {
@@ -61,6 +59,26 @@ def call_integration_tool(
     )
 
 
+def _dispatch_identity(execution, *, path):
+    routine = RoutineExecution.objects.filter(execution=execution).first()
+    if routine is None:
+        if not execution.cloud_message_id or not execution.cloud_binding_id:
+            raise RuntimeAuthorizationError("tool capability unavailable")
+        return {
+            "message_id": str(execution.cloud_message_id),
+            "binding_id": str(execution.cloud_binding_id),
+            "command_fingerprint": execution.command_fingerprint,
+        }
+    fingerprint = execution.input_payload.get("routine_dispatch_fingerprint")
+    if path != "integrations/tool" or not fingerprint:
+        raise RuntimeAuthorizationError("tool capability unavailable")
+    return {
+        "run_id": str(routine.run_id),
+        "binding_id": str(routine.cloud_binding_id),
+        "command_fingerprint": fingerprint,
+    }
+
+
 def _relay_tool(token, fields, *, path, unavailable, instruction, timeout=10):
     try:
         capability = signing.loads(token, salt=_SALT, max_age=86400)
@@ -73,17 +91,8 @@ def _relay_tool(token, fields, *, path, unavailable, instruction, timeout=10):
         attempt = Attempt.objects.select_related("execution").get(
             pk=authorization.attempt_id
         )
-        execution = attempt.execution
-        if not execution.cloud_message_id or not execution.cloud_binding_id:
-            raise RuntimeAuthorizationError("tool capability unavailable")
-        body = json.dumps(
-            {
-                "message_id": str(execution.cloud_message_id),
-                "binding_id": str(execution.cloud_binding_id),
-                "command_fingerprint": execution.command_fingerprint,
-                **fields,
-            }
-        ).encode()
+        identity = _dispatch_identity(attempt.execution, path=path)
+        body = json.dumps({**identity, **fields}).encode()
     if len(body) > _MAX_BYTES:
         raise RuntimeValidationError("tool request too large")
     origin = _validated_cloud_url(getattr(settings, "ALLIES_CLOUD_URL", None))
