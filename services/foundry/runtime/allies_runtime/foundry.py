@@ -1935,7 +1935,7 @@ async def _stream_events(
         stream_kwargs["reasoning_effort"] = reasoning_effort
     if routine_result:
         stream_kwargs["routine_result"] = True
-    elif routine_tool_token:
+    if routine_tool_token:
         stream_kwargs["routine_tool_token"] = routine_tool_token
     if file_context is not None:
         stream_kwargs["file_context"] = file_context

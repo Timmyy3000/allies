@@ -1507,7 +1507,7 @@ def _session_stream_headers(
         headers["X-Allies-Rich-Approvals"] = "1"
     if routine_result:
         headers["X-Allies-Routine-Result"] = "1"
-    elif routine_tool_token:
+    if routine_tool_token:
         if (
             not isinstance(routine_tool_token, str)
             or len(routine_tool_token) > 2048

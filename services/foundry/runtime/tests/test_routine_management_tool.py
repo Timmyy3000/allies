@@ -1,3 +1,4 @@
+import asyncio
 import importlib.util
 import json
 import sys
@@ -9,6 +10,7 @@ from types import ModuleType
 from urllib.error import URLError
 
 from allies_runtime.config import RuntimeSettings
+from allies_runtime.foundry import _stream_events
 from allies_runtime.hermes import _session_stream_headers
 
 spec = importlib.util.spec_from_file_location(
@@ -63,13 +65,38 @@ def test_context_isolated_and_network_retry_keeps_call_id(monkeypatch):
     assert "capability" not in result
 
 
-def test_routine_runs_do_not_get_management_capability():
+def test_routine_results_carry_the_integration_capability_and_origin():
     settings = RuntimeSettings(foundry_origin="https://foundry.example.test")
     ordinary = _session_stream_headers(
         settings, "session", routine_tool_token="capability"
     )
     assert ordinary["X-Allies-Routine-Tool"] == "capability"
+    assert "X-Allies-Routine-Result" not in ordinary
     scheduled = _session_stream_headers(
         settings, "session", routine_result=True, routine_tool_token="capability"
     )
-    assert "X-Allies-Routine-Tool" not in scheduled
+    assert scheduled["X-Allies-Routine-Result"] == "1"
+    assert scheduled["X-Allies-Routine-Tool"] == "capability"
+    assert scheduled["X-Allies-Foundry-Origin"] == "https://foundry.example.test"
+
+
+def test_routine_stream_sends_capability_with_result_protocol():
+    seen = {}
+
+    class Hermes:
+        def stream_profile_incremental(self, profile_id, session_id, message, **kwargs):
+            seen.update(kwargs)
+
+    asyncio.run(
+        _stream_events(
+            Hermes(),
+            "profile",
+            "session",
+            "run the routine",
+            session_key="session-key",
+            routine_result=True,
+            routine_tool_token="capability",
+        )
+    )
+    assert seen["routine_result"] is True
+    assert seen["routine_tool_token"] == "capability"
