@@ -203,6 +203,31 @@ describe("buildProductionConversationFrameModel", () => {
     expect(model.pendingAssistantText).toEqual(["Current text"]);
   });
 
+  it("keeps a stopped turn's partial text out of the newest reply", () => {
+    const stopped: MessageViewModel = { ...userMessage, status: "stopped" };
+    const newer: MessageViewModel = { ...userMessage, id: "message-3", content: "Next question", sequence: 3 };
+    const stoppedPartial = {
+      id: "activity-stopped",
+      messageId: userMessage.id,
+      sequence: 2,
+      conversationTurnOrdinal: userMessage.sequence,
+      kind: "assistant_delta" as const,
+      text: "Partial reply",
+      state: "stopped" as const,
+      createdAt: "2026-09-03T09:40:02Z",
+    };
+    const projection = { ...EMPTY_ACTIVITY_PROJECTION, state: "stopped" as const, pendingActivities: [stoppedPartial] };
+
+    expect(buildProductionConversationFrameModel(makeInput({
+      messages: [stopped],
+      projection,
+    })).pendingAssistantText).toEqual(["Partial reply"]);
+    expect(buildProductionConversationFrameModel(makeInput({
+      messages: [stopped, newer],
+      projection,
+    })).pendingAssistantText).toEqual([]);
+  });
+
   it("places grouped activity on the exact triggering user turn", () => {
     const activityPresentation = mergeActivityPresentation(EMPTY_ACTIVITY_PRESENTATION, {
       conversationId: "conversation-1",
