@@ -283,6 +283,7 @@ export function isAllySleeping(
   recentActivityAt = 0,
 ): boolean {
   if (ally.provisioningState !== "bound" || !latestMessage || now === null) return false;
+  if (ally.recentActivity) return false;
   const lastActivityAt = Math.max(Date.parse(latestMessage.createdAt), recentActivityAt);
   return Number.isFinite(lastActivityAt) && now - lastActivityAt >= ALLY_SLEEP_AFTER_MS;
 }

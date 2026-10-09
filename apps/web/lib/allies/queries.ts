@@ -7,6 +7,8 @@ import { alliesQueryKey } from "./query-keys";
 
 export const ALLY_PROVISIONING_REFETCH_INTERVAL_MS = 1_000;
 export const ALLY_PROVISIONING_REFETCH_LIMIT = 120;
+// Routine and browser work starts without this client, so refresh to keep sleep current.
+export const ALLY_ACTIVITY_REFETCH_INTERVAL_MS = 30_000;
 
 export function alliesQueryOptions(
   client: Pick<CloudClient, "listAllies">,
@@ -34,9 +36,9 @@ export function alliesQueryOptions(
       ) ?? false;
       if (!hasPendingAlly) {
         provisioningRefetches = 0;
-        return false;
+        return ALLY_ACTIVITY_REFETCH_INTERVAL_MS;
       }
-      if (provisioningRefetches >= ALLY_PROVISIONING_REFETCH_LIMIT) return false;
+      if (provisioningRefetches >= ALLY_PROVISIONING_REFETCH_LIMIT) return ALLY_ACTIVITY_REFETCH_INTERVAL_MS;
       provisioningRefetches += 1;
       return ALLY_PROVISIONING_REFETCH_INTERVAL_MS;
     },

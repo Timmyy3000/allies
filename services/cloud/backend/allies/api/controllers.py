@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Annotated
 
 from django.http import HttpRequest
@@ -48,6 +49,7 @@ from allies.services.labels import (
     update_ally_settings,
 )
 from allies.services.onboarding import begin_onboarding, digest_value
+from allies.services.presence import ally_ids_with_recent_activity
 from allies.services.runtime_intents import (
     request_runtime_intent,
     request_workspace_runtime_intent,
@@ -106,7 +108,12 @@ def _no_store(response):
     return response
 
 
-def _response(ally: Ally) -> AllyResponse:
+def _responses(allies: Sequence[Ally]) -> list[AllyResponse]:
+    busy = ally_ids_with_recent_activity(ally.id for ally in allies)
+    return [_response(ally, recent_activity=ally.id in busy) for ally in allies]
+
+
+def _response(ally: Ally, *, recent_activity: bool) -> AllyResponse:
     operation = ally.binding.provisioning_operation
     return AllyResponse(
         id=str(ally.id),
@@ -125,6 +132,7 @@ def _response(ally: Ally) -> AllyResponse:
         show_label=ally.show_label,
         settings_revision=ally.settings_revision,
         deletion_state=ally.deletion_state,
+        recent_activity=recent_activity,
     )
 
 
@@ -283,7 +291,7 @@ class AllyController(ControllerBase):
         except (WorkspaceAccessDenied, ValueError):
             return error_json("ally_unavailable", "Ally unavailable", 404)
         return success_json(
-            AllyListResponse(allies=[_response(ally) for ally in allies]),
+            AllyListResponse(allies=_responses(allies)),
             "Allies loaded",
         )
 
@@ -353,7 +361,7 @@ class AllyController(ControllerBase):
         except OnboardingInvalid:
             return error_json("onboarding_invalid", "onboarding attempt invalid", 422)
         status = 201 if result.ally.provisioning_state == "bound" else 202
-        return success_json(_response(result.ally), "Ally created", status=status)
+        return success_json(_responses([result.ally])[0], "Ally created", status=status)
 
     @http_get(
         "/{ally_id}",
@@ -374,7 +382,7 @@ class AllyController(ControllerBase):
             return error_json("session_invalid", "session invalid", 401)
         except (Ally.DoesNotExist, WorkspaceAccessDenied, ValueError):
             return error_json("ally_unavailable", "Ally unavailable", 404)
-        return success_json(_response(ally), "Ally loaded")
+        return success_json(_responses([ally])[0], "Ally loaded")
 
     @http_patch(
         "/{ally_id}/settings",
@@ -427,7 +435,7 @@ class AllyController(ControllerBase):
             return error_json("validation_error", "request validation failed", 422)
         except (WorkspaceAccessDenied, LabelSettingsUnavailable):
             return error_json("ally_unavailable", "Ally unavailable", 404)
-        return success_json(_response(ally), "Ally settings updated")
+        return success_json(_responses([ally])[0], "Ally settings updated")
 
     @http_post(
         "/{ally_id}/deletion",

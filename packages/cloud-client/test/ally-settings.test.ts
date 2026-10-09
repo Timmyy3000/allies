@@ -22,6 +22,11 @@ describe("ally label settings", () => {
     expect(() => toAllyViewModel({ ...ally, settings_revision: -1 })).toThrow();
   });
 
+  it("carries the server's recent activity flag and defaults it off for legacy responses", () => {
+    expect(toAllyViewModel(ally)).toMatchObject({ recentActivity: false });
+    expect(toAllyViewModel({ ...ally, recent_activity: true })).toMatchObject({ recentActivity: true });
+  });
+
   it.each(["manager", "chief\nof staff", "social \u202emanager", " social manager", "a".repeat(79) + " b"])(
     "rejects malformed persisted labels (%s)", (label) => {
       expect(() => toAllyViewModel({ ...ally, label })).toThrow();

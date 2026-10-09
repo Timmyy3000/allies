@@ -70,6 +70,7 @@ class AllyResponse(Schema):
     show_label: bool = False
     settings_revision: int = 0
     deletion_state: Literal["active", "pending", "repair_required"] = "active"
+    recent_activity: bool = False
 
 
 class AllyListResponse(Schema):

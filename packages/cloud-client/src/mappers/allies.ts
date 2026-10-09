@@ -79,6 +79,7 @@ export const allyResponseSchema = z
     show_label: z.boolean().default(false),
     settings_revision: z.number().int().nonnegative().default(0),
     deletion_state: z.enum(["active", "pending", "repair_required"]).default("active"),
+    recent_activity: z.boolean().default(false),
   })
   .loose();
 
@@ -364,6 +365,7 @@ export interface AllyViewModel {
   showLabel?: boolean;
   settingsRevision?: number;
   deletionState?: "active" | "pending" | "repair_required";
+  recentActivity?: boolean;
 }
 
 export interface AllySeedInput {
@@ -520,6 +522,7 @@ export function toAllyViewModel(input: unknown): AllyViewModel {
     showLabel: ally.show_label,
     settingsRevision: ally.settings_revision,
     deletionState: ally.deletion_state,
+    recentActivity: ally.recent_activity,
   };
 }
 
