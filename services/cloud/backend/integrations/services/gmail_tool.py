@@ -32,7 +32,7 @@ from ..models import PROVIDER_GMAIL, IntegrationSecret, IntegrationToolCall
 from . import gmail_attachments
 from .google_oauth import gmail_enabled, refresh_access_token
 from .grants import check_grant
-from .turns import resolve_tool_turn
+from .turns import resolve_tool_turn, routine_action_unavailable
 
 GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me"
 GMAIL_TIMEOUT_SECONDS = 8
@@ -50,6 +50,8 @@ _OPERATION = {
     "prepare_send": "gmail send",
     "send": "gmail send",
 }
+# Routine turns have no chat message, so replay ledgers and attachment publication are unavailable.
+ROUTINE_GMAIL_ACTIONS = {"search", "get", "list_labels"}
 # Organising never moves mail toward deletion; trash/spam stay the user's call.
 _BLOCKED_LABELS = {"TRASH", "SPAM"}
 _FIELDS = {
@@ -164,7 +166,8 @@ NOT_GRANTED = _error(
 
 def execute_gmail_tool(
     *,
-    message_id: UUID,
+    message_id: UUID | None = None,
+    run_id: UUID | None = None,
     binding_id: UUID,
     command_fingerprint: str,
     call_id: UUID,
@@ -178,16 +181,25 @@ def execute_gmail_tool(
             "invalid_gmail_request",
             "Check the action and its fields; ask the user for anything missing.",
         )
-    message = resolve_tool_turn(message_id, binding_id, command_fingerprint)
-    ally = message.conversation.ally
+    turn = resolve_tool_turn(
+        message_id=message_id,
+        run_id=run_id,
+        binding_id=binding_id,
+        command_fingerprint=command_fingerprint,
+    )
+    ally = turn.ally
     workspace = ally.workspace
+    message = turn.message
+    if message is None and args.action not in ROUTINE_GMAIL_ACTIONS:
+        return routine_action_unavailable()
 
     digest = hashlib.sha256(
         json.dumps(arguments, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    replayed = _replay(message, call_id, digest)
-    if replayed is not None:
-        return replayed
+    if message is not None:
+        replayed = _replay(message, call_id, digest)
+        if replayed is not None:
+            return replayed
 
     if not gmail_enabled():
         return NOT_CONNECTED
@@ -207,7 +219,11 @@ def execute_gmail_tool(
     try:
         if args.action == "attachment_status":
             result = gmail_attachments.status(message, args.publication_id)
-            resolve_tool_turn(message_id, binding_id, command_fingerprint)
+            resolve_tool_turn(
+                message_id=message_id,
+                binding_id=binding_id,
+                command_fingerprint=command_fingerprint,
+            )
             secret.refresh_from_db()
             if secret.revoked_at is not None or not gmail_enabled():
                 return NOT_CONNECTED

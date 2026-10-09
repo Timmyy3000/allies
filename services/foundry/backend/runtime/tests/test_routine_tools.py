@@ -9,8 +9,14 @@ from django.utils import timezone
 
 from runtime.exceptions import RuntimeAuthorizationError
 from runtime.models import Attempt, Lease
-from runtime.services.routine_tools import call_routine_tool, routine_tool_token
+from runtime.services.claims import claim_next_execution
+from runtime.services.routine_tools import (
+    call_integration_tool,
+    call_routine_tool,
+    routine_tool_token,
+)
 from runtime.tests.test_fnd007_execution import claimed_execution  # noqa: F401
+from runtime.tests.test_routines import dispatch, routine_context  # noqa: F401
 
 
 @pytest.fixture
@@ -21,6 +27,59 @@ def tool_claim(claimed_execution):  # noqa: F811
     execution.command_fingerprint = "canonical-json-sha256:v1:" + "a" * 64
     execution.save()
     return execution, claim
+
+
+@pytest.fixture
+def routine_tool_claim(routine_context):  # noqa: F811
+    command, _routine = dispatch(routine_context)
+    claim = claim_next_execution(routine_context["context"], uuid4(), 2)
+    return command, claim
+
+
+@override_settings(
+    ALLIES_CLOUD_URL="https://cloud.example.test",
+    ALLIES_CLOUD_EVENT_SERVICE_TOKEN="service-secret",
+)
+def test_routine_run_relays_dispatch_identity_to_integrations(
+    routine_tool_claim, monkeypatch
+):
+    command, claim = routine_tool_claim
+    captured = []
+
+    class Response(BytesIO):
+        status = 200
+
+    class Opener:
+        def open(self, request, timeout):
+            captured.append(request)
+            return Response(b'{"messages":[]}')
+
+    monkeypatch.setattr(
+        "runtime.services.routine_tools.build_opener", lambda *a: Opener()
+    )
+    assert call_integration_tool(
+        routine_tool_token(claim),
+        call_id=uuid4(),
+        integration="gmail",
+        arguments={"action": "search"},
+    ) == (200, {"messages": []})
+    body = json.loads(captured[0].data)
+    assert body["run_id"] == str(command.run_id)
+    assert body["binding_id"] == str(command.cloud_binding_id)
+    assert body["command_fingerprint"] == command.fingerprint
+    assert "message_id" not in body
+
+
+def test_routine_run_never_reaches_routine_management(routine_tool_claim, monkeypatch):
+    _, claim = routine_tool_claim
+    monkeypatch.setattr(
+        "runtime.services.routine_tools.build_opener",
+        lambda *a: pytest.fail("routine management reached network"),
+    )
+    with pytest.raises(RuntimeAuthorizationError, match="tool capability unavailable"):
+        call_routine_tool(
+            routine_tool_token(claim), call_id=uuid4(), arguments={"action": "list"}
+        )
 
 
 @override_settings(

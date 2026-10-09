@@ -27,7 +27,7 @@ from ..exceptions import IntegrationUnavailable, ProviderUnavailable, RefreshRev
 from ..models import PROVIDER_CALENDAR, IntegrationSecret, IntegrationToolCall
 from .google_oauth import gmail_enabled, refresh_access_token
 from .grants import check_grant
-from .turns import resolve_tool_turn
+from .turns import resolve_tool_turn, routine_action_unavailable
 
 CALENDAR_API = "https://www.googleapis.com/calendar/v3/calendars/primary"
 CALENDAR_TIMEOUT_SECONDS = 8
@@ -68,6 +68,8 @@ _OPERATION = {
     "update_event": "calendar write",
     "delete_event": "calendar write",
 }
+# Routine turns have no chat message, so replay ledgers are unavailable and writes are refused.
+ROUTINE_CALENDAR_ACTIONS = {"list_events", "get_event"}
 _FIELDS = {
     "list_events": {"time_min", "time_max", "query", "max_results"},
     "get_event": {"event_id"},
@@ -200,7 +202,8 @@ NOT_GRANTED = _error(
 
 def execute_calendar_tool(
     *,
-    message_id: UUID,
+    message_id: UUID | None = None,
+    run_id: UUID | None = None,
     binding_id: UUID,
     command_fingerprint: str,
     call_id: UUID,
@@ -214,14 +217,23 @@ def execute_calendar_tool(
             "invalid_calendar_request",
             "Check the action and its fields; ask the user for anything missing.",
         )
-    message = resolve_tool_turn(message_id, binding_id, command_fingerprint)
-    ally = message.conversation.ally
+    turn = resolve_tool_turn(
+        message_id=message_id,
+        run_id=run_id,
+        binding_id=binding_id,
+        command_fingerprint=command_fingerprint,
+    )
+    ally = turn.ally
+    message = turn.message
+    if message is None and args.action not in ROUTINE_CALENDAR_ACTIONS:
+        return routine_action_unavailable()
     digest = hashlib.sha256(
         json.dumps(arguments, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    replayed = _replay(message, call_id, digest)
-    if replayed is not None:
-        return replayed
+    if message is not None:
+        replayed = _replay(message, call_id, digest)
+        if replayed is not None:
+            return replayed
 
     if not gmail_enabled():
         return NOT_CONNECTED
