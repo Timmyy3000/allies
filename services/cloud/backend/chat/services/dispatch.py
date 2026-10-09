@@ -263,19 +263,30 @@ def _command_for_message(message: Message) -> tuple[ExecutionCommand, bytes, str
 def _routine_contexts_for_message(message: Message):
     from activities.models import RoutineResultContext
 
-    return tuple(
+    pending = tuple(
         RoutineResultContext.objects.filter(
             conversation_id=message.conversation_id,
             consumed_at__isnull=True,
         ).order_by("created_at", "id")
     )
+    return _oldest_routine_contexts_within_budget(message, pending)
 
 
-def _model_input_text(message: Message) -> str:
-    contexts = _routine_contexts_for_message(message)
+def _oldest_routine_contexts_within_budget(message: Message, pending) -> tuple:
+    fitted: tuple = ()
+    for context in pending:
+        candidate = (*fitted, context)
+        text = "\n\n".join(_model_input_parts(message, candidate))
+        if len(text.encode("utf-8")) > MAX_COMMAND_TEXT_BYTES:
+            break
+        fitted = candidate
+    return fitted
+
+
+def _model_input_parts(message: Message, contexts) -> list[str]:
     routine_action = getattr(message, "routine_action", None)
     if not contexts and not message.client_timezone and routine_action is None:
-        return message.content
+        return [message.content]
     parts = [context.context_text for context in contexts]
     if message.client_timezone:
         parts.append(
@@ -291,7 +302,13 @@ def _model_input_text(message: Message) -> str:
             )
         )
     parts.append(f"[User message]\n{message.content}")
-    text = "\n\n".join(parts)
+    return parts
+
+
+def _model_input_text(message: Message) -> str:
+    text = "\n\n".join(
+        _model_input_parts(message, _routine_contexts_for_message(message))
+    )
     if len(text.encode("utf-8")) > MAX_COMMAND_TEXT_BYTES:
         raise DispatchConflict("routine result context exceeds command budget")
     return text
@@ -444,16 +461,9 @@ def ensure_dispatch_after_accept(message: Message) -> None:
         except DispatchUnavailable:
             return
         except (DispatchConflict, ValueError):
-            DispatchOutbox.objects.get_or_create(
-                message=locked,
-                defaults={
-                    "status": DispatchState.FAILED,
-                    "safe_error_code": "command_invalid",
-                    "next_attempt_at": None,
-                    "completed_at": timezone.now(),
-                },
+            _mark_pre_call_failure_for_message(
+                locked, "command_invalid", now=timezone.now()
             )
-            return
         locked.refresh_from_db(fields=("execution_claimed_at", "deleted_at", "status"))
         if locked.execution_claimed_at is not None and _enabled():
             transaction.on_commit(_schedule_dispatch)

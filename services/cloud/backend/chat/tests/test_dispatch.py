@@ -9,8 +9,11 @@ import pytest
 from django.test import override_settings
 from django.utils import timezone
 
+import chat.services.dispatch as dispatch_module
+from activities.models import RoutineResultContext
 from allies.exceptions import FoundryGatewayRetryable, FoundryGatewayUnknownOutcome
 from allies.gateways.contracts import (
+    MAX_COMMAND_TEXT_BYTES,
     ExecutionCommand,
     ExecutionReceipt,
     FirstTurnBootstrap,
@@ -20,6 +23,7 @@ from allies.gateways.contracts import (
 from allies.models import Ally, AllyBinding, BindingStatus
 from auths.models import User
 from chat.exceptions import (
+    DispatchConflict,
     OnboardingHandoffRepairRequired,
     OnboardingHandoffUnavailable,
 )
@@ -1112,3 +1116,71 @@ def test_exhausted_not_found_stays_reconciliation_needed(dispatch_records, monke
 
     second_report = dispatch_pending_messages(now=timezone.now() + timedelta(days=1))
     assert second_report.claimed == 0
+
+
+@pytest.mark.django_db
+@override_settings(ALLIES_FOUNDRY_EXECUTION_ENABLED=True)
+def test_admission_failure_terminalizes_send_and_later_sends_still_claim(
+    dispatch_records, monkeypatch
+):
+    workspace, _binding, conversation, message = dispatch_records
+    Message.objects.filter(pk=message.pk).update(status=MessageLifecycle.COMPLETED)
+    real_model_input_text = dispatch_module._model_input_text
+
+    def fail_first_send(command_message):
+        if command_message.content == "first send":
+            raise DispatchConflict("model input exceeds command budget")
+        return real_model_input_text(command_message)
+
+    monkeypatch.setattr(dispatch_module, "_model_input_text", fail_first_send)
+
+    first = accept_message(
+        user=workspace.owner,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        content="first send",
+        idempotency_key="first-send-key-0001",
+    )
+    second = accept_message(
+        user=workspace.owner,
+        workspace_id=workspace.id,
+        conversation_id=conversation.id,
+        content="second send",
+        idempotency_key="second-send-key-0001",
+    )
+
+    first.message.refresh_from_db()
+    second.message.refresh_from_db()
+    assert first.message.status == MessageLifecycle.FAILED
+    assert DispatchOutbox.objects.get(message=first.message).safe_error_code == (
+        "command_invalid"
+    )
+    assert second.message.execution_claimed_at is not None
+    assert DispatchOutbox.objects.get(message=second.message).status == (
+        DispatchState.PENDING
+    )
+
+
+def _pending_routine_context(index: int, size: int) -> RoutineResultContext:
+    return RoutineResultContext(
+        context_text=f"[Routine result] {index}\n" + "r" * size,
+    )
+
+
+def test_routine_backlog_attaches_oldest_results_that_fit_the_command_budget():
+    message = Message(
+        content="Any update?",
+        client_timezone="Europe/Berlin",
+        created_at=timezone.now(),
+    )
+    pending = [_pending_routine_context(index, 2_000) for index in range(26)]
+
+    fitted = dispatch_module._oldest_routine_contexts_within_budget(message, pending)
+
+    assert 0 < len(fitted) < len(pending)
+    assert list(fitted) == pending[: len(fitted)]
+    fitted_text = "\n\n".join(dispatch_module._model_input_parts(message, fitted))
+    assert len(fitted_text.encode("utf-8")) <= MAX_COMMAND_TEXT_BYTES
+    one_more = pending[: len(fitted) + 1]
+    one_more_text = "\n\n".join(dispatch_module._model_input_parts(message, one_more))
+    assert len(one_more_text.encode("utf-8")) > MAX_COMMAND_TEXT_BYTES
