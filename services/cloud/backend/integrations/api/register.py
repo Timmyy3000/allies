@@ -5,7 +5,7 @@ from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
 from django.http import HttpRequest, JsonResponse
 from ninja_extra import NinjaExtraAPI
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from auths.exceptions import WorkspaceAccessDenied
 from integrations.api.controllers import (
@@ -41,12 +41,19 @@ def _foundry_token_valid(request: HttpRequest) -> bool:
 
 class IntegrationToolEnvelope(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    message_id: UUID
+    message_id: UUID | None = None
+    run_id: UUID | None = None
     binding_id: UUID
     command_fingerprint: str
     call_id: UUID
     integration: str
     arguments: dict
+
+    @model_validator(mode="after")
+    def one_turn_identity(self):
+        if (self.message_id is None) == (self.run_id is None):
+            raise ValueError("exactly one tool turn identity is required")
+        return self
 
 
 def register(api: NinjaExtraAPI) -> None:

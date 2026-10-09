@@ -21,7 +21,7 @@ from common.vault import seal_secret, unseal_secret
 from ..exceptions import IntegrationInvalid
 from ..models import SafeInput, SafeInputGrant, SafeInputRequest
 from . import browser
-from .turns import resolve_tool_turn
+from .turns import resolve_tool_turn, routine_action_unavailable
 
 logger = logging.getLogger(__name__)
 
@@ -110,13 +110,29 @@ def _metadata(item: SafeInput) -> dict:
 # Relay (Ally side) -------------------------------------------------------
 
 
+# Filling a login into a website acts outside Allies, so routine runs cannot do it.
+ROUTINE_SAFE_INPUT_ACTIONS = {"list", "request_new", "request_access", "status"}
+
+
 def execute_safe_input_tool(
-    *, message_id, binding_id, command_fingerprint, call_id, arguments
+    *,
+    message_id=None,
+    run_id=None,
+    binding_id,
+    command_fingerprint,
+    call_id,
+    arguments,
 ) -> tuple[int, dict]:
-    ally = resolve_tool_turn(
-        message_id, binding_id, command_fingerprint
-    ).conversation.ally
+    turn = resolve_tool_turn(
+        message_id=message_id,
+        run_id=run_id,
+        binding_id=binding_id,
+        command_fingerprint=command_fingerprint,
+    )
+    ally = turn.ally
     action = arguments.get("action")
+    if turn.message is None and action not in ROUTINE_SAFE_INPUT_ACTIONS:
+        return routine_action_unavailable()
     try:
         if action == "list":
             granted = set(
@@ -184,11 +200,20 @@ def _pending_or_create(ally, **fields) -> SafeInputRequest:
 
 
 def execute_browser_tool(
-    *, message_id, binding_id, command_fingerprint, call_id, arguments
+    *,
+    message_id=None,
+    run_id=None,
+    binding_id,
+    command_fingerprint,
+    call_id,
+    arguments,
 ) -> tuple[int, dict]:
     ally = resolve_tool_turn(
-        message_id, binding_id, command_fingerprint
-    ).conversation.ally
+        message_id=message_id,
+        run_id=run_id,
+        binding_id=binding_id,
+        command_fingerprint=command_fingerprint,
+    ).ally
     if arguments.get("action") == "open":
         result = browser.open_browser(ally)
         return (429 if result.get("error") == "browser_limit_reached" else 200), result
