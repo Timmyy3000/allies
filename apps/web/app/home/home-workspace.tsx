@@ -3173,34 +3173,17 @@ function ConversationPane({
     }
   };
   const steerQueuedMessage = async (id: string) => {
-    if (!conversation || conversationAccessFailure || !turnInProgress || !supportsQueueMessageLocks()) return;
-    await withQueueMessageLock(queuedMessagesStorageKey, id, async () => {
-      const head = readLiveQueuedMessages(queuedMessagesStorageKey)[0];
-      if (!head || head.id !== id || head.fileTransferId || head.attemptedAt !== undefined
-        || conversationQueueMessages.some((message) => message.id !== activeMessageId)
-        || !markQueuedMessageAttempt(queuedMessagesStorageKey, id, commitQueuedMessages, "")) {
-        setQueuePersistenceError(STEER_ERROR);
-        return;
-      }
-      try {
-        const accepted = await session.runCloudOperation(
-          (signal) => session.client.steerConversation(workspaceId, conversation.id, head.content, head.intentKey, signal),
-          { csrf: true },
-        );
-        if (!accepted?.message) throw { kind: "contract" };
-        rememberAcceptedMessage(accepted.message);
-        if (removeLocalQueuedMessage(id)) {
-          setQueuePersistenceError(null);
-        } else {
-          blockedQueuedMessageIdsRef.current.add(id);
-          setQueuePersistenceError(QUEUED_MESSAGE_REMOVAL_ERROR);
-        }
-      } catch (error) {
-        if (applyConversationAccessFailure(error)) return;
-        setQueuePersistenceError(STEER_ERROR);
-        return;
-      }
-    });
+    if (!conversation || conversationAccessFailure || !turnInProgress) return;
+    try {
+      await session.runCloudOperation(
+        (signal) => session.client.steerQueuedMessage(workspaceId, conversation.id, id, signal),
+        { csrf: true },
+      );
+      setQueuePersistenceError(null);
+    } catch (error) {
+      if (applyConversationAccessFailure(error)) return;
+      setQueuePersistenceError(STEER_ERROR);
+    }
     await queryClient.invalidateQueries({ queryKey: conversationQueryKey(workspaceId, ally.id) });
   };
   const fileMessageIds = new Set(timelineMessages.filter(message => message.files?.length || message.preparation && message.preparation !== "none").map(message => message.id));
@@ -3224,10 +3207,6 @@ function ConversationPane({
     messages: [...visibleFrameMessages, ...immediateFrameMessages],
     queuedMessages: baseFrameModel.queuedMessages.filter((message) => !immediateMessageIds.has(message.id) && !(fileMessageIds.has(message.id) && !queuedAttachmentIds.has(message.id))),
   };
-  const queueHeadId = frameModel.queuedMessages[0]?.id;
-  const steerableQueuedMessageId = supportsQueueMessageLocks() && queuedMessages.some((message) => (
-    message.id === queueHeadId && !message.fileTransferId && message.attemptedAt === undefined
-  )) ? queueHeadId : undefined;
   const frameActions: ProductionConversationFrameActions = {
     onDraftChange: (value) => {
       const beganInteracting = !draftRef.current.trim() && Boolean(value.trim());
@@ -3250,7 +3229,6 @@ function ConversationPane({
     onRemoveQueuedMessage: (id) => void removeQueuedMessage(id),
     onStop: turnInProgress ? () => void stop() : undefined,
     onSteerQueuedMessage: turnInProgress ? (id) => void steerQueuedMessage(id) : undefined,
-    steerableQueuedMessageId: turnInProgress ? steerableQueuedMessageId : undefined,
     onCheckAgain: checkActivityAgain,
     onRetryActivityHistory: retryActivityHistory,
     onOpenRoutine: (routineId) => {
@@ -3652,6 +3630,7 @@ export function buildQueuedFrameMessages(
       id: message.id,
       content: message.content,
       removable: isCloudQueueMessageRemovable(message),
+      steerable: message.queueState === "unclaimed" && message.id !== activeMessageId && cloudQueuedAttachmentStatus(message) === null,
       statusLabel: cloudQueuedAttachmentStatus(message) ?? (message.id === activeMessageId && !activeMessageHasProgress ? "Queued" : null),
       ...(message.files?.length ? {
         attachments: message.files.map((file) => ({

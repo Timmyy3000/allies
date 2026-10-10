@@ -97,6 +97,7 @@ class Message(models.Model):
         default=MessageLifecycle.QUEUED,
     )
     execution_claimed_at = models.DateTimeField(null=True, blank=True, editable=False)
+    steered_at = models.DateTimeField(null=True, blank=True, editable=False)
     foundry_binding_id = models.UUIDField(null=True, blank=True, editable=False)
     deleted_at = models.DateTimeField(null=True, blank=True, editable=False)
     send_key_digest = models.CharField(

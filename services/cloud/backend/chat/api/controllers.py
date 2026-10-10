@@ -21,7 +21,6 @@ from chat.api.schemas import (
     MessageResponse,
     RoutineChatItemResponse,
     SendMessageRequest,
-    SteerRequest,
     StopConversationResponse,
 )
 from chat.exceptions import (
@@ -45,7 +44,7 @@ from chat.services.messages import (
     delete_queued_message,
     message_response,
     retry_message,
-    steer_conversation,
+    steer_queued_message,
     stop_conversation,
 )
 from common.uuids import CanonicalUUID
@@ -264,11 +263,10 @@ class ConversationController(ControllerBase):
         )
 
     @http_post(
-        "/conversations/{conversation_id}/steer",
+        "/conversations/{conversation_id}/messages/{message_id}/steer",
         response={
-            200: SuccessResponse[MessageAcceptanceResponse],
-            201: SuccessResponse[MessageAcceptanceResponse],
-            **error_responses(401, 403, 404, 409, 422, 429, 500),
+            200: SuccessResponse[MessageResponse],
+            **error_responses(401, 403, 404, 409, 500),
         },
     )
     def steer(
@@ -276,38 +274,24 @@ class ConversationController(ControllerBase):
         request: HttpRequest,
         workspace_id: CanonicalUUID,
         conversation_id: CanonicalUUID,
-        payload: SteerRequest,
-        idempotency_key: Annotated[
-            str,
-            Header(
-                alias="Idempotency-Key",
-                min_length=16,
-                max_length=128,
-                description="Stable key for repeating the exact steer.",
-            ),
-        ],
+        message_id: CanonicalUUID,
     ):
         if rejected := _require_origin(request, allow_native_bearer=True):
             return rejected
         try:
             session = _session(request)
-            result = steer_conversation(
+            message = steer_queued_message(
                 user=session.user,
                 workspace_id=workspace_id,
                 conversation_id=conversation_id,
-                content=payload.content,
-                idempotency_key=idempotency_key,
+                message_id=message_id,
             )
         except Exception as exc:
             response = _read_error(exc, request)
             if response is not None:
                 return response
             raise
-        return success_json(
-            _acceptance_response(result),
-            "Steer accepted",
-            status=200 if result.replayed else 201,
-        )
+        return success_json(_message_response(message), "Message steered")
 
     @http_post(
         "/conversations/{conversation_id}/messages/{message_id}/retry",

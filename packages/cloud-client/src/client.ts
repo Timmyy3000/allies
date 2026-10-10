@@ -1115,29 +1115,31 @@ export function createCloudClient(options: CloudClientOptions) {
       );
     },
 
-    async steerConversation(
+    async steerQueuedMessage(
       workspaceId: string,
       conversationId: string,
-      content: string,
-      idempotencyKey: string,
+      messageId: string,
       signal?: AbortSignal,
-    ): Promise<MessageAcceptanceViewModel> {
+    ): Promise<MessageViewModel> {
       rejectPreAborted(signal);
       const workspace = parsePathSegment(workspaceId);
       const conversation = parsePathSegment(conversationId);
-      const body = parseInput(messageContentSchema, content);
-      const key = parseIdempotencyKey(idempotencyKey);
+      const message = parsePathSegment(messageId);
       return unwrap(
-        api.POST("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/steer", {
+        api.POST("/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/steer", {
           params: {
-            path: { workspace_id: workspace, conversation_id: conversation },
-            header: { "Idempotency-Key": key },
+            path: { workspace_id: workspace, conversation_id: conversation, message_id: message },
           },
-          body: { content: body },
           signal: normalizeRequestSignal(signal),
         }) as Promise<ApiResult>,
-        (data) => toMessageAcceptanceViewModel(successEnvelope(messageAcceptanceResponseSchema).parse(data).data),
-        [200, 201],
+        (data) => {
+          const steered = toMessageViewModel(successEnvelope(messageResponseSchema).parse(data).data);
+          if (steered.id !== message) {
+            throw { kind: "contract" } satisfies CloudError;
+          }
+          return steered;
+        },
+        [200],
       );
     },
 

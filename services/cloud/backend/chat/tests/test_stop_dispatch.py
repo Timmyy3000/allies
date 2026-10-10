@@ -4,7 +4,7 @@ from django.utils import timezone
 from allies.exceptions import FoundryGatewayUnknownOutcome
 from chat.models import DispatchOutbox, DispatchState, Message
 from chat.services.dispatch import dispatch_accepted_message, dispatch_pending_messages
-from chat.services.messages import complete_turn, delete_queued_message
+from chat.services.messages import complete_turn
 from chat.tests import test_dispatch, test_queue_api
 
 queue_settings = test_queue_api.queue_settings
@@ -67,43 +67,30 @@ def test_steer_stop_keeps_original_identity_after_completion(
 ):
     user, workspace, _ally, conversation, messages = queue_account
     head, tail = messages
-    delete_queued_message(
-        user=user,
-        workspace_id=workspace.id,
-        conversation_id=conversation.id,
-        message_id=tail.id,
-    )
     targets = []
 
     def stop(conversation_id, *, workspace_id=None, message_id=None):
         complete_turn(message_id=head.id, status="completed")
-        successor = Message.objects.get(conversation=conversation, content="Steered")
-        assert successor.execution_claimed_at is not None
+        steered = Message.objects.get(pk=tail.id)
+        assert steered.execution_claimed_at is not None
         targets.append((workspace_id, conversation_id, message_id))
         return 0
 
     monkeypatch.setattr("allies.gateways.foundry.stop_conversation", stop)
     client, headers = test_queue_api.authenticated_client(user)
     response = client.post(
-        f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/steer",
-        '{"content":"Steered"}',
-        content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="stop-selected-identity-0001",
+        f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/messages/{tail.id}/steer",
         **headers,
     )
-    assert response.status_code == 201
+    assert response.status_code == 200
+    assert response.json()["data"]["id"] == str(tail.id)
     assert targets == [(workspace.id, conversation.id, head.id)]
-    successor = Message.objects.get(pk=response.json()["data"]["message"]["id"])
-    assert successor.status == "queued"
     replay = client.post(
-        f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/steer",
-        '{"content":"Steered"}',
-        content_type="application/json",
-        HTTP_IDEMPOTENCY_KEY="stop-selected-identity-0001",
+        f"/api/v1/workspaces/{workspace.id}/conversations/{conversation.id}/messages/{tail.id}/steer",
         **headers,
     )
     assert replay.status_code == 200
-    assert replay.json()["data"]["message"]["id"] == str(successor.id)
+    assert replay.json()["data"]["id"] == str(tail.id)
     assert targets == [(workspace.id, conversation.id, head.id)]
 
 

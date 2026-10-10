@@ -28,6 +28,7 @@ const ally = {
   show_label: false,
   settings_revision: 0,
   deletion_state: "active",
+  recent_activity: false,
 } as const;
 
 const listResponse = defineApiFixture("/api/v1/workspaces/{workspace_id}/allies", "get", 200, {
@@ -192,6 +193,29 @@ describe("Ally and conversation Cloud client boundary", () => {
     abort.abort();
     await expect(client.deleteQueuedMessage(ids.workspace, ids.conversation, ids.userMessage, abort.signal)).rejects.toMatchObject({ kind: "aborted" });
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("steers one queued message by id and rejects a steer receipt for another message", async () => {
+    const steered = { ...acceptanceResponse.data.message, queue_state: "unclaimed" };
+    const requests: Request[] = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push(input instanceof Request ? input : new Request(input, init));
+      return Response.json({ status: "success", message: "Message steered", data: steered });
+    });
+    const client = createCloudClient({ baseUrl: "https://cloud.example.com", fetch, prepareRequest: (request) => {
+      request.headers.set("X-CSRFToken", "test-csrf");
+      return request;
+    } });
+    expect(await client.steerQueuedMessage(ids.workspace, ids.conversation, ids.userMessage))
+      .toMatchObject({ id: ids.userMessage, queueState: "unclaimed" });
+    expect(requests).toHaveLength(1);
+    expect(requests[0].method).toBe("POST");
+    expect(requests[0].headers.get("X-CSRFToken")).toBe("test-csrf");
+    expect(new URL(requests[0].url).pathname).toBe(
+      `/api/v1/workspaces/${ids.workspace}/conversations/${ids.conversation}/messages/${ids.userMessage}/steer`,
+    );
+    await expect(client.steerQueuedMessage(ids.workspace, ids.conversation, ids.assistantMessage))
+      .rejects.toMatchObject({ kind: "contract" });
   });
 
   it("maps the published Ally, onboarding, conversation, message, and activity operations", async () => {

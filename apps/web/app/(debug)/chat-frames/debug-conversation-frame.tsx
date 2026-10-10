@@ -87,9 +87,8 @@ export function DebugConversationFrame({ model, actions }: DebugConversationFram
       <footer className={frameStyles.frameComposerArea}>
         {model.queue.length > 0 ? (
           <QueueStack
-            items={model.queue}
-            actionLabel={model.queueAction === "push" ? "Push" : undefined}
-            onAction={model.queueAction ? () => actions.onAction("push") : undefined}
+            items={model.queue.map((item) => ({ ...item, steerable: model.queueAction === "push" }))}
+            onSteer={model.queueAction ? () => actions.onAction("push") : undefined}
             onRemove={actions.onRemoveQueue}
           />
         ) : null}

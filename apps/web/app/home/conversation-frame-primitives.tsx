@@ -381,16 +381,12 @@ export function ActivityDisclosure({
 export function QueueStack({
   items,
   onRemove,
-  actionLabel = "",
-  actionId,
-  onAction,
+  onSteer,
   onAttachmentOpen,
 }: {
-  items: readonly { id: string; content: string; removable?: boolean; statusLabel?: string | null; attachments?: QueuedAttachmentPreview[] }[];
+  items: readonly { id: string; content: string; removable?: boolean; steerable?: boolean; statusLabel?: string | null; attachments?: QueuedAttachmentPreview[] }[];
   onRemove?: (id: string) => void;
-  actionLabel?: string;
-  actionId?: string;
-  onAction?: (id: string) => void;
+  onSteer?: (id: string) => void;
   onAttachmentOpen?: (file: QueuedAttachmentPreview) => void;
 }) {
   const reducedMotion = useReducedMotion();
@@ -419,7 +415,7 @@ export function QueueStack({
               </span>
             ) : null}
             <span title={item.attachments?.length ? `${item.content} (${item.attachments.map((file) => file.name).join(", ")})` : item.content}>{item.content}</span>
-            {actionLabel && onAction && (actionId === undefined || item.id === actionId) ? <button type="button" onClick={() => onAction(item.id)}>{actionLabel}</button> : null}
+            {onSteer && item.steerable ? <button type="button" onClick={() => onSteer(item.id)}>Steer now</button> : null}
             {item.statusLabel ? <span aria-label={item.statusLabel}>{item.statusLabel}</span> : null}
             {onRemove && item.removable !== false ? (
               <button type="button" aria-label={`Remove queued message: ${item.content}`} onClick={() => onRemove(item.id)}>
