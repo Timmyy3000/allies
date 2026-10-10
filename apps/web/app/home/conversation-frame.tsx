@@ -509,7 +509,7 @@ export function ConversationFrame({ model, actions, onOpenSettings, canvasRef, s
         ) : null}
         {model.composer.sendError ? <p className={styles.frameComposerError} role="alert">{model.composer.sendError}</p> : null}
         {model.queuedMessages.length > 0 ? (
-          <QueueStack items={model.queuedMessages} onRemove={actions.onRemoveQueuedMessage} actionLabel="Steer now" actionId={actions.steerableQueuedMessageId} onAction={actions.steerableQueuedMessageId ? actions.onSteerQueuedMessage : undefined} onAttachmentOpen={onQueueAttachmentOpen} />
+          <QueueStack items={model.queuedMessages} onRemove={actions.onRemoveQueuedMessage} onSteer={actions.onSteerQueuedMessage} onAttachmentOpen={onQueueAttachmentOpen} />
         ) : null}
         <ConversationComposer
           attachments={attachments}

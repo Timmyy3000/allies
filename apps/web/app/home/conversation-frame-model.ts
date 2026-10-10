@@ -68,6 +68,7 @@ export interface ProductionQueuedMessageModel {
   id: string;
   content: string;
   removable?: boolean;
+  steerable?: boolean;
   statusLabel?: string | null;
   attachments?: QueuedAttachmentPreview[];
 }
@@ -288,7 +289,6 @@ export interface ProductionConversationFrameActions {
   onRemoveQueuedMessage: (id: string) => void;
   onStop?: () => void;
   onSteerQueuedMessage?: (id: string) => void;
-  steerableQueuedMessageId?: string;
   onCheckAgain: () => void;
   onRetryActivityHistory: () => void;
   onScroll: (event: UIEvent<HTMLDivElement>) => void;
@@ -445,6 +445,7 @@ export function buildProductionConversationFrameModel(
       id: item.id,
       content: item.content,
       removable: item.removable,
+      steerable: item.steerable,
       statusLabel: item.statusLabel,
       ...(item.attachments ? { attachments: item.attachments } : {}),
     }))],
