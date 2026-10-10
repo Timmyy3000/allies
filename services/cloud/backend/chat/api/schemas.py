@@ -53,12 +53,6 @@ class SendMessageRequest(Schema):
     routine_action: RoutineMessageAction | None = None
 
 
-class SteerRequest(Schema):
-    model_config = ConfigDict(extra="forbid")
-
-    content: str = Field(min_length=1, max_length=16_000)
-
-
 class StopConversationResponse(Schema):
     stop_requested: bool
 

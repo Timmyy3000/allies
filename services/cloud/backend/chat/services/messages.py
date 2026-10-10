@@ -11,7 +11,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max
+from django.db.models import F, Max
 from django.utils import timezone
 
 from allies.models import Ally, AllyDeletionState, ProvisioningStatus
@@ -348,6 +348,14 @@ def _retry_file_ids(*, user: User, context, original: Message) -> tuple[UUID, ..
     return tuple(link.file_id for link in links)
 
 
+def _preparation_claimable(message: Message) -> bool:
+    if message.preparation == MessagePreparation.NONE:
+        return True
+    if message.preparation == MessagePreparation.READY and message.send_armed:
+        return bool(getattr(settings, "ALLIES_FILE_INPUT_DELIVERY_ENABLED", False))
+    return False
+
+
 def _claim_next_turn_locked(
     *, conversation: Conversation, now: datetime | None = None
 ) -> Message | None:
@@ -377,17 +385,10 @@ def _claim_next_turn_locked(
             deleted_at__isnull=True,
             execution_claimed_at__isnull=True,
         )
-        .order_by("sequence", "id")
+        .order_by(F("steered_at").desc(nulls_last=True), "sequence", "id")
         .first()
     )
-    if message is None:
-        return None
-    if message.preparation == MessagePreparation.NONE:
-        pass
-    elif message.preparation == MessagePreparation.READY and message.send_armed:
-        if not bool(getattr(settings, "ALLIES_FILE_INPUT_DELIVERY_ENABLED", False)):
-            return None
-    else:
+    if message is None or not _preparation_claimable(message):
         return None
     message.execution_claimed_at = now or timezone.now()
     message.save(update_fields=("execution_claimed_at", "updated_at"))
@@ -798,48 +799,51 @@ def stop_conversation(
     return True
 
 
-def steer_conversation(
+def steer_queued_message(
     *,
     user: User,
     workspace_id: UUID | str,
     conversation_id: UUID | str,
-    content: object,
-    idempotency_key: object,
-) -> MessageAcceptance:
+    message_id: UUID | str,
+) -> Message:
+    """Make one unclaimed queued send the next turn and stop the active turn."""
+
     context = require_workspace_capability(
         user=user,
         workspace_id=workspace_id,
         capability=Capability.WORKSPACE_WRITE,
     )
-    key_digest = _digest(_validate_send_key(idempotency_key))
+    parsed_message_id = _parse_uuid(message_id)
     with transaction.atomic():
         conversation = _conversation_for_send(
             workspace=context.workspace, conversation_id=conversation_id
         )
-        replay = Message.objects.filter(
-            conversation=conversation,
-            sender=MessageSender.USER,
-            origin=MessageOrigin.SEND,
-            send_key_digest=key_digest,
-        ).exists()
-        active = _active_turn(conversation)
-        if not replay and (
-            active is None
-            or _live_sends(conversation)
-            .filter(execution_claimed_at__isnull=True)
-            .exists()
+        try:
+            message = Message.objects.select_for_update().get(
+                pk=parsed_message_id, conversation=conversation
+            )
+        except Message.DoesNotExist as exc:
+            raise ConversationUnavailable("conversation unavailable") from exc
+        if (
+            message.sender != MessageSender.USER
+            or message.origin != MessageOrigin.SEND
+            or message.status not in NONTERMINAL_MESSAGE_STATUSES
+            or message.deleted_at is not None
         ):
-            raise SteerUnavailable("no active turn to steer")
-        result = accept_message(
-            user=user,
-            workspace_id=workspace_id,
-            conversation_id=conversation_id,
-            content=content,
-            idempotency_key=idempotency_key,
-        )
-    if active is not None and result.message.execution_claimed_at is None:
-        _stop_turn(active)
-    return result
+            raise SteerUnavailable("message is not steerable")
+        if message.steered_at is not None:
+            return message
+        active = _active_turn(conversation)
+        if (
+            active is None
+            or message.execution_claimed_at is not None
+            or not _preparation_claimable(message)
+        ):
+            raise SteerUnavailable("message is not steerable")
+        message.steered_at = timezone.now()
+        message.save(update_fields=("steered_at", "updated_at"))
+    _stop_turn(active)
+    return message
 
 
 def complete_turn(*, message_id: UUID | str, status: str) -> Message:
