@@ -190,7 +190,7 @@ def test_steer_is_unavailable_after_the_message_turn_completes(
     assert calls == []
 
 
-def test_steer_repeat_is_idempotent_and_stops_only_once(queue_account, foundry_stops):
+def test_steer_repeat_restops_the_same_turn_until_claimed(queue_account, foundry_stops):
     user, workspace, _ally, conversation, messages = queue_account
     head, tail = messages
     calls, _result = foundry_stops
@@ -205,7 +205,7 @@ def test_steer_repeat_is_idempotent_and_stops_only_once(queue_account, foundry_s
     assert replay.status_code == 200
     assert claimed_replay.status_code == 200
     assert claimed_replay.json()["data"]["queue_state"] == "claimed"
-    assert calls == [(workspace.id, conversation.id, head.id)]
+    assert calls == [(workspace.id, conversation.id, head.id)] * 2
 
 
 def test_steer_rejects_message_whose_files_are_not_ready(queue_account, foundry_stops):
@@ -224,7 +224,7 @@ def test_steer_rejects_message_whose_files_are_not_ready(queue_account, foundry_
     assert calls == []
 
 
-def test_steer_stop_failure_keeps_steer_for_the_next_turn(
+def test_steer_retry_after_stop_failure_stops_the_turn(
     queue_account, foundry_stops, monkeypatch
 ):
     from allies.exceptions import FoundryGatewayError
@@ -242,5 +242,15 @@ def test_steer_stop_failure_keeps_steer_for_the_next_turn(
     assert failed.status_code == 500
     tail.refresh_from_db()
     assert tail.steered_at is not None
+    calls = []
+    monkeypatch.setattr(
+        "allies.gateways.foundry.stop_conversation",
+        lambda conversation_id, *, workspace_id, message_id: (
+            calls.append((workspace_id, conversation_id, message_id)) or 1
+        ),
+    )
+    retried = steer(client, headers, workspace, conversation, tail.id)
+    assert retried.status_code == 200
+    assert calls == [(workspace.id, conversation.id, head.id)]
     complete_turn(message_id=head.id, status="stopped")
     assert active_content(conversation) == "Private tail"

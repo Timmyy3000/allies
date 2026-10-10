@@ -831,7 +831,7 @@ def steer_queued_message(
             or message.deleted_at is not None
         ):
             raise SteerUnavailable("message is not steerable")
-        if message.steered_at is not None:
+        if message.steered_at is not None and message.execution_claimed_at is not None:
             return message
         active = _active_turn(conversation)
         if (
@@ -840,8 +840,9 @@ def steer_queued_message(
             or not _preparation_claimable(message)
         ):
             raise SteerUnavailable("message is not steerable")
-        message.steered_at = timezone.now()
-        message.save(update_fields=("steered_at", "updated_at"))
+        if message.steered_at is None:
+            message.steered_at = timezone.now()
+            message.save(update_fields=("steered_at", "updated_at"))
     _stop_turn(active)
     return message
 
