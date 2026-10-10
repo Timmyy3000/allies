@@ -15,6 +15,7 @@ import runtime.services.leases as lease_services
 from runtime.exceptions import (
     RuntimeAuthorizationError,
     RuntimeConflictError,
+    RuntimeLeaseConflictError,
     RuntimeValidationError,
 )
 from runtime.models import (
@@ -912,7 +913,7 @@ def test_attempt_mutation_and_events_require_active_lease(
     lease.save(update_fields=["state", "updated_at"])
     digest = digest_lease_token("stopping-token")
 
-    with pytest.raises(RuntimeAuthorizationError):
+    with pytest.raises(RuntimeLeaseConflictError):
         authorize_attempt_mutation(
             attempt.id,
             lease.id,
@@ -921,7 +922,7 @@ def test_attempt_mutation_and_events_require_active_lease(
             status=AttemptStatus.RUNNING,
             claimed_at=timezone.now(),
         )
-    with pytest.raises(RuntimeAuthorizationError):
+    with pytest.raises(RuntimeLeaseConflictError):
         append_event(
             attempt.id,
             lease.id,
