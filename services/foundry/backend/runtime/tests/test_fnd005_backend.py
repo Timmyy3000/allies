@@ -558,6 +558,53 @@ def test_expired_active_lease_cannot_complete_or_bind(runtime_setup):
         )
 
 
+def test_user_stop_answers_runtime_event_with_lease_conflict_and_acknowledges(
+    runtime_setup,
+):
+    _workspace, _profile, execution, issued = runtime_setup
+    client = Client()
+    headers = {"Authorization": f"Bearer {issued.raw_token}"}
+    claim = client.post(
+        "/api/v1/runtime/claims",
+        data={"claim_id": str(uuid4()), "available_slots": 2},
+        content_type="application/json",
+        headers=headers,
+    ).json()
+    Execution.objects.filter(pk=execution.id).update(status=ExecutionStatus.CANCELLED)
+    Lease.objects.filter(attempt_id=claim["attempt_id"]).update(
+        state=LeaseState.STOPPING
+    )
+
+    rejected = client.post(
+        f"/api/v1/runtime/attempts/{claim['attempt_id']}/events",
+        data={
+            "event_id": str(uuid4()),
+            "stream_id": claim["stream_id"],
+            "sequence": 1,
+            "type": "message.delta",
+            "payload": {"text": "after stop"},
+        },
+        content_type="application/json",
+        headers={**headers, "X-Foundry-Lease-Token": claim["lease_token"]},
+    )
+    assert rejected.status_code == 409, rejected.content
+    assert rejected.json()["code"] == "LEASE_CONFLICT"
+
+    acknowledged = client.post(
+        f"/api/v1/runtime/attempts/{claim['attempt_id']}/stopped",
+        data={"reason": "lease_lost"},
+        content_type="application/json",
+        headers={**headers, "X-Foundry-Lease-Token": claim["lease_token"]},
+    )
+    assert acknowledged.status_code == 200, acknowledged.content
+    assert (
+        Lease.objects.get(attempt_id=claim["attempt_id"]).state == LeaseState.RELEASED
+    )
+    assert ExecutionEvent.objects.get(
+        attempt_id=claim["attempt_id"], event_type="execution.stopped"
+    ).payload == {"reason": "user_requested"}
+
+
 def test_internal_api_claim_and_event(runtime_setup):
     _workspace, _profile, _execution, issued = runtime_setup
     client = Client()

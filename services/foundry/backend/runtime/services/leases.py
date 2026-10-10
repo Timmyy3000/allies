@@ -340,8 +340,12 @@ def _authorize_attempt_mutation(
         or lease.machine_generation != machine_generation
         or attempt.machine_generation != machine_generation
         or workspace.machine_generation != machine_generation
-        or lease.state != LeaseState.ACTIVE
     ):
+        raise RuntimeAuthorizationError("lease or machine generation is stale")
+    if lease.state == LeaseState.STOPPING:
+        # A stop is a conflict the runtime acknowledges, not a credential failure.
+        raise RuntimeLeaseConflictError("lease is stopping")
+    if lease.state != LeaseState.ACTIVE:
         raise RuntimeAuthorizationError("lease or machine generation is stale")
     if not profile_allows_runtime_write(profile):
         raise RuntimeAuthorizationError("profile lifecycle is not active")
