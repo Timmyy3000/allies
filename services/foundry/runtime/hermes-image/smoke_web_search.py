@@ -42,10 +42,10 @@ PAGE = {
 NOT_GRANTED = "Web search is off for this ally. Turn it on in Account → Connections."
 UNAVAILABLE = "Web search is temporarily unavailable. Try again later."
 LEGACY = {
-    "PARALLEL_API_KEY": "legacy-parallel-key-0001",
-    "TAVILY_API_KEY": "legacy-tavily-key-0001",
-    "EXA_API_KEY": "legacy-exa-key-0001",
-    "FIRECRAWL_API_KEY": "legacy-firecrawl-key-0001",
+    "PARALLEL_API_KEY": "legacy-parallel-key-0001",  # gitleaks:allow
+    "TAVILY_API_KEY": "legacy-tavily-key-0001",  # gitleaks:allow
+    "EXA_API_KEY": "legacy-exa-key-0001",  # gitleaks:allow
+    "FIRECRAWL_API_KEY": "legacy-firecrawl-key-0001",  # gitleaks:allow
     "SEARXNG_URL": "http://192.0.2.1:8888/",
 }
 
