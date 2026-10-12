@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import time
 from http.client import HTTPException
 from typing import Any
 from urllib.error import HTTPError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 MAX_RESPONSE_BYTES = 1024 * 1024
+READ_CHUNK_BYTES = 16 * 1024
 
 
 class ProviderError(Exception):
@@ -37,19 +39,28 @@ def _post(
         },
         method="POST",
     )
+    deadline = time.monotonic() + timeout
     try:
         with _OPENER.open(request, timeout=timeout) as response:
-            raw = response.read(MAX_RESPONSE_BYTES + 1)
+            raw = _read_until(response, deadline)
     except HTTPError as exc:
         raise ProviderError(exc.code) from None
     except (OSError, HTTPException):
         raise ProviderError(None) from None
-    if len(raw) > MAX_RESPONSE_BYTES:
-        raise ProviderError(None)
     try:
         return json.loads(raw)
     except ValueError:
         raise ProviderError(None) from None
+
+
+def _read_until(response: Any, deadline: float) -> bytes:
+    # read1 returns after one socket read, so the deadline is checked between reads.
+    raw = bytearray()
+    while chunk := response.read1(READ_CHUNK_BYTES):
+        raw += chunk
+        if len(raw) > MAX_RESPONSE_BYTES or time.monotonic() > deadline:
+            raise ProviderError(None)
+    return bytes(raw)
 
 
 def _parse_parallel(payload: Any) -> list[dict[str, Any]]:

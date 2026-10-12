@@ -22,9 +22,10 @@ from urllib.request import Request
 
 import pytest
 from cryptography.fernet import Fernet
-from django.db import IntegrityError, connection
+from django.db import IntegrityError, connection, transaction
 from django.test import Client
 from django.test.utils import CaptureQueriesContext
+from django.utils import timezone
 
 from allies.models import Ally, AllyBinding
 from auths.config import cookie_name
@@ -33,7 +34,9 @@ from auths.services.sessions import issue_session
 from common.vault import unseal_secret
 from integrations.models import PROVIDER_WEB_SEARCH, IntegrationSecret
 from integrations.services import web_search_backends
+from workspaces.capabilities import Capability
 from workspaces.models import Membership, Workspace
+from workspaces.services import access
 
 KEY = "sk-test-KEY-abcdefgh9876"  # gitleaks:allow
 OTHER_KEY = "sk-other-KEY-zyxwvu5432"  # gitleaks:allow
@@ -83,9 +86,41 @@ BACKENDS = list(EXPECTED_PROVIDER_CALLS)
 class FakeResponse:
     def __init__(self, body: bytes) -> None:
         self._body = body
+        self._offset = 0
 
-    def read(self, limit=-1):
-        return self._body if limit < 0 else self._body[:limit]
+    def read1(self, size):
+        chunk = self._body[self._offset : self._offset + size]
+        self._offset += len(chunk)
+        return chunk
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def monotonic(self):
+        return self.now
+
+
+class TrickleResponse:
+    """Serves queued pieces; each read costs the fake clock some seconds."""
+
+    def __init__(self, clock, pieces: list[bytes], seconds: float) -> None:
+        self.clock = clock
+        self.pieces = list(pieces)
+        self.seconds = seconds
+
+    def read1(self, size):
+        if not self.pieces:
+            return b""
+        self.clock.now += self.seconds
+        return self.pieces.pop(0)
 
     def __enter__(self):
         return self
@@ -100,6 +135,7 @@ class FakeProvider:
         self.status = None
         self.error = None
         self.body = None
+        self.stream = None
 
     def open(self, request, timeout=None):
         self.calls.append((request, timeout))
@@ -109,6 +145,8 @@ class FakeProvider:
             raise HTTPError(
                 request.full_url, self.status, "provider", None, io.BytesIO()
             )
+        if self.stream is not None:
+            return self.stream
         if self.body is not None:
             return FakeResponse(self.body)
         return FakeResponse(json.dumps(DEFAULT_PAYLOADS[request.full_url]).encode())
@@ -519,6 +557,31 @@ def test_losing_a_first_connect_race_is_a_conflict(account, provider, monkeypatc
 
 
 @pytest.mark.django_db
+def test_database_allows_one_live_web_search_row_per_workspace(account):
+    _, workspace, _ = account
+
+    def create(account_ref_hash, **fields):
+        return IntegrationSecret.objects.create(
+            workspace=workspace,
+            provider_key=PROVIDER_WEB_SEARCH,
+            account_ref_hash=account_ref_hash,
+            ciphertext=b"sealed",
+            backend="parallel",
+            key_hint="9876",
+            **fields,
+        )
+
+    create("a" * 64, revoked_at=timezone.now())
+    create("b" * 64)
+    create("c" * 64, revoked_at=timezone.now())
+    with pytest.raises(IntegrityError), transaction.atomic():
+        create("d" * 64)
+
+    assert _live_rows(workspace).count() == 1
+    assert IntegrationSecret.objects.filter(workspace=workspace).count() == 3
+
+
+@pytest.mark.django_db
 def test_status_query_count_does_not_grow_with_grants(account, provider):
     user, workspace, _ = account
     api = Api(user, workspace)
@@ -551,6 +614,37 @@ def test_non_member_cannot_read_or_change_the_connection(account, provider):
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("write", ["connect", "grant", "disconnect"])
+def test_membership_without_write_capability_is_refused_on_every_write(
+    account, provider, monkeypatch, write
+):
+    user, workspace, ally = account
+    api = Api(user, workspace)
+    api.connect()
+    calls_before = len(provider.calls)
+
+    def live_state():
+        live = _live_rows(workspace).get()
+        return (bytes(live.ciphertext), live.backend, live.ally_grants.count())
+
+    before = live_state()
+    monkeypatch.setattr(
+        access, "capabilities_for_role", lambda role: (Capability.WORKSPACE_READ.value,)
+    )
+    attempts = {
+        "connect": lambda: api.connect("exa", api_key=OTHER_KEY),
+        "grant": lambda: api.grant(ally.id, "use"),
+        "disconnect": api.disconnect,
+    }
+    response = attempts[write]()
+
+    assert response.status_code == 404
+    assert response.json()["data"]["code"] == "workspace_unavailable"
+    assert len(provider.calls) == calls_before
+    assert live_state() == before
+
+
+@pytest.mark.django_db
 def test_web_search_works_while_the_gmail_flag_is_off(account, provider, settings):
     user, workspace, ally = account
     settings.ALLIES_GMAIL_ENABLED = False
@@ -558,6 +652,40 @@ def test_web_search_works_while_the_gmail_flag_is_off(account, provider, setting
 
     assert api.connect().status_code == 200
     assert api.grant(ally.id, "use").status_code == 200
+
+
+@pytest.mark.django_db
+def test_slow_body_that_finishes_inside_the_total_deadline_is_accepted(
+    account, provider, monkeypatch
+):
+    user, workspace, _ = account
+    clock = FakeClock()
+    monkeypatch.setattr(web_search_backends, "time", clock)
+    body = json.dumps(DEFAULT_PAYLOADS["https://api.parallel.ai/v1beta/search"])
+    provider.stream = TrickleResponse(clock, [b" "] * 4 + [body.encode()], seconds=1)
+    response = Api(user, workspace).connect("parallel")
+
+    assert response.status_code == 200
+    assert _live_rows(workspace).exists()
+
+
+@pytest.mark.django_db
+def test_slow_trickle_past_the_total_deadline_is_refused_and_stops_reading(
+    account, provider, monkeypatch
+):
+    user, workspace, _ = account
+    clock = FakeClock()
+    monkeypatch.setattr(web_search_backends, "time", clock)
+    body = json.dumps(DEFAULT_PAYLOADS["https://api.parallel.ai/v1beta/search"])
+    stream = TrickleResponse(clock, [b" "] * 4 + [body.encode()], seconds=3)
+    provider.stream = stream
+    response = Api(user, workspace).connect("parallel")
+
+    assert response.status_code == 503
+    assert response.json()["data"]["code"] == "web_search_check_failed"
+    assert not IntegrationSecret.objects.exists()
+    assert stream.pieces
+    assert KEY not in response.content.decode()
 
 
 def test_provider_redirects_are_refused_so_the_key_stays_with_the_provider():
