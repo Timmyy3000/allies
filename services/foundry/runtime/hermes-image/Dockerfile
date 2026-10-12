@@ -186,6 +186,16 @@ COPY plugins/calendar/ /opt/hermes/plugins/calendar/
 COPY allies_calendar.py /opt/hermes/tools/allies_calendar.py
 COPY plugins/safe-inputs/ /opt/hermes/plugins/safe-inputs/
 COPY allies_safe_inputs.py /opt/hermes/tools/allies_safe_inputs.py
+
+# Root-owned managed scope: web calls always reach Cloud, whatever a profile's env holds.
+COPY plugins/web-allies/ /opt/hermes/plugins/web/allies/
+# COPY --chmod would leave this directory 0644, so the runtime user could not traverse it.
+RUN install -d -o root -g root -m 0755 /etc/hermes
+COPY --chmod=0644 managed/config.yaml /etc/hermes/config.yaml
+COPY smoke_web_search.py /tmp/allies-smoke-web-search.py
+RUN PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-web-search.py \
+    && rm -f /tmp/allies-smoke-web-search.py
+
 COPY allies_browser_provider.py /opt/hermes/plugins/browser/browser_use/provider.py
 COPY patches/routine-management-tool.patch /tmp/allies-routine-management-tool.patch
 RUN cd /opt/hermes \
