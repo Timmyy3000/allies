@@ -84,7 +84,17 @@ class AlliesWebSearchProvider(WebSearchProvider):
         )
         data = result.get("data")
         if result.get("success") is True and isinstance(data, list):
-            return [item for item in data if isinstance(item, dict)]
+            # Hermes pairs extract results with the requested URLs by position.
+            by_url = {
+                item["url"]: item
+                for item in data
+                if isinstance(item, dict) and isinstance(item.get("url"), str)
+            }
+            return [
+                by_url.get(url)
+                or {"url": url, "title": "", "content": "", "error": _NOT_RUN}
+                for url in urls
+            ]
         instruction = _failure(result)
         return [
             {"url": url, "title": "", "content": "", "error": instruction}

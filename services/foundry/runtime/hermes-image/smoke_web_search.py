@@ -265,11 +265,39 @@ def check_legacy_overrides() -> None:
             os.environ.pop(key, None)
 
 
+def check_extract_order() -> None:
+    other = "https://93.184.216.34/other"
+    missing = "https://93.184.216.34/missing"
+    token = context.set(turn_context(TOKEN, ORIGIN))
+    try:
+        reply = (
+            200,
+            {
+                "success": True,
+                "data": [PAGE, {"url": other, "title": "", "content": "", "error": "gone"}],
+            },
+        )
+        FOUNDRY.reply = lambda _: reply
+        try:
+            results = json.loads(
+                asyncio.run(web_tools.web_extract_tool([other, missing, PAGE_URL]))
+            )["results"]
+        finally:
+            FOUNDRY.reply = None
+        assert [item["url"] for item in results] == [other, missing, PAGE_URL], results
+        assert results[0]["error"] == "gone", results
+        assert results[1]["error"], results
+        assert results[2]["content"] == PAGE["content"], results
+    finally:
+        context.reset(token)
+
+
 def main() -> None:
     check_managed_file()
     check_registration()
     check_happy_path()
     check_refusals()
+    check_extract_order()
     check_no_turn_context()
     check_legacy_overrides()
     assert BLOCKED == [], BLOCKED
