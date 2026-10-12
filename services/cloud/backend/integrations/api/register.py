@@ -3,11 +3,12 @@ from uuid import UUID
 
 from django.conf import settings
 from django.core.exceptions import ObjectDoesNotExist
-from django.http import HttpRequest, JsonResponse
+from django.http import HttpRequest, JsonResponse, StreamingHttpResponse
 from ninja_extra import NinjaExtraAPI
 from pydantic import BaseModel, ConfigDict, ValidationError, model_validator
 
 from auths.exceptions import WorkspaceAccessDenied
+from files.exceptions import FileScopeUnavailable, FileUnavailable
 from integrations.api.controllers import (
     CalendarController,
     GmailCallbackController,
@@ -15,6 +16,7 @@ from integrations.api.controllers import (
 )
 from integrations.api.safe_inputs import SafeInputController
 from integrations.services.calendar_tool import execute_calendar_tool
+from integrations.services.gmail_attachments import gmail_attachment_file_stream
 from integrations.services.gmail_tool import execute_gmail_tool
 from integrations.services.safe_inputs import (
     execute_browser_tool,
@@ -85,3 +87,25 @@ def register(api: NinjaExtraAPI) -> None:
         except (ObjectDoesNotExist, PermissionError, WorkspaceAccessDenied):
             return JsonResponse({"error": "integration_unavailable"}, status=403)
         return JsonResponse(result, status=status)
+
+    @api.get(
+        "/internal/v1/gmail-attachment-files/{file_id}/content",
+        auth=_foundry_token_valid,
+    )
+    def gmail_attachment_file_content(
+        request: HttpRequest, file_id: UUID, binding_id: UUID, message_id: UUID
+    ):
+        try:
+            accepted = gmail_attachment_file_stream(
+                binding_id=binding_id, message_id=message_id, file_id=file_id
+            )
+        except FileScopeUnavailable:
+            return JsonResponse({"error": "file_unavailable"}, status=404)
+        except FileUnavailable:
+            return JsonResponse({"error": "storage_unavailable"}, status=503)
+        response = StreamingHttpResponse(
+            accepted.content, content_type=accepted.file.media_type
+        )
+        response["Content-Length"] = str(accepted.file.actual_size)
+        response["X-Content-Type-Options"] = "nosniff"
+        return response

@@ -1,9 +1,12 @@
 """Cloud-owned Gmail adapter; no Google credential ever reaches this machine."""
 
 import json
+import os
+import tempfile
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 INSTRUCTION = (
     "Read, organise and send email from the workspace's connected Gmail account. "
@@ -23,6 +26,11 @@ INSTRUCTION = (
     "downloaded or returned before ready. If still pending after five checks, preserve "
     "publication_id in the receipt and explain that retrieval succeeded and inspection "
     "is pending; do not say Gmail cannot retrieve attachments. "
+    "To read an attachment's contents, call save_attachment with its publication_id once "
+    "it is ready; it saves each file under email-attachments in the workspace and returns "
+    "the saved path. When the user's question depends on an attachment's contents, save it "
+    "and read it before answering; do not ask the user to upload it. Read a PDF with "
+    "pdftotext on its saved path. "
     "To send: call prepare_send with the exact message, show the user the recipients, "
     "subject and body, and ask them to confirm. Only after the user confirms in a later "
     "message, call send with the same fields and the returned confirmation_ref. "
@@ -47,6 +55,7 @@ SCHEMA = {
                         "get",
                         "download_attachment",
                         "attachment_status",
+                        "save_attachment",
                         "list_labels",
                         "create_label",
                         "modify",
@@ -108,6 +117,12 @@ SCHEMA = {
     },
 }
 _MAX_BYTES = 64 * 1024
+_ATTACHMENT_DIR = "email-attachments"
+_ATTACHMENT_MAX_BYTES = 25_000_000
+_CHUNK_BYTES = 64 * 1024
+_SAVE_NOT_DONE = (
+    "The file was not saved. Do not claim it was read; explain the failure."
+)
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -124,12 +139,18 @@ def handle_gmail(args, **kwargs):
     if current is None or not tool_call_id:
         return json.dumps({"error": "gmail_tool_unavailable"})
     token, origin = current
+    if args.get("action") == "save_attachment":
+        return json.dumps(_save_attachment(args, token, origin, tool_call_id))
+    return json.dumps(_call(args, token, origin, tool_call_id))
+
+
+def _call(args, token, origin, tool_call_id):
     call_id = str(uuid5(NAMESPACE_URL, "allies-gmail-tool:" + tool_call_id))
     raw = json.dumps(
         {"call_id": call_id, "integration": "gmail", "arguments": args}
     ).encode()
     if len(raw) > _MAX_BYTES:
-        return json.dumps({"error": "gmail_request_too_large"})
+        return {"error": "gmail_request_too_large"}
     request = Request(
         origin + "/api/v1/runtime/integrations/tool",
         data=raw,
@@ -154,12 +175,106 @@ def handle_gmail(args, **kwargs):
             if not isinstance(result, dict):
                 break
             if status < 500:
-                return json.dumps(result)
+                return result
         except (URLError, OSError, ValueError):
             pass
-    return json.dumps(
-        {
-            "error": "gmail_service_unavailable",
-            "instruction": "The outcome is unconfirmed. Do not claim an email was sent; check before retrying.",
+    return {
+        "error": "gmail_service_unavailable",
+        "instruction": "The outcome is unconfirmed. Do not claim an email was sent; check before retrying.",
+    }
+
+
+def _save_attachment(args, token, origin, tool_call_id):
+    try:
+        from allies_profile_sandbox import child_workspace_path
+
+        workspace = Path(child_workspace_path())
+    except (ImportError, RuntimeError):
+        return {
+            "error": "gmail_attachment_workspace_unavailable",
+            "instruction": _SAVE_NOT_DONE,
         }
+    status = _call(
+        {"action": "attachment_status", "publication_id": args.get("publication_id")},
+        token,
+        origin,
+        tool_call_id,
     )
+    if status.get("state") != "ready":
+        return status
+    if not isinstance(status.get("files"), list):
+        return _save_failed()
+    files = []
+    for item in status["files"]:
+        saved = _save_file(item, workspace, token, origin)
+        if "error" in saved:
+            return saved
+        files.append(saved)
+    return {
+        "publication_id": status.get("publication_id"),
+        "state": "ready",
+        "files": files,
+        "instruction": "Read each saved path before answering questions about the attachment.",
+    }
+
+
+def _save_file(item, workspace, token, origin):
+    name = _safe_name(item.get("filename"))
+    if name is None:
+        return _save_failed()
+    temp = None
+    try:
+        file_id = str(UUID(str(item.get("file_id"))))
+        directory = workspace / _ATTACHMENT_DIR / file_id
+        request = Request(
+            origin + f"/api/v1/runtime/integrations/files/{file_id}/content",
+            headers={"Authorization": "Bearer " + token},
+            method="GET",
+        )
+        try:
+            response = build_opener(NoRedirect).open(request, timeout=30)
+        except HTTPError as exc:
+            response = exc
+        with response:
+            declared = response.headers.get("Content-Length", "")
+            if (
+                response.status != 200
+                or not declared.isdigit()
+                or not 0 < int(declared) <= _ATTACHMENT_MAX_BYTES
+            ):
+                raise ValueError("attachment unavailable")
+            size = int(declared)
+            directory.mkdir(parents=True, exist_ok=True)
+            fd, temp = tempfile.mkstemp(dir=directory, prefix=".download-")
+            written = 0
+            with os.fdopen(fd, "wb") as out:
+                while chunk := response.read(_CHUNK_BYTES):
+                    written += len(chunk)
+                    if written > size:
+                        raise ValueError("attachment exceeds its declared size")
+                    out.write(chunk)
+            if written != size:
+                raise ValueError("attachment ended early")
+        os.replace(temp, directory / name)
+        temp = None
+    except (URLError, OSError, ValueError):
+        return _save_failed()
+    finally:
+        if temp is not None:
+            Path(temp).unlink(missing_ok=True)
+    return {
+        "filename": name,
+        "path": str(directory / name),
+        "chat_reference": item.get("chat_reference"),
+    }
+
+
+def _safe_name(value):
+    if not isinstance(value, str):
+        return None
+    name = value.replace("\\", "/").rsplit("/", 1)[-1]
+    return None if name in {"", ".", ".."} else name
+
+
+def _save_failed():
+    return {"error": "gmail_attachment_save_failed", "instruction": _SAVE_NOT_DONE}

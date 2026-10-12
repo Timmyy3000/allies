@@ -14,6 +14,7 @@ from ninja_extra import NinjaExtraAPI
 from runtime.exceptions import (
     ActivityWaitSaturated,
     ActivityWaitUnavailable,
+    IntegrationFileUnavailableError,
     RuntimeAuthorizationError,
     RuntimeConflictError,
     RuntimeDomainError,
@@ -81,6 +82,7 @@ from runtime.services.publications import (
 from runtime.services.routine_tools import (
     call_integration_tool,
     call_routine_tool,
+    open_integration_file,
     routine_tool_token,
 )
 from runtime.services.routines import (
@@ -199,6 +201,20 @@ def register(api: NinjaExtraAPI) -> None:
                 arguments=body["arguments"],
             )
             return JsonResponse(result, status=status)
+        except RuntimeDomainError as exc:
+            return _error(exc)
+
+    @api.get("/runtime/integrations/files/{file_id}/content", auth=None)
+    def integration_file_content(request: HttpRequest, file_id: UUID):
+        try:
+            content = open_integration_file(_bearer(request), file_id=file_id)
+            response = StreamingHttpResponse(
+                content.chunks, content_type=content.content_type
+            )
+            response["Content-Length"] = str(content.content_length)
+            response["Cache-Control"] = "no-store"
+            response["X-Content-Type-Options"] = "nosniff"
+            return response
         except RuntimeDomainError as exc:
             return _error(exc)
 
@@ -1159,7 +1175,7 @@ def _error(exc: RuntimeDomainError) -> JsonResponse:
         status = 422
     elif isinstance(exc, ActivityWaitSaturated):
         status = 429
-    elif isinstance(exc, ActivityWaitUnavailable):
+    elif isinstance(exc, ActivityWaitUnavailable | IntegrationFileUnavailableError):
         status = 503
     else:
         status = 409

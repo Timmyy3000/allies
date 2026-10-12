@@ -8,6 +8,7 @@ from uuid import uuid4
 
 import pytest
 from django.db import close_old_connections, connection
+from django.test import Client
 from django.utils import timezone
 
 from auths.exceptions import WorkspaceAccessDenied
@@ -468,3 +469,57 @@ def test_concurrent_downloads_reserve_and_upload_one_file(attachment, monkeypatc
     assert len(uploaded) == 1
     account = FileStorageAccount.objects.get()
     assert account.reserved_bytes == len(PDF) and account.retained_bytes == 0
+
+
+def _file_route(file_id):
+    return f"/api/v1/internal/v1/gmail-attachment-files/{file_id}/content"
+
+
+def test_ready_gmail_file_is_served_only_to_its_message_and_binding(
+    attachment, settings
+):
+    settings.ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN = "foundry-secret"
+    set_ally_grant(secret=attachment["secret"], ally=attachment["ally"], level="read")
+    download(attachment)
+    file, _ = finish(attachment)
+    code, result = run(
+        attachment["turn"],
+        {"action": "attachment_status", "publication_id": str(file.publication_id)},
+    )
+    assert code == 200 and result["files"][0]["file_id"] == str(file.id)
+    client = Client()
+    scope = {
+        "binding_id": str(attachment["binding"].id),
+        "message_id": str(attachment["turn"]["message_id"]),
+    }
+    auth = {"HTTP_AUTHORIZATION": "Bearer foundry-secret"}
+
+    served = client.get(_file_route(file.id), scope, **auth)
+    assert served.status_code == 200
+    assert b"".join(served.streaming_content) == PDF
+    assert served["Content-Length"] == str(len(PDF))
+    assert served["Content-Type"] == "application/pdf"
+
+    other_message = {**scope, "message_id": str(uuid4())}
+    other_binding = {**scope, "binding_id": str(uuid4())}
+    assert client.get(_file_route(file.id), other_message, **auth).status_code == 404
+    assert client.get(_file_route(file.id), other_binding, **auth).status_code == 404
+    assert client.get(_file_route(file.id), scope).status_code == 401
+
+
+def test_gmail_file_route_rejects_pending_and_non_gmail_files(attachment, settings):
+    settings.ALLIES_FOUNDRY_EVENT_SERVICE_TOKEN = "foundry-secret"
+    download(attachment)
+    file = FileVersion.objects.get()
+    client = Client()
+    scope = {
+        "binding_id": str(attachment["binding"].id),
+        "message_id": str(attachment["turn"]["message_id"]),
+    }
+    auth = {"HTTP_AUTHORIZATION": "Bearer foundry-secret"}
+    assert client.get(_file_route(file.id), scope, **auth).status_code == 404
+
+    finish(attachment)
+    assert client.get(_file_route(file.id), scope, **auth).status_code == 200
+    FileVersion.objects.filter(pk=file.pk).update(source_version_id=uuid4())
+    assert client.get(_file_route(file.id), scope, **auth).status_code == 404

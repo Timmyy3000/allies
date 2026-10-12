@@ -6,11 +6,23 @@ from uuid import uuid4
 import pytest
 from django.test import Client, override_settings
 
-from runtime.exceptions import RuntimeAuthorizationError
+from runtime.exceptions import (
+    IntegrationFileUnavailableError,
+    RuntimeAuthorizationError,
+    RuntimeNotFoundError,
+)
 from runtime.models import Attempt
-from runtime.services.routine_tools import call_integration_tool, routine_tool_token
+from runtime.services.routine_tools import (
+    call_integration_tool,
+    open_integration_file,
+    routine_tool_token,
+)
 from runtime.tests.test_fnd007_execution import claimed_execution  # noqa: F401
-from runtime.tests.test_routine_tools import tool_claim  # noqa: F401
+from runtime.tests.test_routine_tools import (
+    routine_tool_claim,  # noqa: F401
+    tool_claim,  # noqa: F401
+)
+from runtime.tests.test_routines import routine_context  # noqa: F401
 
 CLOUD = {
     "ALLIES_CLOUD_URL": "https://cloud.example.test",
@@ -184,3 +196,119 @@ def test_routine_endpoint_rejects_non_string_call_id():
         HTTP_AUTHORIZATION="Bearer token",
     )
     assert response.status_code == 422
+
+
+def _file_opener(monkeypatch, body, captured, *, status=200, headers=None):
+    class Response(BytesIO):
+        pass
+
+    class Opener:
+        def open(self, request, timeout):
+            captured.append(request)
+            response = Response(body)
+            response.status = status
+            response.headers = headers or {"Content-Length": str(len(body))}
+            return response
+
+    monkeypatch.setattr(
+        "runtime.services.routine_tools.build_opener", lambda *a: Opener()
+    )
+
+
+@override_settings(**CLOUD)
+def test_opens_gmail_file_for_dispatched_message_only(tool_claim, monkeypatch):  # noqa: F811
+    execution, claim = tool_claim
+    file_id = uuid4()
+    captured = []
+    _file_opener(
+        monkeypatch,
+        b"%PDF",
+        captured,
+        headers={"Content-Length": "4", "Content-Type": "application/pdf"},
+    )
+    content = open_integration_file(routine_tool_token(claim), file_id=file_id)
+    assert (content.content_type, content.content_length) == ("application/pdf", 4)
+    assert b"".join(content.chunks) == b"%PDF"
+    request = captured[0]
+    assert request.full_url == (
+        "https://cloud.example.test/api/v1/internal/v1/gmail-attachment-files/"
+        f"{file_id}/content?binding_id={execution.cloud_binding_id}"
+        f"&message_id={execution.cloud_message_id}"
+    )
+    assert request.headers["Authorization"] == "Bearer service-secret"
+
+
+@override_settings(**CLOUD)
+def test_routine_run_cannot_open_message_files(routine_tool_claim, monkeypatch):  # noqa: F811
+    _, claim = routine_tool_claim
+    monkeypatch.setattr(
+        "runtime.services.routine_tools.build_opener",
+        lambda *a: pytest.fail("routine run reached the Cloud file route"),
+    )
+    with pytest.raises(RuntimeAuthorizationError):
+        open_integration_file(routine_tool_token(claim), file_id=uuid4())
+
+
+@override_settings(**CLOUD)
+def test_cloud_scope_denial_is_not_found(tool_claim, monkeypatch):  # noqa: F811
+    _, claim = tool_claim
+    _file_opener(monkeypatch, b'{"error":"x"}', [], status=404)
+    with pytest.raises(RuntimeNotFoundError):
+        open_integration_file(routine_tool_token(claim), file_id=uuid4())
+
+
+@override_settings(**CLOUD)
+@pytest.mark.parametrize("failure", [500, URLError("down")])
+def test_cloud_storage_failure_is_unavailable(tool_claim, monkeypatch, failure):  # noqa: F811
+    _, claim = tool_claim
+    if isinstance(failure, int):
+        _file_opener(monkeypatch, b'{"secret":"x"}', [], status=failure)
+    else:
+
+        class Opener:
+            def open(self, request, timeout):
+                raise failure
+
+        monkeypatch.setattr(
+            "runtime.services.routine_tools.build_opener", lambda *a: Opener()
+        )
+    with pytest.raises(IntegrationFileUnavailableError):
+        open_integration_file(routine_tool_token(claim), file_id=uuid4())
+
+
+@override_settings(**CLOUD)
+def test_oversized_gmail_file_is_rejected_before_reading(tool_claim, monkeypatch):  # noqa: F811
+    _, claim = tool_claim
+    _file_opener(monkeypatch, b"", [], headers={"Content-Length": str(25_000_001)})
+    with pytest.raises(IntegrationFileUnavailableError):
+        open_integration_file(routine_tool_token(claim), file_id=uuid4())
+
+
+@override_settings(**CLOUD)
+def test_truncated_gmail_file_fails_early(tool_claim, monkeypatch):  # noqa: F811
+    _, claim = tool_claim
+    _file_opener(monkeypatch, b"ab", [], headers={"Content-Length": "3"})
+    content = open_integration_file(routine_tool_token(claim), file_id=uuid4())
+    with pytest.raises(IntegrationFileUnavailableError):
+        b"".join(content.chunks)
+
+
+@override_settings(**CLOUD)
+def test_inactive_attempt_never_opens_cloud_file(tool_claim, monkeypatch):  # noqa: F811
+    _, claim = tool_claim
+    Attempt.objects.filter(pk=claim.attempt_id).update(status="succeeded")
+    monkeypatch.setattr(
+        "runtime.services.routine_tools.build_opener",
+        lambda *a: pytest.fail("unauthorized file request reached network"),
+    )
+    with pytest.raises(RuntimeAuthorizationError):
+        open_integration_file(routine_tool_token(claim), file_id=uuid4())
+
+
+@pytest.mark.django_db
+def test_file_endpoint_rejects_bad_capability():
+    response = Client().get(
+        f"/api/v1/runtime/integrations/files/{uuid4()}/content",
+        HTTP_AUTHORIZATION="Bearer forged",
+    )
+    assert response.status_code == 401
