@@ -1,7 +1,9 @@
 """Attempt-scoped routine management through the existing Cloud control plane."""
 
 import json
+from collections.abc import Iterator
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
 from urllib.request import Request, build_opener
 from uuid import UUID
 
@@ -9,11 +11,19 @@ from django.conf import settings
 from django.core import signing
 from django.db import transaction
 
-from runtime.exceptions import RuntimeAuthorizationError, RuntimeValidationError
+from runtime.exceptions import (
+    IntegrationFileUnavailableError,
+    RuntimeAuthorizationError,
+    RuntimeNotFoundError,
+    RuntimeValidationError,
+)
 from runtime.models import Attempt, AttemptStatus, RoutineExecution
 from runtime.services.event_delivery import _NoRedirect, _validated_cloud_url
 from runtime.services.leases import _authorize_attempt_mutation
 from runtime.services.validation import digest_lease_token
+
+from .files import MAX_FILE_CHUNK_BYTES, IncomingFileContent
+from .publications import MAX_PUBLICATION_FILE_BYTES
 
 _SALT = "allies.routine-tool.v1"
 _MAX_BYTES = 64 * 1024
@@ -59,6 +69,63 @@ def call_integration_tool(
     )
 
 
+def open_integration_file(token: str, *, file_id: UUID) -> IncomingFileContent:
+    """Open one Gmail attachment file for the conversation turn that dispatched it."""
+
+    identity = _capability_identity(token, path="integrations/files")
+    origin = _validated_cloud_url(getattr(settings, "ALLIES_CLOUD_URL", None))
+    service_token = getattr(settings, "ALLIES_CLOUD_EVENT_SERVICE_TOKEN", None)
+    if not origin or not service_token:
+        raise IntegrationFileUnavailableError("integration file is unavailable")
+    query = urlencode(
+        {"binding_id": identity["binding_id"], "message_id": identity["message_id"]}
+    )
+    request = Request(
+        f"{origin}/api/v1/internal/v1/gmail-attachment-files/{file_id}/content?{query}",
+        headers={"Authorization": f"Bearer {service_token}"},
+        method="GET",
+    )
+    try:
+        try:
+            response = build_opener(_NoRedirect).open(request, timeout=120)
+        except HTTPError as exc:
+            response = exc
+    except (URLError, OSError) as exc:
+        raise IntegrationFileUnavailableError(
+            "integration file is unavailable"
+        ) from exc
+    if response.status == 404:
+        response.close()
+        raise RuntimeNotFoundError("file unavailable")
+    if response.status != 200:
+        response.close()
+        raise IntegrationFileUnavailableError("integration file is unavailable")
+    declared = response.headers.get("Content-Length", "")
+    if not declared.isdigit() or not 0 < int(declared) <= MAX_PUBLICATION_FILE_BYTES:
+        response.close()
+        raise IntegrationFileUnavailableError("integration file is unavailable")
+    size = int(declared)
+    return IncomingFileContent(
+        content_type=response.headers.get("Content-Type", "application/octet-stream"),
+        content_length=size,
+        chunks=_file_chunks(response, size),
+    )
+
+
+def _file_chunks(response, size: int) -> Iterator[bytes]:
+    sent = 0
+    try:
+        while chunk := response.read(MAX_FILE_CHUNK_BYTES):
+            sent += len(chunk)
+            if sent > size:
+                raise IntegrationFileUnavailableError("integration file is unavailable")
+            yield chunk
+        if sent != size:
+            raise IntegrationFileUnavailableError("integration file is unavailable")
+    finally:
+        response.close()
+
+
 def _dispatch_identity(execution, *, path):
     routine = RoutineExecution.objects.filter(execution=execution).first()
     if routine is None:
@@ -79,7 +146,7 @@ def _dispatch_identity(execution, *, path):
     }
 
 
-def _relay_tool(token, fields, *, path, unavailable, instruction, timeout=10):
+def _capability_identity(token, *, path):
     try:
         capability = signing.loads(token, salt=_SALT, max_age=86400)
     except (signing.BadSignature, ValueError, TypeError) as exc:
@@ -91,8 +158,12 @@ def _relay_tool(token, fields, *, path, unavailable, instruction, timeout=10):
         attempt = Attempt.objects.select_related("execution").get(
             pk=authorization.attempt_id
         )
-        identity = _dispatch_identity(attempt.execution, path=path)
-        body = json.dumps({**identity, **fields}).encode()
+        return _dispatch_identity(attempt.execution, path=path)
+
+
+def _relay_tool(token, fields, *, path, unavailable, instruction, timeout=10):
+    identity = _capability_identity(token, path=path)
+    body = json.dumps({**identity, **fields}).encode()
     if len(body) > _MAX_BYTES:
         raise RuntimeValidationError("tool request too large")
     origin = _validated_cloud_url(getattr(settings, "ALLIES_CLOUD_URL", None))

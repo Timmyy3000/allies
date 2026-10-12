@@ -68,3 +68,9 @@ class ActivityWaitSaturated(RuntimeConflictError):
     """The bounded per-process activity waiter capacity is full."""
 
     code = "ACTIVITY_WAIT_SATURATED"
+
+
+class IntegrationFileUnavailableError(RuntimeConflictError):
+    """The Cloud integration file cannot be served right now."""
+
+    code = "INTEGRATION_FILE_UNAVAILABLE"
