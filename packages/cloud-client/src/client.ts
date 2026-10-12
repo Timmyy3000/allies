@@ -15,11 +15,21 @@ import {
   toIntegrationAllyGrant,
   toIntegrationConnection,
   toIntegrationConnectSession,
+  toWebSearchConnection,
+  toWebSearchAllyGrant,
+  webSearchAllyGrantSchema,
+  webSearchBackendSchema,
+  webSearchConnectionSchema,
+  webSearchGrantLevelSchema,
   type IntegrationAllyGrant,
   type IntegrationConnection,
   type IntegrationConnectSession,
   type IntegrationGrantLevel,
   type IntegrationProvider,
+  type WebSearchAllyGrant,
+  type WebSearchBackend,
+  type WebSearchConnection,
+  type WebSearchGrantLevel,
 } from "./mappers/integrations";
 import {
   activitySnapshotResponseSchema,
@@ -314,6 +324,9 @@ const runtimeIntentOccurredAtSchema = z.iso.datetime({ offset: true });
 const runtimeIntentIdempotencyKeySchema = z.uuid();
 const integrationPath = (provider: IntegrationProvider) =>
   `/api/v1/workspaces/{workspace_id}/integrations/${provider}` as const;
+const webSearchPath = "/api/v1/workspaces/{workspace_id}/integrations/web-search" as const;
+const webSearchGrantsPath = "/api/v1/workspaces/{workspace_id}/integrations/web-search/grants" as const;
+const webSearchKeySchema = z.string().regex(/^[\x21-\x7e]{16,512}$/u);
 
 const runtimeIntentStatusSchema = z.enum([
   "disabled",
@@ -844,6 +857,81 @@ export function createCloudClient(options: CloudClientOptions) {
         }) as Promise<ApiResult>,
         () => undefined,
         [200, 202],
+      );
+    },
+
+    async getWebSearchConnection(workspaceId: string, signal?: AbortSignal): Promise<WebSearchConnection | null> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      return unwrap(
+        api.GET(webSearchPath, {
+          params: { path: { workspace_id: workspace } },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => {
+          const connection = successEnvelope(webSearchConnectionSchema.nullable()).parse(data).data;
+          return connection ? toWebSearchConnection(connection) : null;
+        },
+        [200],
+      );
+    },
+
+    async connectWebSearch(
+      workspaceId: string,
+      input: { backend: WebSearchBackend; apiKey: string },
+      signal?: AbortSignal,
+    ): Promise<WebSearchConnection> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const backend = parseInput(webSearchBackendSchema, input.backend);
+      const apiKey = parseInput(webSearchKeySchema, input.apiKey);
+      return unwrap(
+        api.PUT(webSearchPath, {
+          params: { path: { workspace_id: workspace } },
+          body: { backend, api_key: apiKey },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => toWebSearchConnection(successEnvelope(webSearchConnectionSchema).parse(data).data),
+        [200],
+      );
+    },
+
+    async setWebSearchGrant(
+      workspaceId: string,
+      allyId: string,
+      level: WebSearchGrantLevel,
+      signal?: AbortSignal,
+    ): Promise<WebSearchAllyGrant> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      const ally = parseCanonicalUuid(allyId);
+      const parsedLevel = parseInput(webSearchGrantLevelSchema, level);
+      return unwrap(
+        api.POST(webSearchGrantsPath, {
+          params: { path: { workspace_id: workspace } },
+          body: { ally_id: ally, level: parsedLevel },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        (data) => {
+          const grant = toWebSearchAllyGrant(successEnvelope(webSearchAllyGrantSchema).parse(data).data);
+          if (grant.allyId !== ally) throw { kind: "contract" } satisfies CloudError;
+          return grant;
+        },
+        [200],
+      );
+    },
+
+    async disconnectWebSearch(workspaceId: string, signal?: AbortSignal): Promise<void> {
+      rejectPreAborted(signal);
+      const workspace = parsePathSegment(workspaceId);
+      await unwrap(
+        api.DELETE(webSearchPath, {
+          params: { path: { workspace_id: workspace } },
+          body: { confirm: true },
+          signal: normalizeRequestSignal(signal),
+        }) as Promise<ApiResult>,
+        () => undefined,
+        [202],
       );
     },
 

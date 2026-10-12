@@ -40,6 +40,12 @@ export function AllyDots({ allies }: { allies: AllyViewModel[] }) {
   );
 }
 
+export function namesList(allies: AllyViewModel[]): string {
+  const names = allies.map((ally) => ally.name);
+  if (names.length <= 1) return names[0] ?? "";
+  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
 export function Chevron() {
   return (
     <svg className={styles.chevron} viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">

@@ -67,6 +67,15 @@ function setupSession(overrides: Record<string, unknown> = {}) {
     getIntegrationConnection: vi.fn(async (_workspace: string, _provider: string): Promise<unknown> => null),
     setIntegrationGrant: vi.fn(async (_workspace: string, _provider: string, allyId: string, level: string) => ({ allyId, level, grantGeneration: 2, updatedAt: "2026-09-21T10:00:00Z" })),
     disconnectIntegration: vi.fn(async () => undefined),
+    getWebSearchConnection: vi.fn(async (): Promise<unknown> => null),
+    connectWebSearch: vi.fn(async (_workspace: string, input: { backend: string; apiKey: string }): Promise<unknown> => ({
+      backend: input.backend,
+      keyHint: input.apiKey.slice(-4),
+      connectedAt: "2026-10-12T10:00:00Z",
+      allyGrants: [],
+    })),
+    setWebSearchGrant: vi.fn(async (_workspace: string, allyId: string, level: string) => ({ allyId, level, grantGeneration: 2, updatedAt: "2026-10-12T10:05:00Z" })),
+    disconnectWebSearch: vi.fn(async () => undefined),
     listSafeInputs: vi.fn(async (): Promise<unknown[]> => []),
     deleteAvatar: vi.fn(async () => undefined),
     getWorkspace: vi.fn(async () => account.workspace),
@@ -247,6 +256,116 @@ describe("AccountClient", () => {
     fireEvent.click(screen.getByRole("switch", { name: "Sally can use Calendar" }));
     await waitFor(() => expect(client.setIntegrationGrant).toHaveBeenCalledWith("wsp_example", "calendar", sally.id, "write", undefined));
     expect(client.disconnectIntegration).not.toHaveBeenCalled();
+  });
+
+  it("connects Web search with the chosen provider and never shows the key again", async () => {
+    const { client } = setupSession();
+    renderAccount();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Web search" }));
+    expect((screen.getByLabelText("Provider") as HTMLSelectElement).value).toBe("parallel");
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "pk_live_example_key_x9Qa" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    await waitFor(() => expect(client.connectWebSearch).toHaveBeenCalledWith("wsp_example", { backend: "parallel", apiKey: "pk_live_example_key_x9Qa" }, undefined));
+    expect(await screen.findByText("Parallel · ending x9Qa")).toBeTruthy();
+    expect(screen.getByText("1 connected")).toBeTruthy();
+    expect(document.body.textContent).not.toContain("pk_live_example_key_x9Qa");
+  });
+
+  it("keeps the sheet open with the provider's own rejection message when the key is refused", async () => {
+    const { client } = setupSession();
+    client.connectWebSearch.mockRejectedValueOnce({ kind: "validation", status: 422, code: "web_search_key_rejected" });
+    renderAccount();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Web search" }));
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "pk_live_example_key_0001" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe("Parallel rejected this key. Check it and paste it again.");
+    expect(screen.getByRole("dialog", { name: "Connect Web search" })).toBeTruthy();
+    expect(screen.queryByText(/ending/)).toBeNull();
+  });
+
+  it("does not send a key outside the length rule to Cloud", async () => {
+    const { client } = setupSession();
+    renderAccount();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Web search" }));
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "too-short" } });
+    fireEvent.click(screen.getByRole("button", { name: "Connect" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe("That key doesn't look right.");
+    expect(client.connectWebSearch).not.toHaveBeenCalled();
+  });
+
+  it("replaces the key for the connected provider and keeps its Allies", async () => {
+    const { client } = setupSession();
+    client.getWebSearchConnection.mockResolvedValue({ backend: "tavily", keyHint: "old1", connectedAt: "2026-10-12T10:00:00Z", allyGrants: [] });
+    renderAccount();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Web search/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Replace key" }));
+    expect((screen.getByLabelText("Provider") as HTMLSelectElement).value).toBe("tavily");
+    fireEvent.change(screen.getByLabelText("API key"), { target: { value: "tvly-example-key-r7Tm" } });
+    fireEvent.click(screen.getByRole("button", { name: "Replace" }));
+
+    await waitFor(() => expect(client.connectWebSearch).toHaveBeenCalledWith("wsp_example", { backend: "tavily", apiKey: "tvly-example-key-r7Tm" }, undefined));
+    expect(await screen.findByText("Tavily · ending r7Tm")).toBeTruthy();
+  });
+
+  it("turns Web search on and off per Ally", async () => {
+    const { client } = setupSession();
+    client.getWebSearchConnection.mockResolvedValue({
+      backend: "parallel",
+      keyHint: "x9Qa",
+      connectedAt: "2026-10-12T10:00:00Z",
+      allyGrants: [{ allyId: sally.id, level: "use", grantGeneration: 1, updatedAt: "2026-10-12T10:00:00Z" }],
+    });
+    renderAccount();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Web search/ }));
+    expect((screen.getByRole("switch", { name: "Sally can use Web search" }) as HTMLInputElement).checked).toBe(true);
+    fireEvent.click(screen.getByRole("switch", { name: "Sally can use Web search" }));
+
+    await waitFor(() => expect(client.setWebSearchGrant).toHaveBeenCalledWith("wsp_example", sally.id, "none", undefined));
+    await waitFor(() => expect((screen.getByRole("switch", { name: "Sally can use Web search" }) as HTMLInputElement).checked).toBe(false));
+  });
+
+  it("asks the user to connect again when access changes after Web search was disconnected elsewhere", async () => {
+    const { client } = setupSession();
+    client.getWebSearchConnection.mockResolvedValue({
+      backend: "parallel",
+      keyHint: "x9Qa",
+      connectedAt: "2026-10-12T10:00:00Z",
+      allyGrants: [],
+    });
+    client.setWebSearchGrant.mockRejectedValueOnce({ kind: "conflict", status: 409, code: "web_search_not_connected" });
+    renderAccount();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Web search/ }));
+    fireEvent.click(screen.getByRole("switch", { name: "Sally can use Web search" }));
+
+    expect((await screen.findByRole("alert")).textContent).toBe("Connect web search before changing access.");
+  });
+
+  it("names the Allies losing access before disconnecting Web search", async () => {
+    const { client } = setupSession();
+    client.getWebSearchConnection.mockResolvedValue({
+      backend: "parallel",
+      keyHint: "x9Qa",
+      connectedAt: "2026-10-12T10:00:00Z",
+      allyGrants: [{ allyId: sally.id, level: "use", grantGeneration: 1, updatedAt: "2026-10-12T10:00:00Z" }],
+    });
+    renderAccount();
+
+    fireEvent.click(await screen.findByRole("button", { name: /Web search/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Web search" }));
+    expect(screen.getByText("Sally will stop using it straight away.")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect" }));
+
+    await waitFor(() => expect(client.disconnectWebSearch).toHaveBeenCalledWith("wsp_example", undefined));
+    expect(await screen.findByRole("button", { name: "Connect Web search" })).toBeTruthy();
   });
 
   it("lists saved Safe inputs and hides the section when there are none", async () => {

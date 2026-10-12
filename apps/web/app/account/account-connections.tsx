@@ -11,16 +11,11 @@ import { useSession } from "../../lib/session/session-context";
 import { IntegrationLogo, integrationConnectionQueryKey } from "../home/ally-access";
 import sheet from "../home/ally-settings-dialog.module.css";
 
-import { AllyDots, Chevron, SettingsSection, SheetLayer } from "./account-parts";
+import { AllyDots, Chevron, SettingsSection, SheetLayer, namesList } from "./account-parts";
 import styles from "./account.module.css";
+import { WebSearchConnection, useWebSearchConnectionQuery } from "./web-search-connection";
 
 type Signal = AbortSignal | undefined;
-
-export function namesList(allies: AllyViewModel[]): string {
-  const names = allies.map((ally) => ally.name);
-  if (names.length <= 1) return names[0] ?? "";
-  return `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
-}
 
 /** DSN-006 frames 6–8, 13: account-level connections with per-Ally access. */
 export function AccountConnections({ workspaceId, allies }: { workspaceId: string; allies: AllyViewModel[] }) {
@@ -34,6 +29,7 @@ export function AccountConnections({ workspaceId, allies }: { workspaceId: strin
       ),
     })),
   });
+  const webSearch = useWebSearchConnectionQuery(workspaceId);
   const [open, setOpen] = useState<IntegrationProvider | null>(null);
   const [connecting, setConnecting] = useState<IntegrationProvider | null>(null);
   const [problem, setProblem] = useState<string | null>(() =>
@@ -56,17 +52,17 @@ export function AccountConnections({ workspaceId, allies }: { workspaceId: strin
       );
       window.location.assign(started.authUrl);
     } catch (caught) {
-      setProblem(integrationAccessProblem(caught, provider).message);
+      setProblem(integrationAccessProblem(caught, INTEGRATIONS[provider].label).message);
       setConnecting(null);
     }
   };
 
-  const connectedCount = queries.filter((query) => query.data).length;
+  const connectedCount = queries.filter((query) => query.data).length + (webSearch.data ? 1 : 0);
   const openIndex = open ? INTEGRATION_PROVIDERS.indexOf(open) : -1;
   const openConnection = openIndex >= 0 ? queries[openIndex]?.data ?? null : null;
 
   return (
-    <SettingsSection title="Connections" meta={connectedCount ? `${connectedCount} connected` : undefined} busy={queries.some((query) => query.isPending)}>
+    <SettingsSection title="Connections" meta={connectedCount ? `${connectedCount} connected` : undefined} busy={queries.some((query) => query.isPending) || webSearch.isPending}>
       {INTEGRATION_PROVIDERS.map((provider, index) => {
         const query = queries[index]!;
         const { label } = INTEGRATIONS[provider];
@@ -100,6 +96,7 @@ export function AccountConnections({ workspaceId, allies }: { workspaceId: strin
           </div>
         );
       })}
+      <WebSearchConnection workspaceId={workspaceId} allies={allies} query={webSearch} />
       {problem ? <p className={styles.inlineError} role="alert">{problem}</p> : null}
       {open && openConnection ? (
         <ConnectionDetail workspaceId={workspaceId} provider={open} connection={openConnection} allies={allies} onClose={() => setOpen(null)} />
@@ -150,7 +147,7 @@ function ConnectionDetail({ workspaceId, provider, connection, allies, onClose }
         allyGrants: [...previous.allyGrants.filter((candidate) => candidate.allyId !== allyId), grant],
       });
     } catch (caught) {
-      setProblem(integrationAccessProblem(caught, provider).message);
+      setProblem(integrationAccessProblem(caught, INTEGRATIONS[provider].label).message);
       void queryClient.invalidateQueries({ queryKey, exact: true });
     } finally {
       busy.current = false;
@@ -171,7 +168,7 @@ function ConnectionDetail({ workspaceId, provider, connection, allies, onClose }
       queryClient.setQueryData(queryKey, null);
       onClose();
     } catch (caught) {
-      setProblem(integrationAccessProblem(caught, provider).message);
+      setProblem(integrationAccessProblem(caught, INTEGRATIONS[provider].label).message);
       void queryClient.invalidateQueries({ queryKey, exact: true });
     } finally {
       busy.current = false;

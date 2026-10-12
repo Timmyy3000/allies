@@ -30,7 +30,30 @@ export const integrationConnectResponseSchema = z.object({
   expires_at: timestampSchema,
 });
 
+export const webSearchBackendSchema = z.enum(["parallel", "tavily", "exa"]);
+
+export const webSearchGrantLevelSchema = z.enum(["use", "none"]);
+
+export const webSearchAllyGrantSchema = z.object({
+  ally_id: z.uuid(),
+  level: webSearchGrantLevelSchema,
+  grant_generation: z.number().int().nonnegative(),
+  updated_at: timestampSchema,
+});
+
+export const webSearchConnectionSchema = z.object({
+  connection_id: z.uuid(),
+  backend: webSearchBackendSchema,
+  key_hint: z.string().min(1).max(4),
+  connected_at: timestampSchema,
+  ally_grants: z.array(webSearchAllyGrantSchema),
+});
+
 export type IntegrationProvider = z.infer<typeof integrationProviderSchema>;
+
+export type WebSearchBackend = z.infer<typeof webSearchBackendSchema>;
+
+export type WebSearchGrantLevel = z.infer<typeof webSearchGrantLevelSchema>;
 
 export type IntegrationGrantLevel = "read" | "send" | "write" | "none";
 
@@ -53,6 +76,35 @@ export interface IntegrationConnectSession {
   connectSessionId: string;
   authUrl: string;
   expiresAt: string;
+}
+
+export interface WebSearchAllyGrant extends Omit<IntegrationAllyGrant, "level"> {
+  level: WebSearchGrantLevel;
+}
+
+export interface WebSearchConnection {
+  backend: WebSearchBackend;
+  keyHint: string;
+  connectedAt: string;
+  allyGrants: WebSearchAllyGrant[];
+}
+
+export function toWebSearchAllyGrant(value: z.infer<typeof webSearchAllyGrantSchema>): WebSearchAllyGrant {
+  return {
+    allyId: value.ally_id,
+    level: value.level,
+    grantGeneration: value.grant_generation,
+    updatedAt: value.updated_at,
+  };
+}
+
+export function toWebSearchConnection(value: z.infer<typeof webSearchConnectionSchema>): WebSearchConnection {
+  return {
+    backend: value.backend,
+    keyHint: value.key_hint,
+    connectedAt: value.connected_at,
+    allyGrants: value.ally_grants.map(toWebSearchAllyGrant),
+  };
 }
 
 export function toIntegrationAllyGrant(value: z.infer<typeof allyGrantSchema>): IntegrationAllyGrant {

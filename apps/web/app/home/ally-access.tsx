@@ -79,7 +79,7 @@ function AccessRow({ workspaceId, allyId, provider, returnedFailure }: {
       );
       window.location.assign(started.authUrl);
     } catch (caught) {
-      setProblem(integrationAccessProblem(caught, provider));
+      setProblem(integrationAccessProblem(caught, INTEGRATIONS[provider].label));
       busyRef.current = false;
       setConnecting(false);
     }
@@ -103,7 +103,7 @@ function AccessRow({ workspaceId, allyId, provider, returnedFailure }: {
         allyGrants: [...previous.allyGrants.filter((candidate) => candidate.allyId !== allyId), grant],
       });
     } catch (caught) {
-      setProblem(integrationAccessProblem(caught, provider));
+      setProblem(integrationAccessProblem(caught, INTEGRATIONS[provider].label));
       void queryClient.invalidateQueries({ queryKey, exact: true });
     } finally {
       busyRef.current = false;
