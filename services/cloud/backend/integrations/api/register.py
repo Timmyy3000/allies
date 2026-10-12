@@ -23,6 +23,7 @@ from integrations.services.safe_inputs import (
     execute_browser_tool,
     execute_safe_input_tool,
 )
+from integrations.services.web_search import execute_web_search_tool
 
 _MAX_TOOL_BYTES = 64 * 1024
 _TOOLS = {
@@ -30,6 +31,7 @@ _TOOLS = {
     "calendar": execute_calendar_tool,
     "safe_inputs": execute_safe_input_tool,
     "browser": execute_browser_tool,
+    "web_search": execute_web_search_tool,
 }
 
 
