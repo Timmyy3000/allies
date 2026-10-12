@@ -35,8 +35,8 @@ from integrations.models import PROVIDER_WEB_SEARCH, IntegrationSecret
 from integrations.services import web_search_backends
 from workspaces.models import Membership, Workspace
 
-KEY = "sk-test-KEY-abcdefgh9876"
-OTHER_KEY = "sk-other-KEY-zyxwvu5432"
+KEY = "sk-test-KEY-abcdefgh9876"  # gitleaks:allow
+OTHER_KEY = "sk-other-KEY-zyxwvu5432"  # gitleaks:allow
 EXPECTED_PROVIDER_CALLS = {
     "parallel": {
         "url": "https://api.parallel.ai/v1beta/search",
