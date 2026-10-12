@@ -30,3 +30,6 @@
 
 # Verified ordinary test-plan prose in the merged alpha stack, not a credential.
 6654f9abcc552c454c0c6d03f4ca3f13a7c82c2f:docs/plans/alpha-speed-and-ready-pool.md:generic-api-key:507
+# Fake provider keys in the web search API tests, not credentials.
+e82b7a42042c0f12dcb83ec24df581c8655534c5:services/cloud/backend/integrations/tests/test_web_search_api.py:generic-api-key:38
+e82b7a42042c0f12dcb83ec24df581c8655534c5:services/cloud/backend/integrations/tests/test_web_search_api.py:generic-api-key:39

@@ -18,13 +18,16 @@ from django.db import models
 
 PROVIDER_GMAIL = "gmail"
 PROVIDER_CALENDAR = "calendar"
+PROVIDER_WEB_SEARCH = "web_search"
 
 GRANT_READ = "read"
 GRANT_SEND = "send"
 GRANT_WRITE = "write"
+GRANT_USE = "use"
 PROVIDER_GRANT_LEVELS = {
     PROVIDER_GMAIL: (GRANT_READ, GRANT_SEND),
     PROVIDER_CALENDAR: (GRANT_READ, GRANT_WRITE),
+    PROVIDER_WEB_SEARCH: (GRANT_USE,),
 }
 
 
@@ -44,6 +47,8 @@ class IntegrationSecret(models.Model):
     generation_epoch = models.PositiveIntegerField(default=1)
     connected_at = models.DateTimeField(auto_now_add=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
+    backend = models.CharField(max_length=32, default="")
+    key_hint = models.CharField(max_length=4, default="")
 
     class Meta:
         constraints = [

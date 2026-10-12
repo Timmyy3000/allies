@@ -559,6 +559,29 @@ STANDARD_RESPONSE_EXAMPLES: dict[str, dict[str, Any]] = {
         "message": "Gmail connection status",
         "data": None,
     },
+    "SuccessResponse_WebSearchConnectionResponse_": {
+        "status": "success",
+        "message": "Web search connected",
+        "data": {
+            "connection_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
+            "backend": "parallel",
+            "key_hint": "x9Qa",
+            "connected_at": "2026-10-12T10:00:00Z",
+            "ally_grants": [
+                {
+                    "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+                    "level": "use",
+                    "grant_generation": 1,
+                    "updated_at": "2026-10-12T10:00:00Z",
+                }
+            ],
+        },
+    },
+    "SuccessResponse_Union_WebSearchConnectionResponse__NoneType__": {
+        "status": "success",
+        "message": "Web search status",
+        "data": None,
+    },
     "SuccessResponse_AllyGrantResponse_": {
         "status": "success",
         "message": "Ally gmail grant saved",

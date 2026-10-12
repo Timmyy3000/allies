@@ -11,7 +11,14 @@ from urllib.parse import urlencode, urlsplit, urlunsplit
 from django.db import DatabaseError
 from django.http import HttpRequest, HttpResponse
 from ninja import Header, Query
-from ninja_extra import ControllerBase, api_controller, http_delete, http_get, http_post
+from ninja_extra import (
+    ControllerBase,
+    api_controller,
+    http_delete,
+    http_get,
+    http_post,
+    http_put,
+)
 
 from allies.models import Ally
 from auths.api.common import (
@@ -26,14 +33,18 @@ from auths.api.schemas import SuccessResponse
 from auths.exceptions import InvalidRedirect, SessionInvalid, WorkspaceAccessDenied
 from auths.services.flows import _safe_redirect
 from common.uuids import CanonicalUUID
+from common.vault import VaultUnavailable
 from integrations.api.schemas import (
     AllyGrantResponse,
     BeginConnectRequest,
     ConnectResponse,
+    ConnectWebSearchRequest,
     DisconnectRequest,
     DisconnectResponse,
     GmailConnectionResponse,
     SetGrantRequest,
+    WebSearchConnectionResponse,
+    WebSearchGrantRequest,
 )
 from integrations.exceptions import (
     GrantDenied,
@@ -43,9 +54,18 @@ from integrations.exceptions import (
     ProviderUnavailable,
     RefreshRevoked,
     ScopeInsufficient,
+    WebSearchCheckFailed,
+    WebSearchKeyRejected,
+    WebSearchNotConnected,
 )
-from integrations.models import PROVIDER_CALENDAR, PROVIDER_GMAIL, IntegrationSecret
-from integrations.services import google_oauth
+from integrations.models import (
+    PROVIDER_CALENDAR,
+    PROVIDER_GMAIL,
+    PROVIDER_WEB_SEARCH,
+    AllyIntegrationGrant,
+    IntegrationSecret,
+)
+from integrations.services import google_oauth, web_search
 from integrations.services.grants import (
     disconnect_account,
     revoke_ally_grant,
@@ -91,6 +111,62 @@ def _connection_response(secret: IntegrationSecret) -> GmailConnectionResponse:
         connected_at=secret.connected_at,
         ally_grants=grants,
     )
+
+
+def _apply_grant(*, secret, ally, level: str, user) -> AllyIntegrationGrant | None:
+    if level == "none":
+        revoke_ally_grant(secret=secret, ally=ally)
+        return None
+    return set_ally_grant(secret=secret, ally=ally, level=level, created_by=user)
+
+
+def _grant_response(*, ally_id, secret, grant) -> AllyGrantResponse:
+    if grant is None:
+        return AllyGrantResponse(
+            ally_id=ally_id,
+            level="none",
+            grant_generation=0,
+            updated_at=secret.connected_at,
+        )
+    return AllyGrantResponse(
+        ally_id=grant.ally_id,
+        level=grant.level,
+        grant_generation=grant.grant_generation,
+        updated_at=grant.updated_at,
+    )
+
+
+def _web_search_response(secret: IntegrationSecret) -> WebSearchConnectionResponse:
+    grants = [
+        AllyGrantResponse(
+            ally_id=grant.ally_id,
+            level=grant.level,
+            grant_generation=grant.grant_generation,
+            updated_at=grant.updated_at,
+        )
+        for grant in secret.ally_grants.order_by("ally_id")
+    ]
+    return WebSearchConnectionResponse(
+        connection_id=secret.id,
+        backend=secret.backend,
+        key_hint=secret.key_hint,
+        connected_at=secret.connected_at,
+        ally_grants=grants,
+    )
+
+
+def _web_search_error(exc: Exception):
+    if isinstance(exc, WebSearchKeyRejected):
+        return error_json("web_search_key_rejected", str(exc), 422)
+    if isinstance(exc, WebSearchCheckFailed):
+        return error_json("web_search_check_failed", str(exc), 503)
+    if isinstance(exc, WebSearchNotConnected):
+        return error_json("web_search_not_connected", str(exc), 409)
+    if isinstance(exc, VaultUnavailable):
+        return error_json(
+            "vault_unavailable", "web search can't store keys right now", 503
+        )
+    return _read_error(exc)
 
 
 def _redirect_with(target: str, **params: str) -> HttpResponse:
@@ -258,40 +334,23 @@ def _integration_controller(provider_key: str, name: str):
                 if secret is None:
                     raise IntegrationInvalid("not connected")
                 ally = _ally_in_workspace(context.workspace.id, payload.ally_id)
-                if payload.level == "none":
-                    revoke_ally_grant(secret=secret, ally=ally)
-                    grant = None
-                else:
-                    grant = set_ally_grant(
-                        secret=secret,
-                        ally=ally,
-                        level=payload.level,
-                        created_by=session.user,
-                    )
+                grant = _apply_grant(
+                    secret=secret,
+                    ally=ally,
+                    level=payload.level,
+                    user=session.user,
+                )
             except Exception as exc:
                 response = _read_error(exc)
                 if response is not None:
                     return response
                 raise
-            if grant is None:
-                return success_json(
-                    AllyGrantResponse(
-                        ally_id=payload.ally_id,
-                        level="none",
-                        grant_generation=0,
-                        updated_at=secret.connected_at,
-                    ),
-                    "Ally grant removed",
-                )
-            return success_json(
-                AllyGrantResponse(
-                    ally_id=grant.ally_id,
-                    level=grant.level,
-                    grant_generation=grant.grant_generation,
-                    updated_at=grant.updated_at,
-                ),
-                "Ally grant saved",
+            response_body = _grant_response(
+                ally_id=payload.ally_id, secret=secret, grant=grant
             )
+            if grant is None:
+                return success_json(response_body, "Ally grant removed")
+            return success_json(response_body, "Ally grant saved")
 
         @http_delete(
             "",
@@ -422,3 +481,151 @@ class GmailCallbackController(ControllerBase):
         if return_to:
             return _redirect_with(return_to, **{provider: "connected"})
         return success_json(data, "Connected")
+
+
+@api_controller(
+    "/workspaces/{workspace_id}/integrations/web-search", tags=["Integrations"]
+)
+class WebSearchController(ControllerBase):
+    @http_get(
+        "",
+        response={
+            200: SuccessResponse[WebSearchConnectionResponse | None],
+            **error_responses(401, 404, 500),
+        },
+    )
+    def web_search_status(self, request: HttpRequest, workspace_id: CanonicalUUID):
+        try:
+            session = _session(request)
+            require_workspace_capability(
+                user=session.user,
+                workspace_id=workspace_id,
+                capability=Capability.WORKSPACE_READ,
+            )
+            secret = _live_secret(workspace_id, PROVIDER_WEB_SEARCH)
+            data = _web_search_response(secret) if secret is not None else None
+        except Exception as exc:
+            response = _web_search_error(exc)
+            if response is not None:
+                return response
+            raise
+        return success_json(data, "Web search status")
+
+    @http_put(
+        "",
+        response={
+            200: SuccessResponse[WebSearchConnectionResponse],
+            **error_responses(401, 403, 404, 409, 422, 503, 500),
+        },
+    )
+    def web_search_connect(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        payload: ConnectWebSearchRequest,
+    ):
+        if rejected := _require_origin(request, allow_native_bearer=True):
+            return rejected
+        try:
+            session = _session(request)
+            context = require_workspace_capability(
+                user=session.user,
+                workspace_id=workspace_id,
+                capability=Capability.WORKSPACE_WRITE,
+            )
+            secret = web_search.connect(
+                workspace=context.workspace,
+                backend=payload.backend,
+                api_key=payload.api_key,
+            )
+            data = _web_search_response(secret)
+        except Exception as exc:
+            response = _web_search_error(exc)
+            if response is not None:
+                return response
+            raise
+        return success_json(data, "Web search connected")
+
+    @http_post(
+        "/grants",
+        response={
+            200: SuccessResponse[AllyGrantResponse],
+            **error_responses(401, 403, 404, 409, 422, 500),
+        },
+    )
+    def web_search_grant(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        payload: WebSearchGrantRequest,
+    ):
+        if rejected := _require_origin(request, allow_native_bearer=True):
+            return rejected
+        try:
+            session = _session(request)
+            context = require_workspace_capability(
+                user=session.user,
+                workspace_id=workspace_id,
+                capability=Capability.WORKSPACE_WRITE,
+            )
+            secret = _live_secret(context.workspace.id, PROVIDER_WEB_SEARCH)
+            if secret is None:
+                raise WebSearchNotConnected("web search is not connected")
+            ally = _ally_in_workspace(context.workspace.id, payload.ally_id)
+            grant = _apply_grant(
+                secret=secret,
+                ally=ally,
+                level=payload.level,
+                user=session.user,
+            )
+        except Exception as exc:
+            response = _web_search_error(exc)
+            if response is not None:
+                return response
+            raise
+        response_body = _grant_response(
+            ally_id=payload.ally_id, secret=secret, grant=grant
+        )
+        if grant is None:
+            return success_json(response_body, "Ally grant removed")
+        return success_json(response_body, "Ally grant saved")
+
+    @http_delete(
+        "",
+        response={
+            202: SuccessResponse[DisconnectResponse],
+            **error_responses(401, 403, 404, 422, 500),
+        },
+    )
+    def web_search_disconnect(
+        self,
+        request: HttpRequest,
+        workspace_id: CanonicalUUID,
+        payload: DisconnectRequest,
+    ):
+        if rejected := _require_origin(request, allow_native_bearer=True):
+            return rejected
+        try:
+            session = _session(request)
+            context = require_workspace_capability(
+                user=session.user,
+                workspace_id=workspace_id,
+                capability=Capability.WORKSPACE_WRITE,
+            )
+            if not payload.confirm:
+                raise IntegrationInvalid("disconnect requires confirmation")
+            secret = _live_secret(context.workspace.id, PROVIDER_WEB_SEARCH)
+            if secret is None:
+                result_status = "already_cleaned"
+            else:
+                result_status = web_search.disconnect(secret=secret)
+        except Exception as exc:
+            response = _web_search_error(exc)
+            if response is not None:
+                return response
+            raise
+        return success_json(
+            DisconnectResponse(status=result_status),
+            "Disconnect accepted",
+            status=202,
+        )
