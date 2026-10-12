@@ -12,6 +12,7 @@ from integrations.api.controllers import (
     CalendarController,
     GmailCallbackController,
     GmailController,
+    WebSearchController,
 )
 from integrations.api.safe_inputs import SafeInputController
 from integrations.services.calendar_tool import execute_calendar_tool
@@ -62,6 +63,7 @@ def register(api: NinjaExtraAPI) -> None:
         CalendarController,
         GmailCallbackController,
         SafeInputController,
+        WebSearchController,
     )
 
     @api.post("/internal/foundry/integrations/tool", auth=_foundry_token_valid)

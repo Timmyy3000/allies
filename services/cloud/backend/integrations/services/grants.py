@@ -20,10 +20,12 @@ from ..exceptions import (
 from ..models import (
     GRANT_READ,
     GRANT_SEND,
+    GRANT_USE,
     GRANT_WRITE,
     PROVIDER_CALENDAR,
     PROVIDER_GMAIL,
     PROVIDER_GRANT_LEVELS,
+    PROVIDER_WEB_SEARCH,
     AllyIntegrationGrant,
 )
 from .google_oauth import gmail_enabled
@@ -42,11 +44,13 @@ ALLOWLISTS = {
     ),
     (PROVIDER_CALENDAR, GRANT_READ): _CALENDAR_READ,
     (PROVIDER_CALENDAR, GRANT_WRITE): (*_CALENDAR_READ, "calendar write"),
+    (PROVIDER_WEB_SEARCH, GRANT_USE): ("web search", "web extract"),
 }
 
 
-def _require_enabled() -> None:
-    if not gmail_enabled():
+def _require_enabled(provider: str) -> None:
+    # Web search has no feature flag; the Google providers share the Gmail one.
+    if provider != PROVIDER_WEB_SEARCH and not gmail_enabled():
         raise IntegrationUnavailable("gmail integration disabled")
 
 
@@ -69,7 +73,7 @@ def _live_grant(secret, ally) -> AllyIntegrationGrant | None:
 def set_ally_grant(
     *, secret, ally, level: str, created_by=None
 ) -> AllyIntegrationGrant:
-    _require_enabled()
+    _require_enabled(secret.provider_key)
     if level not in PROVIDER_GRANT_LEVELS[secret.provider_key]:
         raise IntegrationInvalid("unknown grant level")
     if str(ally.workspace_id) != str(secret.workspace_id):
@@ -99,7 +103,7 @@ def set_ally_grant(
 
 
 def revoke_ally_grant(*, secret, ally) -> int:
-    _require_enabled()
+    _require_enabled(secret.provider_key)
     with transaction.atomic():
         locked_secret = secret.__class__.objects.select_for_update().get(pk=secret.pk)
         grant = (
@@ -117,7 +121,7 @@ def revoke_ally_grant(*, secret, ally) -> int:
 
 
 def check_grant(*, secret, ally) -> GrantDecision:
-    _require_enabled()
+    _require_enabled(secret.provider_key)
     if secret.revoked_at is not None:
         return GrantDecision(
             allowed=False, grant_generation=0, reason_code="connection_revoked"
@@ -147,7 +151,7 @@ class DisconnectResult:
 
 
 def disconnect_account(*, secret) -> DisconnectResult:
-    _require_enabled()
+    _require_enabled(secret.provider_key)
     from .google_oauth import revoke_at_google
     from .vault import unseal_refresh_token
 

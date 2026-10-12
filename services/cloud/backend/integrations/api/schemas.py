@@ -51,3 +51,28 @@ class DisconnectRequest(Schema):
 
 class DisconnectResponse(Schema):
     status: str
+
+
+WebSearchBackend = Literal["parallel", "tavily", "exa"]
+
+
+class ConnectWebSearchRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    backend: WebSearchBackend
+    api_key: str = Field(min_length=16, max_length=512)
+
+
+class WebSearchGrantRequest(Schema):
+    model_config = ConfigDict(extra="forbid")
+
+    ally_id: UUID
+    level: Literal["use", "none"]
+
+
+class WebSearchConnectionResponse(Schema):
+    connection_id: UUID
+    backend: WebSearchBackend
+    key_hint: str
+    connected_at: datetime
+    ally_grants: list[AllyGrantResponse]

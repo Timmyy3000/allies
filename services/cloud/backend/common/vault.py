@@ -23,12 +23,22 @@ class VaultUnavailable(Exception):
     pass
 
 
-def _vault() -> MultiFernet:
-    raw = [
+def _configured_keys() -> list[str]:
+    return [
         item.strip()
         for item in str(getattr(settings, "ALLIES_VAULT_KEYS", "") or "").split(",")
         if item.strip()
     ]
+
+
+def require_configured_keys() -> None:
+    """Refuse to seal when the DEBUG development key would be the only key."""
+    if not _configured_keys():
+        raise VaultUnavailable("vault key unavailable")
+
+
+def _vault() -> MultiFernet:
+    raw = _configured_keys()
     if not raw:
         if not settings.DEBUG:
             raise VaultUnavailable("vault key unavailable")

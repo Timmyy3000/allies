@@ -31,3 +31,15 @@ class ProviderUnavailable(IntegrationError):
 
 class ScopeInsufficient(IntegrationError):
     code = "scope_insufficient"
+
+
+class WebSearchKeyRejected(IntegrationInvalid):
+    code = "web_search_key_rejected"
+
+
+class WebSearchCheckFailed(IntegrationUnavailable):
+    code = "web_search_check_failed"
+
+
+class WebSearchNotConnected(IntegrationConflict):
+    code = "web_search_not_connected"
