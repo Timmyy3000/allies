@@ -181,6 +181,10 @@ def accepted_file_stream(*, binding_id, message_id, file_id) -> AcceptedFileStre
         "sha256": file.sha256,
     }:
         raise FileScopeUnavailable("file unavailable")
+    return ready_file_stream(file)
+
+
+def ready_file_stream(file: FileVersion) -> AcceptedFileStream:
     if file.actual_size != file.expected_size or not file.object_key:
         raise FileUnavailable("private storage unavailable")
     try:
@@ -203,4 +207,5 @@ __all__ = [
     "open_file",
     "private_file_preview",
     "private_file_stream",
+    "ready_file_stream",
 ]

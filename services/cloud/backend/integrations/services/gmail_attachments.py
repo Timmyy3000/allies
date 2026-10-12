@@ -7,11 +7,12 @@ import time
 from io import BytesIO
 from pathlib import PurePosixPath
 from urllib.parse import quote
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 from django.conf import settings
 from django.utils import timezone
 
+from allies.models import AllyDeletionState
 from chat.exceptions import QueueFull
 from files.exceptions import (
     FileConflict,
@@ -19,7 +20,14 @@ from files.exceptions import (
     FileUnavailable,
     FileValidation,
 )
-from files.models import FilePublication, FileState, FileVersion
+from files.models import (
+    FileDirection,
+    FilePublication,
+    FileState,
+    FileVersion,
+    PublicationState,
+)
+from files.services.access import AcceptedFileStream, ready_file_stream
 from files.services.publication import (
     publication_view,
     receive_publication_file,
@@ -116,6 +124,10 @@ def _view(message, publication_id):
     )
 
 
+def gmail_source_version_id(publication_id: UUID) -> UUID:
+    return uuid5(publication_id, "source")
+
+
 def _result(view):
     result = {"publication_id": view["publication_id"], "state": view["state"]}
     if view["state"] == "ready":
@@ -130,6 +142,7 @@ def _result(view):
             result["files"].append(
                 {
                     "filename": file["name"],
+                    "file_id": file["id"],
                     "chat_reference": f"[{label}]({file['open_path']})",
                 }
             )
@@ -237,7 +250,7 @@ def download(message, token, gmail_id, part_id, *, fetch):
             publication_id=publication_id,
             files=[
                 {
-                    "source_version_id": str(uuid5(publication_id, "source")),
+                    "source_version_id": str(gmail_source_version_id(publication_id)),
                     "name": item["filename"],
                     "size": len(content),
                     "sha256": hashlib.sha256(content).hexdigest(),
@@ -269,3 +282,28 @@ def download(message, token, gmail_id, part_id, *, fetch):
     except (FileUnavailable, OSError, RuntimeError) as exc:
         raise AttachmentError("gmail_attachment_unavailable") from exc
     return _result(_view(message, publication_id))
+
+
+def gmail_attachment_file_stream(
+    *, binding_id: UUID, message_id: UUID, file_id: UUID
+) -> AcceptedFileStream:
+    """Open a ready Gmail attachment file for the message that retrieved it."""
+
+    try:
+        file = FileVersion.objects.select_related("publication").get(
+            pk=file_id,
+            direction=FileDirection.OUTBOUND,
+            state=FileState.READY,
+            publication__binding_id=binding_id,
+            publication__source_message_id=message_id,
+            publication__state=PublicationState.READY,
+            publication__source_message__foundry_binding_id=binding_id,
+            publication__source_message__deleted_at__isnull=True,
+            publication__source_message__conversation__ally__file_tombstone__isnull=True,
+            publication__source_message__conversation__ally__deletion_state=AllyDeletionState.ACTIVE,
+        )
+    except FileVersion.DoesNotExist as exc:
+        raise FileScopeUnavailable("file unavailable") from exc
+    if file.source_version_id != gmail_source_version_id(file.publication_id):
+        raise FileScopeUnavailable("file unavailable")
+    return ready_file_stream(file)
