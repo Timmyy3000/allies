@@ -249,7 +249,7 @@ RUN PYTHONPATH=/opt/hermes /opt/hermes/.venv/bin/python /tmp/allies-smoke-platfo
     && rm -f /tmp/allies-smoke-platform-layer.py
 
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends bubblewrap=0.12.0-1~deb13u1 \
+    && apt-get install --yes --no-install-recommends bubblewrap=0.12.0-1~deb13u1 poppler-utils=25.03.0-5+deb13u4 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY allies_profile_sandbox.py allies_profile_sandbox_launcher.py /opt/hermes/
