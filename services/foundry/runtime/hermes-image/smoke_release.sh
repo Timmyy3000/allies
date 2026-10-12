@@ -29,6 +29,10 @@ for smoke in sandbox_cancellation proxy_failures; do
         --volume "$PWD/runtime/hermes-image/smoke_${smoke}.py:/tmp/smoke.py:ro" \
         "$hermes" /tmp/smoke.py
 done
+docker run --rm --user 10000:10000 --entrypoint /opt/hermes/.venv/bin/python \
+    --env PYTHONPATH=/opt/hermes \
+    --volume "$PWD/runtime/hermes-image/smoke_web_search.py:/tmp/smoke.py:ro" \
+    "$hermes" /tmp/smoke.py
 
 test "$(docker image inspect --format '{{json .Config.Entrypoint}}' "$runtime")" = '["python","-m","allies_runtime"]'
 docker run --rm --entrypoint python "$runtime" -c 'import allies_runtime'

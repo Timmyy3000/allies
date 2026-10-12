@@ -1,0 +1,5 @@
+# Root-owned managed scope: legacy provider keys in a profile env cannot reroute web calls.
+web:
+  backend: allies
+  search_backend: allies
+  extract_backend: allies

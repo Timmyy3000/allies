@@ -1,0 +1,7 @@
+name: web-allies
+version: 0.1.0
+description: Web search and extract through the workspace's connected web search in Allies Cloud
+author: Allies
+kind: backend
+provides_web_providers:
+  - allies
