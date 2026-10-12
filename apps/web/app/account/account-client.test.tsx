@@ -273,7 +273,7 @@ describe("AccountClient", () => {
     expect(document.body.textContent).not.toContain("pk_live_example_key_x9Qa");
   });
 
-  it("keeps the sheet open with the provider's own rejection message when the key is refused", async () => {
+  it("keeps the sheet open, clears the key, and shows the provider's own rejection message when the key is refused", async () => {
     const { client } = setupSession();
     client.connectWebSearch.mockRejectedValueOnce({ kind: "validation", status: 422, code: "web_search_key_rejected" });
     renderAccount();
@@ -285,6 +285,7 @@ describe("AccountClient", () => {
     expect((await screen.findByRole("alert")).textContent).toBe("Parallel rejected this key. Check it and paste it again.");
     expect(screen.getByRole("dialog", { name: "Connect Web search" })).toBeTruthy();
     expect(screen.queryByText(/ending/)).toBeNull();
+    expect((screen.getByLabelText("API key") as HTMLInputElement).value).toBe("");
   });
 
   it("does not send a key outside the length rule to Cloud", async () => {

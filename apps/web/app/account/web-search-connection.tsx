@@ -232,7 +232,8 @@ function WebSearchConnectSheet({ workspaceId, connection, onClose }: {
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (busy.current) return;
-    const apiKey = String(new FormData(event.currentTarget).get("apiKey") ?? "").trim();
+    const form = event.currentTarget;
+    const apiKey = String(new FormData(form).get("apiKey") ?? "").trim();
     if (apiKey.length < WEB_SEARCH_KEY_LENGTH.min || apiKey.length > WEB_SEARCH_KEY_LENGTH.max) {
       setProblem("That key doesn't look right.");
       return;
@@ -248,6 +249,7 @@ function WebSearchConnectSheet({ workspaceId, connection, onClose }: {
       queryClient.setQueryData<WebSearchConnectionData | null>(queryKey, saved);
       onClose();
     } catch (caught) {
+      form.reset();
       setProblem(webSearchConnectProblem(caught, label));
     } finally {
       busy.current = false;
@@ -268,7 +270,7 @@ function WebSearchConnectSheet({ workspaceId, connection, onClose }: {
           <p className={sheet.settingsHelp}>{connection ? "This replaces what's saved. Allies with access keep it." : "Allies can search once you turn it on for them."}</p>
           <div className={sheet.settingsField}>
             <label htmlFor="web-search-provider">Provider</label>
-            <select id="web-search-provider" className={sheet.settingsInput} name="backend" value={backend} disabled={submitting} onChange={(event) => setBackend(event.target.value as WebSearchBackend)}>
+            <select id="web-search-provider" autoFocus className={sheet.settingsInput} name="backend" value={backend} disabled={submitting} onChange={(event) => setBackend(event.target.value as WebSearchBackend)}>
               {(Object.keys(WEB_SEARCH_PROVIDERS) as WebSearchBackend[]).map((option) => (
                 <option key={option} value={option}>{WEB_SEARCH_PROVIDERS[option].label}</option>
               ))}
