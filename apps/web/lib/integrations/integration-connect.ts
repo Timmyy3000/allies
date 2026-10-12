@@ -46,8 +46,7 @@ export type IntegrationAccessProblem = {
   locked: boolean;
 };
 
-export function integrationAccessProblem(error: unknown, provider: IntegrationProvider): IntegrationAccessProblem {
-  const { label } = INTEGRATIONS[provider];
+export function integrationAccessProblem(error: unknown, label: string): IntegrationAccessProblem {
   const problem = (message: string, extra: Partial<IntegrationAccessProblem> = {}) => ({ message, reconnect: false, locked: false, ...extra });
   if (!isCloudError(error)) return problem("Something went wrong. Try again.");
   if (error.code === "refresh_revoked") return problem(`${label} disconnected. Reconnect to keep using it.`, { reconnect: true });

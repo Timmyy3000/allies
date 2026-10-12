@@ -108,6 +108,7 @@ export { validateSelectedFiles, FILE_EXTENSIONS, MAX_FILE_BYTES, MAX_MESSAGE_FIL
 export type { FileManifest, MessageFile, FilePublication, FileReservation, FileMetadata } from "./files";
 export type { components, operations, paths } from "./generated/openapi";
 export type { IntegrationAllyGrant, IntegrationConnection, IntegrationConnectSession, IntegrationGrantLevel, IntegrationProvider } from "./mappers/integrations";
+export type { WebSearchAllyGrant, WebSearchBackend, WebSearchConnection, WebSearchGrantLevel } from "./mappers/integrations";
 export { parseGoogleAuthUrl } from "./mappers/integrations";
 export type { AllyBrowserSession, SafeInput, SafeInputRequest, SafeInputValues } from "./mappers/safe-inputs";
 
