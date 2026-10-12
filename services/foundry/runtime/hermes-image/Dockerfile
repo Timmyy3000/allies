@@ -45,6 +45,8 @@ RUN /opt/hermes/.venv/bin/python /tmp/allies-verify-wheelhouse.py \
       /tmp/allies-mnemosyne-wheelhouse/mnemosyne_hermes-0.5.0-py3-none-any.whl \
       /tmp/allies-mnemosyne-wheelhouse/mnemosyne_memory-3.15.1-py3-none-any.whl \
       /tmp/allies-mnemosyne-wheelhouse/pyyaml-6.0.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl \
+      /tmp/allies-mnemosyne-wheelhouse/parallel_web-0.4.2-py3-none-any.whl \
+    && /opt/hermes/.venv/bin/python -c "import importlib.metadata as m; assert m.version('parallel-web') == '0.4.2'; import parallel" \
     && rm -rf /tmp/allies-mnemosyne-requirements.lock \
       /tmp/allies-mnemosyne-wheelhouse \
       /tmp/allies-verify-wheelhouse.py
