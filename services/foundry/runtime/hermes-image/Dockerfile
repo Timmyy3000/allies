@@ -51,6 +51,20 @@ RUN /opt/hermes/.venv/bin/python /tmp/allies-verify-wheelhouse.py \
       /tmp/allies-mnemosyne-wheelhouse \
       /tmp/allies-verify-wheelhouse.py
 
+# The public OSRM demo answers every profile with car times.
+COPY patches/maps-routing.patch /tmp/allies-maps-routing.patch
+RUN cd /opt/hermes \
+    && git apply --check --whitespace=nowarn /tmp/allies-maps-routing.patch \
+    && git apply --whitespace=nowarn /tmp/allies-maps-routing.patch \
+    && rm -f /tmp/allies-maps-routing.patch
+
+COPY patches/web-search-cap-answer.patch /tmp/allies-web-search-cap-answer.patch
+RUN cd /opt/hermes \
+    && git apply --check --whitespace=nowarn /tmp/allies-web-search-cap-answer.patch \
+    && git apply --whitespace=nowarn /tmp/allies-web-search-cap-answer.patch \
+    && rm -f /tmp/allies-web-search-cap-answer.patch \
+    && /opt/hermes/.venv/bin/python -m py_compile agent/tool_guardrails.py
+
 # Keep the shared catalog immutable and separate from Hermes' writable profile
 # skills.  The build script validates provenance before copying any content.
 COPY build_skills_catalog.py /tmp/allies-build-skills-catalog.py
