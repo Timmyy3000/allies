@@ -1265,6 +1265,32 @@
         "title": "ConnectResponse",
         "type": "object"
       },
+      "ConnectWebSearchRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "api_key": {
+            "maxLength": 512,
+            "minLength": 16,
+            "title": "Api Key",
+            "type": "string"
+          },
+          "backend": {
+            "enum": [
+              "parallel",
+              "tavily",
+              "exa"
+            ],
+            "title": "Backend",
+            "type": "string"
+          }
+        },
+        "required": [
+          "backend",
+          "api_key"
+        ],
+        "title": "ConnectWebSearchRequest",
+        "type": "object"
+      },
       "ConversationResponse": {
         "properties": {
           "ally_id": {
@@ -5600,6 +5626,41 @@
         "title": "SuccessResponse[Union[GmailConnectionResponse, NoneType]]",
         "type": "object"
       },
+      "SuccessResponse_Union_WebSearchConnectionResponse__NoneType__": {
+        "example": {
+          "data": null,
+          "message": "Web search status",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WebSearchConnectionResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[Union[WebSearchConnectionResponse, NoneType]]",
+        "type": "object"
+      },
       "SuccessResponse_UploadFileResponse_": {
         "example": {
           "data": {
@@ -5691,6 +5752,47 @@
           "data"
         ],
         "title": "SuccessResponse[WaitlistEntryResponse]",
+        "type": "object"
+      },
+      "SuccessResponse_WebSearchConnectionResponse_": {
+        "example": {
+          "data": {
+            "ally_grants": [
+              {
+                "ally_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d76",
+                "grant_generation": 1,
+                "level": "use",
+                "updated_at": "2026-10-12T10:00:00Z"
+              }
+            ],
+            "backend": "parallel",
+            "connected_at": "2026-10-12T10:00:00Z",
+            "connection_id": "018f77d8-6e61-7ca0-8c36-1ba4f1fd9d81",
+            "key_hint": "x9Qa"
+          },
+          "message": "Web search connected",
+          "status": "success"
+        },
+        "properties": {
+          "data": {
+            "$ref": "#/components/schemas/WebSearchConnectionResponse"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "status": {
+            "const": "success",
+            "default": "success",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "data"
+        ],
+        "title": "SuccessResponse[WebSearchConnectionResponse]",
         "type": "object"
       },
       "SuccessResponse_WorkspaceContextResponse_": {
@@ -5886,6 +5988,73 @@
         "title": "WaitlistEntryResponse",
         "type": "object"
       },
+      "WebSearchConnectionResponse": {
+        "properties": {
+          "ally_grants": {
+            "items": {
+              "$ref": "#/components/schemas/AllyGrantResponse"
+            },
+            "title": "Ally Grants",
+            "type": "array"
+          },
+          "backend": {
+            "enum": [
+              "parallel",
+              "tavily",
+              "exa"
+            ],
+            "title": "Backend",
+            "type": "string"
+          },
+          "connected_at": {
+            "format": "date-time",
+            "title": "Connected At",
+            "type": "string"
+          },
+          "connection_id": {
+            "format": "uuid",
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "key_hint": {
+            "title": "Key Hint",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection_id",
+          "backend",
+          "key_hint",
+          "connected_at",
+          "ally_grants"
+        ],
+        "title": "WebSearchConnectionResponse",
+        "type": "object"
+      },
+      "WebSearchGrantRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "ally_id": {
+            "format": "uuid",
+            "title": "Ally Id",
+            "type": "string"
+          },
+          "level": {
+            "enum": [
+              "use",
+              "none"
+            ],
+            "title": "Level",
+            "type": "string"
+          }
+        },
+        "required": [
+          "ally_id",
+          "level"
+        ],
+        "title": "WebSearchGrantRequest",
+        "type": "object"
+      },
       "WorkspaceContextResponse": {
         "properties": {
           "capabilities": {
@@ -6003,7 +6172,7 @@
   "paths": {
     "/api/v1/allies/{ally_id}/runtime-intents": {
       "post": {
-        "operationId": "runtimeintent_request_44c11e83",
+        "operationId": "runtimeintent_request_9fe965f9",
         "parameters": [
           {
             "in": "path",
@@ -6159,7 +6328,7 @@
     },
     "/api/v1/auths/callback/{provider}": {
       "get": {
-        "operationId": "authentication_callback_089b6fad",
+        "operationId": "authentication_callback_1940bed7",
         "parameters": [
           {
             "in": "path",
@@ -6264,7 +6433,7 @@
     },
     "/api/v1/auths/csrf": {
       "get": {
-        "operationId": "authentication_csrf_5a64e692",
+        "operationId": "authentication_csrf_2a115509",
         "parameters": [],
         "responses": {
           "204": {
@@ -6294,7 +6463,7 @@
     },
     "/api/v1/auths/identities/{provider}/link": {
       "post": {
-        "operationId": "identity_link_a9df9e09",
+        "operationId": "identity_link_9d22c09c",
         "parameters": [
           {
             "in": "path",
@@ -6472,7 +6641,7 @@
     "/api/v1/auths/invites/claim": {
       "post": {
         "description": "This browser-only operation requires a trusted Origin or Referer and matching CSRF cookie/header. Claiming an invite records only the normalized email grant; it does not create an account. Responses are never cacheable.",
-        "operationId": "invite_claim_236e6b94",
+        "operationId": "invite_claim_86134544",
         "parameters": [
           {
             "description": "Required and must match a configured trusted frontend origin.",
@@ -6662,7 +6831,7 @@
     },
     "/api/v1/auths/logout": {
       "post": {
-        "operationId": "session_logout_a3d7c4c7",
+        "operationId": "session_logout_a519a4a9",
         "parameters": [],
         "responses": {
           "204": {
@@ -6707,7 +6876,7 @@
     },
     "/api/v1/auths/me": {
       "get": {
-        "operationId": "profile_me_464042eb",
+        "operationId": "profile_me_a0dc509f",
         "parameters": [],
         "responses": {
           "200": {
@@ -6764,7 +6933,7 @@
     },
     "/api/v1/auths/me/avatar": {
       "delete": {
-        "operationId": "avatar_delete_2743eda7",
+        "operationId": "avatar_delete_2042c735",
         "parameters": [],
         "responses": {
           "204": {
@@ -6874,7 +7043,7 @@
     },
     "/api/v1/auths/me/avatar/{asset_id}/complete": {
       "post": {
-        "operationId": "avatar_complete_983863a6",
+        "operationId": "avatar_complete_38540d4c",
         "parameters": [
           {
             "in": "path",
@@ -7032,7 +7201,7 @@
     },
     "/api/v1/auths/me/avatar/read": {
       "get": {
-        "operationId": "avatar_read_a67dab0d",
+        "operationId": "avatar_read_abe07a2b",
         "parameters": [],
         "responses": {
           "200": {
@@ -7119,7 +7288,7 @@
     },
     "/api/v1/auths/me/avatar/uploads": {
       "post": {
-        "operationId": "avatar_prepare_12b359b1",
+        "operationId": "avatar_prepare_57d914c8",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -7261,7 +7430,7 @@
     },
     "/api/v1/auths/me/profile": {
       "patch": {
-        "operationId": "profile_profile_2bd4e31d",
+        "operationId": "profile_profile_9a144123",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -7374,7 +7543,7 @@
     "/api/v1/auths/native/callback/{provider}": {
       "get": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_callback_5564c25c",
+        "operationId": "nativeauthentication_callback_bffa3d56",
         "parameters": [
           {
             "in": "path",
@@ -7558,7 +7727,7 @@
     "/api/v1/auths/native/logout": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_logout_dd6e6317",
+        "operationId": "nativeauthentication_logout_7ce80118",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -7650,7 +7819,7 @@
     "/api/v1/auths/native/sign-in/{provider}": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_sign_in_b5f6ce40",
+        "operationId": "nativeauthentication_sign_in_8972322f",
         "parameters": [
           {
             "in": "path",
@@ -7754,7 +7923,7 @@
     "/api/v1/auths/native/token": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_token_796d7af0",
+        "operationId": "nativeauthentication_token_61c2ebcf",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -7918,7 +8087,7 @@
     "/api/v1/auths/native/token/refresh": {
       "post": {
         "description": "Native routes do not use browser cookies or CSRF. Token responses are non-cacheable; native logout accepts an optional bearer only when it matches the refresh-token family.",
-        "operationId": "nativeauthentication_refresh_fe3f2fc1",
+        "operationId": "nativeauthentication_refresh_2b46173a",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -8081,7 +8250,7 @@
     },
     "/api/v1/auths/refresh": {
       "post": {
-        "operationId": "session_refresh_e1bf58e5",
+        "operationId": "session_refresh_f3ca708d",
         "parameters": [],
         "responses": {
           "204": {
@@ -8171,7 +8340,7 @@
     },
     "/api/v1/auths/sign-in/{provider}": {
       "post": {
-        "operationId": "authentication_sign_in_92983b6c",
+        "operationId": "authentication_sign_in_6275bb78",
         "parameters": [
           {
             "in": "path",
@@ -8318,7 +8487,7 @@
     },
     "/api/v1/health": {
       "get": {
-        "operationId": "health_health_270219cb",
+        "operationId": "health_health_7e4c7330",
         "parameters": [],
         "responses": {
           "200": {
@@ -8370,7 +8539,7 @@
     },
     "/api/v1/integrations/gmail/callback": {
       "get": {
-        "operationId": "gmailcallback_callback_cbb2ff1e",
+        "operationId": "gmailcallback_callback_22e61dff",
         "parameters": [
           {
             "in": "query",
@@ -8643,7 +8812,7 @@
     },
     "/api/v1/internal/v1/accepted-files/{file_id}/content": {
       "get": {
-        "operationId": "acceptedfile_content_fbeeedb1",
+        "operationId": "acceptedfile_content_70609f3d",
         "parameters": [
           {
             "in": "path",
@@ -8689,7 +8858,7 @@
     },
     "/api/v1/internal/v1/file-publication-retries/claim": {
       "post": {
-        "operationId": "filepublication_claim_4e31b940",
+        "operationId": "filepublication_claim_0828f2db",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -8714,7 +8883,7 @@
     },
     "/api/v1/internal/v1/file-publication-retries/due-bindings": {
       "get": {
-        "operationId": "filepublication_due_bindings_78912451",
+        "operationId": "filepublication_due_bindings_e2cb604d",
         "parameters": [
           {
             "in": "query",
@@ -8757,7 +8926,7 @@
     },
     "/api/v1/internal/v1/file-publication-status": {
       "post": {
-        "operationId": "filepublication_status_c09d1344",
+        "operationId": "filepublication_status_8e8d52e6",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -8782,7 +8951,7 @@
     },
     "/api/v1/internal/v1/file-publications": {
       "post": {
-        "operationId": "filepublication_reserve_a6791e18",
+        "operationId": "filepublication_reserve_3d63ed25",
         "parameters": [],
         "requestBody": {
           "content": {
@@ -8807,7 +8976,7 @@
     },
     "/api/v1/internal/v1/file-publications/{publication_id}": {
       "get": {
-        "operationId": "filepublication_detail_e094bb40",
+        "operationId": "filepublication_detail_b4d5f6f0",
         "parameters": [
           {
             "in": "path",
@@ -8833,7 +9002,7 @@
     },
     "/api/v1/internal/v1/file-publications/{publication_id}/files/{file_id}/content": {
       "put": {
-        "operationId": "filepublication_upload_78674aa8",
+        "operationId": "filepublication_upload_27d97095",
         "parameters": [
           {
             "in": "path",
@@ -8922,7 +9091,7 @@
     },
     "/api/v1/internal/v1/file-publications/{publication_id}/retry-result": {
       "post": {
-        "operationId": "filepublication_retry_result_5baafd26",
+        "operationId": "filepublication_retry_result_b3851c08",
         "parameters": [
           {
             "in": "path",
@@ -8959,7 +9128,7 @@
     "/api/v1/onboarding/attempts": {
       "post": {
         "description": "This public operation has two closed transports. Native requests must send no Origin, Referer, Cookie, X-CSRFToken, or Authorization; they are admitted only when ALLIES_AUTH_NATIVE_ENABLED is true and the Railway server-provided X-Real-IP passes the bounded native requester and global throttles. Browser-marked requests stay on the trusted-origin and double-submit CSRF path; they never fall through to native. The native gate is disabled by default.",
-        "operationId": "onboarding_begin_59b007e8",
+        "operationId": "onboarding_begin_6cac8793",
         "parameters": [
           {
             "description": "Browser-only signal; if present it must be a configured trusted origin.",
@@ -9136,7 +9305,7 @@
     "/api/v1/onboarding/runtime-intents": {
       "post": {
         "description": "This operation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. The workspace is derived from the authenticated principal; request content contains no Ally draft.",
-        "operationId": "onboarding_runtime_intent_faccadb3",
+        "operationId": "onboarding_runtime_intent_2cb274a3",
         "parameters": [
           {
             "description": "Stable UUID for repeating one runtime intent.",
@@ -9420,7 +9589,7 @@
     "/api/v1/waitlist/entries": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_create_637806a5",
+        "operationId": "waitlist_create_df169d2d",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -9601,7 +9770,7 @@
     "/api/v1/waitlist/entries/complete": {
       "post": {
         "description": "Waitlist requests must include either Origin or Referer, and the value must match a configured trusted frontend origin; otherwise the API returns 403 origin_rejected.",
-        "operationId": "waitlist_complete_cf78d597",
+        "operationId": "waitlist_complete_06aa19e5",
         "parameters": [
           {
             "description": "One of Origin or Referer must match a configured trusted frontend origin.",
@@ -9771,7 +9940,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "get": {
-        "operationId": "workspace_context_ec5fc970",
+        "operationId": "workspace_context_53a358e1",
         "parameters": [
           {
             "in": "path",
@@ -9854,7 +10023,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies": {
       "get": {
-        "operationId": "ally_list_25a132ae",
+        "operationId": "ally_list_d9ef2826",
         "parameters": [
           {
             "in": "path",
@@ -9931,7 +10100,7 @@
       },
       "post": {
         "description": "Create accepts either a browser session cookie plus trusted Origin/Referer and CSRF, or a validated native bearer with no browser or session signals. Native bearer requests require the native feature gate and Workspace write capability; Authorization/browser hybrids cannot bypass CSRF. This operation is never anonymous.",
-        "operationId": "ally_create_92969924",
+        "operationId": "ally_create_de70c285",
         "parameters": [
           {
             "in": "path",
@@ -10167,7 +10336,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}": {
       "get": {
-        "operationId": "ally_retrieve_3f049375",
+        "operationId": "ally_retrieve_a8e20e6e",
         "parameters": [
           {
             "in": "path",
@@ -10255,7 +10424,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/browser-session": {
       "get": {
-        "operationId": "safeinput_browser_session_8398bb4a",
+        "operationId": "safeinput_browser_session_3c840ea0",
         "parameters": [
           {
             "in": "path",
@@ -10291,7 +10460,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/conversation": {
       "get": {
-        "operationId": "conversation_by_ally_3f0461c6",
+        "operationId": "conversation_by_ally_4bc5d6f6",
         "parameters": [
           {
             "in": "path",
@@ -10422,7 +10591,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/deletion": {
       "get": {
-        "operationId": "ally_deletion_status_065f544e",
+        "operationId": "ally_deletion_status_ffa956db",
         "parameters": [
           {
             "in": "path",
@@ -10508,7 +10677,7 @@
         ]
       },
       "post": {
-        "operationId": "ally_delete_f5811300",
+        "operationId": "ally_delete_334cc85b",
         "parameters": [
           {
             "in": "path",
@@ -10661,7 +10830,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}": {
       "get": {
-        "operationId": "privatefile_metadata_1ce93f68",
+        "operationId": "privatefile_metadata_ce205468",
         "parameters": [
           {
             "in": "path",
@@ -10707,7 +10876,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/content": {
       "put": {
-        "operationId": "fileadmission_upload_f55711c2",
+        "operationId": "fileadmission_upload_84652246",
         "parameters": [
           {
             "in": "path",
@@ -10913,7 +11082,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/download": {
       "get": {
-        "operationId": "privatefile_download_ffa507b8",
+        "operationId": "privatefile_download_16c3da12",
         "parameters": [
           {
             "in": "path",
@@ -10959,7 +11128,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/preview": {
       "get": {
-        "operationId": "privatefile_preview_6118b067",
+        "operationId": "privatefile_preview_59cb3e72",
         "parameters": [
           {
             "in": "path",
@@ -11005,7 +11174,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/files/{file_id}/retry": {
       "post": {
-        "operationId": "fileadmission_retry_file_003c1ae7",
+        "operationId": "fileadmission_retry_file_8f1ab6ab",
         "parameters": [
           {
             "in": "path",
@@ -11158,7 +11327,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/messages/{message_id}/publications/{publication_id}": {
       "get": {
-        "operationId": "ownerpublication_detail_91f21868",
+        "operationId": "ownerpublication_detail_f2588c6a",
         "parameters": [
           {
             "in": "path",
@@ -11214,7 +11383,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/messages/{message_id}/publications/{publication_id}/retry": {
       "post": {
-        "operationId": "ownerpublication_retry_9cfa6cfa",
+        "operationId": "ownerpublication_retry_05eaa4ee",
         "parameters": [
           {
             "in": "path",
@@ -11280,7 +11449,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/model": {
       "put": {
-        "operationId": "modelkeys_select_62103806",
+        "operationId": "modelkeys_select_38ecf46e",
         "parameters": [
           {
             "in": "path",
@@ -11393,7 +11562,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/allies/{ally_id}/settings": {
       "patch": {
-        "operationId": "ally_settings_0f598c9d",
+        "operationId": "ally_settings_549eede1",
         "parameters": [
           {
             "in": "path",
@@ -11536,7 +11705,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}": {
       "get": {
-        "operationId": "conversation_by_conversation_111cf7a3",
+        "operationId": "conversation_by_conversation_d4ef2b75",
         "parameters": [
           {
             "in": "path",
@@ -11667,7 +11836,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities": {
       "get": {
-        "operationId": "activity_snapshot_8dc5bba5",
+        "operationId": "activity_snapshot_490a6b4c",
         "parameters": [
           {
             "in": "path",
@@ -11867,7 +12036,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/activities/stream": {
       "get": {
-        "operationId": "activity_stream_ccfa3e09",
+        "operationId": "activity_stream_fff82f02",
         "parameters": [
           {
             "in": "path",
@@ -11921,7 +12090,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals": {
       "get": {
         "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
-        "operationId": "activity_approvals_1073ff64",
+        "operationId": "activity_approvals_0f7e69f9",
         "parameters": [
           {
             "in": "path",
@@ -12060,7 +12229,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}": {
       "get": {
         "description": "Approval summaries and authorized detail are membership-scoped; the detail response contains the complete redacted action preview.",
-        "operationId": "activity_approval_c3dea46f",
+        "operationId": "activity_approval_a1aaca58",
         "parameters": [
           {
             "in": "path",
@@ -12197,7 +12366,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/approvals/{approval_id}/decision": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected. The idempotency key must be reused for an exact retry.",
-        "operationId": "activity_decide_a9ea750f",
+        "operationId": "activity_decide_8597a1cf",
         "parameters": [
           {
             "in": "path",
@@ -12408,7 +12577,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/file-messages": {
       "post": {
-        "operationId": "fileadmission_reserve_211c9142",
+        "operationId": "fileadmission_reserve_9761e777",
         "parameters": [
           {
             "in": "path",
@@ -12578,7 +12747,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_send_564ded3c",
+        "operationId": "conversation_send_7b3d070b",
         "parameters": [
           {
             "in": "path",
@@ -12795,7 +12964,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}": {
       "delete": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_delete_dbc4d571",
+        "operationId": "conversation_delete_a026be19",
         "parameters": [
           {
             "in": "path",
@@ -12958,7 +13127,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/cancel-files": {
       "post": {
-        "operationId": "fileadmission_cancel_files_f1f7e56c",
+        "operationId": "fileadmission_cancel_files_3d699c37",
         "parameters": [
           {
             "in": "path",
@@ -13111,7 +13280,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/file-draft": {
       "delete": {
-        "operationId": "fileadmission_discard_draft_bc90640a",
+        "operationId": "fileadmission_discard_draft_7f310596",
         "parameters": [
           {
             "in": "path",
@@ -13222,7 +13391,7 @@
         ]
       },
       "get": {
-        "operationId": "fileadmission_get_draft_375b1c22",
+        "operationId": "fileadmission_get_draft_0d8386d8",
         "parameters": [
           {
             "in": "path",
@@ -13335,7 +13504,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/files/{file_id}": {
       "delete": {
-        "operationId": "fileadmission_remove_file_c6d2edb6",
+        "operationId": "fileadmission_remove_file_84681748",
         "parameters": [
           {
             "in": "path",
@@ -13499,7 +13668,7 @@
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/retry": {
       "post": {
         "description": "This mutation accepts either a browser session with a trusted Origin or Referer and matching CSRF cookie/header, or a validated native bearer-only session. Mixed browser and bearer transport is rejected.",
-        "operationId": "conversation_retry_03f7dd0c",
+        "operationId": "conversation_retry_bbf1a6d6",
         "parameters": [
           {
             "in": "path",
@@ -13715,7 +13884,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/send-files": {
       "post": {
-        "operationId": "fileadmission_send_files_07c640e7",
+        "operationId": "fileadmission_send_files_a1112e05",
         "parameters": [
           {
             "in": "path",
@@ -13868,7 +14037,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/{message_id}/steer": {
       "post": {
-        "operationId": "conversation_steer_7199f69b",
+        "operationId": "conversation_steer_b9917c2e",
         "parameters": [
           {
             "in": "path",
@@ -13996,7 +14165,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/stop": {
       "post": {
-        "operationId": "conversation_stop_281c98f0",
+        "operationId": "conversation_stop_484a6064",
         "parameters": [
           {
             "in": "path",
@@ -14099,7 +14268,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/integrations/calendar": {
       "delete": {
-        "operationId": "calendar_disconnect_57c7deea",
+        "operationId": "calendar_disconnect_3585f6a7",
         "parameters": [
           {
             "in": "path",
@@ -14245,7 +14414,7 @@
         ]
       },
       "get": {
-        "operationId": "calendar_status_8b1b6e15",
+        "operationId": "calendar_status_b0cfa37e",
         "parameters": [
           {
             "in": "path",
@@ -14338,7 +14507,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/integrations/calendar/connect": {
       "post": {
-        "operationId": "calendar_begin_4965c774",
+        "operationId": "calendar_begin_4193789e",
         "parameters": [
           {
             "in": "path",
@@ -14507,7 +14676,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/integrations/calendar/grants": {
       "post": {
-        "operationId": "calendar_set_grant_0cbc9522",
+        "operationId": "calendar_set_grant_78c86287",
         "parameters": [
           {
             "in": "path",
@@ -14655,7 +14824,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/integrations/gmail": {
       "delete": {
-        "operationId": "gmail_disconnect_5e3c7013",
+        "operationId": "gmail_disconnect_2e0bc05f",
         "parameters": [
           {
             "in": "path",
@@ -14801,7 +14970,7 @@
         ]
       },
       "get": {
-        "operationId": "gmail_status_f045b71a",
+        "operationId": "gmail_status_59d30fdb",
         "parameters": [
           {
             "in": "path",
@@ -14894,7 +15063,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/integrations/gmail/connect": {
       "post": {
-        "operationId": "gmail_begin_5fd01222",
+        "operationId": "gmail_begin_1538aa4f",
         "parameters": [
           {
             "in": "path",
@@ -15063,7 +15232,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/integrations/gmail/grants": {
       "post": {
-        "operationId": "gmail_set_grant_a91c1e28",
+        "operationId": "gmail_set_grant_ab260bb2",
         "parameters": [
           {
             "in": "path",
@@ -15209,9 +15378,482 @@
         ]
       }
     },
+    "/api/v1/workspaces/{workspace_id}/integrations/web-search": {
+      "delete": {
+        "operationId": "websearch_web_search_disconnect_708f38d2",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DisconnectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_DisconnectResponse_"
+                }
+              }
+            },
+            "description": "Accepted"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Web Search Disconnect",
+        "tags": [
+          "Integrations"
+        ]
+      },
+      "get": {
+        "operationId": "websearch_web_search_status_fe860b41",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_Union_WebSearchConnectionResponse__NoneType__"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Web Search Status",
+        "tags": [
+          "Integrations"
+        ]
+      },
+      "put": {
+        "operationId": "websearch_web_search_connect_eef79b67",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectWebSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_WebSearchConnectionResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Web Search Connect",
+        "tags": [
+          "Integrations"
+        ]
+      }
+    },
+    "/api/v1/workspaces/{workspace_id}/integrations/web-search/grants": {
+      "post": {
+        "operationId": "websearch_web_search_grant_491cee84",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "workspace_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Workspace Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebSearchGrantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessResponse_AllyGrantResponse_"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Unprocessable Content"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "data": null,
+                  "message": "Request failed",
+                  "status": "error"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse_ErrorData_"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          }
+        },
+        "summary": "Web Search Grant",
+        "tags": [
+          "Integrations"
+        ]
+      }
+    },
     "/api/v1/workspaces/{workspace_id}/model-keys": {
       "get": {
-        "operationId": "modelkeys_status_37275a96",
+        "operationId": "modelkeys_status_361a3e7a",
         "parameters": [
           {
             "in": "path",
@@ -15274,7 +15916,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/model-keys/{provider}": {
       "delete": {
-        "operationId": "modelkeys_disconnect_dfb68461",
+        "operationId": "modelkeys_disconnect_65dcf8c3",
         "parameters": [
           {
             "in": "path",
@@ -15359,7 +16001,7 @@
         ]
       },
       "put": {
-        "operationId": "modelkeys_connect_86ef0a29",
+        "operationId": "modelkeys_connect_911a1f90",
         "parameters": [
           {
             "in": "path",
@@ -15472,7 +16114,7 @@
     "/api/v1/workspaces/{workspace_id}/push/config": {
       "get": {
         "description": "Browser-only push, scoped to the authenticated owner, workspace membership and current session family. Unknown or foreign subscriptions return 404. Native bearer credentials are not accepted.",
-        "operationId": "push_config_854fc0fa",
+        "operationId": "push_config_67c67beb",
         "parameters": [
           {
             "in": "path",
@@ -15625,7 +16267,7 @@
     "/api/v1/workspaces/{workspace_id}/push/subscriptions": {
       "post": {
         "description": "Browser-only push, scoped to the authenticated owner, workspace membership and current session family. Unknown or foreign subscriptions return 404. Native bearer credentials are not accepted.",
-        "operationId": "push_register_783b9e89",
+        "operationId": "push_register_303f694a",
         "parameters": [
           {
             "in": "path",
@@ -15797,7 +16439,7 @@
     "/api/v1/workspaces/{workspace_id}/push/subscriptions/{subscription_id}": {
       "delete": {
         "description": "Browser-only push, scoped to the authenticated owner, workspace membership and current session family. Unknown or foreign subscriptions return 404. Native bearer credentials are not accepted.",
-        "operationId": "push_revoke_32fc6921",
+        "operationId": "push_revoke_e44268eb",
         "parameters": [
           {
             "in": "path",
@@ -15972,7 +16614,7 @@
     "/api/v1/workspaces/{workspace_id}/push/subscriptions/{subscription_id}/presence": {
       "post": {
         "description": "Browser-only push, scoped to the authenticated owner, workspace membership and current session family. Unknown or foreign subscriptions return 404. Native bearer credentials are not accepted.",
-        "operationId": "push_presence_251b9c6a",
+        "operationId": "push_presence_5946a78f",
         "parameters": [
           {
             "in": "path",
@@ -16153,7 +16795,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/routines": {
       "get": {
-        "operationId": "routine_list_382bd8b8",
+        "operationId": "routine_list_5874d26f",
         "parameters": [
           {
             "in": "path",
@@ -16292,7 +16934,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/routines/{routine_id}": {
       "get": {
-        "operationId": "routine_detail_1336dc7f",
+        "operationId": "routine_detail_f19b22da",
         "parameters": [
           {
             "in": "path",
@@ -16380,7 +17022,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/routines/{routine_id}/approvals/{approval_id}/decision": {
       "post": {
-        "operationId": "routine_decide_approval_653058c0",
+        "operationId": "routine_decide_approval_a329423d",
         "parameters": [
           {
             "in": "path",
@@ -16556,7 +17198,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/safe-input-requests": {
       "get": {
-        "operationId": "safeinput_list_requests_6496dfda",
+        "operationId": "safeinput_list_requests_70c94661",
         "parameters": [
           {
             "in": "path",
@@ -16599,7 +17241,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/safe-input-requests/{request_id}": {
       "post": {
-        "operationId": "safeinput_resolve_request_b42451df",
+        "operationId": "safeinput_resolve_request_757b8147",
         "parameters": [
           {
             "in": "path",
@@ -16645,7 +17287,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/safe-inputs": {
       "get": {
-        "operationId": "safeinput_list_safe_inputs_c381dfa4",
+        "operationId": "safeinput_list_safe_inputs_b20bc1c9",
         "parameters": [
           {
             "in": "path",
@@ -16671,7 +17313,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/safe-inputs/{safe_input_id}": {
       "delete": {
-        "operationId": "safeinput_delete_safe_input_e112bd8c",
+        "operationId": "safeinput_delete_safe_input_362137c7",
         "parameters": [
           {
             "in": "path",
@@ -16705,7 +17347,7 @@
         ]
       },
       "patch": {
-        "operationId": "safeinput_update_safe_input_f720bb57",
+        "operationId": "safeinput_update_safe_input_d115ed5b",
         "parameters": [
           {
             "in": "path",
@@ -16751,7 +17393,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/safe-inputs/{safe_input_id}/grants": {
       "post": {
-        "operationId": "safeinput_grant_access_15f7ee80",
+        "operationId": "safeinput_grant_access_49227e89",
         "parameters": [
           {
             "in": "path",
@@ -16797,7 +17439,7 @@
     },
     "/api/v1/workspaces/{workspace_id}/safe-inputs/{safe_input_id}/grants/{ally_id}": {
       "delete": {
-        "operationId": "safeinput_revoke_grant_e6b69645",
+        "operationId": "safeinput_revoke_grant_af38b157",
         "parameters": [
           {
             "in": "path",
