@@ -34,5 +34,5 @@
 e82b7a42042c0f12dcb83ec24df581c8655534c5:services/cloud/backend/integrations/tests/test_web_search_api.py:generic-api-key:38
 e82b7a42042c0f12dcb83ec24df581c8655534c5:services/cloud/backend/integrations/tests/test_web_search_api.py:generic-api-key:39
 # Fake provider keys in the web search smoke, not credentials.
-9110267a9a842cb49b2b9889b4d9dc72761b7969:services/foundry/runtime/hermes-image/smoke_web_search.py:generic-api-key:46
-9110267a9a842cb49b2b9889b4d9dc72761b7969:services/foundry/runtime/hermes-image/smoke_web_search.py:generic-api-key:48
+8f9c8967d3f8ca473f9959530bfcff6aa955e969:services/foundry/runtime/hermes-image/smoke_web_search.py:generic-api-key:46
+8f9c8967d3f8ca473f9959530bfcff6aa955e969:services/foundry/runtime/hermes-image/smoke_web_search.py:generic-api-key:48
