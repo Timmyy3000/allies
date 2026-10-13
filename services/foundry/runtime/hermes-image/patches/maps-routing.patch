@@ -1,0 +1,43 @@
+--- a/skills/productivity/maps/scripts/maps_client.py
++++ b/skills/productivity/maps/scripts/maps_client.py
+@@ -41,7 +41,8 @@
+ ]
+ # Backward-compat alias for any caller that imports OVERPASS_API directly.
+ OVERPASS_API      = OVERPASS_URLS[0]
+-OSRM_BASE         = "https://router.project-osrm.org/route/v1"
++# The project-osrm.org demo only serves car data, whatever the profile.
++OSRM_BASE         = "https://routing.openstreetmap.de"
+ TIMEAPI_BASE      = "https://timeapi.io/api/timezone/coordinate"
+ 
+ # Seconds to sleep between Nominatim requests (ToS requirement)
+@@ -137,9 +138,9 @@
+     return [entry]
+ 
+ OSRM_PROFILES = {
+-    "driving": "driving",
+-    "walking": "foot",
+-    "cycling": "bike",
++    "driving": "routed-car",
++    "walking": "routed-foot",
++    "cycling": "routed-bike",
+ }
+ 
+ # ---------------------------------------------------------------------------
+@@ -698,7 +699,7 @@
+ 
+     profile = OSRM_PROFILES[mode]
+     url = (
+-        f"{OSRM_BASE}/{profile}/"
++        f"{OSRM_BASE}/{profile}/route/v1/driving/"
+         f"{o_lon},{o_lat};{d_lon},{d_lat}"
+         f"?overview=false&steps=false"
+     )
+@@ -785,7 +786,7 @@
+ 
+     profile = OSRM_PROFILES[mode]
+     url = (
+-        f"{OSRM_BASE}/{profile}/"
++        f"{OSRM_BASE}/{profile}/route/v1/driving/"
+         f"{o_lon},{o_lat};{d_lon},{d_lat}"
+         f"?overview=false&steps=true"
+     )
