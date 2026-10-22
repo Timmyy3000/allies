@@ -1,5 +1,5 @@
 # Built from the repository root: docker build -f deploy/web.Dockerfile .
-FROM oven/bun:1.2.20
+FROM oven/bun:1.3.14
 
 WORKDIR /app
 COPY package.json bun.lock ./
